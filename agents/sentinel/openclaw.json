@@ -1,0 +1,87 @@
+{
+  "$schema": "https://openclaw.ai/schemas/config.json",
+  "version": "2026.3",
+  "description": "CryptoClaw Sentinel Agent — monitors positions, writes sell orders",
+
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "anthropic/claude-haiku-4-5-20251001",
+        "fallbacks": []
+      },
+      "maxTokens": 1024,
+      "temperature": 0.1
+    }
+  },
+
+  "heartbeat": {
+    "every": "5m",
+    "target": "last",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "activeHours": {
+      "start": "00:00",
+      "end": "23:59",
+      "timezone": "UTC"
+    },
+    "prompt": "Read HEARTBEAT.md. Run ALL checks (price, liquidity, wallets). Get positions: node scripts/db-query.js get-positions --status open. If no positions, reply HEARTBEAT_OK. Write sell orders and alerts via db-query.js. Keep response under 500 tokens."
+  },
+
+  "tools": {
+    "shell": {
+      "enabled": true,
+      "allowedCommands": [
+        "node scripts/db-query.js *",
+        "node scripts/check-positions.js",
+        "node scripts/check-liquidity.js",
+        "node scripts/check-wallets.js"
+      ]
+    },
+    "fetch": {
+      "enabled": true,
+      "allowedDomains": [
+        "api.dexscreener.com",
+        "api.gopluslabs.io",
+        "api.etherscan.io"
+      ]
+    },
+    "browser": { "enabled": false }
+  },
+
+  "permissions": {
+    "autoApprove": {
+      "read": true,
+      "write": [
+        "workspace/memory/*"
+      ],
+      "shell": [
+        "node scripts/db-query.js *",
+        "node scripts/check-positions.js",
+        "node scripts/check-liquidity.js",
+        "node scripts/check-wallets.js"
+      ],
+      "fetch": true
+    },
+    "requireApproval": {
+      "write": ["workspace/AGENTS.md", "workspace/SOUL.md", "openclaw.json"],
+      "shell": ["rm *", "mv *"]
+    }
+  },
+
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "alertPriority": {
+        "critical": "immediate",
+        "high": "immediate",
+        "medium": "batch_hourly",
+        "low": "suppress"
+      }
+    }
+  },
+
+  "security": {
+    "promptInjectionProtection": true,
+    "blockConfigModification": true,
+    "auditLog": true
+  }
+}

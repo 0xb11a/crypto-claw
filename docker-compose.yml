@@ -1,0 +1,87 @@
+version: "3.8"
+
+services:
+  crypto-claw:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SAFE_ID: ${SAFE_ID:-default}
+    container_name: crypto-claw
+    restart: unless-stopped
+
+    # Security hardening
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+    # Writable directories (tmpfs for temp, volumes for persistent)
+    # NOTE: entrypoint.sh runs on every start to:
+    #   1. Sync code-owned files (TOOLS.md, etc.) from image templates into workspace volume
+    #   2. Preserve user/agent files (USER.md, MEMORY.md, daily logs)
+    #   3. Run DB migrations before starting OpenClaw
+    tmpfs:
+      - /tmp:size=100M
+    volumes:
+      # Persistent: agent memory (markdown files, git-backed)
+      - crypto-claw-memory:/home/openclaw/.openclaw/agents/research/workspace
+      # Persistent: wallet data (SQLite databases, one per SAFE_ID)
+      - crypto-claw-data:/home/openclaw/.openclaw/agents/research/data
+      # Optional: mount wallet DB to host for easier backups
+      # - ./data:/home/openclaw/.openclaw/agents/research/data
+
+    ports:
+      - "3000:3000"
+
+    environment:
+      # Required: Anthropic API key
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+
+      # Fund identity — determines which SQLite database to use
+      - SAFE_ID=${SAFE_ID:-default}
+
+      # Optional: API keys for data scripts
+      - GOPLUS_API_KEY=${GOPLUS_API_KEY:-}
+      - ETHERSCAN_API_KEY=${ETHERSCAN_API_KEY:-}
+      - BIRDEYE_API_KEY=${BIRDEYE_API_KEY:-}
+      - SOLSCAN_API_KEY=${SOLSCAN_API_KEY:-}
+
+      # Safe wallet (Executor Agent)
+      - SAFE_ADDRESS_ETH=${SAFE_ADDRESS_ETH:-}
+      - SAFE_ADDRESS_BASE=${SAFE_ADDRESS_BASE:-}
+      - SAFE_SIGNER_KEY=${SAFE_SIGNER_KEY:-}
+      - RPC_ETH=${RPC_ETH:-}
+      - RPC_BASE=${RPC_BASE:-}
+
+      # OpenClaw config
+      - OPENCLAW_HOME=/home/openclaw/.openclaw
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+
+    # Network: only allow outbound to specific API domains
+    networks:
+      - crypto-claw-net
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
+        reservations:
+          cpus: "1.0"
+          memory: 2G
+
+volumes:
+  # Agent memory: MEMORY.md + daily logs (back up with git)
+  crypto-claw-memory:
+    driver: local
+  # Wallet data: SQLite databases (back up with sqlite3 .backup or file copy)
+  crypto-claw-data:
+    driver: local
+
+networks:
+  crypto-claw-net:
+    driver: bridge

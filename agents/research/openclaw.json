@@ -1,0 +1,88 @@
+{
+  "$schema": "https://openclaw.ai/schemas/config.json",
+  "version": "2026.3",
+  "description": "CryptoClaw Research Agent — discovers, analyzes, proposes trades",
+
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "anthropic/claude-sonnet-4-5-20250929",
+        "fallbacks": ["anthropic/claude-haiku-4-5-20251001"]
+      },
+      "maxTokens": 4096,
+      "temperature": 0.3
+    }
+  },
+
+  "heartbeat": {
+    "every": "30m",
+    "target": "last",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "activeHours": {
+      "start": "06:00",
+      "end": "23:59",
+      "timezone": "UTC"
+    },
+    "prompt": "Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. Update timestamps via db-query.js. Log results to memory/YYYY-MM-DD.md. If nothing actionable, reply HEARTBEAT_OK."
+  },
+
+  "tools": {
+    "shell": {
+      "enabled": true,
+      "allowedCommands": [
+        "node scripts/*",
+        "cat workspace/memory/*",
+        "cat workspace/MEMORY.md",
+        "ls workspace/memory/"
+      ]
+    },
+    "fetch": {
+      "enabled": true,
+      "allowedDomains": [
+        "api.dexscreener.com",
+        "public-api.birdeye.so",
+        "api.geckoterminal.com",
+        "api.gopluslabs.io",
+        "api.etherscan.io",
+        "api.solscan.io",
+        "api.coingecko.com",
+        "api.alternative.me"
+      ]
+    },
+    "browser": { "enabled": false }
+  },
+
+  "permissions": {
+    "autoApprove": {
+      "read": true,
+      "write": [
+        "workspace/memory/*",
+        "workspace/MEMORY.md"
+      ],
+      "shell": ["node scripts/*"],
+      "fetch": true
+    },
+    "requireApproval": {
+      "write": ["workspace/AGENTS.md", "workspace/SOUL.md", "openclaw.json"],
+      "shell": ["rm *", "mv *"]
+    }
+  },
+
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "alertPriority": {
+        "critical": "immediate",
+        "high": "immediate",
+        "medium": "batch_hourly",
+        "low": "batch_daily"
+      }
+    }
+  },
+
+  "security": {
+    "promptInjectionProtection": true,
+    "blockConfigModification": true,
+    "auditLog": true
+  }
+}

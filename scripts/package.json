@@ -1,0 +1,10 @@
+{
+  "name": "crypto-claw-scripts",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Data fetching and state management scripts for CryptoClaw agent",
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^16.4.0"
+  }
+}

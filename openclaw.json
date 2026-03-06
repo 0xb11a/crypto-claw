@@ -1,0 +1,87 @@
+{
+  "$schema": "https://openclaw.ai/schemas/config.json",
+  "version": "2026.3",
+
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "anthropic/claude-sonnet-4-5-20250929",
+        "fallbacks": [
+          "anthropic/claude-haiku-4-5-20251001"
+        ]
+      },
+      "maxTokens": 4096,
+      "temperature": 0.3
+    }
+  },
+
+  "heartbeat": {
+    "every": "15m",
+    "target": "last",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "activeHours": {
+      "start": "00:00",
+      "end": "23:59",
+      "timezone": "UTC"
+    },
+    "prompt": "Read HEARTBEAT.md. Determine which check is most overdue using memory/heartbeat-state.json. Run ONE check. If nothing needs attention, reply HEARTBEAT_OK."
+  },
+
+  "tools": {
+    "shell": {
+      "enabled": true,
+      "allowedCommands": [
+        "node scripts/*",
+        "cat memory/*",
+        "ls memory/",
+        "echo *"
+      ]
+    },
+    "fetch": {
+      "enabled": true,
+      "allowedDomains": [
+        "api.dexscreener.com",
+        "public-api.birdeye.so",
+        "api.geckoterminal.com",
+        "api.goplus.io",
+        "api.etherscan.io",
+        "api.solscan.io",
+        "api.coingecko.com"
+      ]
+    },
+    "browser": {
+      "enabled": false
+    }
+  },
+
+  "permissions": {
+    "autoApprove": {
+      "read": true,
+      "write": ["memory/*", "workspace/MEMORY.md"],
+      "shell": ["node scripts/*"],
+      "fetch": true
+    },
+    "requireApproval": {
+      "shell": ["rm *", "mv *", "cp *"],
+      "write": ["workspace/AGENTS.md", "workspace/SOUL.md", "openclaw.json"]
+    }
+  },
+
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "alertPriority": {
+        "critical": "immediate",
+        "high": "immediate",
+        "medium": "batch_hourly",
+        "low": "batch_daily"
+      }
+    }
+  },
+
+  "security": {
+    "promptInjectionProtection": true,
+    "blockConfigModification": true,
+    "auditLog": true
+  }
+}

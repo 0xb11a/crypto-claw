@@ -1,0 +1,179 @@
+# CLAUDE.md — CryptoClaw Developer Guide
+
+This file helps Claude Code (and any Claude-based tool) understand the CryptoClaw project so it can assist with development, debugging, and extending the system.
+
+## What This Project Is
+
+CryptoClaw is a three-agent crypto research and portfolio management system built for [OpenClaw](https://openclaw.ai/). It discovers high-potential tokens, analyzes them, proposes BUY trades (requiring human approval), and auto-executes SELL trades (stop-loss, take-profit, rug warnings) without approval — all through a Safe multisig wallet.
+
+## Architecture
+
+Three agents communicate through a shared SQLite database:
+
+- **Research Agent** (`agents/research/`) — Runs on Sonnet, 30-minute heartbeat. Handles discovery, analysis, risk assessment, and trade proposals. Has 4 skills: discovery, analyst, risk, portfolio.
+- **Sentinel Agent** (`agents/sentinel/`) — Runs on Haiku, 5-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders. Has 1 skill: sentinel.
+- **Executor Agent** (`agents/executor/`) — Runs on Haiku, 1-minute heartbeat. Reads approved trades and sell orders, validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
+
+## Memory System — Two Layers
+
+CryptoClaw separates memory into two distinct layers:
+
+### Layer 1: Agent Memory (Markdown — shared knowledge)
+Patterns, lessons, scoring calibration — knowledge that applies across all fund deployments. Lives in markdown files, backed by a **private git repo** (separate from the code repo).
+
+- `workspace/MEMORY.md` — Curated long-term patterns (updated when pattern seen 3+ times)
+- `workspace/memory/YYYY-MM-DD.md` — Daily logs with timestamped entries
+- Backed up every 15 minutes via `memory-backup.sh` cron
+
+### Layer 2: Wallet Data (SQLite — per-fund)
+Positions, trades, orders, alerts, receipts — everything tied to a specific Safe wallet. One database per fund, identified by `SAFE_ID`.
+
+- Database path: `data/<SAFE_ID>.db`
+- Access via CLI: `node scripts/db-query.js <command> [--flags]`
+- Schema managed by auto-migrations in `scripts/db.js`
+- 14 tables: positions, trades, approved_trades, sell_orders, trade_receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, _migrations
+
+### Why Two Layers?
+The project can be deployed multiple times managing different Safe wallets/funds. Agent memory (patterns, lessons) is universal knowledge shared across all deployments. Wallet data (positions, cash, orders) is specific to one fund and must be isolated.
+
+## Data Flow
+
+```
+Research → approved_trades table  → Executor → Safe wallet → positions table
+Sentinel → sell_orders table      → Executor → Safe wallet → positions table
+Executor → trade_receipts table   → Research (learning), Sentinel (awareness)
+```
+
+All agent-to-agent communication goes through the database via `db-query.js`.
+
+## Project Structure
+
+```
+agents/research/          # Research Agent config (AGENTS.md, SOUL.md, HEARTBEAT.md, openclaw.json, skills/)
+agents/sentinel/          # Sentinel Agent config (same structure, fewer skills)
+agents/executor/          # Executor Agent config (same structure, 1 skill)
+workspace/                # Shared workspace (copied to all agents by setup.sh)
+  MEMORY.md               # Curated long-term patterns and lessons (agent memory)
+  memory/                 # Daily log directory (agent memory)
+  USER.md                 # Operator profile (editable)
+  IDENTITY.md             # Agent identity
+  TOOLS.md                # Script + db-query.js usage guide
+  BOOT.md                 # First-run setup
+scripts/                  # Node.js scripts
+  db.js                   # SQLite data access layer (schema, migrations)
+  db-query.js             # CLI interface for agents to read/write DB
+  package.json            # Dependencies (better-sqlite3, dotenv)
+  scan-tokens.js          # DEXScreener trending/new
+  token-metrics.js        # Detailed token data
+  check-contract.js       # GoPlus safety scan
+  check-positions.js      # Current prices vs stops/TPs
+  check-liquidity.js      # LP change detection
+  check-wallets.js        # Wallet activity tracking
+  market-overview.js      # BTC dominance, fear/greed
+  portfolio-summary.js    # Allocation + P&L
+  narrative-check.js      # Narrative momentum
+  holder-distribution.js  # Top holder analysis
+  memory-backup.sh        # Git auto-commit for agent memory
+tests/                    # 5 test suites + runner + helpers
+Dockerfile                # Based on ghcr.io/openclaw/openclaw:latest
+docker-compose.yml        # One-command deployment
+setup.sh                  # Deploys agents into OpenClaw directory structure
+.env.example              # Environment variable template
+```
+
+## Key Files to Know
+
+| File | What It Does |
+|------|-------------|
+| `agents/research/AGENTS.md` | Core operating contract — pipeline, safety rules, memory protocol, approval logic |
+| `agents/sentinel/AGENTS.md` | Monitoring rules, sell order logic, alert format |
+| `agents/executor/AGENTS.md` | Transaction rules, validation logic, receipt format, Safe integration |
+| `scripts/db.js` | SQLite schema, migrations, connection management |
+| `scripts/db-query.js` | 30+ CLI commands for agents to interact with wallet data |
+| `workspace/TOOLS.md` | CLI usage for every script + db-query.js — check this before modifying |
+| `setup.sh` | Understand this to know how files get deployed to OpenClaw |
+
+## Commands
+
+```bash
+# Run all tests (offline — no API calls)
+cd tests && node run-all.js --offline
+
+# Run all tests including network-dependent script tests
+cd tests && node run-all.js
+
+# Run individual test suites
+node tests/test-memory.js       # Agent memory + SQLite schema + CRUD
+node tests/test-safety.js       # Safety rule logic
+node tests/test-pipeline.js     # Pipeline stage integration + executor handoff
+node tests/test-executor.js     # Executor validation, slippage, receipts, portfolio updates
+node tests/test-scripts.js      # Script output format (needs network)
+
+# Database queries (from project root)
+SAFE_ID=my-fund node scripts/db-query.js get-portfolio
+SAFE_ID=my-fund node scripts/db-query.js get-positions --status open
+
+# Docker
+docker compose up -d            # Start
+docker compose logs -f          # Watch logs
+docker compose down             # Stop
+
+# Manual setup (without Docker)
+SAFE_ID=my-fund ./setup.sh                      # Deploy agents to OpenClaw
+SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup cron
+```
+
+## Tech Stack
+
+- **Runtime:** Node.js 22+ (ESM modules, `"type": "module"`)
+- **Database:** SQLite via better-sqlite3 (WAL mode, auto-migration)
+- **Dependencies:** better-sqlite3, dotenv
+- **APIs used by scripts:** DEXScreener (free), GoPlus Security (free tier), CoinGecko (free), Etherscan (free tier), Birdeye (optional), Solscan (optional)
+- **Execution:** Safe wallet SDK for transaction building/signing, DEX aggregators (1inch, 0x, Jupiter) for swaps
+- **No framework.** Scripts are standalone CLI tools that output JSON to stdout.
+
+## Conventions
+
+- **Agent instructions** live in Markdown files (AGENTS.md, SOUL.md, HEARTBEAT.md, skills/*/SKILL.md). These are natural language, not code.
+- **Wallet data** is in SQLite, accessed exclusively through `db-query.js`. Agents never import db.js directly.
+- **Agent memory** (MEMORY.md, daily logs) is in markdown, versioned in a separate private git repo.
+- **Scripts** take CLI flags, output JSON to stdout, errors to stderr. Always exit 0 on success, 1 on failure.
+- **Tests** use a custom minimal framework in `test-helpers.js` — no Jest, no Mocha. Functions: `describe()`, `test()`, `testAsync()`, `assert()`, `assertEqual()`, `assertType()`, `summary()`.
+- **Safety rules are hard-coded** in `agents/research/AGENTS.md` under "Portfolio Rules" and in `agents/executor/AGENTS.md` under "Pre-Execution Validation." Never weaken these without explicit human approval.
+- **Private keys** live ONLY in environment variables. Never in any file, log, receipt, or agent instruction.
+- **SAFE_ID** env var determines which database file is used. One DB per fund/wallet.
+
+## Safety Rules (Do Not Weaken)
+
+These limits are intentionally strict and must not be relaxed:
+
+- Max moonshot position: 5% of portfolio
+- Max conviction position: 10%
+- Max total moonshot allocation: 20%
+- Min cash reserve: 10%
+- Max same-narrative positions: 3
+- Auto-reject: honeypot, top holder >30%, liquidity <$5k, known scam deployers, pausable contracts
+- Slippage limits: 5% moonshot, 2% conviction/base
+- Stale order protection: reject if price drifted >10% from proposal
+
+## When Modifying
+
+- **Adding a new script:** Add it to `scripts/`, document it in `workspace/TOOLS.md`, add output validation to `tests/test-scripts.js`, and add it to the appropriate agent's copy list in `setup.sh`.
+- **Adding a new DB table:** Add a migration in `scripts/db.js` (increment migration number), add CLI commands in `db-query.js`, add schema tests to `tests/test-memory.js`, document commands in `workspace/TOOLS.md`.
+- **Changing safety rules:** Update `agents/research/AGENTS.md` AND `agents/executor/AGENTS.md` (if execution-related) AND `tests/test-safety.js` AND `tests/test-executor.js` — tests enforce the exact limits.
+- **Adding a fourth agent:** Follow the pattern in `agents/executor/` — create a directory with AGENTS.md, SOUL.md, HEARTBEAT.md, openclaw.json, and skills/. Add directory creation, file copy, and symlink logic to `setup.sh`. Add heartbeat_state seeds in the db.js migration. Update `docker-compose.yml` if it needs different resources.
+- **Modifying the pipeline:** Update `tests/test-pipeline.js` to verify the new data flow between stages.
+- **Changing Safe wallet config:** Update `.env.example`, `docker-compose.yml`, and `agents/executor/AGENTS.md`. Never put keys in files.
+- **Multi-fund deployment:** Set different `SAFE_ID` values. Each gets its own SQLite database. Agent memory (markdown) is shared across all deployments.
+
+## Common Pitfalls
+
+- Scripts use ESM (`import`), not CommonJS (`require`). The package.json has `"type": "module"`.
+- Sentinel only gets monitoring scripts (check-positions, check-liquidity, check-wallets) + db access. Executor only gets db access + execution scripts. Don't assume an agent has access to all scripts.
+- Agent memory (markdown) is symlinked between all three agents. Daily logs written by any agent are visible to all.
+- The database is also shared via symlinked `data/` directory — all agents read/write the same SQLite file.
+- The `setup.sh` script skips existing MEMORY.md to preserve learned patterns. If you need to reset, delete it first.
+- Docker runs as non-root (UID 1000). File permissions matter.
+- The Executor's `SAFE_SIGNER_KEY` must NEVER appear in any log, receipt, or file. Only read from env var.
+- Executor validates orders independently (defense in depth) — don't assume Research's validation is sufficient.
+- SQLite uses WAL mode for concurrent reads. Agents can query simultaneously without locking issues.

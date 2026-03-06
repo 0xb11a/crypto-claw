@@ -1,0 +1,12 @@
+{
+  "name": "crypto-claw-tests",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "node run-all.js",
+    "test:scripts": "node test-scripts.js",
+    "test:memory": "node test-memory.js",
+    "test:pipeline": "node test-pipeline.js",
+    "test:safety": "node test-safety.js"
+  }
+}
