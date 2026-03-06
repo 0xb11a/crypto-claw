@@ -136,7 +136,10 @@ overall = (contract * 0.25) + (tokenomics * 0.20) + (liquidity * 0.20) +
 - Write to `memory/YYYY-MM-DD.md` with `[ANALYSIS]` tag
 - Check MEMORY.md for similar past analyses and their outcomes
 - If recommendation is buy or strong_buy → proceed to risk skill
-- If watch → add to watchlist in daily memory
+- If watch → add to watchlist via database:
+  ```bash
+  node scripts/db-query.js add-to-watchlist --json '{"symbol":"TOKEN","address":"0x...","chain":"base","reason":"...","target_entry":0.001}'
+  ```
 - If avoid → log reason and end
 
 ## Rules

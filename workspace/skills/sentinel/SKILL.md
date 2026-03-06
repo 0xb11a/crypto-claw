@@ -30,11 +30,11 @@ node scripts/check-positions.js
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
-| Price hit stop-loss | CRITICAL | Propose sell_all to human |
-| Price hit TP level | HIGH | Propose partial sell per TP plan |
-| Price dropped >20% in 1 check | HIGH | Alert human, reassess |
-| Price dropped >40% since entry | CRITICAL | Propose exit |
-| Price up >100% with no fundamentals change | MEDIUM | Consider taking partial profit |
+| Price hit stop-loss | CRITICAL | Write sell_all order to DB |
+| Price hit TP level | HIGH | Write partial sell order to DB |
+| Price dropped >20% in 1 check | HIGH | Alert Research, reassess |
+| Price dropped >40% since entry | CRITICAL | Write sell order to DB |
+| Price up >100% with no fundamentals change | MEDIUM | Alert Research, consider partial profit |
 
 ### Liquidity Monitoring
 ```bash
@@ -43,8 +43,8 @@ node scripts/check-liquidity.js
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
-| LP removed >30% in 1 hour | CRITICAL | Alert + propose sell_all |
-| LP removed >15% in 24 hours | HIGH | Alert human |
+| LP removed >30% in 1 hour | CRITICAL | Write sell_all order to DB |
+| LP removed >15% in 24 hours | HIGH | Alert Research |
 | LP increased significantly | INFO | Log as positive signal |
 | LP provider count dropping | MEDIUM | Watch closely |
 
@@ -55,9 +55,9 @@ node scripts/check-wallets.js --positions
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
-| Dev wallet selling ANY amount | HIGH | Alert human immediately |
-| Whale selling >3% of supply | HIGH | Alert + assess impact |
-| Multiple early buyers exiting | MEDIUM | Alert human |
+| Dev wallet selling ANY amount | HIGH | Write sell order + alert Research |
+| Whale selling >3% of supply | HIGH | Alert Research, assess impact |
+| Multiple early buyers exiting | MEDIUM | Alert Research |
 | Smart money accumulating | INFO | Log as positive signal |
 
 ### Contract Monitoring
@@ -67,10 +67,10 @@ node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN> --chang
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
-| Proxy implementation changed | CRITICAL | Alert + propose sell_all |
-| Fee parameters changed | HIGH | Alert human |
-| Ownership transferred | HIGH | Alert human |
-| Blacklist function called | CRITICAL | Alert + propose sell_all |
+| Proxy implementation changed | CRITICAL | Write sell_all order to DB + alert Research |
+| Fee parameters changed | HIGH | Alert Research, log to DB |
+| Ownership transferred | HIGH | Alert Research, log to DB |
+| Blacklist function called | CRITICAL | Write sell_all order to DB + alert Research |
 
 ## Alert Format
 
@@ -92,9 +92,45 @@ Suggested Action: SELL ALL / SELL PARTIAL / HOLD / YOUR CALL
 
 For non-critical alerts, batch them and send as a summary.
 
+## Writing Sell Orders to DB
+
+When a CRITICAL or HIGH condition triggers a sell, write the order to the database so the Executor agent picks it up automatically:
+
+```bash
+node scripts/db-query.js add-sell-order --json '{
+  "symbol": "TOKEN",
+  "address": "0x...",
+  "chain": "base",
+  "action": "sell_all",
+  "reason": "stop_loss_hit",
+  "trigger_price": 0.00045,
+  "current_price": 0.00042,
+  "severity": "critical",
+  "source": "sentinel"
+}'
+```
+
+For partial sells (e.g., take-profit levels):
+```bash
+node scripts/db-query.js add-sell-order --json '{
+  "symbol": "TOKEN",
+  "address": "0x...",
+  "chain": "base",
+  "action": "sell_partial",
+  "sell_percent": 50,
+  "reason": "tp1_hit",
+  "trigger_price": 0.002,
+  "current_price": 0.0021,
+  "severity": "high",
+  "source": "sentinel"
+}'
+```
+
+The Executor agent polls for pending sell orders every heartbeat and executes them through the Safe wallet.
+
 ## Rules
 - CRITICAL alerts go to human IMMEDIATELY — never wait for next heartbeat
-- For CRITICAL events, bias toward "propose sell" over "wait and see"
+- For CRITICAL events, write sell orders to DB right away — the Executor handles execution
 - Log ALL alerts to daily memory, even false alarms (pattern learning)
-- Never execute sells without human approval (except if configured for auto-stop-loss)
+- Sentinel does not execute trades — it writes sell orders and the Executor processes them
 - Keep monitoring runs cheap — use scripts for data, LLM only for decision-making
