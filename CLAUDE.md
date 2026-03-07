@@ -31,7 +31,7 @@ Positions, trades, orders, alerts, receipts — everything tied to a specific Sa
 - Database path: `data/<SAFE_ID>.db`
 - Access via CLI: `node scripts/db-query.js <command> [--flags]`
 - Schema managed by auto-migrations in `scripts/db.js`
-- 14 tables: positions, trades, approved_trades, sell_orders, trade_receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, _migrations
+- 16 tables: positions, trades, approved_trades, sell_orders, trade_receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_trades, paper_positions, _migrations
 
 ### Why Two Layers?
 The project can be deployed multiple times managing different Safe wallets/funds. Agent memory (patterns, lessons) is universal knowledge shared across all deployments. Wallet data (positions, cash, orders) is specific to one fund and must be isolated.
@@ -42,6 +42,12 @@ The project can be deployed multiple times managing different Safe wallets/funds
 Research → approved_trades table  → Executor → Safe wallet → positions table
 Sentinel → sell_orders table      → Executor → Safe wallet → positions table
 Executor → trade_receipts table   → Research (learning), Sentinel (awareness)
+```
+
+In **paper mode** (`PAPER_MODE=true`), the flow is identical but uses simulated tables:
+```
+Research → approved_trades (auto-approved) → Executor → paper_trades + paper_positions
+Sentinel → sell_orders                     → Executor → paper_trades + paper_positions
 ```
 
 All agent-to-agent communication goes through the database via `db-query.js`.
@@ -74,10 +80,11 @@ scripts/                  # Node.js scripts
   narrative-check.js      # Narrative momentum
   holder-distribution.js  # Top holder analysis
   memory-backup.sh        # Git auto-commit for agent memory
-tests/                    # 5 test suites + runner + helpers
+tests/                    # 6 test suites + runner + helpers
 Dockerfile                # Based on ghcr.io/openclaw/openclaw:latest
 docker-compose.yml        # One-command deployment
-setup.sh                  # Deploys agents into OpenClaw directory structure
+build-templates.sh        # Docker build-time template assembly (replaces setup.sh in Docker)
+setup.sh                  # Bare-metal installer (deploys agents into OpenClaw directory structure)
 .env.example              # Environment variable template
 ```
 
@@ -107,16 +114,25 @@ node tests/test-memory.js       # Agent memory + SQLite schema + CRUD
 node tests/test-safety.js       # Safety rule logic
 node tests/test-pipeline.js     # Pipeline stage integration + executor handoff
 node tests/test-executor.js     # Executor validation, slippage, receipts, portfolio updates
+node tests/test-paper-mode.js   # Paper trading lifecycle, P&L, stats
 node tests/test-scripts.js      # Script output format (needs network)
 
 # Database queries (from project root)
 SAFE_ID=my-fund node scripts/db-query.js get-portfolio
 SAFE_ID=my-fund node scripts/db-query.js get-positions --status open
 
+# Paper mode queries
+SAFE_ID=my-fund node scripts/db-query.js get-paper-portfolio
+SAFE_ID=my-fund node scripts/db-query.js get-paper-stats
+
 # Docker
 docker compose up -d            # Start
 docker compose logs -f          # Watch logs
 docker compose down             # Stop
+
+# Docker with paper mode
+PAPER_MODE=true docker compose up -d
+PAPER_MODE=true PAPER_STARTING_BALANCE=5000 docker compose up -d
 
 # Manual setup (without Docker)
 SAFE_ID=my-fund ./setup.sh                      # Deploy agents to OpenClaw
@@ -156,12 +172,35 @@ These limits are intentionally strict and must not be relaxed:
 - Slippage limits: 5% moonshot, 2% conviction/base
 - Stale order protection: reject if price drifted >10% from proposal
 
+## Paper Mode
+
+Paper mode (`PAPER_MODE=true`) runs the full system autonomously without touching real funds. Useful for backtesting strategy, validating agent behavior, and building confidence before deploying capital.
+
+### How It Works
+- **Research Agent:** BUY proposals that pass all safety checks are auto-approved (`approved_by: 'paper_mode'`). No human in the loop.
+- **Sentinel Agent:** Monitors `paper_positions` instead of `positions`. All monitoring logic (price checks, liquidity, wallets) runs identically.
+- **Executor Agent:** Validates orders normally but skips Safe wallet transactions. Records results in `paper_trades` and `paper_positions` tables. Updates `paper_cash` instead of `cash`.
+- **Safety rules are fully enforced** — paper mode tests the strategy, not a weakened version of it.
+
+### Environment Variables
+- `PAPER_MODE=true|false` (default: `false`)
+- `PAPER_STARTING_BALANCE=10000` (default: `10000`, simulated USD)
+
+### Paper-Specific Tables
+- `paper_trades` — what would have been executed (buy/sell records with P&L)
+- `paper_positions` — simulated portfolio positions
+
+### Paper-Specific Commands
+- `get-paper-portfolio`, `get-paper-positions`, `get-paper-trades`, `get-paper-stats`
+- `add-paper-position`, `update-paper-position`, `close-paper-position`, `add-paper-trade`
+- `get-paper-cash`, `set-paper-cash`
+
 ## When Modifying
 
 - **Adding a new script:** Add it to `scripts/`, document it in `workspace/TOOLS.md`, add output validation to `tests/test-scripts.js`, and add it to the appropriate agent's copy list in `setup.sh`.
 - **Adding a new DB table:** Add a migration in `scripts/db.js` (increment migration number), add CLI commands in `db-query.js`, add schema tests to `tests/test-memory.js`, document commands in `workspace/TOOLS.md`.
 - **Changing safety rules:** Update `agents/research/AGENTS.md` AND `agents/executor/AGENTS.md` (if execution-related) AND `tests/test-safety.js` AND `tests/test-executor.js` — tests enforce the exact limits.
-- **Adding a fourth agent:** Follow the pattern in `agents/executor/` — create a directory with AGENTS.md, SOUL.md, HEARTBEAT.md, openclaw.json, and skills/. Add directory creation, file copy, and symlink logic to `setup.sh`. Add heartbeat_state seeds in the db.js migration. Update `docker-compose.yml` if it needs different resources.
+- **Adding a fourth agent:** Follow the pattern in `agents/executor/` — create a directory with AGENTS.md, SOUL.md, HEARTBEAT.md, and skills/. Add directory creation, file copy, and symlink logic to `setup.sh` and `build-templates.sh`. Add heartbeat_state seeds in the db.js migration. Update `docker-compose.yml` if it needs different resources.
 - **Modifying the pipeline:** Update `tests/test-pipeline.js` to verify the new data flow between stages.
 - **Changing Safe wallet config:** Update `.env.example`, `docker-compose.yml`, and `agents/executor/AGENTS.md`. Never put keys in files.
 - **Multi-fund deployment:** Set different `SAFE_ID` values. Each gets its own SQLite database. Agent memory (markdown) is shared across all deployments.

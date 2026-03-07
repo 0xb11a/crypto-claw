@@ -181,6 +181,62 @@ node scripts/db-query.js add-executor-log --json '{"action":"process_orders","se
 node scripts/db-query.js get-trade-stats
 ```
 
+### Paper Mode (Simulated Trading)
+```bash
+# Get paper portfolio (positions + cash + value)
+node scripts/db-query.js get-paper-portfolio
+
+# Get/set paper cash balance
+node scripts/db-query.js get-paper-cash
+node scripts/db-query.js set-paper-cash --amount 10000
+
+# Paper positions
+node scripts/db-query.js get-paper-positions
+node scripts/db-query.js get-paper-positions --status open
+node scripts/db-query.js get-paper-positions --status closed
+
+# Add a paper position
+node scripts/db-query.js add-paper-position --json '{
+  "id": "pp-001",
+  "symbol": "TOKEN",
+  "address": "0x...",
+  "chain": "base",
+  "tier": "moonshot",
+  "entry_price": 0.001,
+  "quantity": 10000,
+  "stop_loss": 0.0005,
+  "take_profit_levels": [{"level":1,"price":0.002,"sellPercent":50}]
+}'
+
+# Update paper position
+node scripts/db-query.js update-paper-position --id pp-001 --json '{"current_price": 0.0015, "value_usd": 15}'
+
+# Close paper position (auto-calculates P&L)
+node scripts/db-query.js close-paper-position --id pp-001 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
+
+# Record a paper trade
+node scripts/db-query.js add-paper-trade --json '{
+  "id": "pt-001",
+  "order_id": "trade-001",
+  "order_source": "approved_trades",
+  "action": "buy",
+  "symbol": "TOKEN",
+  "address": "0x...",
+  "chain": "base",
+  "tier": "moonshot",
+  "proposed_price": 0.001,
+  "quantity": 10000,
+  "amount": 500
+}'
+
+# Get paper trades
+node scripts/db-query.js get-paper-trades
+node scripts/db-query.js get-paper-trades --limit 10
+
+# Get paper trading statistics (win rate, P&L, return)
+node scripts/db-query.js get-paper-stats
+```
+
 ## Data Fetching Scripts
 
 Scripts handle external API calls so the LLM doesn't burn tokens on data fetching.

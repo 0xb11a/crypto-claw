@@ -134,3 +134,17 @@ The Executor agent polls for pending sell orders every heartbeat and executes th
 - Log ALL alerts to daily memory, even false alarms (pattern learning)
 - Sentinel does not execute trades — it writes sell orders and the Executor processes them
 - Keep monitoring runs cheap — use scripts for data, LLM only for decision-making
+
+## Paper Mode
+
+When `PAPER_MODE=true` is set in the environment, monitor paper positions instead of real ones:
+
+```bash
+# Instead of:
+node scripts/db-query.js get-positions --status open
+
+# Use:
+node scripts/db-query.js get-paper-positions --status open
+```
+
+All monitoring scripts (check-positions.js, check-liquidity.js, check-wallets.js) run the same way. The only difference is which positions table you query for the list of tokens to monitor. Sell orders are still written to the `sell_orders` table — the Executor handles them as paper sells.

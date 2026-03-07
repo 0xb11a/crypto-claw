@@ -7,7 +7,8 @@
  * 2. Safety (hard-coded rules work correctly)
  * 3. Pipeline (stages connect properly)
  * 4. Executor (validation, receipts, slippage, portfolio updates)
- * 5. Scripts (data fetchers work — requires network, run separately)
+ * 5. Paper Mode (paper trading lifecycle, P&L, stats)
+ * 6. Scripts (data fetchers work — requires network, run separately)
  */
 
 import { execSync } from 'child_process';
@@ -20,6 +21,7 @@ const suites = [
   { name: 'Safety Rules', file: 'test-safety.js', requiresNetwork: false },
   { name: 'Pipeline Integration', file: 'test-pipeline.js', requiresNetwork: false },
   { name: 'Executor Agent', file: 'test-executor.js', requiresNetwork: false },
+  { name: 'Paper Mode', file: 'test-paper-mode.js', requiresNetwork: false },
 ];
 
 // Scripts tests require network — run separately

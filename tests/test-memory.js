@@ -76,6 +76,7 @@ if (dbAvailable) {
       'trade_receipts', 'sentinel_alerts', 'watchlist',
       'liquidity_snapshots', 'tracked_wallets', 'heartbeat_state',
       'sentinel_log', 'executor_log', 'portfolio_meta', '_migrations',
+      'paper_trades', 'paper_positions',
     ];
 
     for (const table of expectedTables) {
@@ -103,6 +104,17 @@ if (dbAvailable) {
     test('safe_id key exists', () => {
       const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'safe_id'").get();
       assert(row, 'safe_id key must exist');
+    });
+
+    test('paper_cash key exists with default 10000', () => {
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash'").get();
+      assert(row, 'paper_cash key must exist');
+      assertEqual(row.value, '10000', 'Default paper cash should be 10000');
+    });
+
+    test('paper_initial_balance key exists', () => {
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_initial_balance'").get();
+      assert(row, 'paper_initial_balance key must exist');
     });
   });
 

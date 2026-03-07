@@ -1,0 +1,23 @@
+# Don't copy local node_modules (contains platform-specific native binaries)
+scripts/node_modules
+node_modules
+
+# Docker/CI files
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# Git
+.git
+.gitignore
+
+# Environment (secrets)
+.env
+
+# Test artifacts
+data/
+tests/
+
+# Editor/OS
+.DS_Store
+*.swp

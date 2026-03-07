@@ -173,3 +173,27 @@ node scripts/db-query.js update-approved-trade --id "trade-id" --status executed
 - If a trade fails, record the failure and alert — never retry automatically
 - All state lives in the database — never write to JSON files
 - Keep execution fast — the Executor agent runs on a 1-minute heartbeat
+
+## Paper Mode
+
+When `PAPER_MODE=true` is set in the environment, skip the Safe wallet transaction steps. Instead:
+
+1. **Validate** the order (same checks as normal mode)
+2. **Simulate** execution at current market price
+3. **Record** to paper tables:
+   ```bash
+   # Record paper trade
+   node scripts/db-query.js add-paper-trade --json '{...}'
+
+   # BUY: create paper position + reduce paper cash
+   node scripts/db-query.js add-paper-position --json '{...}'
+   node scripts/db-query.js set-paper-cash --amount <new_amount>
+
+   # SELL: close paper position + increase paper cash
+   node scripts/db-query.js close-paper-position --id <id> --json '{"exit_price": ..., "exit_reason": "..."}'
+   node scripts/db-query.js set-paper-cash --amount <new_amount>
+   ```
+4. **Mark** original order as executed
+5. **Log** with `status: "paper_mode"`
+
+Do NOT call execute-trade.js or interact with the Safe wallet in paper mode.

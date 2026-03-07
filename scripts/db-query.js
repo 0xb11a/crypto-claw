@@ -73,6 +73,18 @@
  *   get-trades [--limit 50]
  *   get-trade-stats
  *
+ *   # Paper mode
+ *   add-paper-trade --json '<json>'
+ *   get-paper-trades [--limit 50]
+ *   get-paper-positions [--status open|closed|all]
+ *   add-paper-position --json '<json>'
+ *   update-paper-position --id <id> --json '<json>'
+ *   close-paper-position --id <id> --json '<json>'
+ *   get-paper-portfolio
+ *   get-paper-cash
+ *   set-paper-cash --amount <number>
+ *   get-paper-stats
+ *
  *   # Admin
  *   migrate                                # Run pending DB migrations
  *
@@ -523,6 +535,126 @@ function handle(db, cmd) {
         FROM trades
       `).get();
       stats.win_rate = stats.total_trades > 0 ? Math.round((stats.wins / stats.total_trades) * 100) : 0;
+      output(stats);
+      break;
+    }
+
+    // ============================================================
+    // Paper Mode
+    // ============================================================
+    case 'add-paper-trade': {
+      const t = parseJson();
+      db.prepare(`
+        INSERT INTO paper_trades (id, order_id, order_source, action, symbol, address, chain,
+          tier, proposed_price, quantity, amount, stop_loss, take_profit_levels, reasoning,
+          pnl_percent, pnl_usd)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(t.id, t.order_id, t.order_source, t.action, t.symbol, t.address, t.chain,
+        t.tier, t.proposed_price, t.quantity, t.amount, t.stop_loss,
+        t.take_profit_levels ? JSON.stringify(t.take_profit_levels) : null,
+        t.reasoning, t.pnl_percent, t.pnl_usd);
+      output({ ok: true, id: t.id });
+      break;
+    }
+    case 'get-paper-trades': {
+      const limit = parseInt(getArg('limit') || '50');
+      output(db.prepare('SELECT * FROM paper_trades ORDER BY created_at DESC LIMIT ?').all(limit));
+      break;
+    }
+    case 'get-paper-positions': {
+      const status = getArg('status') || 'open';
+      const rows = status === 'all'
+        ? db.prepare('SELECT * FROM paper_positions ORDER BY created_at DESC').all()
+        : db.prepare('SELECT * FROM paper_positions WHERE status = ? ORDER BY created_at DESC').all(status);
+      output(rows.map(r => ({ ...r, take_profit_levels: JSON.parse(r.take_profit_levels) })));
+      break;
+    }
+    case 'add-paper-position': {
+      const p = parseJson();
+      db.prepare(`
+        INSERT INTO paper_positions (id, symbol, address, chain, tier, entry_price, current_price,
+          quantity, value_usd, entry_date, stop_loss, take_profit_levels, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(p.id, p.symbol, p.address, p.chain, p.tier, p.entry_price, p.current_price,
+        p.quantity, p.value_usd, p.entry_date || new Date().toISOString().split('T')[0],
+        p.stop_loss, JSON.stringify(p.take_profit_levels), p.status || 'open');
+      output({ ok: true, id: p.id });
+      break;
+    }
+    case 'update-paper-position': {
+      const id = getArg('id');
+      const updates = parseJson();
+      if (!id) error('Missing --id');
+      const fields = Object.keys(updates);
+      const setClauses = fields.map(f => `${f} = ?`).join(', ');
+      const values = fields.map(f =>
+        f === 'take_profit_levels' ? JSON.stringify(updates[f]) : updates[f]
+      );
+      db.prepare(`UPDATE paper_positions SET ${setClauses}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
+      output({ ok: true, id });
+      break;
+    }
+    case 'close-paper-position': {
+      const id = getArg('id');
+      if (!id) error('Missing --id');
+      const updates = parseJson();
+      const position = db.prepare('SELECT * FROM paper_positions WHERE id = ?').get(id);
+      if (!position) error(`Paper position not found: ${id}`);
+      const exitPrice = updates.exit_price;
+      const pnlPercent = ((exitPrice - position.entry_price) / position.entry_price) * 100;
+      const pnlUsd = (exitPrice - position.entry_price) * position.quantity;
+      db.prepare(`
+        UPDATE paper_positions SET status = 'closed', exit_price = ?, exit_date = date('now'),
+          pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(exitPrice, Math.round(pnlPercent * 100) / 100, Math.round(pnlUsd * 100) / 100,
+        updates.exit_reason || null, id);
+      output({ ok: true, id, pnl_percent: Math.round(pnlPercent * 100) / 100, pnl_usd: Math.round(pnlUsd * 100) / 100 });
+      break;
+    }
+    case 'get-paper-portfolio': {
+      const positions = db.prepare("SELECT * FROM paper_positions WHERE status IN ('open', 'partial_exit') ORDER BY created_at DESC").all()
+        .map(r => ({ ...r, take_profit_levels: JSON.parse(r.take_profit_levels) }));
+      const cash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash'").get()?.value || '10000');
+      const initialBalance = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_initial_balance'").get()?.value || '10000');
+      const positionValue = positions.reduce((sum, p) => sum + (p.value_usd || (p.current_price || p.entry_price) * p.quantity), 0);
+      output({ cash, initial_balance: initialBalance, total_value: cash + positionValue, positions });
+      break;
+    }
+    case 'get-paper-cash': {
+      const cash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash'").get()?.value || '10000');
+      output({ cash });
+      break;
+    }
+    case 'set-paper-cash': {
+      const amount = getArg('amount');
+      if (amount === null) error('Missing --amount');
+      db.prepare("INSERT INTO portfolio_meta (key, value) VALUES ('paper_cash', ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')").run(String(amount), String(amount));
+      output({ ok: true, cash: parseFloat(amount) });
+      break;
+    }
+    case 'get-paper-stats': {
+      const stats = db.prepare(`
+        SELECT
+          COUNT(*) as total_trades,
+          SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
+          SUM(CASE WHEN pnl_usd <= 0 THEN 1 ELSE 0 END) as losses,
+          ROUND(AVG(CASE WHEN pnl_usd > 0 THEN pnl_percent END), 2) as avg_win_percent,
+          ROUND(AVG(CASE WHEN pnl_usd <= 0 THEN pnl_percent END), 2) as avg_loss_percent,
+          ROUND(SUM(pnl_usd), 2) as total_pnl_usd,
+          MAX(pnl_usd) as best_trade_pnl,
+          MIN(pnl_usd) as worst_trade_pnl
+        FROM paper_trades WHERE pnl_usd IS NOT NULL
+      `).get();
+      const cash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash'").get()?.value || '10000');
+      const initialBalance = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_initial_balance'").get()?.value || '10000');
+      const openPositions = db.prepare("SELECT * FROM paper_positions WHERE status IN ('open', 'partial_exit')").all();
+      const positionValue = openPositions.reduce((sum, p) => sum + (p.value_usd || (p.current_price || p.entry_price) * p.quantity), 0);
+      const totalValue = cash + positionValue;
+      stats.win_rate = stats.total_trades > 0 ? Math.round((stats.wins / stats.total_trades) * 100) : 0;
+      stats.total_return_percent = Math.round(((totalValue - initialBalance) / initialBalance) * 10000) / 100;
+      stats.current_value = totalValue;
+      stats.initial_balance = initialBalance;
       output(stats);
       break;
     }

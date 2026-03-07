@@ -320,6 +320,59 @@ const migrations = [
       INSERT INTO heartbeat_state (agent, check_type) VALUES ('executor', 'check_pending');
     `,
   },
+  {
+    name: '002_paper_mode',
+    sql: `
+      -- Paper trades: what WOULD have been executed
+      CREATE TABLE paper_trades (
+        id TEXT PRIMARY KEY,
+        order_id TEXT NOT NULL,
+        order_source TEXT NOT NULL CHECK (order_source IN ('approved_trades', 'sell_orders')),
+        action TEXT NOT NULL CHECK (action IN ('buy', 'sell')),
+        symbol TEXT NOT NULL,
+        address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        tier TEXT,
+        proposed_price REAL NOT NULL,
+        quantity REAL,
+        amount REAL,
+        stop_loss REAL,
+        take_profit_levels TEXT,
+        reasoning TEXT,
+        pnl_percent REAL,
+        pnl_usd REAL,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+
+      -- Paper positions: simulated portfolio
+      CREATE TABLE paper_positions (
+        id TEXT PRIMARY KEY,
+        symbol TEXT NOT NULL,
+        address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        tier TEXT NOT NULL,
+        entry_price REAL NOT NULL,
+        current_price REAL,
+        quantity REAL NOT NULL,
+        value_usd REAL,
+        entry_date TEXT NOT NULL DEFAULT (date('now')),
+        stop_loss REAL NOT NULL,
+        take_profit_levels TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'partial_exit', 'closed')),
+        exit_price REAL,
+        exit_date TEXT,
+        pnl_percent REAL,
+        pnl_usd REAL,
+        exit_reason TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      -- Seed paper portfolio meta
+      INSERT OR IGNORE INTO portfolio_meta (key, value) VALUES ('paper_cash', '10000');
+      INSERT OR IGNORE INTO portfolio_meta (key, value) VALUES ('paper_initial_balance', '10000');
+    `,
+  },
 ];
 
 export default { getDb, close };

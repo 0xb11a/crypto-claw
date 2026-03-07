@@ -10,47 +10,39 @@ WORKDIR /home/openclaw
 # Copy CryptoClaw project
 COPY --chown=1000:1000 . /home/openclaw/crypto-claw
 
-# Install script dependencies
-RUN cd /home/openclaw/crypto-claw/scripts && npm install --omit=dev
+# Install script dependencies once (shared via symlink at runtime)
+# npm rebuild ensures native modules (better-sqlite3) are compiled for the container platform
+RUN cd /home/openclaw/crypto-claw/scripts && npm install --omit=dev && npm rebuild
 
-# Bootstrap script copies files to the right places
-COPY --chown=1000:1000 setup.sh /home/openclaw/setup.sh
-RUN chmod +x /home/openclaw/setup.sh
-
-# Create agent directories (all three agents)
+# Create agent directories matching OpenClaw's expected structure
 RUN mkdir -p \
   ${OPENCLAW_HOME}/agents/research/workspace/memory \
-  ${OPENCLAW_HOME}/agents/research/skills \
+  ${OPENCLAW_HOME}/agents/research/workspace/skills \
+  ${OPENCLAW_HOME}/agents/research/agent \
   ${OPENCLAW_HOME}/agents/research/data \
   ${OPENCLAW_HOME}/agents/sentinel/workspace/memory \
-  ${OPENCLAW_HOME}/agents/sentinel/skills \
+  ${OPENCLAW_HOME}/agents/sentinel/workspace/skills \
+  ${OPENCLAW_HOME}/agents/sentinel/agent \
   ${OPENCLAW_HOME}/agents/executor/workspace/memory \
-  ${OPENCLAW_HOME}/agents/executor/skills
+  ${OPENCLAW_HOME}/agents/executor/workspace/skills \
+  ${OPENCLAW_HOME}/agents/executor/agent
 
-# Run setup to deploy agents into OpenClaw (directories, agent configs, scripts)
-ARG SAFE_ID=default
-ENV SAFE_ID=${SAFE_ID}
-RUN /home/openclaw/setup.sh --docker
+# Build workspace and agent templates (replaces setup.sh --docker)
+RUN chmod +x /home/openclaw/crypto-claw/build-templates.sh && \
+    /home/openclaw/crypto-claw/build-templates.sh
 
-# Bake code-owned workspace files into templates directory
-# entrypoint.sh syncs these into the volume on every container start,
-# so code updates survive redeploys even when volumes persist
-RUN mkdir -p /home/openclaw/workspace-templates
-COPY --chown=1000:1000 workspace/TOOLS.md     /home/openclaw/workspace-templates/TOOLS.md
-COPY --chown=1000:1000 workspace/BOOT.md      /home/openclaw/workspace-templates/BOOT.md
-COPY --chown=1000:1000 workspace/IDENTITY.md  /home/openclaw/workspace-templates/IDENTITY.md
-COPY --chown=1000:1000 workspace/USER.md      /home/openclaw/workspace-templates/USER.md
-COPY --chown=1000:1000 workspace/MEMORY.md    /home/openclaw/workspace-templates/MEMORY.md
+# Pre-create the OpenClaw state dir so Docker volumes inherit UID 1000 ownership
+RUN mkdir -p ${OPENCLAW_HOME}/.openclaw
 
-# Runtime entrypoint: syncs templates into volume, runs DB migrations, starts gateway
+# Runtime entrypoint: syncs templates, registers agents, runs DB migrations, starts gateway
 COPY --chown=1000:1000 entrypoint.sh /home/openclaw/entrypoint.sh
 RUN chmod +x /home/openclaw/entrypoint.sh
 
-# Expose gateway port
-EXPOSE 3000
+# Expose default gateway port
+EXPOSE 18789
 
-# Healthcheck
+# Healthcheck uses the gateway port from env (default 18789)
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD curl -sf http://localhost:3000/health || exit 1
+  CMD curl -sf http://localhost:${OPENCLAW_GATEWAY_PORT:-18789}/health || exit 1
 
 ENTRYPOINT ["/home/openclaw/entrypoint.sh"]
