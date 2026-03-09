@@ -14,7 +14,7 @@
 import { execSync } from 'child_process';
 import { resolve } from 'path';
 
-const TESTS_DIR = resolve(process.cwd(), 'tests');
+const TESTS_DIR = new URL('.', import.meta.url).pathname;
 
 const suites = [
   { name: 'Memory System', file: 'test-memory.js', requiresNetwork: false },
@@ -47,7 +47,7 @@ for (const suite of allSuites) {
     const output = execSync(`node ${resolve(TESTS_DIR, suite.file)}`, {
       encoding: 'utf-8',
       timeout: 60_000,
-      cwd: process.cwd(),
+      cwd: resolve(TESTS_DIR, '..'),
     });
     console.log(output);
     totalPassed++;

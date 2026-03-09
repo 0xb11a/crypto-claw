@@ -15,6 +15,8 @@ Read pending orders from the database. Validate. Build Safe transactions. Sign. 
 
 ## Process (Every Heartbeat)
 
+**IMPORTANT: Check `PAPER_MODE` env var at the start of every cycle.** If `true`, use paper commands throughout. If `false` or unset, use real commands.
+
 ### Step 1: Load Pending Orders
 
 ```bash
@@ -25,7 +27,8 @@ node scripts/db-query.js get-sell-orders --pending
 node scripts/db-query.js get-approved-trades --pending
 
 # Current positions for validation
-node scripts/db-query.js get-positions
+#   Real mode:  node scripts/db-query.js get-positions
+#   Paper mode: node scripts/db-query.js get-paper-positions
 ```
 
 If no pending orders → HEARTBEAT_OK, done.
@@ -39,7 +42,8 @@ For SELL orders, check:
 
 ```bash
 # Verify position exists
-node scripts/db-query.js get-positions --symbol TOKEN
+#   Real mode:  node scripts/db-query.js get-positions --symbol TOKEN
+#   Paper mode: node scripts/db-query.js get-paper-positions --symbol TOKEN
 ```
 
 For BUY orders, check:
@@ -49,8 +53,9 @@ For BUY orders, check:
 - Current price within 10% of proposed entry
 
 ```bash
-# Check current portfolio summary for cash balance
-node scripts/db-query.js get-portfolio
+# Check cash balance
+#   Real mode:  node scripts/db-query.js get-portfolio
+#   Paper mode: node scripts/db-query.js get-paper-cash
 ```
 
 If validation fails → write FAILED receipt, mark order as executed with `status: "validation_failed"`, alert human.
@@ -67,7 +72,52 @@ node scripts/db-query.js add-receipt --json '{
 }'
 ```
 
-### Step 3: Build and Sign Transaction
+### Step 3: Execute (branching on PAPER_MODE)
+
+#### If PAPER_MODE=true — Simulate execution
+
+Do NOT call execute-trade.js or interact with the Safe wallet. Instead:
+
+```bash
+# Record paper trade
+node scripts/db-query.js add-paper-trade --json '{
+  "id": "paper-<timestamp>",
+  "order_id": "<original-order-id>",
+  "order_source": "approved_trades",
+  "action": "buy",
+  "symbol": "TOKEN",
+  "address": "0x...",
+  "chain": "base",
+  "tier": "moonshot",
+  "proposed_price": 0.001,
+  "quantity": 10000,
+  "amount": 500
+}'
+
+# BUY: create paper position + reduce paper cash
+node scripts/db-query.js add-paper-position --json '{
+  "id": "pos-<timestamp>",
+  "symbol": "TOKEN",
+  "address": "0x...",
+  "chain": "base",
+  "tier": "moonshot",
+  "entry_price": 0.001,
+  "current_price": 0.001,
+  "quantity": 10000,
+  "amount_usd": 500,
+  "stop_loss": 0.0005,
+  "take_profit_levels": "[{\"level\":1,\"price\":0.002,\"sellPercent\":50}]",
+  "status": "open"
+}'
+node scripts/db-query.js set-paper-cash --amount <current_cash - trade_amount>
+
+# SELL: close paper position + increase paper cash
+node scripts/db-query.js close-paper-position --id <position-id> --json '{"exit_price": 0.002, "exit_reason": "stop_loss"}'
+node scripts/db-query.js set-paper-cash --amount <current_cash + sale_proceeds>
+```
+
+#### If PAPER_MODE=false (or unset) — Real execution
+
 ```bash
 # Execute the trade through Safe
 node scripts/execute-trade.js \
@@ -88,11 +138,10 @@ The script handles:
 
 ### Step 4: Record Receipt
 
-Write the execution result to the database:
-
 ```bash
+# Real mode: write to trade_receipts
 node scripts/db-query.js add-receipt --json '{
-  "order_id": "trade-1709712000",
+  "order_id": "trade-...",
   "order_source": "sell_orders",
   "action": "sell",
   "symbol": "TOKEN",
@@ -103,56 +152,36 @@ node scripts/db-query.js add-receipt --json '{
   "executed_price": 0.00098,
   "slippage": 0.02
 }'
-```
 
-Check recent receipts:
-```bash
-node scripts/db-query.js get-receipts --limit 5
+# Paper mode: already recorded via add-paper-trade in Step 3 — skip this step
 ```
 
 ### Step 5: Update State
 
-After successful execution, update the position in the database:
+**Paper mode:** Already done in Step 3 (add-paper-position + set-paper-cash). Skip to marking the order.
+
+**Real mode only** (paper mode already handled in Step 3):
 
 For BUY:
 ```bash
-node scripts/db-query.js update-position --json '{
-  "symbol": "TOKEN",
-  "address": "0x...",
-  "chain": "base",
-  "action": "buy",
-  "quantity": 50000,
-  "entry_price": 0.001,
-  "tier": "moonshot"
-}'
+node scripts/db-query.js add-position --json '{...}'
+node scripts/db-query.js set-cash --amount <new_amount>
 ```
 
 For SELL ALL:
 ```bash
-node scripts/db-query.js update-position --json '{
-  "symbol": "TOKEN",
-  "address": "0x...",
-  "chain": "base",
-  "action": "close",
-  "exit_price": 0.00098,
-  "realized_pnl": -0.0001
-}'
+node scripts/db-query.js remove-position --id <id>
+node scripts/db-query.js set-cash --amount <new_amount>
 ```
 
 For SELL PARTIAL:
 ```bash
-node scripts/db-query.js update-position --json '{
-  "symbol": "TOKEN",
-  "address": "0x...",
-  "chain": "base",
-  "action": "reduce",
-  "sell_percent": 50,
-  "exit_price": 0.002,
-  "realized_pnl": 0.05
-}'
+node scripts/db-query.js update-position --id <id> --json '{"quantity":<new_qty>,"status":"partial_exit"}'
+node scripts/db-query.js set-cash --amount <new_amount>
 ```
 
-Mark the source order as executed:
+### Step 6: Mark Order Executed (both modes)
+
 ```bash
 # For sell orders
 node scripts/db-query.js update-sell-order --id "order-id" --status executed
@@ -161,9 +190,10 @@ node scripts/db-query.js update-sell-order --id "order-id" --status executed
 node scripts/db-query.js update-approved-trade --id "trade-id" --status executed
 ```
 
-### Step 6: Notify
+### Step 7: Notify
 
 - Executed → inform human (non-urgent): "Sold 100% of $TOKEN at $0.00098"
+- Paper mode → log: "Paper trade: bought $TOKEN at $0.001, $500"
 - Queued in Safe → inform human: "Trade signed, needs X more signature(s) in Safe"
 - Failed → alert human (urgent): "SELL $TOKEN failed: [reason]"
 
@@ -174,26 +204,6 @@ node scripts/db-query.js update-approved-trade --id "trade-id" --status executed
 - All state lives in the database — never write to JSON files
 - Keep execution fast — the Executor agent runs on a 1-minute heartbeat
 
-## Paper Mode
+## Paper Mode Summary
 
-When `PAPER_MODE=true` is set in the environment, skip the Safe wallet transaction steps. Instead:
-
-1. **Validate** the order (same checks as normal mode)
-2. **Simulate** execution at current market price
-3. **Record** to paper tables:
-   ```bash
-   # Record paper trade
-   node scripts/db-query.js add-paper-trade --json '{...}'
-
-   # BUY: create paper position + reduce paper cash
-   node scripts/db-query.js add-paper-position --json '{...}'
-   node scripts/db-query.js set-paper-cash --amount <new_amount>
-
-   # SELL: close paper position + increase paper cash
-   node scripts/db-query.js close-paper-position --id <id> --json '{"exit_price": ..., "exit_reason": "..."}'
-   node scripts/db-query.js set-paper-cash --amount <new_amount>
-   ```
-4. **Mark** original order as executed
-5. **Log** with `status: "paper_mode"`
-
-Do NOT call execute-trade.js or interact with the Safe wallet in paper mode.
+When `PAPER_MODE=true`, the entire workflow above applies — but Steps 3-5 use paper commands instead of Safe wallet operations. The branching is built into Steps 3-5 above. Key rule: **never call execute-trade.js or interact with the Safe wallet in paper mode.**

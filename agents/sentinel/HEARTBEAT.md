@@ -8,7 +8,9 @@ This agent uses the cheapest model available. Keep checks fast and mechanical.
 
 ### 1. Price Check (CRITICAL)
 ```bash
-node scripts/db-query.js get-positions --status open
+# Check PAPER_MODE env var first!
+#   Real mode:  node scripts/db-query.js get-positions --status open
+#   Paper mode: node scripts/db-query.js get-paper-positions --status open
 node scripts/check-positions.js
 ```
 - Compare current prices against stop-loss and take-profit levels
@@ -42,5 +44,6 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check price_check
 ## Rules
 - Run ALL checks every heartbeat, not just one
 - Never skip a check to save tokens — your whole job is checking
+- **Check `PAPER_MODE` env var** — use `get-paper-positions` if `true`, `get-positions` if `false`/unset
 - If no open positions in DB → reply HEARTBEAT_OK immediately
 - Keep total response under 500 tokens when nothing is wrong

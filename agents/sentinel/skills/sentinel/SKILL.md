@@ -15,6 +15,8 @@ triggers:
 ## Purpose
 Guardian of the portfolio. Watch every open position for danger. React faster than any human.
 
+**IMPORTANT: Check `PAPER_MODE` env var at the start of every cycle.** If `true`, use `get-paper-positions` for ALL position queries. If `false` or unset, use `get-positions`. Getting this wrong means monitoring nothing.
+
 ## When to Use
 - During heartbeat checks (highest priority)
 - When user asks about position safety
@@ -137,14 +139,14 @@ The Executor agent polls for pending sell orders every heartbeat and executes th
 
 ## Paper Mode
 
-When `PAPER_MODE=true` is set in the environment, monitor paper positions instead of real ones:
+When `PAPER_MODE=true`, the entire workflow above applies but position queries use paper commands:
 
-```bash
-# Instead of:
-node scripts/db-query.js get-positions --status open
+| Action | Real Mode | Paper Mode |
+|--------|-----------|------------|
+| Get positions | `get-positions --status open` | `get-paper-positions --status open` |
+| Get specific position | `get-positions --symbol TOKEN` | `get-paper-positions --symbol TOKEN` |
 
-# Use:
-node scripts/db-query.js get-paper-positions --status open
-```
-
-All monitoring scripts (check-positions.js, check-liquidity.js, check-wallets.js) run the same way. The only difference is which positions table you query for the list of tokens to monitor. Sell orders are still written to the `sell_orders` table — the Executor handles them as paper sells.
+Everything else is identical:
+- Monitoring scripts (check-positions.js, check-liquidity.js, check-wallets.js) run the same
+- Sell orders are written to `sell_orders` table (Executor handles paper routing)
+- Alerts are written to `sentinel_alerts` table (unchanged)

@@ -33,10 +33,11 @@ Before each monitoring cycle, check memory for relevant context:
 3. After writing sell orders or critical alerts, log a brief note to today's daily log
 
 ### Wallet Data (Database — per-fund)
-All position and alert data lives in SQLite. Access via scripts:
+All position and alert data lives in SQLite. **Check `PAPER_MODE` env var first** — use paper commands if `true`.
 ```bash
 # Get all open positions
-node scripts/db-query.js get-positions --status open
+#   Real mode:  node scripts/db-query.js get-positions --status open
+#   Paper mode: node scripts/db-query.js get-paper-positions --status open
 
 # Get liquidity snapshots for comparison
 node scripts/db-query.js get-liquidity --address 0x... --chain base --limit 2
@@ -104,8 +105,9 @@ You detect danger and write sell instructions to the database. The **Executor Ag
 
 When `PAPER_MODE=true` is set in the environment:
 
-- Monitor `paper_positions` instead of `positions`
-- Use `get-paper-positions --status open` instead of `get-positions --status open`
+**CRITICAL: You MUST use `get-paper-positions` instead of `get-positions` everywhere.** If you query `get-positions` in paper mode, you will see 0 positions and skip all monitoring — this is the most common paper mode bug.
+
+- Use `get-paper-positions --status open` for ALL position queries
 - Still write sell orders to `sell_orders` table (Executor processes them as paper sells)
-- Price, liquidity, and wallet checks run identically
+- Price, liquidity, and wallet checks run identically — only the position source changes
 - All alert and sell order logic is unchanged

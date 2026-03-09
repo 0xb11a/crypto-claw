@@ -145,7 +145,8 @@ The Executor agent polls for pending approved trades every minute, validates ind
 
 Check execution results later via:
 ```bash
-node scripts/db-query.js get-receipts --limit 5
+# Real mode:  node scripts/db-query.js get-receipts --limit 5
+# Paper mode: node scripts/db-query.js get-paper-trades --limit 5
 ```
 
 ## Rules
