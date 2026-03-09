@@ -22,22 +22,28 @@ This is YOUR knowledge — patterns, lessons, calibration data. Shared across al
 4. **On trade close:** Write a lesson learned to both daily log AND `MEMORY.md`
 
 ### Wallet Memory (Database — per-fund data)
-Positions, trades, watchlist, alerts — everything tied to a specific Safe wallet. Access via scripts:
+Positions, trades, watchlist, alerts — everything tied to a specific Safe wallet. Access via scripts.
+
+**IMPORTANT: Check `PAPER_MODE` env var first.** If `PAPER_MODE=true`, use paper commands. If unset or `false`, use real commands.
+
 ```bash
 # Read current portfolio
-node scripts/db-query.js get-portfolio
-
+#   Real mode:  node scripts/db-query.js get-portfolio
+#   Paper mode: node scripts/db-query.js get-paper-portfolio
+# Read positions
+#   Real mode:  node scripts/db-query.js get-positions --status open
+#   Paper mode: node scripts/db-query.js get-paper-positions --status open
 # Read pending alerts from Sentinel
 node scripts/db-query.js get-alerts --unprocessed
-
-# Write approved trade (after human approval)
-node scripts/db-query.js add-approved-trade --json '{"id":"...","symbol":"TOKEN",...,"approved":true}'
-
 # Check trade execution results
-node scripts/db-query.js get-receipts --limit 10
-
+#   Real mode:  node scripts/db-query.js get-receipts --limit 10
+#   Paper mode: node scripts/db-query.js get-paper-trades --limit 10
 # Get trade stats
-node scripts/db-query.js get-trade-stats
+#   Real mode:  node scripts/db-query.js get-trade-stats
+#   Paper mode: node scripts/db-query.js get-paper-stats
+# Get cash balance
+#   Real mode:  node scripts/db-query.js get-portfolio (cash field)
+#   Paper mode: node scripts/db-query.js get-paper-cash
 ```
 
 ### Daily Log Format (`memory/YYYY-MM-DD.md`)
@@ -69,6 +75,13 @@ node scripts/db-query.js get-trade-stats
 ## Lessons
 - [HH:MM] [LESSON] what happened and what to remember...
 ```
+
+### Memory Protocol
+Before doing anything non-trivial, search memory first.
+1. Use `memory_search` with relevant keywords to find past context
+2. Use `memory_get` to read specific dated memory files
+3. After important decisions or trade outcomes, save key points to today's daily log
+4. Never assume — always check notes before acting
 
 ### MEMORY.md Updates
 When updating MEMORY.md, use these templates:
@@ -160,17 +173,33 @@ All stop-losses auto-execute via Sentinel → Executor — no approval needed.
 
 When `PAPER_MODE=true` is set in the environment, the system simulates trades without touching real funds.
 
+**CRITICAL: In paper mode, you MUST use paper-specific DB commands for ALL portfolio/position/trade queries.** Real-mode tables will be empty — if you see $0 cash or 0 positions, you are probably querying the wrong tables.
+
+### Command Mapping (Real → Paper)
+
+| Action | Real Mode | Paper Mode |
+|--------|-----------|------------|
+| Get portfolio | `get-portfolio` | `get-paper-portfolio` |
+| Get positions | `get-positions` | `get-paper-positions` |
+| Get cash | `get-portfolio` (cash field) | `get-paper-cash` |
+| Get trades | `get-receipts` | `get-paper-trades` |
+| Get stats | `get-trade-stats` | `get-paper-stats` |
+| Add position | `add-position` | `add-paper-position` |
+| Update position | `update-position` | `update-paper-position` |
+| Close position | `close-position` | `close-paper-position` |
+
 ### What Changes
 - BUY proposals that pass ALL safety checks are **auto-approved** (`approved: 1, approved_by: 'paper_mode'`)
 - No human approval is needed — the system runs fully autonomously
-- All portfolio rules and safety limits are still enforced identically
+- All portfolio queries use paper commands (see table above)
 - Pipeline stages (discovery, analysis, risk, proposal) run unchanged
 
 ### What Stays the Same
 - All safety rules and position limits remain enforced
 - Auto-reject conditions (honeypot, high holder concentration, low liquidity, etc.) still apply
 - Memory system works identically (MEMORY.md, daily logs)
-- Sentinel still monitors positions and writes sell orders
+- Sentinel still monitors paper_positions and writes sell orders
+- `add-approved-trade` and `add-sell-order` are the same in both modes (Executor handles the routing)
 
 ### Auto-Approval Logic
 When proposing a trade in paper mode:
@@ -179,15 +208,18 @@ When proposing a trade in paper mode:
 node scripts/db-query.js add-approved-trade --json '{
   ...trade details...,
   "approved": true,
-  "approved_at": "2024-01-01T00:00:00Z",
+  "approved_at": "<ISO-8601>",
   "approved_by": "paper_mode"
 }'
 ```
 
-### Paper Portfolio Tracking
+### Portfolio Checks in Paper Mode
 ```bash
-# Check paper portfolio
+# Check paper portfolio (use this for rebalancing, allocation checks, etc.)
 node scripts/db-query.js get-paper-portfolio
+
+# Check paper cash balance
+node scripts/db-query.js get-paper-cash
 
 # Check paper trade performance
 node scripts/db-query.js get-paper-stats

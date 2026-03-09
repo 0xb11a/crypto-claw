@@ -16,7 +16,9 @@ triggers:
 # Portfolio Skill
 
 ## Purpose
-Convert risk-assessed opportunities into concrete trade proposals. Manage sizing, entries, exits, and rebalancing. Every trade goes to the human.
+Convert risk-assessed opportunities into concrete trade proposals. Manage sizing, entries, exits, and rebalancing.
+
+**IMPORTANT: Check `PAPER_MODE` env var.** If `true`, use paper DB commands (`get-paper-portfolio`, `get-paper-cash`, `get-paper-positions`, `get-paper-stats`) and auto-approve trades. If `false` or unset, use real commands and require human approval.
 
 ## When to Use
 - After risk skill approves a token
@@ -105,12 +107,14 @@ Reply APPROVE or REJECT
 - After portfolio drawdown >15%
 
 ### How to Rebalance
-1. Run `node scripts/portfolio-summary.js`
-2. Calculate current vs target allocation
-3. Identify overweight/underweight tiers
-4. Propose specific sells (weakest positions in overweight tier)
-5. Propose specific buys or cash retention for underweight tier
-6. Send rebalance proposal to human
+1. Check `PAPER_MODE` env var
+2. If paper mode: run `node scripts/db-query.js get-paper-portfolio` and `node scripts/db-query.js get-paper-cash`
+3. If real mode: run `node scripts/portfolio-summary.js`
+4. Calculate current vs target allocation
+5. Identify overweight/underweight tiers
+6. Propose specific sells (weakest positions in overweight tier)
+7. Propose specific buys or cash retention for underweight tier
+8. If paper mode: auto-approve. If real mode: send rebalance proposal to human
 
 ## After Human Approval
 

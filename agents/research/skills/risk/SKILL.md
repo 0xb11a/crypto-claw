@@ -94,6 +94,7 @@ If ANY of these are true → immediate REJECT, no exceptions:
 6. Owner can pause transfers
 
 ### Step 4: Portfolio-Level Checks
+Check `PAPER_MODE` env var. Use `get-paper-portfolio` / `get-paper-positions` if paper mode, otherwise `get-portfolio` / `get-positions`.
 - Would this push moonshot allocation above 20%?
 - Are there already 3 positions in the same narrative?
 - Would total positions exceed 15?

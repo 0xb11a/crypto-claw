@@ -1,5 +1,9 @@
 FROM ghcr.io/openclaw/openclaw:latest
 
+# Install jq (agents use it to parse JSON script output)
+USER root
+RUN apt-get update -qq && apt-get install -y -qq jq > /dev/null 2>&1 && rm -rf /var/lib/apt/lists/*
+
 # Run as non-root for security
 USER 1000:1000
 

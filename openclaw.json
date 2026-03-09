@@ -11,7 +11,22 @@
         ]
       },
       "maxTokens": 4096,
-      "temperature": 0.3
+      "temperature": 0.3,
+      "compaction": {
+        "reserveTokensFloor": 40000,
+        "memoryFlush": {
+          "enabled": true,
+          "softThresholdTokens": 4000
+        }
+      },
+      "memory": {
+        "search": {
+          "enabled": true,
+          "hybrid": true,
+          "embeddingModel": "local"
+        }
+      },
+      "cacheTTL": 300
     }
   },
 
@@ -50,6 +65,9 @@
       ]
     },
     "browser": {
+      "enabled": false
+    },
+    "webSearch": {
       "enabled": false
     }
   },

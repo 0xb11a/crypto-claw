@@ -45,10 +45,15 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 - Log momentum shifts, update MEMORY.md if narrative changes
 
 **Rebalance Review**
-- Run `node scripts/portfolio-summary.js`
+- Check `PAPER_MODE` env var first
+- If `PAPER_MODE=true`: run `node scripts/db-query.js get-paper-portfolio` and `node scripts/db-query.js get-paper-cash`
+- If real mode: run `node scripts/portfolio-summary.js`
 - Check allocation vs targets, propose rebalance if needed
 
 **Daily Summary**
+- Check `PAPER_MODE` env var first
+- If `PAPER_MODE=true`: use `get-paper-portfolio`, `get-paper-stats`, `get-paper-trades --limit 20`
+- If real mode: use `get-portfolio`, `get-trade-stats`, `get-receipts --limit 20`
 - Compile: total value, daily P&L, trades executed, alerts
 - Send to human, log to daily memory
 

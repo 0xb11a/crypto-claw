@@ -1,5 +1,11 @@
 # TOOLS.md — CryptoClaw Tool Usage Guide
 
+## General Notes
+- All scripts output **valid JSON to stdout**. You can read the output directly — no need to pipe through `jq` unless you want to extract a specific field.
+- `jq` is available in the container if needed (e.g., `node scripts/scan-tokens.js | jq '.tokens[0].symbol'`).
+- Errors go to stderr. Exit code 0 = success, 1 = failure.
+- **Do NOT use web_search or browser tools.** They are disabled. All market data comes from the scripts below — they call the APIs directly.
+
 ## Database CLI (db-query.js)
 
 All wallet data (positions, trades, orders, alerts, receipts) lives in a SQLite database. Interact with it through `db-query.js` — never access the DB file directly.

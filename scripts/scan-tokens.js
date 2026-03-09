@@ -9,7 +9,8 @@
 
 import 'dotenv/config';
 
-const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
+const DEXSCREENER_BASE = 'https://api.dexscreener.com';
+const DEXSCREENER_DEX = `${DEXSCREENER_BASE}/latest/dex`;
 const CACHE = new Map();
 const CACHE_TTL = 60_000; // 60 seconds
 
@@ -41,16 +42,69 @@ async function fetchWithCache(url) {
 }
 
 async function scanTrending(chain) {
-  // DEXScreener trending endpoint
-  const url = chain === 'all'
-    ? `${DEXSCREENER_BASE}/search?q=trending`
-    : `${DEXSCREENER_BASE}/search?q=trending+${chain}`;
-  return fetchWithCache(url);
+  // Strategy: try token-boosts/top first, fall back to search endpoint
+  const allPairs = [];
+
+  // 1. Boosted tokens (paid promotion — high visibility)
+  try {
+    const data = await fetchWithCache(`${DEXSCREENER_BASE}/token-boosts/top/v1`);
+    let tokens = Array.isArray(data) ? data : [];
+    if (chain !== 'all') tokens = tokens.filter(t => t.chainId === chain);
+    const byChain = {};
+    for (const t of tokens) {
+      if (!byChain[t.chainId]) byChain[t.chainId] = [];
+      if (byChain[t.chainId].length < 30) byChain[t.chainId].push(t.tokenAddress);
+    }
+    for (const [chainId, addresses] of Object.entries(byChain)) {
+      const url = `${DEXSCREENER_BASE}/tokens/v1/${chainId}/${addresses.join(',')}`;
+      try {
+        const pairData = await fetchWithCache(url);
+        const pairs = Array.isArray(pairData) ? pairData : (pairData.pairs ?? []);
+        allPairs.push(...pairs);
+      } catch { /* skip */ }
+    }
+  } catch { /* boosts unavailable, continue to search fallback */ }
+
+  // 2. Search fallback — catches organic trending tokens not in boosts
+  if (allPairs.length === 0 || chain !== 'all') {
+    const q = chain === 'all' ? 'trending' : chain;
+    try {
+      const searchData = await fetchWithCache(`${DEXSCREENER_DEX}/search?q=${q}`);
+      const searchPairs = searchData.pairs ?? [];
+      // Deduplicate by pair address
+      const seen = new Set(allPairs.map(p => p.pairAddress));
+      for (const p of searchPairs) {
+        if (!seen.has(p.pairAddress)) allPairs.push(p);
+      }
+    } catch { /* search also failed */ }
+  }
+
+  return { pairs: allPairs };
 }
 
 async function scanNewest(chain) {
-  const url = `${DEXSCREENER_BASE}/pairs/${chain}`;
-  return fetchWithCache(url);
+  // Use token-profiles/latest for newest token listings
+  const data = await fetchWithCache(`${DEXSCREENER_BASE}/token-profiles/latest/v1`);
+  let tokens = Array.isArray(data) ? data : [];
+  if (chain !== 'all') {
+    tokens = tokens.filter(t => t.chainId === chain);
+  }
+  // Batch lookup pair data
+  const byChain = {};
+  for (const t of tokens) {
+    if (!byChain[t.chainId]) byChain[t.chainId] = [];
+    if (byChain[t.chainId].length < 30) byChain[t.chainId].push(t.tokenAddress);
+  }
+  const allPairs = [];
+  for (const [chainId, addresses] of Object.entries(byChain)) {
+    const url = `${DEXSCREENER_BASE}/tokens/v1/${chainId}/${addresses.join(',')}`;
+    try {
+      const pairData = await fetchWithCache(url);
+      const pairs = Array.isArray(pairData) ? pairData : (pairData.pairs ?? []);
+      allPairs.push(...pairs);
+    } catch { /* skip failed lookups */ }
+  }
+  return { pairs: allPairs };
 }
 
 function formatToken(pair) {

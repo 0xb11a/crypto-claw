@@ -54,6 +54,14 @@ for file in TOOLS.md BOOT.md IDENTITY.md; do
   fi
 done
 
+# Research agent-specific files — always overwrite from source
+for file in AGENTS.md SOUL.md HEARTBEAT.md; do
+  src="/home/openclaw/crypto-claw/agents/research/$file"
+  if [ -f "$src" ]; then
+    cp "$src" "$RESEARCH_WS/$file"
+  fi
+done
+
 # User/agent-owned files — seed only if missing
 for file in USER.md MEMORY.md; do
   if [ ! -f "$RESEARCH_WS/$file" ] && [ -f "$TEMPLATES_DIR/$file" ]; then
@@ -236,8 +244,17 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
     openclaw config set "agents.list[$i].heartbeat" '{"every":"0m"}' --strict-json 2>/dev/null || true
   done
 
-  # --- Disable bundled skills we don't need ---
+  # --- Disable bundled skills and web search (agents use scripts for data) ---
   openclaw config set 'skills.allowBundled' '[]' --strict-json
+  openclaw config set 'tools.webSearch' '{"enabled":false}' --strict-json
+  openclaw config set 'tools.browser' '{"enabled":false}' --strict-json
+
+  # --- Memory: compaction flush + search ---
+  openclaw config set 'agents.defaults.compaction.reserveTokensFloor' 40000
+  openclaw config set 'agents.defaults.compaction.memoryFlush' '{"enabled":true,"softThresholdTokens":4000}' --strict-json
+  openclaw config set 'agents.defaults.memory.search' '{"enabled":true,"hybrid":true,"embeddingModel":"local"}' --strict-json
+  openclaw config set 'agents.defaults.cacheTTL' 300
+  echo "[entrypoint]   Memory: flush at 156K tokens, hybrid search enabled"
 
   echo "[entrypoint] First-run configuration complete"
 else

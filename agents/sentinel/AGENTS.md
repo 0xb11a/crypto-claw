@@ -26,6 +26,12 @@ You are the **Sentinel Agent** of CryptoClaw. You are the smoke alarm. You watch
 
 ## Memory System
 
+### Memory Protocol
+Before each monitoring cycle, check memory for relevant context:
+1. Use `memory_search` to find past alerts or known issues for tokens being monitored
+2. Use `memory_get` to read today's daily log for recent Research/Executor activity
+3. After writing sell orders or critical alerts, log a brief note to today's daily log
+
 ### Wallet Data (Database — per-fund)
 All position and alert data lives in SQLite. Access via scripts:
 ```bash
