@@ -544,6 +544,7 @@ function handle(db, cmd) {
     // ============================================================
     case 'add-paper-trade': {
       const t = parseJson();
+      if (!t.quantity || t.quantity <= 0) error('Paper trade requires quantity > 0 (use add-receipt for failed trades)');
       db.prepare(`
         INSERT INTO paper_trades (id, order_id, order_source, action, symbol, address, chain,
           tier, proposed_price, quantity, amount, stop_loss, take_profit_levels, reasoning,
@@ -571,14 +572,21 @@ function handle(db, cmd) {
     }
     case 'add-paper-position': {
       const p = parseJson();
-      db.prepare(`
-        INSERT INTO paper_positions (id, symbol, address, chain, tier, entry_price, current_price,
-          quantity, value_usd, entry_date, stop_loss, take_profit_levels, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(p.id, p.symbol, p.address, p.chain, p.tier, p.entry_price, p.current_price,
-        p.quantity, p.value_usd, p.entry_date || new Date().toISOString().split('T')[0],
-        p.stop_loss, JSON.stringify(p.take_profit_levels), p.status || 'open');
-      output({ ok: true, id: p.id });
+      const cost = p.value_usd || (p.entry_price * p.quantity);
+      const currentCash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash'").get()?.value || '10000');
+      const newCash = Math.round((currentCash - cost) * 100) / 100;
+      const txn = db.transaction(() => {
+        db.prepare(`
+          INSERT INTO paper_positions (id, symbol, address, chain, tier, entry_price, current_price,
+            quantity, value_usd, entry_date, stop_loss, take_profit_levels, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(p.id, p.symbol, p.address, p.chain, p.tier, p.entry_price, p.current_price,
+          p.quantity, p.value_usd, p.entry_date || new Date().toISOString().split('T')[0],
+          p.stop_loss, JSON.stringify(p.take_profit_levels), p.status || 'open');
+        db.prepare("INSERT INTO portfolio_meta (key, value) VALUES ('paper_cash', ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')").run(String(newCash), String(newCash));
+      });
+      txn();
+      output({ ok: true, id: p.id, cash: newCash });
       break;
     }
     case 'update-paper-position': {
@@ -603,22 +611,59 @@ function handle(db, cmd) {
       const exitPrice = updates.exit_price;
       const pnlPercent = ((exitPrice - position.entry_price) / position.entry_price) * 100;
       const pnlUsd = (exitPrice - position.entry_price) * position.quantity;
-      db.prepare(`
-        UPDATE paper_positions SET status = 'closed', exit_price = ?, exit_date = date('now'),
-          pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
-        WHERE id = ?
-      `).run(exitPrice, Math.round(pnlPercent * 100) / 100, Math.round(pnlUsd * 100) / 100,
-        updates.exit_reason || null, id);
-      output({ ok: true, id, pnl_percent: Math.round(pnlPercent * 100) / 100, pnl_usd: Math.round(pnlUsd * 100) / 100 });
+      const saleProceeds = exitPrice * position.quantity;
+      const currentCash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash'").get()?.value || '10000');
+      const newCash = Math.round((currentCash + saleProceeds) * 100) / 100;
+      const txn = db.transaction(() => {
+        db.prepare(`
+          UPDATE paper_positions SET status = 'closed', exit_price = ?, exit_date = date('now'),
+            pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
+          WHERE id = ?
+        `).run(exitPrice, Math.round(pnlPercent * 100) / 100, Math.round(pnlUsd * 100) / 100,
+          updates.exit_reason || null, id);
+        db.prepare("INSERT INTO portfolio_meta (key, value) VALUES ('paper_cash', ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')").run(String(newCash), String(newCash));
+      });
+      txn();
+      output({ ok: true, id, pnl_percent: Math.round(pnlPercent * 100) / 100, pnl_usd: Math.round(pnlUsd * 100) / 100, cash: newCash });
       break;
     }
     case 'get-paper-portfolio': {
+      const initialBalance = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_initial_balance'").get()?.value || '10000');
+      // Realized P&L from two reliable sources (non-overlapping):
+      // 1. Closed positions — close-paper-position always computes pnl_usd
+      const closedPnl = db.prepare("SELECT COALESCE(SUM(pnl_usd), 0) as total, COUNT(*) as count FROM paper_positions WHERE status = 'closed' AND pnl_usd IS NOT NULL").get();
+      // 2. Sell trades with P&L where position is NOT closed (partial sells)
+      const partialPnl = db.prepare(`
+        SELECT COALESCE(SUM(pnl_usd), 0) as total, COUNT(*) as count FROM paper_trades
+        WHERE action = 'sell' AND pnl_usd IS NOT NULL
+        AND address IN (SELECT address FROM paper_positions WHERE status IN ('open', 'partial_exit'))
+      `).get();
+      const realizedPnl = closedPnl.total + partialPnl.total;
+      const realizedCount = closedPnl.count + partialPnl.count;
+      // Open positions
       const positions = db.prepare("SELECT * FROM paper_positions WHERE status IN ('open', 'partial_exit') ORDER BY created_at DESC").all()
         .map(r => ({ ...r, take_profit_levels: JSON.parse(r.take_profit_levels) }));
-      const cash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash'").get()?.value || '10000');
-      const initialBalance = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_initial_balance'").get()?.value || '10000');
-      const positionValue = positions.reduce((sum, p) => sum + (p.value_usd || (p.current_price || p.entry_price) * p.quantity), 0);
-      output({ cash, initial_balance: initialBalance, total_value: cash + positionValue, positions });
+      // Cost basis of open positions (capital currently deployed)
+      const openCost = positions.reduce((sum, p) => sum + (p.entry_price * p.quantity), 0);
+      // Cash = initial + realized gains/losses - capital in open positions
+      const cash = Math.round((initialBalance + realizedPnl - openCost) * 100) / 100;
+      const positionValue = positions.reduce((sum, p) => sum + ((p.current_price || p.entry_price) * p.quantity), 0);
+      const totalValue = Math.round((cash + positionValue) * 100) / 100;
+      const pnl = Math.round((totalValue - initialBalance) * 100) / 100;
+      const pnlPercent = initialBalance > 0 ? Math.round(((totalValue - initialBalance) / initialBalance) * 10000) / 100 : 0;
+      // Closed positions history
+      const closedPositions = db.prepare("SELECT id, symbol, chain, tier, entry_price, exit_price, pnl_percent, pnl_usd, exit_reason, exit_date FROM paper_positions WHERE status = 'closed' ORDER BY exit_date DESC LIMIT 20").all();
+      // Recent trades (exclude failed attempts with zero quantity)
+      const recentTrades = db.prepare("SELECT * FROM paper_trades WHERE quantity > 0 ORDER BY created_at DESC LIMIT 10").all();
+      output({
+        cash, initial_balance: initialBalance, total_value: totalValue,
+        pnl, pnl_percent: pnlPercent,
+        realized_pnl: Math.round(realizedPnl * 100) / 100,
+        total_closed_trades: realizedCount,
+        positions,
+        closed_positions: closedPositions,
+        recent_trades: recentTrades,
+      });
       break;
     }
     case 'get-paper-cash': {

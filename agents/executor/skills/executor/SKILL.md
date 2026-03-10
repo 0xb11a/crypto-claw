@@ -58,7 +58,7 @@ For BUY orders, check:
 #   Paper mode: node scripts/db-query.js get-paper-cash
 ```
 
-If validation fails → write FAILED receipt, mark order as executed with `status: "validation_failed"`, alert human.
+If validation fails → write FAILED receipt, mark order as executed with `status: "validation_failed"`, alert human. **Do NOT call add-paper-trade for failed validations** — only add-receipt.
 
 ```bash
 node scripts/db-query.js add-receipt --json '{
@@ -109,11 +109,10 @@ node scripts/db-query.js add-paper-position --json '{
   "take_profit_levels": "[{\"level\":1,\"price\":0.002,\"sellPercent\":50}]",
   "status": "open"
 }'
-node scripts/db-query.js set-paper-cash --amount <current_cash - trade_amount>
+# Cash is auto-deducted from paper_cash by add-paper-position
 
-# SELL: close paper position + increase paper cash
+# SELL: close paper position (cash auto-updated with sale proceeds)
 node scripts/db-query.js close-paper-position --id <position-id> --json '{"exit_price": 0.002, "exit_reason": "stop_loss"}'
-node scripts/db-query.js set-paper-cash --amount <current_cash + sale_proceeds>
 ```
 
 #### If PAPER_MODE=false (or unset) — Real execution
@@ -158,7 +157,7 @@ node scripts/db-query.js add-receipt --json '{
 
 ### Step 5: Update State
 
-**Paper mode:** Already done in Step 3 (add-paper-position + set-paper-cash). Skip to marking the order.
+**Paper mode:** Already done in Step 3 (add-paper-position / close-paper-position auto-manage cash). Skip to marking the order.
 
 **Real mode only** (paper mode already handled in Step 3):
 

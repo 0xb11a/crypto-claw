@@ -12,6 +12,7 @@ const GOPLUS_BASE = 'https://api.gopluslabs.io/api/v1';
 const CHAIN_IDS = {
   ethereum: '1', bsc: '56', polygon: '137',
   arbitrum: '42161', base: '8453',
+  // Solana uses a different endpoint — handled separately in main()
 };
 
 function parseArgs() {
@@ -32,7 +33,7 @@ async function main() {
   const config = parseArgs();
   const chainId = CHAIN_IDS[config.chain];
 
-  if (!chainId) {
+  if (!chainId && config.chain !== 'solana') {
     console.log(JSON.stringify({
       status: 'error',
       error: `Unsupported chain: ${config.chain}`,
@@ -41,11 +42,15 @@ async function main() {
   }
 
   try {
-    const url = `${GOPLUS_BASE}/token_security/${chainId}?contract_addresses=${config.address}`;
+    const url = config.chain === 'solana'
+      ? `${GOPLUS_BASE}/solana/token_security?contract_addresses=${config.address}`
+      : `${GOPLUS_BASE}/token_security/${chainId}?contract_addresses=${config.address}`;
     const res = await fetch(url);
     const data = await res.json();
 
-    const info = data.result?.[config.address.toLowerCase()];
+    // Solana addresses are base58 (case-sensitive); EVM addresses are hex (case-insensitive)
+    const key = config.chain === 'solana' ? config.address : config.address.toLowerCase();
+    const info = data.result?.[key];
     if (!info) {
       console.log(JSON.stringify({ status: 'not_found', address: config.address }));
       return;

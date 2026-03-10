@@ -189,7 +189,7 @@ node scripts/db-query.js get-trade-stats
 
 ### Paper Mode (Simulated Trading)
 ```bash
-# Get paper portfolio (positions + cash + value)
+# Get paper portfolio (cash, P&L, open positions, closed history, recent trades)
 node scripts/db-query.js get-paper-portfolio
 
 # Get/set paper cash balance
@@ -201,7 +201,7 @@ node scripts/db-query.js get-paper-positions
 node scripts/db-query.js get-paper-positions --status open
 node scripts/db-query.js get-paper-positions --status closed
 
-# Add a paper position
+# Add a paper position (auto-deducts value_usd from paper_cash)
 node scripts/db-query.js add-paper-position --json '{
   "id": "pp-001",
   "symbol": "TOKEN",
@@ -217,7 +217,7 @@ node scripts/db-query.js add-paper-position --json '{
 # Update paper position
 node scripts/db-query.js update-paper-position --id pp-001 --json '{"current_price": 0.0015, "value_usd": 15}'
 
-# Close paper position (auto-calculates P&L)
+# Close paper position (auto-calculates P&L, auto-adds sale proceeds to paper_cash)
 node scripts/db-query.js close-paper-position --id pp-001 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
 
 # Record a paper trade

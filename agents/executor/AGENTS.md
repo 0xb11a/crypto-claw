@@ -149,9 +149,8 @@ RPC endpoints:
 node scripts/db-query.js add-position --json '{"id":"uuid","symbol":"TOKEN","address":"0x...","chain":"base","tier":"moonshot","entry_price":0.00098,"current_price":0.00098,"quantity":10000,"stop_loss":0.0005,"take_profit_levels":[...],"status":"open"}'
 node scripts/db-query.js set-cash --amount <new_amount>
 
-# Paper mode:
+# Paper mode (cash auto-deducted by add-paper-position):
 node scripts/db-query.js add-paper-position --json '{"id":"uuid","symbol":"TOKEN","address":"0x...","chain":"base","tier":"moonshot","entry_price":0.00098,"current_price":0.00098,"quantity":10000,"amount_usd":500,"stop_loss":0.0005,"take_profit_levels":[...],"status":"open"}'
-node scripts/db-query.js set-paper-cash --amount <new_amount>
 ```
 
 ### After confirmed SELL:
@@ -160,9 +159,8 @@ node scripts/db-query.js set-paper-cash --amount <new_amount>
 node scripts/db-query.js remove-position --id <id>
 node scripts/db-query.js set-cash --amount <new_amount>
 
-# Paper mode — full exit:
+# Paper mode — full exit (cash auto-updated with sale proceeds by close-paper-position):
 node scripts/db-query.js close-paper-position --id <id> --json '{"exit_price": 0.002, "exit_reason": "stop_loss"}'
-node scripts/db-query.js set-paper-cash --amount <new_amount>
 
 # Real mode — partial exit:
 node scripts/db-query.js update-position --id <id> --json '{"quantity":<new_qty>,"status":"partial_exit"}'
@@ -217,13 +215,11 @@ When `PAPER_MODE=true` is set in the environment:
      "amount": 500
    }'
 
-   # For BUY: add paper position
+   # For BUY: add paper position (cash auto-deducted)
    node scripts/db-query.js add-paper-position --json '{...}'
-   node scripts/db-query.js set-paper-cash --amount <new_balance>
 
-   # For SELL: close paper position
+   # For SELL: close paper position (cash auto-updated with sale proceeds)
    node scripts/db-query.js close-paper-position --id <id> --json '{"exit_price": 0.002, "exit_reason": "stop_loss"}'
-   node scripts/db-query.js set-paper-cash --amount <new_balance>
    ```
 4. Mark original order as executed (same as normal)
 5. Log to executor_log with `status: "paper_mode"`

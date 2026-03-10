@@ -2,7 +2,7 @@
 
 ## Schedule
 Executor heartbeat runs every 1 minute. ALL checks run every heartbeat.
-This agent uses the cheapest model. Keep processing fast and mechanical.
+This agent runs on Ollama Cloud (DeepSeek). Keep processing fast and mechanical.
 
 ## Every Heartbeat — Run ALL:
 
@@ -14,7 +14,7 @@ node scripts/db-query.js get-sell-orders --pending
 ```
 For each pending order:
 1. Validate: position exists in DB (use `get-paper-positions` if paper mode), address matches, amount valid
-2. **If paper mode:** simulate at current price → `add-paper-trade` → `close-paper-position` → `set-paper-cash` → mark order executed
+2. **If paper mode:** simulate at current price → `add-paper-trade` → `close-paper-position` (auto-updates cash) → mark order executed
 3. **If real mode:** get swap quote → check slippage → build Safe tx → sign → submit
 4. Write receipt: `add-receipt` (real) or already recorded via `add-paper-trade` (paper)
 5. If executed: update position/cash, mark order executed
@@ -27,7 +27,7 @@ node scripts/db-query.js get-approved-trades --pending
 ```
 For each pending trade:
 1. Validate: `approved=1`, within tier limits, cash sufficient (use `get-paper-cash` if paper mode), price within 10%
-2. **If paper mode:** simulate → `add-paper-trade` → `add-paper-position` → `set-paper-cash` → mark executed
+2. **If paper mode:** simulate → `add-paper-trade` → `add-paper-position` (auto-deducts cash) → mark executed
 3. **If real mode:** get swap quote → check slippage → build Safe tx → sign → submit
 4. Write receipt/update state as appropriate
 

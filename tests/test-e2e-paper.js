@@ -6,9 +6,9 @@
  * — exactly as the agents call them. Tests the complete flow:
  *
  *   1. Research: auto-approve trade → add-approved-trade
- *   2. Executor: read pending → add-paper-trade → add-paper-position → set-paper-cash → mark executed
+ *   2. Executor: read pending → add-paper-trade → add-paper-position (auto-deducts cash) → mark executed
  *   3. Sentinel: get-paper-positions → detect stop-loss → add-sell-order
- *   4. Executor: read sell order → close-paper-position → add-paper-trade (sell) → set-paper-cash → mark executed
+ *   4. Executor: read sell order → close-paper-position (auto-updates cash) → add-paper-trade (sell) → mark executed
  *   5. Verify final state
  *   6. Happy path: buy → TP1 partial sell
  *
@@ -159,9 +159,9 @@ describe('E2E Step 2: Executor → Paper Buy', () => {
     assert(result.ok, 'add-paper-position must succeed');
   });
 
-  test('executor deducts paper cash', () => {
-    const result = dbq('set-paper-cash --amount 9500');
-    assert(result.ok, 'set-paper-cash must succeed');
+  test('executor verifies cash auto-deducted by add-paper-position', () => {
+    const result = dbq('get-paper-cash');
+    assertEqual(result.cash, 9500, 'Cash auto-deducted: $10,000 - $500 = $9,500');
   });
 
   test('executor marks trade as executed', () => {
@@ -284,10 +284,10 @@ describe('E2E Step 4: Executor → Paper Sell', () => {
     assert(result.ok, 'close-paper-position must succeed');
   });
 
-  test('executor updates paper cash with proceeds', () => {
+  test('executor verifies cash auto-updated by close-paper-position', () => {
     // Had $9,500 + $200 proceeds = $9,700
-    const result = dbq('set-paper-cash --amount 9700');
-    assert(result.ok, 'set-paper-cash must succeed');
+    const result = dbq('get-paper-cash');
+    assertEqual(result.cash, 9700, 'Cash auto-updated: $9,500 + $200 proceeds = $9,700');
   });
 
   test('executor marks sell order as executed', () => {
@@ -358,6 +358,11 @@ describe('E2E Step 5: Final State Verification', () => {
     const portfolio = dbq('get-paper-portfolio');
     assertEqual(portfolio.cash, 9700, 'Portfolio cash');
     assertEqual(portfolio.positions.length, 0, 'No open positions in summary');
+    assertEqual(portfolio.total_value, 9700, 'Total value matches cash when no positions');
+    assertEqual(portfolio.pnl, -300, 'P&L reflects the loss');
+    assert(portfolio.realized_pnl !== undefined, 'Has realized_pnl field');
+    assert(portfolio.closed_positions.length > 0, 'Has closed positions history');
+    assert(portfolio.recent_trades.length > 0, 'Has recent trades');
   });
 });
 
@@ -418,7 +423,7 @@ describe('E2E Step 6: Happy Path — TP1 Partial Sell', () => {
       status: 'open',
     })}'`);
 
-    dbq('set-paper-cash --amount 9300');
+    // Cash auto-deducted by add-paper-position: $9,700 - $400 = $9,300
     dbq('mark-trade-executed --id e2e-trade-002');
 
     const positions = dbq('get-paper-positions --status open');
