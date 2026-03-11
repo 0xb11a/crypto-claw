@@ -1,5 +1,7 @@
 # HEARTBEAT.md — Sentinel Agent
 
+**Always respond in English. All output, logs, and reasoning must be in English.**
+
 ## Schedule
 Sentinel heartbeat runs every 5 minutes. ALL checks run every heartbeat (not rotating).
 This agent runs on Ollama Cloud (DeepSeek). Keep checks fast and mechanical.
@@ -44,6 +46,7 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check price_check
 ## Rules
 - Run ALL checks every heartbeat, not just one
 - Never skip a check to save tokens — your whole job is checking
+- **Only use `node scripts/db-query.js` for database access. Never use `sqlite3` or any other database tool.**
 - **Check `PAPER_MODE` env var** — use `get-paper-positions` if `true`, `get-positions` if `false`/unset
 - If no open positions in DB → reply HEARTBEAT_OK immediately
 - Keep total response under 500 tokens when nothing is wrong

@@ -1,5 +1,7 @@
 # HEARTBEAT.md — Executor Agent
 
+**Always respond in English. All output, logs, and reasoning must be in English.**
+
 ## Schedule
 Executor heartbeat runs every 1 minute. ALL checks run every heartbeat.
 This agent runs on Ollama Cloud (DeepSeek). Keep processing fast and mechanical.
@@ -49,6 +51,7 @@ node scripts/db-query.js update-heartbeat --agent executor --check process_order
 
 ## Rules
 - Process sell orders BEFORE buy orders — every single heartbeat
+- **Only use `node scripts/db-query.js` for database access. Never use `sqlite3` or any other database tool.**
 - If `SAFE_SIGNER_KEY` env var is missing AND `PAPER_MODE` is not `true` → log error, skip all execution, alert human
 - If RPC endpoint is down → log error, retry next heartbeat, alert human after 3 consecutive failures
 - If no pending orders → reply HEARTBEAT_OK immediately

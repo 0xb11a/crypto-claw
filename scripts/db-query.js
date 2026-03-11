@@ -54,9 +54,12 @@
  *   add-liquidity-snapshot --address <addr> --chain <chain> --liquidity <usd>
  *
  *   # Tracked wallets
- *   get-tracked-wallets
+ *   get-tracked-wallets [--status <status>]
  *   add-tracked-wallet --json '<json>'
  *   remove-tracked-wallet --address <addr> --chain <chain>
+ *   propose-wallet --json '<json>'             # Fast insert, status=proposed
+ *   get-unscored-wallets [--limit 5]           # proposed + failed (retry<3)
+ *   update-wallet-score --address <addr> --chain <chain> --json '<json>'
  *
  *   # Heartbeat
  *   get-heartbeat --agent <name>
@@ -427,16 +430,62 @@ function handle(db, cmd) {
     // Tracked wallets
     // ============================================================
     case 'get-tracked-wallets': {
-      output(db.prepare('SELECT * FROM tracked_wallets ORDER BY created_at DESC').all());
+      const status = getArg('status');
+      const rows = status
+        ? db.prepare('SELECT * FROM tracked_wallets WHERE status = ? ORDER BY created_at DESC').all(status)
+        : db.prepare('SELECT * FROM tracked_wallets ORDER BY created_at DESC').all();
+      output(rows);
       break;
     }
     case 'add-tracked-wallet': {
       const w = parseJson();
+      const walletStatus = w.type ? 'scored' : 'proposed';
       db.prepare(`
-        INSERT OR REPLACE INTO tracked_wallets (address, chain, label, type, notes)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(w.address, w.chain, w.label, w.type, w.notes);
+        INSERT OR REPLACE INTO tracked_wallets (address, chain, label, type, notes, status, score, score_breakdown, source_token)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(w.address, w.chain, w.label, w.type, w.notes, w.status || walletStatus,
+        w.score || null, w.score_breakdown ? JSON.stringify(w.score_breakdown) : null, w.source_token || null);
       output({ ok: true, address: w.address });
+      break;
+    }
+    case 'propose-wallet': {
+      const w = parseJson();
+      if (!w.address || !w.chain) error('Missing address or chain');
+      db.prepare(`
+        INSERT OR IGNORE INTO tracked_wallets (address, chain, label, source_token, status)
+        VALUES (?, ?, ?, ?, 'proposed')
+      `).run(w.address, w.chain, w.label || null, w.source_token || null);
+      output({ ok: true, address: w.address, status: 'proposed' });
+      break;
+    }
+    case 'get-unscored-wallets': {
+      const limit = parseInt(getArg('limit') || '5');
+      const rows = db.prepare(`
+        SELECT * FROM tracked_wallets
+        WHERE status = 'proposed' OR (status = 'failed' AND retry_count < 3)
+        ORDER BY created_at ASC
+        LIMIT ?
+      `).all(limit);
+      output(rows);
+      break;
+    }
+    case 'update-wallet-score': {
+      const address = getArg('address');
+      const chain = getArg('chain');
+      const data = parseJson();
+      if (!address || !chain) error('Missing --address or --chain');
+      db.prepare(`
+        UPDATE tracked_wallets
+        SET score = ?, type = ?, score_breakdown = ?, status = ?,
+            scored_at = datetime('now'), score_error = ?, retry_count = CASE WHEN ? = 'failed' THEN retry_count + 1 ELSE retry_count END
+        WHERE address = ? AND chain = ?
+      `).run(
+        data.score || null, data.type || null,
+        data.score_breakdown ? (typeof data.score_breakdown === 'string' ? data.score_breakdown : JSON.stringify(data.score_breakdown)) : null,
+        data.status || 'scored', data.score_error || null, data.status || 'scored',
+        address, chain
+      );
+      output({ ok: true, address, chain, status: data.status || 'scored' });
       break;
     }
     case 'remove-tracked-wallet': {

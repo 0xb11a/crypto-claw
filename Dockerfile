@@ -22,6 +22,7 @@ RUN cd /home/openclaw/crypto-claw/scripts && npm install --omit=dev && npm rebui
 RUN mkdir -p \
   ${OPENCLAW_HOME}/agents/research/workspace/memory \
   ${OPENCLAW_HOME}/agents/research/workspace/skills \
+  ${OPENCLAW_HOME}/agents/research/workspace/scripts \
   ${OPENCLAW_HOME}/agents/research/agent \
   ${OPENCLAW_HOME}/agents/research/data \
   ${OPENCLAW_HOME}/agents/sentinel/workspace/memory \

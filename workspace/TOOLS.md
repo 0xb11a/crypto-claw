@@ -159,17 +159,57 @@ node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain base --l
 
 ### Wallet Tracking
 ```bash
-# Get tracked wallets
+# Get tracked wallets (all)
 node scripts/db-query.js get-tracked-wallets
 
-# Add a wallet
+# Get tracked wallets by status (proposed, scoring, scored, failed)
+node scripts/db-query.js get-tracked-wallets --status scored
+
+# Add a wallet (type: smart_money, dev, whale, deployer, trader, retail)
+# If type is set, defaults to status='scored'; if null, status='proposed'
 node scripts/db-query.js add-tracked-wallet --json '{
   "address": "0x...",
   "chain": "base",
   "label": "Smart Money #3",
-  "category": "smart_money"
+  "type": "smart_money"
+}'
+
+# Add a deployer wallet (link to token via notes)
+node scripts/db-query.js add-tracked-wallet --json '{
+  "address": "0x...",
+  "chain": "ethereum",
+  "label": "TOKEN deployer",
+  "type": "deployer",
+  "notes": "Deployer for TOKEN (0xTokenAddress)"
+}'
+
+# Remove a tracked wallet
+node scripts/db-query.js remove-tracked-wallet --address 0x... --chain base
+```
+
+### Wallet Scoring Pipeline
+```bash
+# Propose a wallet for background scoring (fast, no API calls)
+node scripts/db-query.js propose-wallet --json '{
+  "address": "0x...",
+  "chain": "base",
+  "label": "Top holder #3 of TOKEN",
+  "source_token": "0xTokenAddr"
+}'
+
+# Get wallets waiting to be scored (proposed + failed with retry < 3)
+node scripts/db-query.js get-unscored-wallets
+node scripts/db-query.js get-unscored-wallets --limit 10
+
+# Update a wallet's score (used by background scorer)
+node scripts/db-query.js update-wallet-score --address 0x... --chain base --json '{
+  "score": 78,
+  "type": "smart_money",
+  "score_breakdown": {"profitability":85,"reputation":70,"volume":80,"activity":75,"consistency":60},
+  "status": "scored"
 }'
 ```
+The background scorer (`score-wallets-bg.js`) runs every 10 minutes and processes up to 5 wallets per cycle. It respects API rate limits (6s between wallets). Wallets that fail scoring are retried up to 3 times.
 
 ### Heartbeat & Logs
 ```bash
@@ -273,15 +313,35 @@ node scripts/portfolio-summary.js
 
 ### Wallet Tracking
 ```bash
-# Check tracked smart money wallets for new activity
+# Check all tracked wallets for recent activity (reads from SQLite)
 node scripts/check-wallets.js
 
-# Check with position context
+# Check wallets related to open positions (dev/deployer wallets)
 node scripts/check-wallets.js --positions
+
+# Filter to a specific chain
+node scripts/check-wallets.js --chain base
+
+# Filter by wallet type
+node scripts/check-wallets.js --type smart_money
 
 # Check holder distribution for a token
 node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```
+
+### Wallet Scoring (Smart Money Detection)
+```bash
+# Score a wallet's trading profitability (0-100)
+node scripts/score-wallet.js --address <WALLET_ADDRESS> --chain <CHAIN>
+
+# Score and auto-add to tracked wallets if it qualifies
+node scripts/score-wallet.js --address <WALLET_ADDRESS> --chain <CHAIN> --add
+
+# Score with a custom label
+node scripts/score-wallet.js --address <WALLET_ADDRESS> --chain <CHAIN> --add --label "Top holder of TOKEN"
+```
+Uses Birdeye (Solana + EVM) and Zerion (EVM fallback) to analyze wallet PnL.
+Classifications: `smart_money` (75+), `whale` (55-74), `trader` (35-54), `retail` (0-34).
 
 ### Market Data
 ```bash
@@ -297,9 +357,14 @@ node scripts/narrative-check.js --narrative <ai|rwa|depin|memecoin|gaming>
 | Variable | Service | Used For |
 |----------|---------|----------|
 | `GOPLUS_API_KEY` | GoPlus | Contract security scanning |
-| `ETHERSCAN_API_KEY` | Etherscan | EVM contract verification, wallet tracking |
-| `BIRDEYE_API_KEY` | Birdeye | Solana token data (optional) |
-| `SOLSCAN_API_KEY` | Solscan | Solana contract data (optional) |
+| `ETHERSCAN_API_KEY` | Etherscan | Ethereum wallet tracking + contract verification |
+| `BASESCAN_API_KEY` | Basescan | Base L2 wallet tracking |
+| `ARBISCAN_API_KEY` | Arbiscan | Arbitrum L2 wallet tracking |
+| `OPTIMISM_API_KEY` | OP Etherscan | Optimism L2 wallet tracking |
+| `BIRDEYE_API_KEY` | Birdeye | Wallet PnL scoring (Solana + EVM) + token data |
+| `ZERION_API_KEY` | Zerion | Wallet PnL scoring (EVM fallback, free 3k/day) |
+| `SOLSCAN_API_KEY` | Solscan | Solana wallet tracking + contract data |
+| `HELIUS_API_KEY` | Helius | Solana wallet tracking (fallback if no Solscan) |
 
 DEXScreener and CoinGecko free tiers don't require API keys.
 

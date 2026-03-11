@@ -24,7 +24,8 @@ Patterns, lessons, scoring calibration — knowledge that applies across all fun
 
 - `workspace/MEMORY.md` — Curated long-term patterns (updated when pattern seen 3+ times)
 - `workspace/memory/YYYY-MM-DD.md` — Daily logs with timestamped entries
-- Backed up every 15 minutes via `memory-backup.sh` cron
+- Backed up every 15 minutes via `memory-backup.sh` (background shell loop in Docker, system cron for bare-metal)
+- Sentinel/Executor `memory/` dirs are symlinked to Research's workspace — the single backup job covers all three agents' writes
 
 ### Layer 2: Wallet Data (SQLite — per-fund)
 Positions, trades, orders, alerts, receipts — everything tied to a specific Safe wallet. One database per fund, identified by `SAFE_ID`.
@@ -75,7 +76,9 @@ scripts/                  # Node.js scripts
   check-contract.js       # GoPlus safety scan
   check-positions.js      # Current prices vs stops/TPs
   check-liquidity.js      # LP change detection
-  check-wallets.js        # Wallet activity tracking
+  check-wallets.js        # Wallet activity tracking (multi-chain, reads from SQLite)
+  score-wallet.js         # Smart money scoring via Birdeye/Zerion PnL
+  score-wallets-bg.js     # Background wallet scoring pipeline (runs one cycle, exits)
   market-overview.js      # BTC dominance, fear/greed
   portfolio-summary.js    # Allocation + P&L
   narrative-check.js      # Narrative momentum
@@ -137,7 +140,7 @@ PAPER_MODE=true PAPER_STARTING_BALANCE=5000 docker compose up -d
 
 # Manual setup (without Docker)
 SAFE_ID=my-fund ./setup.sh                      # Deploy agents to OpenClaw
-SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup cron
+SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup system cron
 ```
 
 ## Tech Stack

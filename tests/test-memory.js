@@ -212,6 +212,112 @@ if (dbAvailable) {
     });
   });
 
+  describe('Wallet Database — Wallet Scoring Pipeline', () => {
+    test('tracked_wallets has scoring columns', () => {
+      const cols = db.prepare("PRAGMA table_info(tracked_wallets)").all().map(c => c.name);
+      for (const col of ['status', 'score', 'score_breakdown', 'source_token', 'scored_at', 'score_error', 'retry_count']) {
+        assert(cols.includes(col), `tracked_wallets must have column '${col}'`);
+      }
+    });
+
+    test('propose wallet → appears in unscored query', () => {
+      db.prepare(`
+        INSERT OR IGNORE INTO tracked_wallets (address, chain, label, source_token, status)
+        VALUES ('0xtest_propose', 'base', 'Test proposed wallet', '0xtokensrc', 'proposed')
+      `).run();
+      const unscored = db.prepare(`
+        SELECT * FROM tracked_wallets
+        WHERE status = 'proposed' OR (status = 'failed' AND retry_count < 3)
+      `).all();
+      const found = unscored.find(w => w.address === '0xtest_propose');
+      assert(found, 'Proposed wallet must appear in unscored query');
+      assertEqual(found.status, 'proposed', 'Status must be proposed');
+      assertEqual(found.source_token, '0xtokensrc', 'source_token must be set');
+    });
+
+    test('update wallet score → no longer unscored', () => {
+      db.prepare(`
+        UPDATE tracked_wallets
+        SET status = 'scored', score = 78, type = 'smart_money',
+            score_breakdown = '{"profitability":85}', scored_at = datetime('now')
+        WHERE address = '0xtest_propose' AND chain = 'base'
+      `).run();
+      const unscored = db.prepare(`
+        SELECT * FROM tracked_wallets
+        WHERE (status = 'proposed' OR (status = 'failed' AND retry_count < 3))
+          AND address = '0xtest_propose'
+      `).all();
+      assertEqual(unscored.length, 0, 'Scored wallet must not appear in unscored query');
+      const scored = db.prepare("SELECT * FROM tracked_wallets WHERE address = '0xtest_propose'").get();
+      assertEqual(scored.score, 78, 'Score must be 78');
+      assertEqual(scored.type, 'smart_money', 'Type must be smart_money');
+    });
+
+    test('status CHECK rejects invalid values', () => {
+      let threw = false;
+      try {
+        db.prepare(`
+          INSERT INTO tracked_wallets (address, chain, status)
+          VALUES ('0xtest_bad_status', 'base', 'invalid_status')
+        `).run();
+      } catch (e) {
+        threw = true;
+      }
+      assert(threw, 'Invalid status should be rejected by CHECK constraint');
+    });
+
+    test('type allows trader and retail', () => {
+      for (const type of ['trader', 'retail']) {
+        db.prepare(`
+          INSERT OR REPLACE INTO tracked_wallets (address, chain, type, status)
+          VALUES ('0xtest_type_${type}', 'base', ?, 'scored')
+        `).run(type);
+        const row = db.prepare(`SELECT type FROM tracked_wallets WHERE address = '0xtest_type_${type}'`).get();
+        assertEqual(row.type, type, `Type '${type}' must be accepted`);
+        db.prepare(`DELETE FROM tracked_wallets WHERE address = '0xtest_type_${type}'`).run();
+      }
+    });
+
+    test('type allows NULL for unscored wallets', () => {
+      db.prepare(`
+        INSERT OR REPLACE INTO tracked_wallets (address, chain, status)
+        VALUES ('0xtest_null_type', 'base', 'proposed')
+      `).run();
+      const row = db.prepare("SELECT type FROM tracked_wallets WHERE address = '0xtest_null_type'").get();
+      assertEqual(row.type, null, 'NULL type must be accepted');
+      db.prepare("DELETE FROM tracked_wallets WHERE address = '0xtest_null_type'").run();
+    });
+
+    test('retry_count=2 still appears unscored; retry_count=3 does not', () => {
+      db.prepare(`
+        INSERT OR REPLACE INTO tracked_wallets (address, chain, status, retry_count)
+        VALUES ('0xtest_retry2', 'base', 'failed', 2)
+      `).run();
+      db.prepare(`
+        INSERT OR REPLACE INTO tracked_wallets (address, chain, status, retry_count)
+        VALUES ('0xtest_retry3', 'base', 'failed', 3)
+      `).run();
+      const unscored = db.prepare(`
+        SELECT address FROM tracked_wallets
+        WHERE status = 'proposed' OR (status = 'failed' AND retry_count < 3)
+      `).all().map(r => r.address);
+      assert(unscored.includes('0xtest_retry2'), 'retry_count=2 must appear in unscored');
+      assert(!unscored.includes('0xtest_retry3'), 'retry_count=3 must NOT appear in unscored');
+      db.prepare("DELETE FROM tracked_wallets WHERE address IN ('0xtest_retry2', '0xtest_retry3')").run();
+    });
+
+    test('heartbeat_state has system/wallet_scoring', () => {
+      const row = db.prepare("SELECT * FROM heartbeat_state WHERE agent = 'system' AND check_type = 'wallet_scoring'").get();
+      assert(row, 'system/wallet_scoring heartbeat state must exist');
+    });
+
+    // Cleanup
+    test('cleanup test data', () => {
+      db.prepare("DELETE FROM tracked_wallets WHERE address LIKE '0xtest_%'").run();
+      assert(true, 'Cleanup ok');
+    });
+  });
+
   // Close DB
   const { close } = await import('../scripts/db.js');
   close();

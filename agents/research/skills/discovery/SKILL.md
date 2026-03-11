@@ -60,6 +60,39 @@ From the raw results, apply these filters:
 - Token name copies a well-known project
 - No social presence at all
 
+### Step 2b: Propose Interesting Wallets for Background Scoring
+When holder-distribution.js or check-contract.js reveals interesting wallets (top holders, deployers), propose them for background scoring:
+```bash
+# Propose a wallet for background scoring (fast, no API calls)
+node scripts/db-query.js propose-wallet --json '{
+  "address": "<WALLET_ADDRESS>",
+  "chain": "<CHAIN>",
+  "label": "Top holder #3 of TOKEN",
+  "source_token": "<TOKEN_ADDRESS>"
+}'
+```
+
+The background scoring pipeline (`score-wallets-bg.js`) picks up proposed wallets every 10 minutes and scores them via Birdeye/Zerion APIs. No need to wait — discovery can continue immediately.
+
+**When to propose:**
+- Top 3 holders of any token passing Step 2 filters
+- Deployer address from check-contract.js
+- Wallets that appear across multiple discovered tokens
+- Any wallet flagged by check-wallets.js with recent noteworthy activity
+
+**For high-priority wallets** (e.g., wallet appears in 3+ discovered tokens), score immediately:
+```bash
+node scripts/score-wallet.js --address <WALLET_ADDRESS> --chain <CHAIN> --add --label "Multi-token holder"
+```
+
+**Classifications (set by background scorer):**
+| Score | Classification | Action |
+|-------|---------------|--------|
+| 75+ | `smart_money` | Auto-tracked, high signal |
+| 55-74 | `whale` | Auto-tracked, monitor |
+| 35-54 | `trader` | Tracked if appears in multiple tokens |
+| 0-34 | `retail` | Not monitored |
+
 ### Step 3: Output
 For each passing token, create a discovery entry:
 

@@ -38,8 +38,12 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 - **For each promising token: immediately run the full pipeline** (analysis → risk → trade proposal). Do NOT stop after scanning — proceed through every stage until you either propose a trade or reject the token. This is autonomous operation.
 
 **Smart Money**
-- Run `node scripts/check-wallets.js`
+- Run `node scripts/check-wallets.js` (only checks scored wallets)
 - Log new activity, flag if smart money enters a watched token
+- If new interesting wallets appear (from holder-distribution, check-contract), propose them for background scoring:
+  `node scripts/db-query.js propose-wallet --json '{"address":"<ADDR>","chain":"<CHAIN>","label":"<LABEL>","source_token":"<TOKEN_ADDR>"}'`
+- Background scorer runs every 10 min — wallets scoring 55+ auto-classified as whale/smart_money
+- For urgent wallets (multi-token overlap), score inline: `node scripts/score-wallet.js --address <ADDR> --chain <CHAIN> --add`
 
 **Narrative Trends**
 - Run `node scripts/narrative-check.js`

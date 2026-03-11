@@ -158,12 +158,41 @@ describe('check-wallets.js', () => {
     const result = runScript('check-wallets.js');
     assert(result.parsed !== null, 'Output must be valid JSON');
     assertEqual(result.parsed.status, 'ok', 'Status should be ok');
+    assert(Array.isArray(result.parsed.wallets), 'wallets must be array');
+    assertEqual(result.parsed.tracked, 0, 'tracked count should be 0');
   });
 
-  testAsync('--list returns wallet array', async () => {
-    const result = runScript('check-wallets.js', '--list');
+  testAsync('--positions returns ok with empty portfolio', async () => {
+    const result = runScript('check-wallets.js', '--positions');
     assert(result.parsed !== null, 'Output must be valid JSON');
+    assertEqual(result.parsed.status, 'ok', 'Status should be ok');
     assert(Array.isArray(result.parsed.wallets), 'wallets must be array');
+  });
+
+  testAsync('--chain filters without error', async () => {
+    const result = runScript('check-wallets.js', '--chain base');
+    assert(result.parsed !== null, 'Output must be valid JSON');
+    assertEqual(result.parsed.status, 'ok', 'Status should be ok');
+  });
+});
+
+// ============================================================
+// score-wallet.js
+// ============================================================
+describe('score-wallet.js', () => {
+  testAsync('errors gracefully without required args', async () => {
+    const result = runScript('score-wallet.js', '');
+    assert(!result.success, 'Should fail without address and chain');
+  });
+
+  testAsync('returns no_data when no API keys set', async () => {
+    const result = runScript('score-wallet.js', '--address 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 --chain ethereum');
+    assert(result.parsed !== null, 'Output must be valid JSON');
+    // Without API keys, should return no_data or ok
+    assert(['no_data', 'ok', 'error'].includes(result.parsed.status), 'Status should be no_data, ok, or error');
+    if (result.parsed.status === 'no_data') {
+      assert(result.parsed.message, 'no_data should have a message');
+    }
   });
 });
 

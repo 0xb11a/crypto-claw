@@ -373,6 +373,54 @@ const migrations = [
       INSERT OR IGNORE INTO portfolio_meta (key, value) VALUES ('paper_initial_balance', '10000');
     `,
   },
+  {
+    name: '003_tracked_wallets_deployer_type',
+    sql: `
+      -- Expand tracked_wallets type constraint to include 'deployer'
+      CREATE TABLE tracked_wallets_new (
+        address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        label TEXT,
+        type TEXT CHECK (type IN ('smart_money', 'dev', 'whale', 'deployer')),
+        notes TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (address, chain)
+      );
+      INSERT INTO tracked_wallets_new SELECT * FROM tracked_wallets;
+      DROP TABLE tracked_wallets;
+      ALTER TABLE tracked_wallets_new RENAME TO tracked_wallets;
+    `,
+  },
+  {
+    name: '004_wallet_scoring_pipeline',
+    sql: `
+      -- Recreate tracked_wallets with scoring pipeline columns
+      -- Expand type to include 'trader' and 'retail', allow NULL for unscored
+      CREATE TABLE tracked_wallets_new (
+        address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        label TEXT,
+        type TEXT CHECK (type IN ('smart_money', 'dev', 'whale', 'deployer', 'trader', 'retail')),
+        notes TEXT,
+        status TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'scoring', 'scored', 'failed')),
+        score INTEGER,
+        score_breakdown TEXT,
+        source_token TEXT,
+        scored_at TEXT,
+        score_error TEXT,
+        retry_count INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (address, chain)
+      );
+      INSERT INTO tracked_wallets_new (address, chain, label, type, notes, status, created_at)
+        SELECT address, chain, label, type, notes, 'scored', created_at FROM tracked_wallets;
+      DROP TABLE tracked_wallets;
+      ALTER TABLE tracked_wallets_new RENAME TO tracked_wallets;
+
+      -- Seed heartbeat state for background wallet scoring
+      INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('system', 'wallet_scoring');
+    `,
+  },
 ];
 
 export default { getDb, close };

@@ -25,10 +25,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
 MEMORY_BACKUP=false
+WALLET_SCORER=false
 
 for arg in "$@"; do
   case $arg in
     --memory-backup) MEMORY_BACKUP=true ;;
+    --wallet-scorer) WALLET_SCORER=true ;;
   esac
 done
 
@@ -215,11 +217,31 @@ fi
 
 # ============================================================
 # 8. Init git in agent memory (for memory backup)
+#    Each deployment uses its own branch: memory/<SAFE_ID>
 # ============================================================
 if command -v git &> /dev/null; then
+  MEMORY_BRANCH="memory/${SAFE_ID}"
   if [ ! -d "$RESEARCH_DIR/workspace/.git" ]; then
-    echo "Initializing git in agent memory workspace..."
-    (cd "$RESEARCH_DIR/workspace" && git init && git add -A && git commit -m "Initial CryptoClaw agent memory" 2>/dev/null) || true
+    echo "Initializing git in agent memory workspace (branch: $MEMORY_BRANCH)..."
+    cat > "$RESEARCH_DIR/workspace/.gitignore" << 'GITIGNORE'
+*
+!.gitignore
+!MEMORY.md
+!memory/
+!memory/*.md
+GITIGNORE
+    (cd "$RESEARCH_DIR/workspace" \
+      && git init \
+      && git checkout -b "$MEMORY_BRANCH" \
+      && git config user.name "CryptoClaw" \
+      && git config user.email "cryptoClaw@openclaw.local" \
+      && git add -A \
+      && git commit -m "Initial CryptoClaw agent memory" 2>/dev/null) || true
+  else
+    # Existing repo — ensure identity is set (was missing before this fix)
+    (cd "$RESEARCH_DIR/workspace" \
+      && git config user.name "CryptoClaw" \
+      && git config user.email "cryptoClaw@openclaw.local") 2>/dev/null || true
   fi
 fi
 
@@ -234,6 +256,16 @@ if [ "$MEMORY_BACKUP" = true ]; then
   CRON_CMD="*/15 * * * * $RESEARCH_DIR/workspace/scripts/memory-backup.sh $RESEARCH_DIR/workspace >> /tmp/crypto-claw-memory-backup.log 2>&1"
   (crontab -l 2>/dev/null | grep -v "memory-backup.sh"; echo "$CRON_CMD") | crontab -
   echo "  Cron installed: agent memory backup every 15 minutes"
+fi
+
+# ============================================================
+# 10. Install wallet scorer cron (optional)
+# ============================================================
+if [ "$WALLET_SCORER" = true ]; then
+  echo "Installing wallet scoring background cron..."
+  CRON_CMD="*/10 * * * * cd $RESEARCH_DIR/workspace && SAFE_ID=$SAFE_ID DB_PATH=$DB_DIR/$SAFE_ID.db node scripts/score-wallets-bg.js >> /tmp/crypto-claw-wallet-scorer.log 2>&1"
+  (crontab -l 2>/dev/null | grep -v "score-wallets-bg.js"; echo "$CRON_CMD") | crontab -
+  echo "  Cron installed: wallet scoring every 10 minutes"
 fi
 
 # ============================================================

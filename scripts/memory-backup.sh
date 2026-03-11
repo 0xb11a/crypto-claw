@@ -10,10 +10,15 @@
 # Does NOT back up wallet data (SQLite) — that lives in data/
 # and should be backed up separately (e.g., sqlite3 .backup).
 #
+# Symlink architecture: Sentinel and Executor memory/ dirs are
+# symlinked to Research's workspace. All three agents' writes land
+# in the same directory, so this single backup job covers everything.
+#
 # Usage:
 #   ./memory-backup.sh /path/to/workspace
 #
-# Designed to run as a cron job every 15 minutes:
+# Runs as a background shell loop in the container (entrypoint.sh),
+# or as a system cron job for bare-metal installs:
 #   */15 * * * * /path/to/memory-backup.sh /path/to/workspace
 # ============================================================
 
@@ -30,6 +35,21 @@ if [ ! -d "$WORKSPACE_DIR" ]; then
 fi
 
 cd "$WORKSPACE_DIR"
+
+# Repair repos initialized without .gitignore (entrypoint.sh bug pre-v1.1)
+if [ -d ".git" ] && [ ! -f ".gitignore" ]; then
+  cat > .gitignore << 'GITIGNORE'
+*
+!.gitignore
+!MEMORY.md
+!memory/
+!memory/*.md
+GITIGNORE
+  git rm -r --cached --quiet . 2>/dev/null || true
+  git add -A
+  git commit -q -m "auto: add .gitignore, clean tracked files" 2>/dev/null || true
+  echo "$LOG_PREFIX Repaired: created .gitignore and cleaned tracked files"
+fi
 
 # Ensure git is initialized
 if [ ! -d ".git" ]; then
@@ -85,14 +105,56 @@ git commit -m "$COMMIT_MSG" --quiet
 
 echo "$LOG_PREFIX Committed: $COMMIT_MSG"
 
-# Push if remote is configured
+# Sync with remote if configured
+# Each deployment pushes to its own branch: memory/<SAFE_ID>
+# No pull needed — only one deployment writes to its branch, so zero conflicts.
 if git remote get-url origin &>/dev/null; then
-  BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  if git push origin "$BRANCH" --quiet 2>/dev/null; then
-    echo "$LOG_PREFIX Pushed to origin/$BRANCH"
-  else
-    echo "$LOG_PREFIX WARNING: Push failed (will retry next run)"
+  MEMORY_BRANCH="memory/${SAFE_ID:-default}"
+  SYNC_STATUS_FILE=".git/memory-sync-status"
+
+  # --- Self-healing preamble (run before every sync attempt) ---
+
+  # Abort stuck rebase from interrupted operations
+  if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
+    echo "$LOG_PREFIX Aborting stuck rebase..."
+    git rebase --abort 2>/dev/null || true
   fi
+
+  # Fix detached HEAD or wrong branch
+  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
+  if [ "$CURRENT_BRANCH" != "$MEMORY_BRANCH" ]; then
+    echo "$LOG_PREFIX Switching to branch $MEMORY_BRANCH (was: $CURRENT_BRANCH)"
+    git checkout -B "$MEMORY_BRANCH" --quiet 2>/dev/null || true
+  fi
+
+  # Reset dirty index from interrupted operations
+  git reset --quiet 2>/dev/null || true
+
+  # --- Push-only sync (no pull, no rebase, no merge) ---
+
+  PUSH_ERR=$(git push origin "HEAD:refs/heads/$MEMORY_BRANCH" --quiet 2>&1) && {
+    echo "$LOG_PREFIX Pushed to $MEMORY_BRANCH"
+    # Record success
+    printf '{"last_push":"%s","consecutive_failures":0,"last_error":null}\n' "$TIMESTAMP" > "$SYNC_STATUS_FILE"
+  } || {
+    # Read previous failure count
+    PREV_FAILURES=0
+    if [ -f "$SYNC_STATUS_FILE" ]; then
+      PREV_FAILURES=$(grep -o '"consecutive_failures":[0-9]*' "$SYNC_STATUS_FILE" | grep -o '[0-9]*' || echo "0")
+    fi
+    FAILURES=$((PREV_FAILURES + 1))
+
+    # Escalate from WARNING to ERROR after 3+ consecutive failures
+    if [ "$FAILURES" -ge 3 ]; then
+      echo "$LOG_PREFIX ERROR: Push failed ($FAILURES consecutive) — $PUSH_ERR"
+    else
+      echo "$LOG_PREFIX WARNING: Push failed ($FAILURES consecutive) — $PUSH_ERR"
+    fi
+
+    # Record failure
+    SAFE_ERR=$(echo "$PUSH_ERR" | tr '"' "'")
+    printf '{"last_push":null,"consecutive_failures":%d,"last_error":"%s"}\n' "$FAILURES" "$SAFE_ERR" > "$SYNC_STATUS_FILE"
+  }
 else
   echo "$LOG_PREFIX No remote configured — commit is local only"
   echo "$LOG_PREFIX To enable push: git remote add origin <your-private-repo-url>"

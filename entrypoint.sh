@@ -47,6 +47,15 @@ mkdir -p "$RESEARCH_WS/memory"
 mkdir -p "$RESEARCH_WS/skills"
 mkdir -p "$RESEARCH_WS/scripts"
 
+# Verify workspace dirs are writable (catches stale volume ownership from older builds)
+for dir in "$RESEARCH_WS/scripts" "$RESEARCH_WS/memory" "$RESEARCH_WS/skills"; do
+  if [ -d "$dir" ] && [ ! -w "$dir" ]; then
+    echo "[entrypoint] ERROR: $dir is not writable (likely root-owned from a previous build)."
+    echo "[entrypoint] Fix: docker compose down -v && docker compose up -d"
+    exit 1
+  fi
+done
+
 # Code-owned files — always overwrite from templates
 for file in TOOLS.md BOOT.md IDENTITY.md; do
   if [ -f "$TEMPLATES_DIR/$file" ]; then
@@ -86,18 +95,52 @@ cp /home/openclaw/crypto-claw/scripts/memory-backup.sh "$RESEARCH_WS/scripts/mem
 chmod +x "$RESEARCH_WS/scripts/memory-backup.sh"
 ln -sfn "$NODE_MODULES_SRC" "$RESEARCH_WS/scripts/node_modules"
 
-# Init git repo for memory backup (if not already initialized)
+# Init git repo for memory backup
+# Each deployment uses its own branch: memory/<SAFE_ID>
+MEMORY_BRANCH="memory/${SAFE_ID}"
+
 if [ ! -d "$RESEARCH_WS/.git" ]; then
-  echo "[entrypoint]   Initializing git in research workspace..."
-  (cd "$RESEARCH_WS" && git init -q && git add -A && git commit -q -m "Initial CryptoClaw agent memory" 2>/dev/null) || true
+  echo "[entrypoint]   Initializing git in research workspace (branch: $MEMORY_BRANCH)..."
+  cat > "$RESEARCH_WS/.gitignore" << 'GITIGNORE'
+*
+!.gitignore
+!MEMORY.md
+!memory/
+!memory/*.md
+GITIGNORE
+  (cd "$RESEARCH_WS" && git init -q \
+    && git checkout -b "$MEMORY_BRANCH" \
+    && git config user.name "CryptoClaw" \
+    && git config user.email "cryptoClaw@openclaw.local" \
+    && git add -A && git commit -q -m "Initial CryptoClaw agent memory" 2>/dev/null) || true
+else
+  # Existing repo — ensure identity and correct branch (upgrade path)
+  (cd "$RESEARCH_WS" \
+    && git config user.name "CryptoClaw" \
+    && git config user.email "cryptoClaw@openclaw.local") 2>/dev/null || true
+
+  # Abort stuck rebase if present
+  if [ -d "$RESEARCH_WS/.git/rebase-merge" ] || [ -d "$RESEARCH_WS/.git/rebase-apply" ]; then
+    echo "[entrypoint]   Aborting stuck rebase..."
+    (cd "$RESEARCH_WS" && git rebase --abort 2>/dev/null) || true
+  fi
+
+  # Switch to deployment branch if not already on it
+  CURRENT_BRANCH=$(cd "$RESEARCH_WS" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
+  if [ "$CURRENT_BRANCH" != "$MEMORY_BRANCH" ]; then
+    echo "[entrypoint]   Switching from '$CURRENT_BRANCH' to '$MEMORY_BRANCH'..."
+    (cd "$RESEARCH_WS" && git checkout -B "$MEMORY_BRANCH" --quiet) 2>/dev/null || true
+  fi
 fi
 
 # Configure git remote for memory push (if MEMORY_GIT_REMOTE is set)
 if [ -n "${MEMORY_GIT_REMOTE:-}" ]; then
   (cd "$RESEARCH_WS" && git remote remove origin 2>/dev/null; git remote add origin "$MEMORY_GIT_REMOTE") || true
-  # Log remote without exposing token
+  # Fetch remote refs (non-blocking — ok if remote is unreachable)
+  (cd "$RESEARCH_WS" && git fetch origin --quiet 2>/dev/null) || true
+  # Log remote and branch without exposing token
   SAFE_REMOTE=$(echo "$MEMORY_GIT_REMOTE" | sed 's|://[^@]*@|://***@|')
-  echo "[entrypoint]   Memory git remote: $SAFE_REMOTE"
+  echo "[entrypoint]   Memory git remote: $SAFE_REMOTE (branch: $MEMORY_BRANCH)"
 fi
 
 echo "[entrypoint]   Research workspace ready"
@@ -149,6 +192,8 @@ echo "[entrypoint] Setting up symlinks..."
 mkdir -p "$DB_DIR"
 
 # Memory dir: sentinel/executor → research (shared daily logs)
+# This symlink architecture means all three agents' memory writes land in
+# research's workspace. The single memory-backup loop covers everything.
 for ws in "$SENTINEL_WS" "$EXECUTOR_WS"; do
   target="$ws/memory"
   if [ ! -L "$target" ]; then
@@ -304,8 +349,8 @@ ensure_cron_jobs() {
   JOB_COUNT=$(echo "$EXISTING" | grep -c '"name"' || true)
 
   # If jobs already exist, skip creation entirely
-  if [ "$JOB_COUNT" -ge 4 ]; then
-    echo "[cron-setup] All 4 jobs already exist, skipping"
+  if [ "$JOB_COUNT" -ge 3 ]; then
+    echo "[cron-setup] All 3 jobs already exist, skipping"
     return 0
   fi
 
@@ -320,15 +365,11 @@ ensure_cron_jobs() {
 
   add_if_missing "executor-poll" \
     --every "1m" --agent executor --session isolated --light-context --no-deliver \
-    --message "Read HEARTBEAT.md. Check for approved trades and pending sell orders. Execute any that are ready. Reply HEARTBEAT_OK if nothing to do."
+    --message "Respond in English only. Read HEARTBEAT.md. Check for approved trades and pending sell orders. Execute any that are ready. Reply HEARTBEAT_OK if nothing to do."
 
   add_if_missing "sentinel-watch" \
     --every "5m" --agent sentinel --session isolated --light-context --no-deliver \
-    --message "Read HEARTBEAT.md. Run ALL checks every cycle: price check, liquidity check, wallet check. Write sell orders and alerts to DB as needed. Log results via db-query.js. If no open positions or nothing wrong, reply HEARTBEAT_OK."
-
-  add_if_missing "memory-backup" \
-    --every "15m" --agent research --session isolated --light-context --no-deliver \
-    --message "Run: bash scripts/memory-backup.sh /home/openclaw/.openclaw/agents/research/workspace. Reply HEARTBEAT_OK."
+    --message "Respond in English only. Read HEARTBEAT.md. Run ALL checks every cycle: price check, liquidity check, wallet check. Write sell orders and alerts to DB as needed. Log results via db-query.js. If no open positions or nothing wrong, reply HEARTBEAT_OK."
 
   add_if_missing "research-cycle" \
     --every "30m" --agent research --session isolated --no-deliver \
@@ -338,10 +379,45 @@ ensure_cron_jobs() {
 }
 
 # ============================================================
+# 5d. Memory backup background loop
+#     Runs memory-backup.sh every 15 minutes as a plain shell loop.
+#     This replaces the previous agent cron approach which wasted
+#     Sonnet API tokens just to execute a bash script.
+# ============================================================
+run_memory_backup_loop() {
+  sleep 60  # wait for initial startup
+  while true; do
+    if [ -x "$RESEARCH_WS/scripts/memory-backup.sh" ]; then
+      bash "$RESEARCH_WS/scripts/memory-backup.sh" "$RESEARCH_WS" 2>&1 | \
+        sed 's/^/[memory-backup-bg] /'
+    fi
+    sleep 900  # 15 minutes
+  done
+}
+
+# ============================================================
+# 5e. Wallet scoring background loop
+#     Runs score-wallets-bg.js every 10 minutes to pick up
+#     proposed wallets and score them via Birdeye/Zerion APIs.
+# ============================================================
+run_wallet_scoring_loop() {
+  sleep 120  # wait for startup + first heartbeat
+  while true; do
+    SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" \
+      node "$RESEARCH_WS/scripts/score-wallets-bg.js" 2>&1 | \
+      sed 's/^/[wallet-scorer-bg] /'
+    sleep 600  # 10 minutes
+  done
+}
+
+# ============================================================
 # 6. Start OpenClaw gateway
-#    Launch cron setup in background (needs running gateway),
-#    then exec the gateway as PID 1.
+#    Launch cron setup, memory backup, and wallet scoring in
+#    background (cron needs running gateway), then exec the
+#    gateway as PID 1.
 # ============================================================
 echo "[entrypoint] Starting OpenClaw gateway..."
+run_memory_backup_loop &
+run_wallet_scoring_loop &
 ensure_cron_jobs &
 exec openclaw gateway run --port "$GATEWAY_PORT"
