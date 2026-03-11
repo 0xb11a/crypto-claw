@@ -11,8 +11,9 @@ CryptoClaw is a three-agent crypto research and portfolio management system buil
 Three agents communicate through a shared SQLite database:
 
 - **Research Agent** (`agents/research/`) — Runs on Sonnet, 30-minute heartbeat. Handles discovery, analysis, risk assessment, and trade proposals. Has 4 skills: discovery, analyst, risk, portfolio.
-- **Sentinel Agent** (`agents/sentinel/`) — Runs on Haiku, 5-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders. Has 1 skill: sentinel.
-- **Executor Agent** (`agents/executor/`) — Runs on Haiku, 1-minute heartbeat. Reads approved trades and sell orders, validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
+- **Sentinel Agent** (`agents/sentinel/`) — Runs on DeepSeek via Ollama Cloud, 5-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders. Has 1 skill: sentinel.
+- **Executor Agent** (`agents/executor/`) — Runs on DeepSeek via Ollama Cloud, 1-minute heartbeat. Reads approved trades and sell orders, validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
+- **Ollama Cloud** — Sentinel and Executor use DeepSeek V3.1 via Ollama Cloud's API (`https://ollama.com/api/chat`). No sidecar needed — OpenClaw's built-in Ollama provider sends `OLLAMA_API_KEY` as a Bearer token directly.
 
 ## Memory System — Two Layers
 
@@ -55,7 +56,7 @@ All agent-to-agent communication goes through the database via `db-query.js`.
 ## Project Structure
 
 ```
-agents/research/          # Research Agent config (AGENTS.md, SOUL.md, HEARTBEAT.md, openclaw.json, skills/)
+agents/research/          # Research Agent config (AGENTS.md, SOUL.md, HEARTBEAT.md, skills/)
 agents/sentinel/          # Sentinel Agent config (same structure, fewer skills)
 agents/executor/          # Executor Agent config (same structure, 1 skill)
 workspace/                # Shared workspace (copied to all agents by setup.sh)
@@ -158,6 +159,7 @@ SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup cr
 - **Safety rules are hard-coded** in `agents/research/AGENTS.md` under "Portfolio Rules" and in `agents/executor/AGENTS.md` under "Pre-Execution Validation." Never weaken these without explicit human approval.
 - **Private keys** live ONLY in environment variables. Never in any file, log, receipt, or agent instruction.
 - **SAFE_ID** env var determines which database file is used. One DB per fund/wallet.
+- **OLLAMA_API_KEY** env var authenticates with Ollama Cloud for DeepSeek model access (Sentinel/Executor).
 
 ## Safety Rules (Do Not Weaken)
 
@@ -197,10 +199,11 @@ Paper mode (`PAPER_MODE=true`) runs the full system autonomously without touchin
 
 ## When Modifying
 
-- **Adding a new script:** Add it to `scripts/`, document it in `workspace/TOOLS.md`, add output validation to `tests/test-scripts.js`, and add it to the appropriate agent's copy list in `setup.sh`.
+- **Adding a new script:** Add it to `scripts/`, document it in `workspace/TOOLS.md`, add output validation to `tests/test-scripts.js`, add it to the appropriate agent's copy list in `setup.sh`, and add it to the agent's shell allowlist in `entrypoint.sh` (see per-agent `agents.list[N]` overrides).
 - **Adding a new DB table:** Add a migration in `scripts/db.js` (increment migration number), add CLI commands in `db-query.js`, add schema tests to `tests/test-memory.js`, document commands in `workspace/TOOLS.md`.
 - **Changing safety rules:** Update `agents/research/AGENTS.md` AND `agents/executor/AGENTS.md` (if execution-related) AND `tests/test-safety.js` AND `tests/test-executor.js` — tests enforce the exact limits.
-- **Adding a fourth agent:** Follow the pattern in `agents/executor/` — create a directory with AGENTS.md, SOUL.md, HEARTBEAT.md, and skills/. Add directory creation, file copy, and symlink logic to `setup.sh` and `build-templates.sh`. Add heartbeat_state seeds in the db.js migration. Update `docker-compose.yml` if it needs different resources.
+- **Adding a fourth agent:** Follow the pattern in `agents/executor/` — create a directory with AGENTS.md, SOUL.md, HEARTBEAT.md, and skills/. Add per-agent config overrides on `agents.list[N]` in `entrypoint.sh` (tools, permissions, memory, compaction — follow least privilege). Add directory creation, file copy, and symlink logic to `setup.sh` and `build-templates.sh`. Add heartbeat_state seeds in the db.js migration. Update `docker-compose.yml` if it needs different resources.
+- **Changing agent tool/permission config:** OpenClaw global config applies to all agents — per-agent tool restriction is enforced by **script deployment** (which .js files each agent gets in its workspace) and **skills directories** (each agent only sees its own skills). Edit `entrypoint.sh` for global settings, `build-templates.sh`/`setup.sh` for per-agent script deployment.
 - **Modifying the pipeline:** Update `tests/test-pipeline.js` to verify the new data flow between stages.
 - **Changing Safe wallet config:** Update `.env.example`, `docker-compose.yml`, and `agents/executor/AGENTS.md`. Never put keys in files.
 - **Multi-fund deployment:** Set different `SAFE_ID` values. Each gets its own SQLite database. Agent memory (markdown) is shared across all deployments.

@@ -44,6 +44,9 @@ services:
       # Required: Anthropic API key
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 
+      # Ollama Cloud (direct API — no sidecar)
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+
       # Fund identity — determines which SQLite database to use
       - SAFE_ID=${SAFE_ID:-default}
 
@@ -73,8 +76,10 @@ services:
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
       - OPENCLAW_GATEWAY_BIND=${OPENCLAW_GATEWAY_BIND:-lan}
       - RESEARCH_MODEL=${RESEARCH_MODEL:-anthropic/claude-sonnet-4-5-20250929}
-      - SENTINEL_MODEL=${SENTINEL_MODEL:-anthropic/claude-haiku-4-5-20251001}
-      - EXECUTOR_MODEL=${EXECUTOR_MODEL:-anthropic/claude-haiku-4-5-20251001}
+      - SENTINEL_MODEL=${SENTINEL_MODEL:-ollama/deepseek-v3.1:671b-cloud}
+      - EXECUTOR_MODEL=${EXECUTOR_MODEL:-ollama/deepseek-v3.1:671b-cloud}
+
+      # App variables
       - NODE_ENV=production
       - LOG_LEVEL=info
 

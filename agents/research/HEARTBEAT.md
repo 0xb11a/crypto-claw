@@ -19,10 +19,10 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 
 1. Read `memory/heartbeat-state.json` for last-run timestamps
 2. Determine which check is most overdue (respect active hours)
-3. Run that ONE check
+3. Run that check
 4. Update timestamp in `memory/heartbeat-state.json`
-5. If check finds something actionable → log + alert human
-6. If nothing → reply HEARTBEAT_OK
+5. **If the check produces discoveries → run the FULL pipeline autonomously: discovery → analysis → risk → trade proposal.** Do not stop after scanning. You decide what to buy — that is your job.
+6. If nothing actionable → reply HEARTBEAT_OK
 
 ## Check Details
 
@@ -34,7 +34,8 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 **New Token Scan**
 - Run `node scripts/scan-tokens.js --chain all --sort trending --limit 30`
 - Filter through discovery skill criteria
-- Log discoveries, trigger analysis if promising
+- Log discoveries to daily memory
+- **For each promising token: immediately run the full pipeline** (analysis → risk → trade proposal). Do NOT stop after scanning — proceed through every stage until you either propose a trade or reject the token. This is autonomous operation.
 
 **Smart Money**
 - Run `node scripts/check-wallets.js`

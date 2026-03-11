@@ -2,7 +2,7 @@
 
 ## Schedule
 Sentinel heartbeat runs every 5 minutes. ALL checks run every heartbeat (not rotating).
-This agent uses the cheapest model available. Keep checks fast and mechanical.
+This agent runs on Ollama Cloud (DeepSeek). Keep checks fast and mechanical.
 
 ## Every Heartbeat — Run ALL:
 

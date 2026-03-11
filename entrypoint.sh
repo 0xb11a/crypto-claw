@@ -21,8 +21,8 @@ SAFE_ID="${SAFE_ID:-default}"
 GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
 RESEARCH_MODEL="${RESEARCH_MODEL:-anthropic/claude-sonnet-4-5-20250929}"
-SENTINEL_MODEL="${SENTINEL_MODEL:-anthropic/claude-haiku-4-5-20251001}"
-EXECUTOR_MODEL="${EXECUTOR_MODEL:-anthropic/claude-haiku-4-5-20251001}"
+SENTINEL_MODEL="${SENTINEL_MODEL:-ollama/deepseek-v3.1:671b-cloud}"
+EXECUTOR_MODEL="${EXECUTOR_MODEL:-ollama/deepseek-v3.1:671b-cloud}"
 PAPER_MODE="${PAPER_MODE:-false}"
 PAPER_STARTING_BALANCE="${PAPER_STARTING_BALANCE:-10000}"
 
@@ -122,6 +122,9 @@ for agent in sentinel executor; do
   for file in TOOLS.md IDENTITY.md; do
     ln -sf "$TEMPLATES_DIR/$file" "$ws/$file"
   done
+
+  # MEMORY.md — symlink to research's curated patterns (shared across all agents)
+  ln -sf "$RESEARCH_WS/MEMORY.md" "$ws/MEMORY.md"
 
   # Per-agent skills
   if [ -d "$tpl/skills" ]; then
@@ -244,21 +247,40 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
     openclaw config set "agents.list[$i].heartbeat" '{"every":"0m"}' --strict-json 2>/dev/null || true
   done
 
-  # --- Disable bundled skills and web search (agents use scripts for data) ---
+  # --- Global config (applies to all agents) ---
+  # Per-agent tool restriction is enforced by script deployment:
+  #   - Research gets all scripts (build-templates.sh / entrypoint.sh section 1)
+  #   - Sentinel gets only: db-query, check-positions, check-liquidity, check-wallets
+  #   - Executor gets only: db-query, execute-trade, check-safe-status
+  # Per-agent skills are enforced by skills/ directory deployment (each agent has its own).
+  # The safeBins allowlist uses "node scripts/*" — agents can only run scripts that
+  # exist in their workspace, so the allowlist + deployment = least privilege.
   openclaw config set 'skills.allowBundled' '[]' --strict-json
-  openclaw config set 'tools.webSearch' '{"enabled":false}' --strict-json
-  openclaw config set 'tools.browser' '{"enabled":false}' --strict-json
+  openclaw config set 'browser' '{"enabled":false}' --strict-json
+  openclaw config set 'tools.web.search' '{"enabled":false}' --strict-json
+  openclaw config set 'tools.web.fetch' '{"enabled":true}' --strict-json
+  openclaw config set 'tools.exec' '{"security":"allowlist","ask":"on-miss","safeBins":["node scripts/*","cat memory/*","ls memory/","echo *"],"safeBinProfiles":{"node scripts/*":{"minPositional":1,"maxPositional":10,"deniedFlags":["-e","--eval","--input-type","-p","--print","-c","--check"]},"cat memory/*":{"minPositional":1,"maxPositional":5},"ls memory/":{"minPositional":0,"maxPositional":2},"echo *":{"minPositional":0,"maxPositional":10}}}' --strict-json
 
   # --- Memory: compaction flush + search ---
   openclaw config set 'agents.defaults.compaction.reserveTokensFloor' 40000
-  openclaw config set 'agents.defaults.compaction.memoryFlush' '{"enabled":true,"softThresholdTokens":4000}' --strict-json
-  openclaw config set 'agents.defaults.memory.search' '{"enabled":true,"hybrid":true,"embeddingModel":"local"}' --strict-json
-  openclaw config set 'agents.defaults.cacheTTL' 300
-  echo "[entrypoint]   Memory: flush at 156K tokens, hybrid search enabled"
+  openclaw config set 'agents.defaults.compaction.memoryFlush' '{"enabled":true,"softThresholdTokens":4000,"systemPrompt":"Session nearing compaction. Store durable memories now.","prompt":"Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."}' --strict-json
+  openclaw config set 'agents.defaults.memorySearch' '{"enabled":true,"provider":"local","local":{"modelPath":"hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf"},"query":{"hybrid":{"enabled":true,"vectorWeight":0.7,"textWeight":0.3}},"cache":{"enabled":true}}' --strict-json
+  openclaw config set 'agents.defaults.contextPruning' '{"mode":"cache-ttl","ttl":"5m"}' --strict-json
+  openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"open"}' --strict-json
+  echo "[entrypoint]   Memory: flush at compaction, hybrid search enabled, context pruning 5m TTL"
 
   echo "[entrypoint] First-run configuration complete"
 else
   echo "[entrypoint] State volume exists — preserving config/pairing/sessions"
+fi
+
+# ============================================================
+# 5c. Configure Ollama Cloud provider (runs every start — API key may change)
+# ============================================================
+if [ -n "${OLLAMA_API_KEY:-}" ]; then
+  OLLAMA_CONFIG="{\"baseUrl\":\"https://ollama.com\",\"api\":\"ollama\",\"apiKey\":\"$OLLAMA_API_KEY\",\"models\":[{\"id\":\"deepseek-v3.1:671b-cloud\",\"name\":\"DeepSeek V3.1 Cloud\"}]}"
+  openclaw config set 'models.providers.ollama' "$OLLAMA_CONFIG" --strict-json
+  echo "[entrypoint] Ollama Cloud provider configured"
 fi
 
 # ============================================================
@@ -310,7 +332,7 @@ ensure_cron_jobs() {
 
   add_if_missing "research-cycle" \
     --every "30m" --agent research --session isolated --no-deliver \
-    --message "Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. Update timestamps via db-query.js. Log results to daily memory. If nothing actionable, reply HEARTBEAT_OK."
+    --message "Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. If the check produces discoveries, run the FULL pipeline autonomously: analysis, risk assessment, trade proposal. Do not stop after scanning — you decide what to buy. Update timestamps via db-query.js. Log results to daily memory. If nothing actionable, reply HEARTBEAT_OK."
 
   echo "[cron-setup] Done"
 }

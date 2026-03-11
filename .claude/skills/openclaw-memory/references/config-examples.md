@@ -20,17 +20,32 @@ Complete config for most users. No extra installs needed.
         "reserveTokensFloor": 40000,
         "memoryFlush": {
           "enabled": true,
-          "softThresholdTokens": 4000
+          "softThresholdTokens": 4000,
+          "systemPrompt": "Session nearing compaction. Store durable memories now.",
+          "prompt": "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."
         }
       },
-      "memory": {
-        "search": {
-          "enabled": true,
-          "hybrid": true,
-          "embeddingModel": "local"
+      "memorySearch": {
+        "enabled": true,
+        "provider": "local",
+        "local": {
+          "modelPath": "hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf"
+        },
+        "query": {
+          "hybrid": {
+            "enabled": true,
+            "vectorWeight": 0.7,
+            "textWeight": 0.3
+          }
+        },
+        "cache": {
+          "enabled": true
         }
       },
-      "cacheTTL": 300
+      "contextPruning": {
+        "mode": "cache-ttl",
+        "ttl": "5m"
+      }
     }
   }
 }
@@ -54,21 +69,23 @@ Same as Track A but with additional directories indexed for search.
         "reserveTokensFloor": 40000,
         "memoryFlush": {
           "enabled": true,
-          "softThresholdTokens": 4000
+          "softThresholdTokens": 4000,
+          "systemPrompt": "Session nearing compaction. Store durable memories now.",
+          "prompt": "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."
         }
       },
-      "memory": {
-        "search": {
-          "enabled": true,
-          "hybrid": true,
-          "embeddingModel": "local",
-          "extraPaths": [
-            "/path/to/project/docs",
-            "/path/to/notes"
-          ]
-        }
+      "memorySearch": {
+        "enabled": true,
+        "provider": "local",
+        "extraPaths": [
+          "~/Documents/Obsidian/ProjectNotes/**/*.md",
+          "~/Documents/specs/**/*.md"
+        ]
       },
-      "cacheTTL": 300
+      "contextPruning": {
+        "mode": "cache-ttl",
+        "ttl": "5m"
+      }
     }
   }
 }
@@ -88,20 +105,29 @@ For users with thousands of files (Obsidian vaults, large doc collections).
         "reserveTokensFloor": 40000,
         "memoryFlush": {
           "enabled": true,
-          "softThresholdTokens": 4000
+          "softThresholdTokens": 4000,
+          "systemPrompt": "Session nearing compaction. Store durable memories now.",
+          "prompt": "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."
         }
       },
-      "memory": {
-        "backend": "qmd",
-        "qmd": {
-          "paths": [
-            "/path/to/obsidian/vault",
-            "/path/to/project/docs"
-          ],
-          "indexSessions": true
-        }
+      "contextPruning": {
+        "mode": "cache-ttl",
+        "ttl": "5m"
+      }
+    }
+  },
+  "memory": {
+    "backend": "qmd",
+    "qmd": {
+      "searchMode": "search",
+      "includeDefaultMemory": true,
+      "sessions": {
+        "enabled": true
       },
-      "cacheTTL": 300
+      "paths": [
+        { "name": "obsidian", "path": "~/Documents/Obsidian", "pattern": "**/*.md" },
+        { "name": "docs", "path": "~/Documents/project-docs", "pattern": "**/*.md" }
+      ]
     }
   }
 }
@@ -136,6 +162,29 @@ If you change nothing else, at least enable and tune the flush:
 
 ---
 
+## Context Pruning
+
+Session pruning trims old tool results in-memory to delay compaction and improve caching. The on-disk transcript is untouched.
+
+```json5
+{
+  "agents": {
+    "defaults": {
+      "contextPruning": {
+        "mode": "cache-ttl",
+        "ttl": "5m"
+      }
+    }
+  }
+}
+```
+
+- `mode: "cache-ttl"` trims tool results based on time-to-live
+- `ttl: "5m"` means tool results older than 5 minutes are eligible for pruning
+- Only affects tool result messages; user and assistant messages are never modified
+
+---
+
 ## Bootstrap File Limits
 
 Default limits (adjustable in config):
@@ -143,10 +192,8 @@ Default limits (adjustable in config):
 | Setting | Default | Notes |
 |---|---|---|
 | Per-file character limit | 20,000 | Files larger than this are truncated |
-| Combined character limit | 150,000 | Across all bootstrap files |
+| Combined character limit | 150,000 | Across all bootstrap files (~50K tokens) |
 | Truncation split | 70/20/10 | 70% head, 20% tail, 10% marker |
-
-~150K characters ≈ 37-38K tokens
 
 ---
 
@@ -159,10 +206,18 @@ Add this block to your `AGENTS.md`:
 
 Before doing anything non-trivial, search memory first.
 
-1. Use `memory_search` with relevant keywords to find past context
-2. Use `memory_get` to read specific dated memory files
-3. After important decisions or task completions, save key points to memory
-4. Never assume — always check notes before acting
+- Before answering questions about past work: search memory first
+- Before starting any new task: check memory/today's date for active context
+- When you learn something important: write it to the appropriate file immediately
+- When corrected on a mistake: add the correction as a rule to MEMORY.md
+- When a session is ending or context is large: summarize to memory/YYYY-MM-DD.md
+
+## Retrieval Protocol
+
+Before doing non-trivial work:
+1. `memory_search` for the project/topic/user preference
+2. `memory_get` the referenced file chunk if needed
+3. Then proceed with the task
 
 ## Memory Save Triggers
 
@@ -173,6 +228,20 @@ Write to daily memory log (`memory/YYYY-MM-DD.md`) when:
 - A rule or convention is established
 
 Promote to `MEMORY.md` only items that should be true across every future session.
+```
+
+---
+
+## Group Chat Rules Template (for Discord/Slack)
+
+Add to `AGENTS.md` if the agent operates in group chats:
+
+```markdown
+## Group Chat Rules
+- Only respond when: directly mentioned, asked a direct question, or you have genuinely useful info
+- Do NOT respond to: side conversations, banter, logistics between others, greetings, link shares
+- When in doubt -> respond with only: NO_REPLY
+- NO_REPLY must be your ENTIRE message - nothing else
 ```
 
 ---
