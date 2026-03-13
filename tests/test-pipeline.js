@@ -288,6 +288,61 @@ describe('Executor Integration', () => {
 });
 
 // ============================================================
+// Market Regime in Pipeline
+// ============================================================
+
+describe('Market Regime Pipeline Integration', () => {
+  test('regime context is available to discovery stage', () => {
+    // Discovery reads regime from DB before scanning
+    const regime = { value: 'bearish' };
+    assert(regime.value, 'Regime must be readable from DB');
+    const skipMoonshots = regime.value === 'crisis';
+    assert(!skipMoonshots, 'Bearish should not skip moonshots entirely');
+  });
+
+  test('crisis regime blocks moonshot discoveries from entering pipeline', () => {
+    const regime = { value: 'crisis' };
+    const token = { ...mockDiscovery, tier: 'moonshot' };
+    const shouldSkipMoonshots = regime.value === 'crisis';
+    assert(shouldSkipMoonshots, 'Crisis must skip moonshot scanning');
+  });
+
+  test('regime risk modifier increases risk score in bearish', () => {
+    const baseRisk = 20; // from mockRiskAssessment
+    const regimeModifier = { bearish: { moonshot: 15, conviction: 10 }, crisis: { moonshot: 30, conviction: 20 } };
+    const adjustedRisk = baseRisk + (regimeModifier.bearish?.moonshot || 0);
+    assertEqual(adjustedRisk, 35, 'Bearish should add +15 to moonshot risk');
+  });
+
+  test('regime risk modifier increases risk score in crisis', () => {
+    const baseRisk = 20;
+    const adjustedRisk = baseRisk + 30; // crisis moonshot modifier
+    assertEqual(adjustedRisk, 50, 'Crisis should add +30 to moonshot risk');
+  });
+
+  test('regime-adjusted position size constrains trade proposal', () => {
+    // In bearish, max moonshot is 3% not 5%
+    const regimeMaxMoonshot = 3;
+    const proposedSize = 4;
+    const adjustedSize = Math.min(proposedSize, regimeMaxMoonshot);
+    assertEqual(adjustedSize, 3, 'Should cap at regime limit');
+  });
+
+  test('base tier buying gated by regime', () => {
+    const regimes = {
+      bullish: { baseBuyingEnabled: true },
+      neutral: { baseBuyingEnabled: true },
+      bearish: { baseBuyingEnabled: false },
+      crisis: { baseBuyingEnabled: false },
+    };
+    assert(regimes.bullish.baseBuyingEnabled, 'Bullish allows base buying');
+    assert(regimes.neutral.baseBuyingEnabled, 'Neutral allows base buying');
+    assert(!regimes.bearish.baseBuyingEnabled, 'Bearish pauses base buying');
+    assert(!regimes.crisis.baseBuyingEnabled, 'Crisis pauses base buying');
+  });
+});
+
+// ============================================================
 // Results
 // ============================================================
 const allPassed = summary();

@@ -104,7 +104,7 @@ node scripts/db-query.js add-paper-position --json '{
   "entry_price": 0.001,
   "current_price": 0.001,
   "quantity": 10000,
-  "amount_usd": 500,
+  "value_usd": 500,
   "stop_loss": 0.0005,
   "take_profit_levels": "[{\"level\":1,\"price\":0.002,\"sellPercent\":50}]",
   "status": "open"

@@ -5,9 +5,11 @@
  * Usage:
  *   node scripts/scan-tokens.js --chain solana --sort trending --limit 20
  *   node scripts/scan-tokens.js --chain base --sort newest --min-liquidity 10000
+ *   node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30
  */
 
 import 'dotenv/config';
+import { getDb, close } from './db.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com';
 const DEXSCREENER_DEX = `${DEXSCREENER_BASE}/latest/dex`;
@@ -107,6 +109,57 @@ async function scanNewest(chain) {
   return { pairs: allPairs };
 }
 
+function getActiveNarratives() {
+  const fallback = ['AI crypto', 'RWA token', 'DePIN', 'DeFi blue chip', 'L2 token', 'gaming crypto', 'SocialFi'];
+  try {
+    const db = getDb();
+    const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'narrative_momentum'").get();
+    close();
+    if (!row?.value) return fallback;
+    const data = JSON.parse(row.value);
+    // Use hot + warming narratives; build search queries from their keywords
+    const active = [...(data.hottest ?? []), ...(data.warming ?? [])];
+    if (active.length === 0) return fallback;
+    const keywords = data.keywords ?? {};
+    return active.map(name => {
+      const kw = keywords[name];
+      return kw ? `${kw[0]} crypto` : `${name} crypto`;
+    });
+  } catch {
+    return fallback;
+  }
+}
+
+async function scanEstablished(chain) {
+  // Search across active narratives for established tokens
+  const narratives = getActiveNarratives();
+  const allPairs = [];
+  const seen = new Set();
+
+  for (const query of narratives) {
+    const q = chain === 'all' ? query : `${query} ${chain}`;
+    try {
+      const searchData = await fetchWithCache(`${DEXSCREENER_DEX}/search?q=${encodeURIComponent(q)}`);
+      for (const p of (searchData.pairs ?? [])) {
+        if (!seen.has(p.pairAddress)) {
+          seen.add(p.pairAddress);
+          allPairs.push(p);
+        }
+      }
+    } catch { /* skip failed narrative searches */ }
+  }
+
+  // Filter for established tokens: age > 7 days, volume > $50k
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const filtered = allPairs.filter(p => {
+    const createdAt = p.pairCreatedAt ?? 0;
+    const volume = parseFloat(p.volume?.h24 ?? 0);
+    return createdAt < sevenDaysAgo && volume >= 50_000;
+  });
+
+  return { pairs: filtered };
+}
+
 function formatToken(pair) {
   return {
     tokenAddress: pair.baseToken?.address ?? 'unknown',
@@ -135,6 +188,9 @@ async function main() {
     let data;
     if (config.sort === 'trending') {
       data = await scanTrending(config.chain);
+    } else if (config.sort === 'established') {
+      if (config.minLiquidity < 100_000) config.minLiquidity = 100_000;
+      data = await scanEstablished(config.chain);
     } else {
       data = await scanNewest(config.chain);
     }

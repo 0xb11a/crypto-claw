@@ -93,12 +93,29 @@ If ANY of these are true → immediate REJECT, no exceptions:
 5. Known scam deployer address
 6. Owner can pause transfers
 
+### Step 3.5: Market Regime Risk Modifier
+Read the current market regime: `node scripts/db-query.js get-meta --key market_regime`
+
+Apply regime-based risk score adjustments (base tier tokens are exempt — their buying is gated separately in the heartbeat):
+
+| Regime | Moonshot modifier | Conviction modifier |
+|--------|------------------|---------------------|
+| Bullish/Neutral | +0 | +0 |
+| Bearish | +15 | +10 |
+| Crisis | +30 | +20 |
+
+Add the modifier to the overall risk score calculated in Step 2. This makes it harder for tokens to pass the risk threshold during downturns.
+
+In `crisis` regime: if tier is `moonshot`, auto-reject (max position = 0%).
+
 ### Step 4: Portfolio-Level Checks
 Check `PAPER_MODE` env var. Use `get-paper-portfolio` / `get-paper-positions` if paper mode, otherwise `get-portfolio` / `get-positions`.
 - Would this push moonshot allocation above 20%?
+- Would this push conviction allocation above 30%?
 - Are there already 3 positions in the same narrative?
 - Would total positions exceed 15?
 - Is portfolio already overexposed to this chain?
+- **For base tier:** Simplified risk check — established assets skip contract/social/narrative risk scoring. Focus on portfolio allocation limits and entry timing (reject if price >20% above 7-day average).
 
 ### Step 5: Verdict & Position Sizing
 | Overall Risk | Verdict | Max Position |
@@ -107,6 +124,10 @@ Check `PAPER_MODE` env var. Use `get-paper-portfolio` / `get-paper-positions` if
 | 31-50 | `approve_with_caution` | Max 3% |
 | 51-75 | `approve_with_caution` | Max 1% |
 | 76+ | `reject` | 0% |
+
+Cap `maxPositionPercent` at the regime-adjusted limit for the token's tier:
+- Moonshot: `min(maxPositionPercent, regimeMaxMoonshot)` — 5% bullish/neutral, 3% bearish, 0% crisis
+- Conviction: `min(maxPositionPercent, regimeMaxConviction)` — 10% bullish/neutral, 7% bearish, 5% crisis
 
 ### Step 6: Output
 ```json

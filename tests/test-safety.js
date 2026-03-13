@@ -16,7 +16,7 @@ import { describe, test, assert, summary } from './test-helpers.js';
 // ============================================================
 
 function validatePositionSize(percentOfPortfolio, tier) {
-  const limits = { moonshot: 5, conviction: 10, base: 25 };
+  const limits = { moonshot: 5, conviction: 10, base: 50 };
   const max = limits[tier];
   if (!max) return { valid: false, reason: `Unknown tier: ${tier}` };
   if (percentOfPortfolio > max) {
@@ -83,13 +83,13 @@ describe('Position Size Limits', () => {
     assert(!result.valid, 'Should be rejected');
   });
 
-  test('base at 25% is allowed', () => {
-    const result = validatePositionSize(25, 'base');
+  test('base at 50% is allowed', () => {
+    const result = validatePositionSize(50, 'base');
     assert(result.valid, 'Should be valid');
   });
 
-  test('base at 26% is rejected', () => {
-    const result = validatePositionSize(26, 'base');
+  test('base at 51% is rejected', () => {
+    const result = validatePositionSize(51, 'base');
     assert(!result.valid, 'Should be rejected');
   });
 
@@ -217,6 +217,97 @@ describe('Buy/Sell Approval Logic', () => {
 
   test('unknown action requires approval (safe default)', () => {
     assert(shouldRequireApproval('transfer') === true, 'Unknown actions should require approval');
+  });
+});
+
+// ============================================================
+// Regime-Adjusted Limit Tests
+// ============================================================
+
+function validateRegimePositionSize(percentOfPortfolio, tier, regime) {
+  const regimeLimits = {
+    bullish:  { moonshot: 5, conviction: 10, base: 50 },
+    neutral:  { moonshot: 5, conviction: 10, base: 50 },
+    bearish:  { moonshot: 3, conviction: 7,  base: 50 },
+    crisis:   { moonshot: 0, conviction: 5,  base: 50 },
+  };
+  const hardLimits = { moonshot: 5, conviction: 10, base: 50 };
+  const rLimits = regimeLimits[regime] || hardLimits;
+  const max = Math.min(rLimits[tier], hardLimits[tier]);
+  if (!hardLimits[tier] && hardLimits[tier] !== 0) return { valid: false, reason: `Unknown tier: ${tier}` };
+  if (percentOfPortfolio > max) {
+    return { valid: false, reason: `${tier} position ${percentOfPortfolio}% exceeds regime-adjusted max ${max}%` };
+  }
+  return { valid: true };
+}
+
+function validateRegimeCashReserve(cashPercent, regime) {
+  const regimeMin = { bullish: 10, neutral: 10, bearish: 25, crisis: 40 };
+  const min = Math.max(regimeMin[regime] || 10, 10); // never below hard limit
+  if (cashPercent < min) {
+    return { valid: false, reason: `Cash ${cashPercent}% below regime minimum ${min}%` };
+  }
+  return { valid: true };
+}
+
+describe('Regime-Adjusted Position Limits', () => {
+  test('bearish: moonshot at 3% is allowed', () => {
+    assert(validateRegimePositionSize(3, 'moonshot', 'bearish').valid, 'Should be valid');
+  });
+
+  test('bearish: moonshot at 4% is rejected', () => {
+    assert(!validateRegimePositionSize(4, 'moonshot', 'bearish').valid, 'Should be rejected');
+  });
+
+  test('bearish: conviction at 7% is allowed', () => {
+    assert(validateRegimePositionSize(7, 'conviction', 'bearish').valid, 'Should be valid');
+  });
+
+  test('bearish: conviction at 8% is rejected', () => {
+    assert(!validateRegimePositionSize(8, 'conviction', 'bearish').valid, 'Should be rejected');
+  });
+
+  test('crisis: moonshot at 0% is rejected (no new moonshots)', () => {
+    assert(!validateRegimePositionSize(1, 'moonshot', 'crisis').valid, 'Crisis should reject all moonshots');
+  });
+
+  test('crisis: conviction at 5% is allowed', () => {
+    assert(validateRegimePositionSize(5, 'conviction', 'crisis').valid, 'Should be valid');
+  });
+
+  test('crisis: conviction at 6% is rejected', () => {
+    assert(!validateRegimePositionSize(6, 'conviction', 'crisis').valid, 'Should be rejected');
+  });
+
+  test('regime limits never exceed hard limits', () => {
+    for (const regime of ['bullish', 'neutral', 'bearish', 'crisis']) {
+      const moonResult = validateRegimePositionSize(6, 'moonshot', regime);
+      assert(!moonResult.valid, `${regime}: 6% moonshot must always be rejected`);
+      const convResult = validateRegimePositionSize(11, 'conviction', regime);
+      assert(!convResult.valid, `${regime}: 11% conviction must always be rejected`);
+    }
+  });
+});
+
+describe('Regime-Adjusted Cash Reserve', () => {
+  test('bullish: 10% cash is ok', () => {
+    assert(validateRegimeCashReserve(10, 'bullish').valid, 'Should be valid');
+  });
+
+  test('bearish: 20% cash is rejected (need 25%)', () => {
+    assert(!validateRegimeCashReserve(20, 'bearish').valid, 'Should be rejected');
+  });
+
+  test('bearish: 25% cash is ok', () => {
+    assert(validateRegimeCashReserve(25, 'bearish').valid, 'Should be valid');
+  });
+
+  test('crisis: 35% cash is rejected (need 40%)', () => {
+    assert(!validateRegimeCashReserve(35, 'crisis').valid, 'Should be rejected');
+  });
+
+  test('crisis: 40% cash is ok', () => {
+    assert(validateRegimeCashReserve(40, 'crisis').valid, 'Should be valid');
   });
 });
 

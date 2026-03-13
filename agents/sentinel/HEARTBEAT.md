@@ -1,10 +1,8 @@
 # HEARTBEAT.md — Sentinel Agent
 
-**Always respond in English. All output, logs, and reasoning must be in English.**
-
 ## Schedule
 Sentinel heartbeat runs every 5 minutes. ALL checks run every heartbeat (not rotating).
-This agent runs on Ollama Cloud (DeepSeek). Keep checks fast and mechanical.
+Keep checks fast and mechanical.
 
 ## Every Heartbeat — Run ALL:
 

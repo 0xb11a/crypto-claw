@@ -621,7 +621,9 @@ function handle(db, cmd) {
     }
     case 'add-paper-position': {
       const p = parseJson();
-      const cost = p.value_usd || (p.entry_price * p.quantity);
+      const valueUsd = p.value_usd || p.amount_usd;
+      const qty = valueUsd && p.entry_price ? (valueUsd / p.entry_price) : p.quantity;
+      const cost = valueUsd || (p.entry_price * qty);
       const currentCash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash'").get()?.value || '10000');
       const newCash = Math.round((currentCash - cost) * 100) / 100;
       const txn = db.transaction(() => {
@@ -630,7 +632,7 @@ function handle(db, cmd) {
             quantity, value_usd, entry_date, stop_loss, take_profit_levels, status)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(p.id, p.symbol, p.address, p.chain, p.tier, p.entry_price, p.current_price,
-          p.quantity, p.value_usd, p.entry_date || new Date().toISOString().split('T')[0],
+          qty, valueUsd || null, p.entry_date || new Date().toISOString().split('T')[0],
           p.stop_loss, JSON.stringify(p.take_profit_levels), p.status || 'open');
         db.prepare("INSERT INTO portfolio_meta (key, value) VALUES ('paper_cash', ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')").run(String(newCash), String(newCash));
       });

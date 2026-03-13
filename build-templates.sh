@@ -54,8 +54,8 @@ cp "$SRC/agents/executor/SOUL.md"       "$AGENT_TPL/executor/SOUL.md"
 cp "$SRC/agents/executor/HEARTBEAT.md"  "$AGENT_TPL/executor/HEARTBEAT.md"
 cp "$SRC/agents/executor/skills/executor/SKILL.md" "$AGENT_TPL/executor/skills/executor/SKILL.md"
 
-# Executor scripts: db access + execution
-for script in db.js db-query.js; do
+# Executor scripts: db access + execution + price checking
+for script in db.js db-query.js token-metrics.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/executor/scripts/"
 done
 for script in execute-trade.js check-safe-status.js; do

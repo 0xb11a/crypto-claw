@@ -20,9 +20,9 @@ NODE_MODULES_SRC="/home/openclaw/crypto-claw/scripts/node_modules"
 SAFE_ID="${SAFE_ID:-default}"
 GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
-RESEARCH_MODEL="${RESEARCH_MODEL:-anthropic/claude-sonnet-4-5-20250929}"
-SENTINEL_MODEL="${SENTINEL_MODEL:-ollama/deepseek-v3.1:671b-cloud}"
-EXECUTOR_MODEL="${EXECUTOR_MODEL:-ollama/deepseek-v3.1:671b-cloud}"
+RESEARCH_MODEL="${RESEARCH_MODEL:-}"
+SENTINEL_MODEL="${SENTINEL_MODEL:-}"
+EXECUTOR_MODEL="${EXECUTOR_MODEL:-}"
 PAPER_MODE="${PAPER_MODE:-false}"
 PAPER_STARTING_BALANCE="${PAPER_STARTING_BALANCE:-10000}"
 
@@ -311,12 +311,55 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   openclaw config set 'agents.defaults.compaction.memoryFlush' '{"enabled":true,"softThresholdTokens":4000,"systemPrompt":"Session nearing compaction. Store durable memories now.","prompt":"Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."}' --strict-json
   openclaw config set 'agents.defaults.memorySearch' '{"enabled":true,"provider":"local","local":{"modelPath":"hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf"},"query":{"hybrid":{"enabled":true,"vectorWeight":0.7,"textWeight":0.3}},"cache":{"enabled":true}}' --strict-json
   openclaw config set 'agents.defaults.contextPruning' '{"mode":"cache-ttl","ttl":"5m"}' --strict-json
+  openclaw config set 'agents.defaults.sandbox.mode' 'on'
   openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"open"}' --strict-json
   echo "[entrypoint]   Memory: flush at compaction, hybrid search enabled, context pruning 5m TTL"
 
   echo "[entrypoint] First-run configuration complete"
 else
   echo "[entrypoint] State volume exists — preserving config/pairing/sessions"
+
+  # --- Ensure all agents are registered (auto-recover removed agents) ---
+  ensure_agents() {
+    AGENTS_JSON=$(openclaw agents list --json 2>/dev/null || echo '[]')
+
+    check_and_add() {
+      local name="$1" workspace="$2" model="$3"
+      if ! echo "$AGENTS_JSON" | grep -q "\"$name\""; then
+        echo "[entrypoint]   Agent '$name' missing — re-registering..."
+        openclaw agents add "$name" \
+          --workspace "$workspace" \
+          --agent-dir "$OPENCLAW_HOME/agents/$name/agent" \
+          --model "$model" \
+          --non-interactive 2>/dev/null || true
+      fi
+    }
+
+    check_and_add research "$RESEARCH_WS" "$RESEARCH_MODEL"
+    check_and_add sentinel "$SENTINEL_WS" "$SENTINEL_MODEL"
+    check_and_add executor "$EXECUTOR_WS" "$EXECUTOR_MODEL"
+  }
+  ensure_agents
+
+  # --- Sync agent models (picks up model changes without wiping state volume) ---
+  echo "[entrypoint]   Syncing agent models..."
+  AGENTS_JSON=$(openclaw agents list --json 2>/dev/null || echo '[]')
+  sync_model() {
+    local name="$1" desired="$2" idx="$3"
+    current=$(echo "$AGENTS_JSON" | node -e "
+      let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{
+        try{const a=JSON.parse(d);const m=a.find(x=>x.name==='$name');console.log(m?.model||'')}
+        catch{console.log('')}
+      })")
+    if [ -n "$current" ] && [ "$current" != "$desired" ]; then
+      openclaw config set "agents.list[$idx].model" "$desired" 2>/dev/null && \
+        echo "[entrypoint]     $name: $current → $desired" || true
+    fi
+  }
+  # indices: 0=main(disabled), 1=research, 2=sentinel, 3=executor
+  sync_model research "$RESEARCH_MODEL" 1
+  sync_model sentinel "$SENTINEL_MODEL" 2
+  sync_model executor "$EXECUTOR_MODEL" 3
 fi
 
 # ============================================================
@@ -348,9 +391,11 @@ ensure_cron_jobs() {
   EXISTING=$(openclaw cron list --json 2>/dev/null || echo '{"jobs":[]}')
   JOB_COUNT=$(echo "$EXISTING" | grep -c '"name"' || true)
 
-  # If jobs already exist, skip creation entirely
-  if [ "$JOB_COUNT" -ge 3 ]; then
-    echo "[cron-setup] All 3 jobs already exist, skipping"
+  # If research cron already exists and no legacy jobs remain, skip
+  if [ "$JOB_COUNT" -ge 1 ] && echo "$EXISTING" | grep -q '"name".*"research-cycle"' && \
+     ! echo "$EXISTING" | grep -q '"name".*"executor-poll"' && \
+     ! echo "$EXISTING" | grep -q '"name".*"sentinel-watch"'; then
+    echo "[cron-setup] Research cron exists, no legacy jobs, skipping"
     return 0
   fi
 
@@ -363,13 +408,13 @@ ensure_cron_jobs() {
     fi
   }
 
-  add_if_missing "executor-poll" \
-    --every "1m" --agent executor --session isolated --light-context --no-deliver \
-    --message "Respond in English only. Read HEARTBEAT.md. Check for approved trades and pending sell orders. Execute any that are ready. Reply HEARTBEAT_OK if nothing to do."
-
-  add_if_missing "sentinel-watch" \
-    --every "5m" --agent sentinel --session isolated --light-context --no-deliver \
-    --message "Respond in English only. Read HEARTBEAT.md. Run ALL checks every cycle: price check, liquidity check, wallet check. Write sell orders and alerts to DB as needed. Log results via db-query.js. If no open positions or nothing wrong, reply HEARTBEAT_OK."
+  # Remove legacy cron jobs (replaced by background loops)
+  for legacy in executor-poll sentinel-watch; do
+    if echo "$EXISTING" | grep -q "\"name\".*\"$legacy\""; then
+      openclaw cron delete --name "$legacy" 2>/dev/null
+      echo "[cron-setup] Removed legacy $legacy cron job"
+    fi
+  done
 
   add_if_missing "research-cycle" \
     --every "30m" --agent research --session isolated --no-deliver \
@@ -411,13 +456,64 @@ run_wallet_scoring_loop() {
 }
 
 # ============================================================
+# 5f. Executor background loop
+#     Pre-checks DB for pending orders before invoking the agent.
+#     Replaces the executor-poll cron job to avoid wasting API
+#     tokens on "nothing to do" responses and file-reading cascades.
+# ============================================================
+
+# Build executor inline message (on-demand heartbeat — reads HEARTBEAT.md for details)
+EXECUTOR_MSG="Respond in English only. Read HEARTBEAT.md. Process all pending orders now. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent executor. Update heartbeat when done. If nothing pending, reply HEARTBEAT_OK."
+
+run_executor_loop() {
+  sleep 30  # wait for gateway + agent registration
+  while true; do
+    SKIP=$(SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+      node "$RESEARCH_WS/scripts/heartbeat-check.js" --agent executor 2>/dev/null \
+      | node -e "process.stdin.on('data',d=>{try{console.log(JSON.parse(d).skip)}catch{console.log('true')}})")
+    if [ "$SKIP" != "true" ]; then
+      echo "[executor-loop] Work found, triggering executor agent"
+      openclaw agent --agent executor --session-id agent:executor:bg --message "$EXECUTOR_MSG" \
+        2>&1 | sed 's/^/[executor] /'
+    fi
+    sleep 60
+  done
+}
+
+# ============================================================
+# 5g. Sentinel background loop
+#     Pre-checks DB for open positions before invoking the agent.
+#     Replaces the sentinel-watch cron job.
+# ============================================================
+
+# Build sentinel inline message (on-demand heartbeat — reads HEARTBEAT.md for details)
+SENTINEL_MSG="Respond in English only. Read HEARTBEAT.md. Run all monitoring checks on open positions now. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent sentinel. Update heartbeat when done. If nothing to report, reply HEARTBEAT_OK."
+
+run_sentinel_loop() {
+  sleep 60  # wait for gateway + agent registration
+  while true; do
+    SKIP=$(SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+      node "$RESEARCH_WS/scripts/heartbeat-check.js" --agent sentinel 2>/dev/null \
+      | node -e "process.stdin.on('data',d=>{try{console.log(JSON.parse(d).skip)}catch{console.log('true')}})")
+    if [ "$SKIP" != "true" ]; then
+      echo "[sentinel-loop] Work found, triggering sentinel agent"
+      openclaw agent --agent sentinel --session-id agent:sentinel:bg --message "$SENTINEL_MSG" \
+        2>&1 | sed 's/^/[sentinel] /'
+    fi
+    sleep 600  # 10 minutes
+  done
+}
+
+# ============================================================
 # 6. Start OpenClaw gateway
-#    Launch cron setup, memory backup, and wallet scoring in
-#    background (cron needs running gateway), then exec the
+#    Launch cron setup, memory backup, wallet scoring, executor
+#    loop, and sentinel loop in background, then exec the
 #    gateway as PID 1.
 # ============================================================
 echo "[entrypoint] Starting OpenClaw gateway..."
 run_memory_backup_loop &
 run_wallet_scoring_loop &
+run_executor_loop &
+run_sentinel_loop &
 ensure_cron_jobs &
 exec openclaw gateway run --port "$GATEWAY_PORT"

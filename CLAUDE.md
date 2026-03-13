@@ -11,9 +11,9 @@ CryptoClaw is a three-agent crypto research and portfolio management system buil
 Three agents communicate through a shared SQLite database:
 
 - **Research Agent** (`agents/research/`) — Runs on Sonnet, 30-minute heartbeat. Handles discovery, analysis, risk assessment, and trade proposals. Has 4 skills: discovery, analyst, risk, portfolio.
-- **Sentinel Agent** (`agents/sentinel/`) — Runs on DeepSeek via Ollama Cloud, 5-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders. Has 1 skill: sentinel.
-- **Executor Agent** (`agents/executor/`) — Runs on DeepSeek via Ollama Cloud, 1-minute heartbeat. Reads approved trades and sell orders, validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
-- **Ollama Cloud** — Sentinel and Executor use DeepSeek V3.1 via Ollama Cloud's API (`https://ollama.com/api/chat`). No sidecar needed — OpenClaw's built-in Ollama provider sends `OLLAMA_API_KEY` as a Bearer token directly.
+- **Sentinel Agent** (`agents/sentinel/`) — Runs on Haiku, 5-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders. Has 1 skill: sentinel.
+- **Executor Agent** (`agents/executor/`) — Runs on Haiku, 1-minute heartbeat. Reads approved trades and sell orders, validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
+- **Ollama Cloud** — Some agents might use Ollama Cloud's API (`https://ollama.com/api/chat`). No sidecar needed — OpenClaw's built-in Ollama provider sends `OLLAMA_API_KEY` as a Bearer token directly.
 
 ## Memory System — Two Layers
 
@@ -162,7 +162,7 @@ SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup sy
 - **Safety rules are hard-coded** in `agents/research/AGENTS.md` under "Portfolio Rules" and in `agents/executor/AGENTS.md` under "Pre-Execution Validation." Never weaken these without explicit human approval.
 - **Private keys** live ONLY in environment variables. Never in any file, log, receipt, or agent instruction.
 - **SAFE_ID** env var determines which database file is used. One DB per fund/wallet.
-- **OLLAMA_API_KEY** env var authenticates with Ollama Cloud for DeepSeek model access (Sentinel/Executor).
+- **OLLAMA_API_KEY** env var authenticates with Ollama Cloud model access.
 
 ## Safety Rules (Do Not Weaken)
 

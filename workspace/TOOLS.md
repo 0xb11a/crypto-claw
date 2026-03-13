@@ -241,7 +241,7 @@ node scripts/db-query.js get-paper-positions
 node scripts/db-query.js get-paper-positions --status open
 node scripts/db-query.js get-paper-positions --status closed
 
-# Add a paper position (auto-deducts value_usd from paper_cash)
+# Add a paper position (auto-deducts value_usd from paper_cash, auto-calculates quantity)
 node scripts/db-query.js add-paper-position --json '{
   "id": "pp-001",
   "symbol": "TOKEN",
@@ -249,7 +249,7 @@ node scripts/db-query.js add-paper-position --json '{
   "chain": "base",
   "tier": "moonshot",
   "entry_price": 0.001,
-  "quantity": 10000,
+  "value_usd": 10,
   "stop_loss": 0.0005,
   "take_profit_levels": [{"level":1,"price":0.002,"sellPercent":50}]
 }'
@@ -291,6 +291,9 @@ Scripts handle external API calls so the LLM doesn't burn tokens on data fetchin
 ```bash
 # Scan for new/trending tokens on a specific chain
 node scripts/scan-tokens.js --chain solana --sort trending --limit 20
+
+# Scan for established conviction-tier tokens (age >7d, volume >$50k)
+node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30
 
 # Get detailed token metrics
 node scripts/token-metrics.js --address <TOKEN_ADDRESS> --chain <CHAIN>
@@ -348,8 +351,29 @@ Classifications: `smart_money` (75+), `whale` (55-74), `trader` (35-54), `retail
 # Get market overview (BTC dominance, total market cap, fear/greed)
 node scripts/market-overview.js
 
+# Classify market regime and get adjusted trading parameters
+node scripts/market-regime.js
+# → {"status":"ok","regime":"bearish","regimeChanged":true,"adjustments":{"minCashReserve":25,"baseBuyingEnabled":false,...}}
+# Regime values: bullish, neutral, bearish, crisis
+# Anti-whipsaw: regime only changes after 2 consecutive consistent readings
+# Auto-updates portfolio_meta (key: market_regime) and heartbeat timestamp
+# Read stored regime: node scripts/db-query.js get-meta --key market_regime
+
 # Check narrative momentum (aggregates social + price data)
 node scripts/narrative-check.js --narrative <ai|rwa|depin|memecoin|gaming>
+```
+
+### Heartbeat Pre-Check
+```bash
+# Check if executor has pending work (used by background loop)
+node scripts/heartbeat-check.js --agent executor
+# → {"agent":"executor","skip":true,"reason":"no pending orders"}
+# → {"agent":"executor","skip":false,"pending_sells":2,"pending_buys":1}
+
+# Check if sentinel has open positions to monitor (used by background loop)
+node scripts/heartbeat-check.js --agent sentinel
+# → {"agent":"sentinel","skip":true,"reason":"no open positions"}
+# → {"agent":"sentinel","skip":false,"open_positions":3}
 ```
 
 ## API Keys Required (set in environment)

@@ -421,6 +421,17 @@ const migrations = [
       INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('system', 'wallet_scoring');
     `,
   },
+  {
+    name: '005_market_regime',
+    sql: `
+      -- Seed market regime metadata
+      INSERT OR IGNORE INTO portfolio_meta (key, value) VALUES ('market_regime', 'neutral');
+      INSERT OR IGNORE INTO portfolio_meta (key, value) VALUES ('market_regime_history', '[]');
+
+      -- Seed heartbeat state for market regime check
+      INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('research', 'market_regime');
+    `,
+  },
 ];
 
 export default { getDb, close };

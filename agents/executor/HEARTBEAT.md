@@ -1,10 +1,8 @@
 # HEARTBEAT.md — Executor Agent
 
-**Always respond in English. All output, logs, and reasoning must be in English.**
-
 ## Schedule
 Executor heartbeat runs every 1 minute. ALL checks run every heartbeat.
-This agent runs on Ollama Cloud (DeepSeek). Keep processing fast and mechanical.
+Keep processing fast and mechanical.
 
 ## Every Heartbeat — Run ALL:
 

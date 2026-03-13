@@ -113,7 +113,18 @@ Reply APPROVE or REJECT
 4. Calculate current vs target allocation
 5. Identify overweight/underweight tiers
 6. Propose specific sells (weakest positions in overweight tier)
-7. Propose specific buys or cash retention for underweight tier
+7. Propose specific buys or cash retention for underweight tier:
+   - **If base tier is underweight:** Propose buying the most underweight base asset. Prefer spreading across multiple base assets when available on the same chain (e.g., both WETH and cbBTC on Base) to improve diversification. Use `node scripts/token-metrics.js --address <BASE_TOKEN_ADDRESS> --chain <CHAIN>` to get current price. Base tokens per chain:
+
+     **Base chain (EVM):**
+     - WETH: `0x4200000000000000000000000000000000000006`
+     - cbBTC: `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf`
+
+     **Solana:**
+     - wSOL: `So11111111111111111111111111111111111111112`
+
+   - **If conviction tier is underweight:** Check watchlist and recent analyses for conviction-rated tokens, or trigger a conviction scan via `node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30`
+   - **If moonshot tier is underweight:** Normal discovery pipeline handles this
 8. If paper mode: auto-approve. If real mode: send rebalance proposal to human
 
 ## After Human Approval
@@ -149,10 +160,32 @@ Check execution results later via:
 # Paper mode: node scripts/db-query.js get-paper-trades --limit 5
 ```
 
+## Market Regime Awareness
+
+Before sizing any position, read the current market regime:
+```bash
+node scripts/db-query.js get-meta --key market_regime
+```
+
+Apply regime-adjusted limits using `min(hard_limit, regime_limit)` for maximums and `max(hard_limit, regime_limit)` for minimums:
+
+| Parameter | Bullish/Neutral | Bearish | Crisis |
+|-----------|----------------|---------|--------|
+| Min cash reserve | 10% | 25% | 40% |
+| Base tier buying | Enabled | **Paused** | **Paused** |
+| Max moonshot position | 5% | 3% | 0% (no new) |
+| Max conviction position | 10% | 7% | 5% |
+| Max moonshot allocation | 20% | 15% | 10% |
+| Min buy score | 50 | 65 | 80 |
+
+- In `bearish` or `crisis`: skip base tier rebalance buys entirely
+- In `crisis`: reject all new moonshot positions (max = 0%)
+- Always check that post-trade cash stays above the regime-adjusted minimum, not just the 10% hard floor
+
 ## Rules
 - NEVER execute trades directly — the Executor agent handles all wallet operations
-- NEVER exceed position limits (5% moonshot, 10% conviction)
-- NEVER let cash drop below 10%
+- NEVER exceed position limits (5% moonshot, 10% conviction, 50% base) — regime may lower these further
+- NEVER let cash drop below regime-adjusted minimum (10% bullish/neutral, 25% bearish, 40% crisis)
 - Minimum risk:reward ratio of 3:1
 - Log every decision to daily memory
 - The best trade is sometimes NO trade

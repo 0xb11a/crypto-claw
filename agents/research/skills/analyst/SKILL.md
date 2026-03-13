@@ -99,6 +99,18 @@ overall = (contract * 0.25) + (tokenomics * 0.20) + (liquidity * 0.20) +
           (social * 0.15) + (narrative * 0.10) + (timing * 0.10)
 ```
 
+### Step 3b: Assign Tier
+
+Based on token characteristics, assign the appropriate portfolio tier:
+
+| Criteria | Tier |
+|----------|------|
+| Base chain: WETH (`0x4200000000000000000000000000000000000006`), cbBTC (`0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf`). Solana: wSOL (`So11111111111111111111111111111111111111112`) | `base` |
+| Age > 7 days AND liquidity > $100k AND market cap > $1M AND verified contract with renounced/multisig ownership | `conviction` |
+| Everything else passing filters | `moonshot` |
+
+The tier determines position limits, stop-loss levels, and slippage tolerance.
+
 ### Step 4: Recommendation
 | Score | Recommendation |
 |-------|---------------|
@@ -126,6 +138,7 @@ overall = (contract * 0.25) + (tokenomics * 0.20) + (liquidity * 0.20) +
   "strengths": ["string"],
   "weaknesses": ["string"],
   "recommendation": "strong_buy | buy | watch | avoid",
+  "tier": "base | conviction | moonshot",
   "suggestedEntry": 0,
   "suggestedSize": "small | medium | large",
   "reasoning": "2-3 sentence summary"

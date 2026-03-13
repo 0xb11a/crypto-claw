@@ -107,7 +107,7 @@ echo "$LOG_PREFIX Committed: $COMMIT_MSG"
 
 # Sync with remote if configured
 # Each deployment pushes to its own branch: memory/<SAFE_ID>
-# No pull needed — only one deployment writes to its branch, so zero conflicts.
+# Local workspace is the source of truth — force-push to overwrite remote.
 if git remote get-url origin &>/dev/null; then
   MEMORY_BRANCH="memory/${SAFE_ID:-default}"
   SYNC_STATUS_FILE=".git/memory-sync-status"
@@ -130,9 +130,9 @@ if git remote get-url origin &>/dev/null; then
   # Reset dirty index from interrupted operations
   git reset --quiet 2>/dev/null || true
 
-  # --- Push-only sync (no pull, no rebase, no merge) ---
+  # --- Force-push sync (local is authoritative) ---
 
-  PUSH_ERR=$(git push origin "HEAD:refs/heads/$MEMORY_BRANCH" --quiet 2>&1) && {
+  PUSH_ERR=$(git push origin "HEAD:refs/heads/$MEMORY_BRANCH" --force --quiet 2>&1) && {
     echo "$LOG_PREFIX Pushed to $MEMORY_BRANCH"
     # Record success
     printf '{"last_push":"%s","consecutive_failures":0,"last_error":null}\n' "$TIMESTAMP" > "$SYNC_STATUS_FILE"

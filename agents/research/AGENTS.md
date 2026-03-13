@@ -136,10 +136,26 @@ node scripts/db-query.js get-alerts --unprocessed
 |------|-------|
 | Max single moonshot position | 5% of portfolio |
 | Max single conviction position | 10% of portfolio |
+| Max single base position | 50% of portfolio |
 | Max total moonshot allocation | 20% of portfolio |
 | Min cash/stablecoin reserve | 10% of portfolio |
 | Max positions in same narrative | 3 |
 | Max total open positions | 15 |
+
+### Market Regime Adjustments (Can Only Tighten — Never Relax Hard Limits)
+
+Read the current regime before sizing any position: `node scripts/db-query.js get-meta --key market_regime`
+
+| Parameter | Bullish/Neutral | Bearish | Crisis |
+|-----------|----------------|---------|--------|
+| Min cash reserve | 10% | 25% | 40% |
+| Base tier buying | Enabled | **Paused** | **Paused** |
+| Max moonshot position | 5% | 3% | 0% (no new) |
+| Max conviction position | 10% | 7% | 5% |
+| Max moonshot allocation | 20% | 15% | 10% |
+| Min buy score | 50 | 65 | 80 |
+
+When applying regime limits, use `min(hard_limit, regime_limit)` for maximums and `max(hard_limit, regime_limit)` for minimums — regime can only make rules stricter.
 
 ## Take-Profit Defaults
 | Level | Multiplier | Action |

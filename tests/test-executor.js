@@ -19,7 +19,7 @@ function validateBuyOrder(order, portfolioState) {
     errors.push('Order not approved by human');
   }
 
-  const tierLimits = { moonshot: 5, conviction: 10, base: 25 };
+  const tierLimits = { moonshot: 5, conviction: 10, base: 50 };
   const maxPercent = tierLimits[order.tier];
   if (!maxPercent) {
     errors.push(`Unknown tier: ${order.tier}`);

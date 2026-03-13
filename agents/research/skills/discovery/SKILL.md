@@ -23,17 +23,48 @@ Find new, high-potential crypto tokens before the crowd. You are the system's ey
 
 ## Process
 
+### Step 0: Check Market Regime
+Read the current regime before scanning: `node scripts/db-query.js get-meta --key market_regime`
+
+- **Crisis regime:** Skip moonshot scanning entirely (no new moonshot positions allowed). Only run conviction scans (Step 1b) if there are clear opportunities.
+- **Bearish regime:** Reduce scan limits (use `--limit 20` instead of 50), raise minimum liquidity filter (`--min-liquidity 20000` instead of 10000).
+- **Bullish/Neutral:** Proceed normally.
+
 ### Step 1: Gather Data
 Run the scanning script:
 ```bash
+# Bullish/Neutral: full scan
 node scripts/scan-tokens.js --chain all --sort trending --limit 50
+
+# Bearish: reduced scan
+node scripts/scan-tokens.js --chain all --sort trending --limit 20
 ```
 
 Also check for new deployments:
 ```bash
+# Bullish/Neutral: standard limits
 node scripts/scan-tokens.js --chain solana --sort newest --min-liquidity 10000 --limit 30
 node scripts/scan-tokens.js --chain base --sort newest --min-liquidity 10000 --limit 30
+
+# Bearish: tighter filters
+node scripts/scan-tokens.js --chain solana --sort newest --min-liquidity 20000 --limit 20
+node scripts/scan-tokens.js --chain base --sort newest --min-liquidity 20000 --limit 20
 ```
+
+### Step 1b: Scan for Conviction Candidates
+Run established token scan to find conviction-tier opportunities:
+```bash
+node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30
+```
+
+Apply conviction-specific filters:
+- Age > 7 days (not brand new)
+- Liquidity > $100,000
+- Volume > $50k/24h (real trading activity)
+- Contract verified with renounced or multisig ownership
+- Active development or community
+
+These feed into the same analysis pipeline but will be assigned conviction tier by the analyst.
 
 ### Step 2: Initial Filter
 From the raw results, apply these filters:

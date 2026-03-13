@@ -76,8 +76,8 @@ services:
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
       - OPENCLAW_GATEWAY_BIND=${OPENCLAW_GATEWAY_BIND:-lan}
       - RESEARCH_MODEL=${RESEARCH_MODEL:-anthropic/claude-sonnet-4-5-20250929}
-      - SENTINEL_MODEL=${SENTINEL_MODEL:-ollama/deepseek-v3.1:671b-cloud}
-      - EXECUTOR_MODEL=${EXECUTOR_MODEL:-ollama/deepseek-v3.1:671b-cloud}
+      - SENTINEL_MODEL=${SENTINEL_MODEL:-anthropic/claude-haiku-4-5-20251001}
+      - EXECUTOR_MODEL=${EXECUTOR_MODEL:-anthropic/claude-haiku-4-5-20251001}
 
       # App variables
       - NODE_ENV=production

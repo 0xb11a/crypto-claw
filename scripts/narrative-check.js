@@ -8,6 +8,7 @@
  */
 
 import 'dotenv/config';
+import { getDb, close } from './db.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 
@@ -89,14 +90,35 @@ async function main() {
     return (order[a.momentum] ?? 4) - (order[b.momentum] ?? 4);
   });
 
-  console.log(JSON.stringify({
+  const result = {
     status: 'ok',
     narratives: sorted,
     hottest: sorted.filter(n => n.momentum === 'hot').map(n => n.narrative),
     warming: sorted.filter(n => n.momentum === 'warming').map(n => n.narrative),
     cooling: sorted.filter(n => n.momentum === 'cooling').map(n => n.narrative),
     timestamp: new Date().toISOString(),
-  }, null, 2));
+  };
+
+  console.log(JSON.stringify(result, null, 2));
+
+  // Persist narrative momentum to DB so other scripts (e.g. scan-tokens --sort established) can use it
+  if (!config.narrative) {
+    try {
+      const db = getDb();
+      const data = JSON.stringify({
+        hottest: result.hottest,
+        warming: result.warming,
+        cooling: result.cooling,
+        keywords: NARRATIVE_KEYWORDS,
+        updated_at: result.timestamp,
+      });
+      db.prepare(`
+        INSERT INTO portfolio_meta (key, value) VALUES ('narrative_momentum', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+      `).run(data);
+      close();
+    } catch { /* DB write is best-effort — don't break the script */ }
+  }
 }
 
 main();

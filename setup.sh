@@ -172,8 +172,8 @@ for script in db.js db-query.js check-positions.js check-liquidity.js check-wall
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$SENTINEL_DIR/workspace/scripts/"
 
-# Executor gets execution scripts + db access
-for script in db.js db-query.js; do
+# Executor gets execution scripts + db access + price checking
+for script in db.js db-query.js token-metrics.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$EXECUTOR_DIR/workspace/scripts/"
 done
 for script in execute-trade.js check-safe-status.js; do

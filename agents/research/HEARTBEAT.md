@@ -8,10 +8,13 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 | Check | Cadence | Active Hours |
 |-------|---------|-------------|
 | Check sentinel alerts | every 30 min | 24/7 |
+| Market regime check | every 1 hour | 24/7 |
 | New token scan | every 2 hours | 08:00-00:00 |
+| Conviction token scan | every 6 hours | 08:00-22:00 |
 | Smart money wallet activity | every 1 hour | 08:00-00:00 |
 | Narrative trend check | every 4 hours | 08:00-22:00 |
 | Portfolio rebalance review | every 24 hours | 10:00 |
+| Base tier rebalance check | every 12 hours | 10:00, 22:00 |
 | Daily P&L summary | every 24 hours | 22:00 |
 | Watchlist entry check | every 1 hour | 08:00-00:00 |
 
@@ -44,6 +47,28 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
   `node scripts/db-query.js propose-wallet --json '{"address":"<ADDR>","chain":"<CHAIN>","label":"<LABEL>","source_token":"<TOKEN_ADDR>"}'`
 - Background scorer runs every 10 min — wallets scoring 55+ auto-classified as whale/smart_money
 - For urgent wallets (multi-token overlap), score inline: `node scripts/score-wallet.js --address <ADDR> --chain <CHAIN> --add`
+
+**Conviction Token Scan**
+- Run `node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30`
+- Filter through discovery skill conviction criteria (age >7d, liquidity >$100k, verified)
+- Cross-reference with `node scripts/narrative-check.js` for momentum
+- For each promising token: run full pipeline (analysis → risk → trade proposal with tier=conviction)
+
+**Market Regime Check**
+- Run `node scripts/market-regime.js`
+- Log the regime and any transition to daily memory with `[MARKET]` tag
+- If regime changed: log the old → new transition and adjusted parameters
+- The script auto-updates `portfolio_meta` (key: `market_regime`) and heartbeat timestamp
+- Other checks read regime from DB — this check keeps it fresh
+
+**Base Tier Rebalance Check**
+- **First:** read market regime from DB: `node scripts/db-query.js get-meta --key market_regime`
+- If regime is `bearish` or `crisis` (`baseBuyingEnabled: false`): log "Base tier buying paused — market regime: {regime}" and skip
+- Check current base allocation vs 50% target
+- If base < 40%: propose buying the most underweight base asset per chain (Base chain: WETH/cbBTC, Solana: wSOL)
+- Use `node scripts/token-metrics.js --address <BASE_TOKEN_ADDRESS> --chain <CHAIN>` to get current prices for sizing
+- Base buys skip discovery/analysis pipeline — go straight to risk check + trade proposal
+- Risk check for base tokens is simplified: verify liquidity, check portfolio limits, confirm price isn't at extreme (>20% above 7d avg)
 
 **Narrative Trends**
 - Run `node scripts/narrative-check.js`
