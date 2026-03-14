@@ -316,6 +316,10 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"open"}' --strict-json
   echo "[entrypoint]   Memory: flush at compaction, hybrid search enabled, context pruning 5m TTL"
 
+  # Sentinel/Executor: disable memory flush (clean sessions never reach compaction)
+  openclaw config set 'agents.list[2].compaction.memoryFlush' '{"enabled":false}' --strict-json
+  openclaw config set 'agents.list[3].compaction.memoryFlush' '{"enabled":false}' --strict-json
+
   # --- Research sub-agent model (Sonnet for analysis/risk skills) ---
   if [ -n "$RESEARCH_SUBAGENT_MODEL" ]; then
     openclaw config set 'agents.list[1].subagents.model' "$RESEARCH_SUBAGENT_MODEL" 2>/dev/null
@@ -372,6 +376,10 @@ else
   if [ -n "$RESEARCH_SUBAGENT_MODEL" ]; then
     openclaw config set 'agents.list[1].subagents.model' "$RESEARCH_SUBAGENT_MODEL" 2>/dev/null || true
   fi
+
+  # Sentinel/Executor: ensure memory flush disabled (clean sessions)
+  openclaw config set 'agents.list[2].compaction.memoryFlush' '{"enabled":false}' --strict-json 2>/dev/null || true
+  openclaw config set 'agents.list[3].compaction.memoryFlush' '{"enabled":false}' --strict-json 2>/dev/null || true
 fi
 
 # ============================================================
@@ -485,7 +493,7 @@ run_executor_loop() {
       | node -e "process.stdin.on('data',d=>{try{console.log(JSON.parse(d).skip)}catch{console.log('true')}})")
     if [ "$SKIP" != "true" ]; then
       echo "[executor-loop] Work found, triggering executor agent"
-      openclaw agent --agent executor --session-id agent:executor:bg --message "$EXECUTOR_MSG" \
+      openclaw agent --agent executor --session-id "executor-$(date +%s)" --message "$EXECUTOR_MSG" \
         2>&1 | sed 's/^/[executor] /'
     fi
     sleep 60
@@ -509,7 +517,7 @@ run_sentinel_loop() {
       | node -e "process.stdin.on('data',d=>{try{console.log(JSON.parse(d).skip)}catch{console.log('true')}})")
     if [ "$SKIP" != "true" ]; then
       echo "[sentinel-loop] Work found, triggering sentinel agent"
-      openclaw agent --agent sentinel --session-id agent:sentinel:bg --message "$SENTINEL_MSG" \
+      openclaw agent --agent sentinel --session-id "sentinel-$(date +%s)" --message "$SENTINEL_MSG" \
         2>&1 | sed 's/^/[sentinel] /'
     fi
     sleep 600  # 10 minutes
