@@ -34,7 +34,7 @@ Positions, trades, orders, alerts, receipts — everything tied to a specific Sa
 - Database path: `data/<SAFE_ID>.db`
 - Access via CLI: `node scripts/db-query.js <command> [--flags]`
 - Schema managed by auto-migrations in `scripts/db.js`
-- 16 tables: positions, trades, approved_trades, sell_orders, trade_receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_trades, paper_positions, _migrations
+- 17 tables: positions, trades, approved_trades, sell_orders, trade_receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_trades, paper_positions, analysis_cache, _migrations
 
 ### Why Two Layers?
 The project can be deployed multiple times managing different Safe wallets/funds. Agent memory (patterns, lessons) is universal knowledge shared across all deployments. Wallet data (positions, cash, orders) is specific to one fund and must be isolated.
@@ -81,11 +81,13 @@ scripts/                  # Node.js scripts
   score-wallet.js         # Smart money scoring via Birdeye/Zerion PnL
   score-wallets-bg.js     # Background wallet scoring pipeline (runs one cycle, exits)
   market-overview.js      # BTC dominance, fear/greed
+  market-regime.js        # Market regime classification + parameter adjustment
+  heartbeat-check.js      # Pre-check for sentinel/executor background loops
   portfolio-summary.js    # Allocation + P&L
   narrative-check.js      # Narrative momentum
   holder-distribution.js  # Top holder analysis
   memory-backup.sh        # Git auto-commit for agent memory
-tests/                    # 6 test suites + runner + helpers
+tests/                    # 7 test suites + runner + helpers
 Dockerfile                # Based on ghcr.io/openclaw/openclaw:latest
 docker-compose.yml        # One-command deployment
 build-templates.sh        # Docker build-time template assembly (replaces setup.sh in Docker)
@@ -101,7 +103,7 @@ setup.sh                  # Bare-metal installer (deploys agents into OpenClaw d
 | `agents/sentinel/AGENTS.md` | Monitoring rules, sell order logic, alert format |
 | `agents/executor/AGENTS.md` | Transaction rules, validation logic, receipt format, Safe integration |
 | `scripts/db.js` | SQLite schema, migrations, connection management |
-| `scripts/db-query.js` | 30+ CLI commands for agents to interact with wallet data |
+| `scripts/db-query.js` | 35+ CLI commands for agents to interact with wallet data |
 | `workspace/TOOLS.md` | CLI usage for every script + db-query.js — check this before modifying |
 | `setup.sh` | Understand this to know how files get deployed to OpenClaw |
 
@@ -120,6 +122,7 @@ node tests/test-safety.js       # Safety rule logic
 node tests/test-pipeline.js     # Pipeline stage integration + executor handoff
 node tests/test-executor.js     # Executor validation, slippage, receipts, portfolio updates
 node tests/test-paper-mode.js   # Paper trading lifecycle, P&L, stats
+node tests/test-regime.js       # Market regime classification, adjustments, anti-whipsaw
 node tests/test-scripts.js      # Script output format (needs network)
 
 # Database queries (from project root)

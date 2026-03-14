@@ -60,8 +60,13 @@ services:
       # Optional: API keys for data scripts
       - GOPLUS_API_KEY=${GOPLUS_API_KEY:-}
       - ETHERSCAN_API_KEY=${ETHERSCAN_API_KEY:-}
+      - BASESCAN_API_KEY=${BASESCAN_API_KEY:-}
+      - ARBISCAN_API_KEY=${ARBISCAN_API_KEY:-}
+      - OPTIMISM_API_KEY=${OPTIMISM_API_KEY:-}
       - BIRDEYE_API_KEY=${BIRDEYE_API_KEY:-}
+      - ZERION_API_KEY=${ZERION_API_KEY:-}
       - SOLSCAN_API_KEY=${SOLSCAN_API_KEY:-}
+      - HELIUS_API_KEY=${HELIUS_API_KEY:-}
 
       # Safe wallet (Executor Agent)
       - SAFE_ADDRESS_ETH=${SAFE_ADDRESS_ETH:-}

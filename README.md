@@ -2,33 +2,36 @@
 
 **Three-agent crypto research & portfolio management system for [OpenClaw](https://openclaw.ai/).**
 
-CryptoClaw is a scalable, three-agent workspace that turns OpenClaw into an autonomous crypto trading assistant. One agent thinks. One agent watches. One agent executes. Agent knowledge is shared across deployments; wallet data is isolated per fund.
+CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent thinks. One agent watches. One agent executes. Agent knowledge is shared across deployments; wallet data is isolated per fund.
 
 ## Architecture
 
 ```
                           YOU
                      (approve buys)
-                          |
-          +---------------+---------------+
-          v               |               v
-   +--------------+       |       +---------------+
-   |   RESEARCH   |       |       |   SENTINEL    |
-   |    AGENT     |       |       |    AGENT      |
-   |              |    SQLite     |               |
-   | * Discovery  |   Database    | * Price watch |
-   | * Analysis   |   (shared)    | * LP monitor  |
-   | * Risk       |       |       | * Wallet track|
-   | * Portfolio  |       |       | * Auto-sells  |
-   |              |       |       |               |
-   | Sonnet (30m) |       |       | Haiku (5m)    |
-   +------+-------+       |       +-------+-------+
-          |               |               |
-          v               v               v
-   approved_trades table  |    sell_orders table
-          |               |               |
-          +---------------+---------------+
-                          v
+                           |
+          +----------------+---------------+
+          v                |               v
+   +---------------+       |       +---------------+
+   |   RESEARCH    |       |       |   SENTINEL    |
+   |    AGENT      |       |       |    AGENT      |
+   |               |    SQLite     |               |
+   | * Discovery   |   Database    | * Price watch |
+   | * Analysis    |   (shared)    | * LP monitor  |
+   | * Risk        |       |       | * Wallet track|
+   | * Portfolio   |       |       | * Auto-sells  |
+   |               |       |       |               |
+   | GPT-5-mini    |       |       | GPT-5-mini    |
+   |  + Sonnet     |       |       |   (10m)       |
+   |  sub-agents   |       |       |               |
+   |   (30m)       |       |       |               |
+   +------+--------+       |       +-------+-------+
+          |                |               |
+          v                v               v
+   approved_trades table   |    sell_orders table
+          |                |               |
+          +----------------+---------------+
+                           v
                    +--------------+
                    |   EXECUTOR   |
                    |    AGENT     |
@@ -38,7 +41,8 @@ CryptoClaw is a scalable, three-agent workspace that turns OpenClaw into an auto
                    | * Sign       |
                    | * Submit     |
                    |              |
-                   | Haiku (1m)   |
+                   | GPT-5-mini   |
+                   |    (1m)      |
                    +------+-------+
                           |
                           v
@@ -48,11 +52,19 @@ CryptoClaw is a scalable, three-agent workspace that turns OpenClaw into an auto
 
 ## Key Design Decisions
 
-**Three agents, clear separation.** Research thinks deeply (Sonnet, 30m). Sentinel reacts fast (Haiku, 5m). Executor handles wallet operations (Haiku, 1m).
+**Three agents, clear separation.** Research thinks deeply (GPT-5-mini, spawns Sonnet sub-agents for analysis/risk, 30m heartbeat). Sentinel reacts fast (GPT-5-mini, 10m). Executor handles wallet operations (GPT-5-mini, 1m).
+
+**Cost-optimized model routing.** All three agents run on GPT-5-mini by default. Research only escalates to Claude Sonnet for the two expensive skills — deep token analysis and risk assessment — by spawning sub-agents via `sessions_spawn`. Discovery, market checks, and portfolio work stay on GPT-5-mini.
+
+**Token deduplication.** Before spawning expensive Sonnet sub-agents, Research checks `check-token-status` against the database: open positions, pending orders, watchlist entries, and recently cached analysis results are all skipped. This prevents redundant analysis of the same trending tokens across heartbeats.
+
+**Market regime awareness.** The system classifies market conditions (bullish, neutral, bearish, crisis) and automatically tightens position limits, raises cash reserves, and adjusts risk thresholds. In crisis mode, no new moonshot positions are allowed.
 
 **Two-layer memory.** Agent knowledge (patterns, lessons, scoring calibration) lives in markdown files backed by a private git repo — shared across all fund deployments. Wallet data (positions, trades, orders, alerts) lives in SQLite — one database per fund, identified by `SAFE_ID`.
 
 **Buys need approval, sells don't.** When Research proposes a buy, you get a message and must approve. When Sentinel detects danger, it writes a sell order immediately. The Executor picks it up and executes within 1 minute.
+
+**Smart money tracking.** Interesting wallets (top holders, deployers) are proposed for background scoring via Birdeye/Zerion APIs. Wallets scoring 55+ are auto-classified as whale/smart_money and monitored for activity.
 
 **Safe wallet for execution.** The Executor agent signs transactions via a Safe (multisig) wallet. Safe's policies decide how many signatures are needed — the agent can be one signer without being the sole authority.
 
@@ -61,20 +73,16 @@ CryptoClaw is a scalable, three-agent workspace that turns OpenClaw into an auto
 ## Pipeline
 
 ```
-Discovery -> Analysis -> Risk -> Trade Proposal -> YOU APPROVE -> approved_trades table
-                                                                        |
-                                                                 Executor signs
-                                                                 via Safe wallet
-                                                                        |
-                                                              positions table updated
-                                                                        |
-                                                           Sentinel monitors 24/7
-                                                                        |
-                                                  stop-loss / take-profit / rug warning
-                                                                        |
-                                                           sell_orders table (no approval)
-                                                                        |
-                                                           Executor auto-executes via Safe
+1. Discovery ── scan-tokens.js ──▶ filter ──▶ dedup (check-token-status)
+2. Analysis ─── token-metrics.js, check-contract.js, holder-distribution.js
+                → spawn Sonnet sub-agent → score 0-100 across 6 dimensions
+                → avoid? cache result, skip (saves future sub-agent spawns)
+3. Risk ─────── check-contract.js --deep → spawn Sonnet sub-agent
+                → auto-reject on critical flags → market regime risk modifier
+                → portfolio-level checks → reject? cache result, skip
+4. Proposal ─── position sizing, stops, take-profit levels
+                → human approval (real) or auto-approve (paper)
+5. Execution ── Executor validates → Safe wallet tx → receipt → position update
 ```
 
 ---
@@ -85,7 +93,8 @@ Discovery -> Analysis -> Risk -> Trade Proposal -> YOU APPROVE -> approved_trade
 
 - Docker and Docker Compose (for Docker path) or OpenClaw installed locally (for manual path)
 - Node.js 22+ (manual path only)
-- Anthropic API key
+- OpenAI API key (GPT-5-mini for all agents)
+- Anthropic API key (Sonnet for Research sub-agents)
 - A deployed Safe wallet on your target chain(s) (Ethereum, Base, etc.)
 - RPC endpoints for each chain (Alchemy, Infura, etc.)
 
@@ -104,21 +113,22 @@ Edit `.env` with your values:
 # Fund identity — pick a name for this deployment
 SAFE_ID=fund-alpha
 
-# Required
-ANTHROPIC_API_KEY=sk-ant-...
+# Required: LLM providers
+OPENAI_API_KEY=sk-...                # All agents (GPT-5-mini)
+ANTHROPIC_API_KEY=sk-ant-...         # Research sub-agents (Sonnet)
 
 # Safe wallet
-SAFE_ADDRESS_ETH=0x...         # Your Safe address on Ethereum
-SAFE_ADDRESS_BASE=0x...        # Your Safe address on Base
-SAFE_SIGNER_KEY=0x...          # Private key for one Safe signer (NEVER commit this)
+SAFE_ADDRESS_ETH=0x...               # Your Safe address on Ethereum
+SAFE_ADDRESS_BASE=0x...              # Your Safe address on Base
+SAFE_SIGNER_KEY=0x...                # Private key for one Safe signer (NEVER commit this)
 
 # RPC endpoints
 RPC_ETH=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
 RPC_BASE=https://base-mainnet.g.alchemy.com/v2/YOUR_KEY
 
 # Data APIs (optional but recommended)
-GOPLUS_API_KEY=                # Contract safety checks
-ETHERSCAN_API_KEY=             # Wallet tracking
+GOPLUS_API_KEY=                       # Contract safety checks
+ETHERSCAN_API_KEY=                    # Wallet tracking
 ```
 
 ### Step 2: Deploy
@@ -134,8 +144,9 @@ What happens on first start:
 
 1. Image builds: installs OpenClaw, deploys three agents, installs npm dependencies
 2. `entrypoint.sh` runs: seeds workspace files (USER.md, MEMORY.md, TOOLS.md, etc.)
-3. SQLite database created and migrated (`data/<SAFE_ID>.db` — 14 tables)
-4. OpenClaw gateway starts, all three agents begin their heartbeat cycles
+3. SQLite database created and migrated (`data/<SAFE_ID>.db` — 17 tables)
+4. Background loops start: memory backup (15m), wallet scoring (10m), sentinel (10m), executor (1m)
+5. OpenClaw gateway starts, research agent begins 30m heartbeat cycle via cron
 
 #### Option B: Manual (No Docker)
 
@@ -143,11 +154,40 @@ What happens on first start:
 chmod +x setup.sh
 SAFE_ID=fund-alpha ./setup.sh
 
-# Install script deps
-cd ~/.openclaw/agents/research/scripts && npm install
+# Optional: install memory backup + wallet scoring cron jobs
+SAFE_ID=fund-alpha ./setup.sh --memory-backup --wallet-scorer
+```
 
-# Copy API keys
-cp .env ~/.openclaw/agents/research/scripts/.env
+### Paper Mode (Simulated Trading)
+
+Run the full system autonomously without touching real funds:
+
+```bash
+# Docker
+PAPER_MODE=true docker compose up -d
+
+# With custom starting balance
+PAPER_MODE=true PAPER_STARTING_BALANCE=5000 docker compose up -d
+```
+
+In paper mode:
+- BUY proposals that pass all safety checks are auto-approved (`approved_by: 'paper_mode'`)
+- No human approval needed — fully autonomous
+- All safety rules remain enforced
+- Trades recorded in `paper_trades` and `paper_positions` tables
+- Use `get-paper-portfolio`, `get-paper-stats`, etc. for paper-specific queries
+
+### Model Configuration
+
+```bash
+# Default: all agents on GPT-5-mini, deep analysis on Sonnet
+RESEARCH_MODEL=openai/gpt-5-mini
+SENTINEL_MODEL=openai/gpt-5-mini
+EXECUTOR_MODEL=openai/gpt-5-mini
+RESEARCH_SUBAGENT_MODEL=anthropic/claude-sonnet-4-6
+
+# Full quality Research (higher cost)
+RESEARCH_MODEL=anthropic/claude-sonnet-4-6 docker compose up -d
 ```
 
 ### Step 3: Configure Your Profile
@@ -169,6 +209,9 @@ Fill in your timezone, experience level, risk tolerance, portfolio targets, and 
 Agent memory (MEMORY.md + daily logs) should be backed up to a **private** git repo, separate from the code repo.
 
 ```bash
+# Docker: set MEMORY_GIT_REMOTE in .env
+MEMORY_GIT_REMOTE=https://<token>@github.com/your-org/crypto-claw-memory.git
+
 # Manual path
 cd ~/.openclaw/agents/research/workspace
 git remote add origin git@github.com:your-org/crypto-claw-memory.git
@@ -176,26 +219,18 @@ SAFE_ID=fund-alpha ./setup.sh --memory-backup
 # Installs cron: commits + pushes every 15 minutes
 ```
 
-For Docker, the agent memory lives in the `crypto-claw-memory` named volume. You can either mount a host directory instead (see docker-compose.yml comments) or back up the volume externally.
-
 ### Step 5: Verify
 
 ```bash
 # Run tests (offline — no API calls)
 cd tests && node run-all.js --offline
 
-# Check OpenClaw sees all agents
-openclaw doctor --fix
-
-# Security audit
-openclaw security audit --deep
+# Check all 7 suites pass (262+ tests)
 ```
 
 ---
 
 ## Updating & Redeployment
-
-When you pull new code (updated agent rules, new scripts, schema changes), here's how to redeploy.
 
 ### Docker Redeploy
 
@@ -207,10 +242,10 @@ docker compose up -d --build
 What happens on restart:
 
 1. Image rebuilds with the new code
-2. `entrypoint.sh` runs and syncs **code-owned** workspace files (TOOLS.md, BOOT.md, IDENTITY.md) from baked-in templates into the persistent volume
-3. **User/agent-owned** files are preserved: USER.md (your profile), MEMORY.md (learned patterns), daily logs — the entrypoint never overwrites these
-4. DB migrations run automatically — if a new migration was added (e.g., `002_add_column`), it applies atomically via a transaction; if it fails, the container stops instead of running with a broken schema
-5. Agent configs (AGENTS.md, SOUL.md, HEARTBEAT.md, skills) are always fresh from the image — they live outside the volume
+2. `entrypoint.sh` syncs **code-owned** workspace files (TOOLS.md, BOOT.md, IDENTITY.md, agent skills, scripts)
+3. **User/agent-owned** files are preserved: USER.md, MEMORY.md, daily logs
+4. DB migrations run automatically — new migrations apply atomically via transactions
+5. Agent models synced from env vars (picks up model changes without wiping state)
 
 **What updates on redeploy:** agent rules, skills, scripts, TOOLS.md, BOOT.md, IDENTITY.md, DB schema.
 
@@ -223,36 +258,11 @@ git pull
 SAFE_ID=fund-alpha ./setup.sh
 ```
 
-Same behavior: code-owned files update, USER.md and MEMORY.md are preserved (skip-if-exists guards), DB migrations run on next agent query.
-
-### Schema Migrations
-
-Migrations are defined in `scripts/db.js` and managed automatically. Each migration:
-
-- Has a unique name (e.g., `001_initial`, `002_add_narrative_field`)
-- Is wrapped in a SQLite transaction — all-or-nothing, auto-rollback on failure
-- Is tracked in the `_migrations` table — never runs twice
-- Runs at container startup (Docker) or on first DB query (manual)
-
-To add a new migration, append to the `migrations` array in `db.js`:
-
-```javascript
-{
-  name: '002_add_narrative_field',
-  sql: `ALTER TABLE positions ADD COLUMN narrative_score INTEGER;`
-}
-```
-
-On next deploy, `entrypoint.sh` calls `node scripts/db-query.js migrate`, detects the new migration, and applies it.
-
 ### File Ownership Model
-
-Understanding which files update and which persist:
 
 | File | Owner | On Redeploy |
 |------|-------|-------------|
 | `AGENTS.md`, `SOUL.md`, `HEARTBEAT.md` | Code | Always updated |
-| `openclaw.json` | Code | Always updated |
 | `skills/*/SKILL.md` | Code | Always updated |
 | `scripts/*.js` | Code | Always updated |
 | `TOOLS.md`, `IDENTITY.md`, `BOOT.md` | Code | Synced from templates |
@@ -273,11 +283,11 @@ docker compose logs -f                        # Live logs
 docker compose exec crypto-claw \
   node scripts/db-query.js get-portfolio       # Portfolio state
 docker compose exec crypto-claw \
-  node scripts/db-query.js get-heartbeat       # When agents last ran
+  node scripts/db-query.js get-heartbeat --agent research  # When agent last ran
 
 # Manual
 SAFE_ID=fund-alpha node scripts/db-query.js get-portfolio
-SAFE_ID=fund-alpha node scripts/db-query.js get-heartbeat
+SAFE_ID=fund-alpha node scripts/db-query.js get-heartbeat --agent research
 ```
 
 ### Common Queries
@@ -290,7 +300,7 @@ node scripts/db-query.js get-positions --status open
 node scripts/db-query.js get-approved-trades --pending
 
 # Pending sell orders
-node scripts/db-query.js get-sell-orders
+node scripts/db-query.js get-sell-orders --pending
 
 # Recent execution receipts
 node scripts/db-query.js get-receipts --limit 10
@@ -301,8 +311,26 @@ node scripts/db-query.js get-trade-stats
 # Unprocessed sentinel alerts
 node scripts/db-query.js get-alerts --unprocessed
 
+# Current market regime
+node scripts/db-query.js get-meta --key market_regime
+
+# Tracked wallets (smart money)
+node scripts/db-query.js get-tracked-wallets --status scored
+
+# Analysis cache (dedup)
+node scripts/db-query.js get-analysis-cache
+
 # Check migration status
 node scripts/db-query.js migrate
+```
+
+### Paper Mode Queries
+
+```bash
+node scripts/db-query.js get-paper-portfolio       # Cash, P&L, positions
+node scripts/db-query.js get-paper-positions        # Open paper positions
+node scripts/db-query.js get-paper-stats            # Win rate, returns
+node scripts/db-query.js get-paper-trades --limit 10
 ```
 
 ### Depositing Funds
@@ -315,8 +343,6 @@ node scripts/db-query.js set-meta --key total_deposited --value 10000
 ```
 
 ### Backing Up Wallet Data
-
-The SQLite database is the most critical data. Back it up independently of agent memory.
 
 ```bash
 # Docker: copy DB from volume
@@ -333,7 +359,7 @@ cp ~/.openclaw/agents/research/data/fund-alpha.db ./backups/
 ```bash
 # Docker
 docker compose down          # Stop (data preserved in volumes)
-docker compose up -d         # Restart (entrypoint re-syncs files + runs migrations)
+docker compose up -d         # Restart
 
 # Reset everything (DESTROYS ALL DATA)
 docker compose down -v       # -v removes named volumes
@@ -354,22 +380,13 @@ SAFE_ID=fund-alpha docker compose up -d
 SAFE_ID=fund-beta docker compose -p crypto-claw-beta up -d
 ```
 
-Or with manual setup:
-
-```bash
-SAFE_ID=fund-alpha ./setup.sh
-SAFE_ID=fund-beta ./setup.sh
-```
-
-Each fund creates `data/fund-alpha.db` and `data/fund-beta.db`. What the agent learns from Fund A's trades (stored in MEMORY.md) benefits Fund B's decisions.
-
 ---
 
 ## Memory System
 
 ### Layer 1: Agent Memory (Markdown)
 
-Agent knowledge that applies across all fund deployments. Backed by a **private git repo**, separate from the code repo.
+Agent knowledge that applies across all fund deployments. Backed by a **private git repo**, separate from the code repo. Backed up every 15 minutes.
 
 | File | Purpose |
 |------|---------|
@@ -378,7 +395,7 @@ Agent knowledge that applies across all fund deployments. Backed by a **private 
 
 ### Layer 2: Wallet Data (SQLite)
 
-Per-fund data in `data/<SAFE_ID>.db`. Accessed via `node scripts/db-query.js`.
+Per-fund data in `data/<SAFE_ID>.db`. 17 tables, auto-migrating schema. Accessed via `node scripts/db-query.js` (35+ commands).
 
 | Table | Written By | Read By | Purpose |
 |-------|-----------|---------|---------|
@@ -390,11 +407,14 @@ Per-fund data in `data/<SAFE_ID>.db`. Accessed via `node scripts/db-query.js`.
 | `watchlist` | Research | Research | Tokens waiting for entry |
 | `trades` | Research, Executor | Research | Trade history with stats |
 | `liquidity_snapshots` | Sentinel | Sentinel | LP snapshots for comparison |
-| `tracked_wallets` | Research | Research, Sentinel | Smart money addresses |
+| `tracked_wallets` | Research | Research, Sentinel | Smart money addresses with scores |
+| `analysis_cache` | Research | Research | Dedup cache for avoid/reject verdicts (24h TTL) |
 | `heartbeat_state` | All | All | Last-run timestamps per agent |
 | `sentinel_log` | Sentinel | All | Monitoring check history |
 | `executor_log` | Executor | Executor | Processing history |
-| `portfolio_meta` | All | All | Cash balance, safe_id, totals |
+| `portfolio_meta` | All | All | Cash balance, safe_id, market regime |
+| `paper_trades` | Executor | All | Simulated trade records (paper mode) |
+| `paper_positions` | Executor | All | Simulated positions (paper mode) |
 
 ---
 
@@ -407,18 +427,16 @@ crypto-claw/
 |   |   +-- AGENTS.md                # Operating rules + buy approval logic
 |   |   +-- SOUL.md                  # Research persona
 |   |   +-- HEARTBEAT.md             # 30min rotating checks
-|   |   +-- openclaw.json            # Sonnet model, 30m heartbeat
 |   |   +-- skills/
-|   |       +-- discovery/SKILL.md   # Token scanning
-|   |       +-- analyst/SKILL.md     # Scoring framework
-|   |       +-- risk/SKILL.md        # Safety checks
+|   |       +-- discovery/SKILL.md   # Token scanning + dedup
+|   |       +-- analyst/SKILL.md     # Scoring framework (Sonnet sub-agent)
+|   |       +-- risk/SKILL.md        # Safety checks (Sonnet sub-agent)
 |   |       +-- portfolio/SKILL.md   # Position management
 |   |
 |   +-- sentinel/                    # SENTINEL AGENT
 |   |   +-- AGENTS.md                # Monitoring rules + sell order logic
-|   |   +-- SOUL.md                  # Minimal persona
-|   |   +-- HEARTBEAT.md             # 5min ALL checks
-|   |   +-- openclaw.json            # Haiku model, 5m heartbeat
+|   |   +-- SOUL.md                  # Watchdog persona
+|   |   +-- HEARTBEAT.md             # 10min all checks
 |   |   +-- skills/
 |   |       +-- sentinel/SKILL.md    # Position monitoring
 |   |
@@ -426,7 +444,6 @@ crypto-claw/
 |       +-- AGENTS.md                # Transaction rules + validation logic
 |       +-- SOUL.md                  # Mechanical persona
 |       +-- HEARTBEAT.md             # 1min order processing
-|       +-- openclaw.json            # Haiku model, 1m heartbeat
 |       +-- skills/
 |           +-- executor/SKILL.md    # Safe wallet tx building
 |
@@ -435,41 +452,47 @@ crypto-claw/
 |   +-- IDENTITY.md                  # Agent identity
 |   +-- TOOLS.md                     # Script + db-query.js usage guide
 |   +-- BOOT.md                      # First-run setup
-|   +-- MEMORY.md                    # Curated long-term memory (preserved on redeploy)
-|   +-- memory/                      # Daily logs (preserved on redeploy)
+|   +-- MEMORY.md                    # Curated long-term memory (preserved)
+|   +-- memory/                      # Daily logs (preserved)
 |
 +-- scripts/                         # NODE.JS SCRIPTS
-|   +-- db.js                        # SQLite schema + transaction-wrapped migrations
-|   +-- db-query.js                  # CLI interface for wallet data (30+ commands)
+|   +-- db.js                        # SQLite schema + migrations (17 tables)
+|   +-- db-query.js                  # CLI interface for wallet data (35+ commands)
 |   +-- package.json                 # Dependencies (better-sqlite3, dotenv)
-|   +-- scan-tokens.js               # DEXScreener trending/new
+|   +-- scan-tokens.js               # DEXScreener trending/new/established
 |   +-- token-metrics.js             # Detailed token data
 |   +-- check-contract.js            # GoPlus safety scan
 |   +-- check-positions.js           # Current prices vs stops/TPs
 |   +-- check-liquidity.js           # LP change detection
-|   +-- check-wallets.js             # Wallet activity tracking
+|   +-- check-wallets.js             # Multi-chain wallet activity tracking
+|   +-- score-wallet.js              # Smart money scoring via Birdeye/Zerion
+|   +-- score-wallets-bg.js          # Background wallet scoring pipeline
 |   +-- market-overview.js           # BTC dominance, fear/greed
+|   +-- market-regime.js             # Market regime classification + adjustments
+|   +-- heartbeat-check.js           # Pre-check for background loops
 |   +-- portfolio-summary.js         # Allocation + P&L
 |   +-- narrative-check.js           # Narrative momentum
 |   +-- holder-distribution.js       # Top holder analysis
 |   +-- memory-backup.sh             # Git auto-commit for agent memory
 |
-+-- tests/                           # TEST SUITES
++-- tests/                           # 7 TEST SUITES
 |   +-- run-all.js                   # Test runner
 |   +-- test-helpers.js              # Minimal test framework
 |   +-- test-memory.js               # Agent memory + SQLite schema + CRUD
-|   +-- test-safety.js               # Safety rule logic tests
-|   +-- test-pipeline.js             # Pipeline integration tests
-|   +-- test-executor.js             # Executor validation + receipt tests
-|   +-- test-scripts.js              # Script output validation
+|   +-- test-safety.js               # Safety rules + regime adjustments
+|   +-- test-pipeline.js             # Pipeline integration + dedup logic
+|   +-- test-executor.js             # Executor validation + receipts
+|   +-- test-paper-mode.js           # Paper trading lifecycle + P&L
+|   +-- test-regime.js               # Market regime classification + anti-whipsaw
+|   +-- test-scripts.js              # Script output validation (needs network)
 |
-+-- entrypoint.sh                    # Docker runtime init (file sync + migrations)
++-- entrypoint.sh                    # Docker runtime init + background loops
 +-- Dockerfile                       # Image build
 +-- docker-compose.yml               # One-command deployment
-+-- setup.sh                         # Manual install script
++-- build-templates.sh               # Docker build-time template assembly
++-- setup.sh                         # Bare-metal installer
 +-- .env.example                     # Environment variable template
 +-- CLAUDE.md                        # Claude Code project guide
-+-- README.md
 ```
 
 ## Safety Rules (Hard-Coded)
@@ -478,18 +501,34 @@ crypto-claw/
 |------|-------|------------|
 | Max moonshot position | 5% | Research + Executor |
 | Max conviction position | 10% | Research + Executor |
+| Max base position | 50% | Research + Executor |
 | Max moonshot allocation | 20% | Research |
-| Min cash reserve | 10% | Research |
+| Min cash reserve | 10% (25% bearish, 40% crisis) | Research |
 | Max same-narrative positions | 3 | Research |
+| Max open positions | 15 | Research |
 | Auto-reject: honeypot | Always | Research |
 | Auto-reject: top holder >30% | Always | Research |
 | Auto-reject: liquidity <$5k | Always | Research |
+| Auto-reject: pausable contract | Always | Research |
+| Auto-reject: known scam deployer | Always | Research |
 | Stop-loss auto-sell | Immediate | Sentinel -> Executor |
 | Take-profit auto-sell | Immediate | Sentinel -> Executor |
 | Rug warning auto-sell | Immediate | Sentinel -> Executor |
 | Slippage limit (moonshot) | 5% | Executor |
 | Slippage limit (conviction/base) | 2% | Executor |
 | Stale order protection | 10% price drift | Executor |
+
+### Market Regime Adjustments (Can Only Tighten)
+
+| Parameter | Bullish/Neutral | Bearish | Crisis |
+|-----------|----------------|---------|--------|
+| Min cash reserve | 10% | 25% | 40% |
+| Max moonshot position | 5% | 3% | 0% (no new) |
+| Max conviction position | 10% | 7% | 5% |
+| Base tier buying | Enabled | Paused | Paused |
+| Min buy score | 50 | 65 | 80 |
+
+Anti-whipsaw: regime only changes after 2 consecutive consistent readings.
 
 ## Tests
 
@@ -501,31 +540,23 @@ cd tests && node run-all.js --offline
 cd tests && node run-all.js
 
 # Run individual suites
-node tests/test-memory.js      # Agent memory + SQLite schema + CRUD ops
-node tests/test-safety.js      # Safety rule logic
-node tests/test-pipeline.js    # Pipeline integration + executor handoff
-node tests/test-executor.js    # Executor validation, slippage, receipts
-node tests/test-scripts.js     # Script outputs (needs network)
+node tests/test-memory.js      # Agent memory + SQLite schema + CRUD (56 tests)
+node tests/test-safety.js      # Safety rules + regime limits (35 tests)
+node tests/test-pipeline.js    # Pipeline + dedup logic (44 tests)
+node tests/test-executor.js    # Validation, slippage, receipts (25 tests)
+node tests/test-paper-mode.js  # Paper trading lifecycle (14 tests)
+node tests/test-regime.js      # Regime classification + anti-whipsaw (47 tests)
+node tests/test-scripts.js     # Script output format (needs network)
 ```
 
 ## Cost Optimization
 
-- Sentinel runs on **Haiku** (~$0.001/heartbeat with small context)
-- Executor runs on **Haiku** (~$0.001/heartbeat, even smaller context)
-- Research heartbeats also use **Haiku** for cheap checks
-- Research only escalates to **Sonnet** for deep analysis (on-demand)
+- All three agents run on **GPT-5-mini** (~$0.001/heartbeat with small context)
+- Research only escalates to **Sonnet** for deep analysis/risk (on-demand sub-agents)
+- **Token dedup** prevents redundant Sonnet spawns on already-analyzed tokens
+- **Background loops** with pre-checks skip agent invocation when nothing is pending
 - Scripts handle ALL API calls — LLM never fetches data directly
-- Sentinel context stays under 2k tokens when portfolio is healthy
-- Executor context stays under 1k tokens when no orders pending
-
-## Scaling
-
-The three-agent split is designed to scale:
-- Add a fourth agent for **social monitoring** (Twitter/Telegram sentiment)
-- Add a fifth for **cross-chain arbitrage** detection
-- Each agent gets its own heartbeat interval, model, and cost profile
-- All share state through the same database
-- Deploy multiple funds with different `SAFE_ID` values
+- Sentinel/Executor context stays minimal when portfolio is healthy or no orders pending
 
 ## License
 
