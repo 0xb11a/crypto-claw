@@ -88,6 +88,12 @@
  *   set-paper-cash --amount <number>
  *   get-paper-stats
  *
+ *   # Analysis Cache (dedup)
+ *   check-token-status --address <addr> --chain <chain>  # Check if token needs analysis
+ *   cache-analysis --json '<json>'                       # Cache avoid/reject verdict
+ *   get-analysis-cache                                   # List unexpired cache entries
+ *   clear-expired-cache                                  # Delete expired cache entries
+ *
  *   # Admin
  *   migrate                                # Run pending DB migrations
  *
@@ -752,6 +758,93 @@ function handle(db, cmd) {
       stats.current_value = totalValue;
       stats.initial_balance = initialBalance;
       output(stats);
+      break;
+    }
+
+    // ============================================================
+    // Analysis Cache (dedup)
+    // ============================================================
+    case 'check-token-status': {
+      const address = getArg('address');
+      const chain = getArg('chain');
+      if (!address || !chain) error('Missing --address or --chain');
+      const isPaper = process.env.PAPER_MODE === 'true';
+
+      // 1. Open positions (or paper_positions)
+      const posTable = isPaper ? 'paper_positions' : 'positions';
+      const pos = db.prepare(
+        `SELECT id, symbol, status FROM ${posTable} WHERE address = ? AND chain = ? AND status IN ('open', 'partial_exit')`
+      ).get(address, chain);
+      if (pos) {
+        output({ address, chain, action: 'skip', reason: 'open_position', details: { id: pos.id, symbol: pos.symbol, status: pos.status } });
+        break;
+      }
+
+      // 2. Pending approved trades (not yet executed)
+      const pendingBuy = db.prepare(
+        'SELECT id, symbol FROM approved_trades WHERE address = ? AND chain = ? AND executed = 0'
+      ).get(address, chain);
+      if (pendingBuy) {
+        output({ address, chain, action: 'skip', reason: 'pending_buy', details: { id: pendingBuy.id, symbol: pendingBuy.symbol } });
+        break;
+      }
+
+      // 3. Pending sell orders
+      const pendingSell = db.prepare(
+        'SELECT id, symbol FROM sell_orders WHERE address = ? AND chain = ? AND executed = 0'
+      ).get(address, chain);
+      if (pendingSell) {
+        output({ address, chain, action: 'skip', reason: 'pending_sell', details: { id: pendingSell.id, symbol: pendingSell.symbol } });
+        break;
+      }
+
+      // 4. Active watchlist
+      const watched = db.prepare(
+        "SELECT id, symbol FROM watchlist WHERE address = ? AND chain = ? AND status = 'watching'"
+      ).get(address, chain);
+      if (watched) {
+        output({ address, chain, action: 'skip', reason: 'on_watchlist', details: { id: watched.id, symbol: watched.symbol } });
+        break;
+      }
+
+      // 5. Unexpired analysis cache
+      const cached = db.prepare(
+        "SELECT symbol, verdict, analysis_score, risk_score, reasoning, expires_at FROM analysis_cache WHERE address = ? AND chain = ? AND expires_at > datetime('now')"
+      ).get(address, chain);
+      if (cached) {
+        output({ address, chain, action: 'skip', reason: 'cached_analysis', details: cached });
+        break;
+      }
+
+      // 6. Nothing found — proceed with analysis
+      output({ address, chain, action: 'analyze', reason: 'none' });
+      break;
+    }
+    case 'cache-analysis': {
+      const c = parseJson();
+      if (!c.address || !c.chain || !c.verdict) error('Missing required fields: address, chain, verdict');
+      const ttlHours = c.ttl_hours || 24;
+      db.prepare(`
+        INSERT INTO analysis_cache (address, chain, symbol, analysis_score, risk_score, verdict, tier, reasoning, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+' || ? || ' hours'))
+        ON CONFLICT(address, chain) DO UPDATE SET
+          symbol = excluded.symbol, analysis_score = excluded.analysis_score,
+          risk_score = excluded.risk_score, verdict = excluded.verdict,
+          tier = excluded.tier, reasoning = excluded.reasoning,
+          expires_at = excluded.expires_at, created_at = datetime('now')
+      `).run(c.address, c.chain, c.symbol || null, c.analysis_score || null,
+        c.risk_score || null, c.verdict, c.tier || null, c.reasoning || null, ttlHours);
+      output({ ok: true, address: c.address, chain: c.chain, verdict: c.verdict, ttl_hours: ttlHours });
+      break;
+    }
+    case 'get-analysis-cache': {
+      const rows = db.prepare("SELECT * FROM analysis_cache WHERE expires_at > datetime('now') ORDER BY created_at DESC").all();
+      output(rows);
+      break;
+    }
+    case 'clear-expired-cache': {
+      const result = db.prepare("DELETE FROM analysis_cache WHERE expires_at <= datetime('now')").run();
+      output({ ok: true, deleted: result.changes });
       break;
     }
 

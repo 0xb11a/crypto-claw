@@ -80,6 +80,9 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 - If real mode: run `node scripts/portfolio-summary.js`
 - Check allocation vs targets, propose rebalance if needed
 
+**Cache Cleanup** (run during daily summary)
+- Run `node scripts/db-query.js clear-expired-cache` to prune stale analysis cache entries
+
 **Daily Summary**
 - Check `PAPER_MODE` env var first
 - If `PAPER_MODE=true`: use `get-paper-portfolio`, `get-paper-stats`, `get-paper-trades --limit 20`

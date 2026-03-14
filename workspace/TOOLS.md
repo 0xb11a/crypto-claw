@@ -283,6 +283,43 @@ node scripts/db-query.js get-paper-trades --limit 10
 node scripts/db-query.js get-paper-stats
 ```
 
+### Analysis Cache (Token Dedup)
+```bash
+# Check if a token needs analysis (dedup before spawning sub-agents)
+# Returns action: "skip" or "analyze" with reason
+node scripts/db-query.js check-token-status --address 0x... --chain base
+# → {"address":"0x...","chain":"base","action":"skip","reason":"open_position","details":{...}}
+# → {"address":"0x...","chain":"base","action":"analyze","reason":"none"}
+# Checks in order: open positions, pending buys, pending sells, watchlist, cached analysis
+
+# Cache an avoid/reject verdict (prevents re-analysis for 24h by default)
+node scripts/db-query.js cache-analysis --json '{
+  "address": "0x...",
+  "chain": "base",
+  "symbol": "TOKEN",
+  "analysis_score": 25,
+  "verdict": "avoid",
+  "reasoning": "Low liquidity, unverified contract"
+}'
+
+# Cache with custom TTL (e.g., 12 hours)
+node scripts/db-query.js cache-analysis --json '{
+  "address": "0x...",
+  "chain": "base",
+  "verdict": "risk_rejected",
+  "risk_score": 82,
+  "reasoning": "Top holder >30%",
+  "ttl_hours": 12
+}'
+
+# List all unexpired cache entries (debugging)
+node scripts/db-query.js get-analysis-cache
+
+# Delete expired cache entries (run during daily summary)
+node scripts/db-query.js clear-expired-cache
+# → {"ok":true,"deleted":5}
+```
+
 ## Data Fetching Scripts
 
 Scripts handle external API calls so the LLM doesn't burn tokens on data fetching.

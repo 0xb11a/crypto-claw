@@ -10,6 +10,8 @@ triggers:
   - should I buy
 ---
 
+> **Model Routing:** This skill requires deep reasoning. When triggered during an autonomous heartbeat cycle, the parent agent should spawn a Sonnet sub-agent (`sessions_spawn --model anthropic/claude-sonnet-4-6`) and pass all gathered data (check-contract --deep output, analysis results, current portfolio/positions, market regime). The sub-agent executes this skill and returns the structured JSON output.
+
 # Risk Skill
 
 ## Purpose
@@ -154,4 +156,7 @@ Cap `maxPositionPercent` at the regime-adjusted limit for the token's tier:
 ### Step 7: Log & Handoff
 - Write to `memory/YYYY-MM-DD.md` with `[RISK]` tag
 - If verdict is not reject → pass to portfolio skill for trade proposal
-- If verdict is reject → log the specific kill flag and end
+- If verdict is reject → cache the rejection and end:
+  ```bash
+  node scripts/db-query.js cache-analysis --json '{"address":"<TOKEN_ADDRESS>","chain":"<CHAIN>","symbol":"<SYMBOL>","analysis_score":<ANALYSIS_SCORE>,"risk_score":<RISK_SCORE>,"verdict":"risk_rejected","reasoning":"<REASON>"}'
+  ```

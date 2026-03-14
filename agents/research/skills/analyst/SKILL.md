@@ -10,6 +10,8 @@ triggers:
   - analysis
 ---
 
+> **Model Routing:** This skill requires deep reasoning. When triggered during an autonomous heartbeat cycle, the parent agent should spawn a Sonnet sub-agent (`sessions_spawn --model anthropic/claude-sonnet-4-6`) and pass all gathered data (token-metrics, check-contract, holder-distribution outputs, current portfolio, relevant memory patterns). The sub-agent executes this skill and returns the structured JSON output.
+
 # Analyst Skill
 
 ## Purpose
@@ -153,7 +155,10 @@ The tier determines position limits, stop-loss levels, and slippage tolerance.
   ```bash
   node scripts/db-query.js add-to-watchlist --json '{"symbol":"TOKEN","address":"0x...","chain":"base","reason":"...","target_entry":0.001}'
   ```
-- If avoid → log reason and end
+- If avoid → cache the result and end:
+  ```bash
+  node scripts/db-query.js cache-analysis --json '{"address":"<TOKEN_ADDRESS>","chain":"<CHAIN>","symbol":"<SYMBOL>","analysis_score":<SCORE>,"verdict":"avoid","reasoning":"<REASON>"}'
+  ```
 
 ## Rules
 - NEVER let excitement override analysis

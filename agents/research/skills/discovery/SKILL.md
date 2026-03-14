@@ -66,6 +66,16 @@ Apply conviction-specific filters:
 
 These feed into the same analysis pipeline but will be assigned conviction tier by the analyst.
 
+### Step 1.5: Check Token Status (Dedup)
+For each token in scan results, check if it needs analysis:
+```bash
+node scripts/db-query.js check-token-status --address <TOKEN_ADDRESS> --chain <CHAIN>
+```
+- `action: "skip"` → remove from batch, no further processing (already has position, pending order, watchlist entry, or recent cached analysis)
+- `action: "analyze"` → keep for Step 2 filtering
+
+This prevents redundant Sonnet sub-agent spawns on tokens that were already analyzed, have open positions, or are pending execution.
+
 ### Step 2: Initial Filter
 From the raw results, apply these filters:
 

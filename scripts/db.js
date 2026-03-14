@@ -432,6 +432,26 @@ const migrations = [
       INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('research', 'market_regime');
     `,
   },
+  {
+    name: '006_analysis_cache',
+    sql: `
+      -- Cache for analysis/risk verdicts to prevent redundant sub-agent spawns
+      CREATE TABLE analysis_cache (
+        address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        symbol TEXT,
+        analysis_score INTEGER,
+        risk_score INTEGER,
+        verdict TEXT NOT NULL,
+        tier TEXT,
+        reasoning TEXT,
+        expires_at TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (address, chain)
+      );
+      CREATE INDEX idx_analysis_cache_expires ON analysis_cache(expires_at);
+    `,
+  },
 ];
 
 export default { getDb, close };

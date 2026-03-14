@@ -1,7 +1,7 @@
 # HEARTBEAT.md — Sentinel Agent
 
 ## Schedule
-Sentinel heartbeat runs every 5 minutes. ALL checks run every heartbeat (not rotating).
+Sentinel heartbeat runs every 10 minutes. ALL checks run every heartbeat (not rotating).
 Keep checks fast and mechanical.
 
 ## Every Heartbeat — Run ALL:

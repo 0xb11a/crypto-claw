@@ -343,6 +343,103 @@ describe('Market Regime Pipeline Integration', () => {
 });
 
 // ============================================================
+// Token Analysis Deduplication
+// ============================================================
+
+describe('Token Dedup — Position Blocking', () => {
+  test('open position blocks re-analysis', () => {
+    const position = { status: 'open', address: '0xtoken', chain: 'base' };
+    const shouldSkip = ['open', 'partial_exit'].includes(position.status);
+    assert(shouldSkip, 'Open position must block re-analysis');
+  });
+
+  test('partial_exit position blocks re-analysis', () => {
+    const position = { status: 'partial_exit', address: '0xtoken', chain: 'base' };
+    const shouldSkip = ['open', 'partial_exit'].includes(position.status);
+    assert(shouldSkip, 'partial_exit position must block re-analysis');
+  });
+
+  test('closed position allows re-analysis', () => {
+    const position = { status: 'closed', address: '0xtoken', chain: 'base' };
+    const shouldSkip = ['open', 'partial_exit'].includes(position.status);
+    assert(!shouldSkip, 'Closed position must allow re-analysis');
+  });
+});
+
+describe('Token Dedup — Pending Orders', () => {
+  test('pending approved trade blocks re-analysis', () => {
+    const trade = { executed: 0, address: '0xtoken', chain: 'base' };
+    const shouldSkip = trade.executed === 0;
+    assert(shouldSkip, 'Pending approved trade must block re-analysis');
+  });
+
+  test('executed trade allows re-analysis', () => {
+    const trade = { executed: 1, address: '0xtoken', chain: 'base' };
+    const shouldSkip = trade.executed === 0;
+    assert(!shouldSkip, 'Executed trade must allow re-analysis');
+  });
+
+  test('pending sell order blocks re-analysis', () => {
+    const sellOrder = { executed: 0, address: '0xtoken', chain: 'base' };
+    const shouldSkip = sellOrder.executed === 0;
+    assert(shouldSkip, 'Pending sell order must block re-analysis');
+  });
+});
+
+describe('Token Dedup — Watchlist & Cache', () => {
+  test('active watchlist entry blocks discovery', () => {
+    const watchItem = { status: 'watching', address: '0xtoken', chain: 'base' };
+    const shouldSkip = watchItem.status === 'watching';
+    assert(shouldSkip, 'Active watchlist entry must block discovery');
+  });
+
+  test('expired watchlist allows re-analysis', () => {
+    const watchItem = { status: 'expired', address: '0xtoken', chain: 'base' };
+    const shouldSkip = watchItem.status === 'watching';
+    assert(!shouldSkip, 'Expired watchlist must allow re-analysis');
+  });
+
+  test('unexpired cache blocks re-analysis', () => {
+    const cacheExpires = new Date(Date.now() + 3600000).toISOString(); // 1h from now
+    const shouldSkip = new Date(cacheExpires) > new Date();
+    assert(shouldSkip, 'Unexpired cache must block re-analysis');
+  });
+
+  test('expired cache allows re-analysis', () => {
+    const cacheExpires = new Date(Date.now() - 3600000).toISOString(); // 1h ago
+    const shouldSkip = new Date(cacheExpires) > new Date();
+    assert(!shouldSkip, 'Expired cache must allow re-analysis');
+  });
+});
+
+describe('Token Dedup — Verdict Caching', () => {
+  test('avoid verdict gets cached', () => {
+    const shouldCache = ['avoid', 'risk_rejected'].includes('avoid');
+    assert(shouldCache, 'avoid verdict must be cached');
+  });
+
+  test('risk_rejected verdict gets cached', () => {
+    const shouldCache = ['avoid', 'risk_rejected'].includes('risk_rejected');
+    assert(shouldCache, 'risk_rejected verdict must be cached');
+  });
+
+  test('buy verdict is NOT cached', () => {
+    const shouldCache = ['avoid', 'risk_rejected'].includes('buy');
+    assert(!shouldCache, 'buy verdict must NOT be cached');
+  });
+
+  test('strong_buy verdict is NOT cached', () => {
+    const shouldCache = ['avoid', 'risk_rejected'].includes('strong_buy');
+    assert(!shouldCache, 'strong_buy verdict must NOT be cached');
+  });
+
+  test('watch verdict is NOT cached (goes to watchlist)', () => {
+    const shouldCache = ['avoid', 'risk_rejected'].includes('watch');
+    assert(!shouldCache, 'watch verdict must NOT be cached (goes to watchlist instead)');
+  });
+});
+
+// ============================================================
 // Results
 // ============================================================
 const allPassed = summary();

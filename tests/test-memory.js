@@ -76,7 +76,7 @@ if (dbAvailable) {
       'trade_receipts', 'sentinel_alerts', 'watchlist',
       'liquidity_snapshots', 'tracked_wallets', 'heartbeat_state',
       'sentinel_log', 'executor_log', 'portfolio_meta', '_migrations',
-      'paper_trades', 'paper_positions',
+      'paper_trades', 'paper_positions', 'analysis_cache',
     ];
 
     for (const table of expectedTables) {
@@ -314,6 +314,75 @@ if (dbAvailable) {
     // Cleanup
     test('cleanup test data', () => {
       db.prepare("DELETE FROM tracked_wallets WHERE address LIKE '0xtest_%'").run();
+      assert(true, 'Cleanup ok');
+    });
+  });
+
+  describe('Wallet Database — Analysis Cache', () => {
+    test('analysis_cache table exists', () => {
+      const row = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='analysis_cache'"
+      ).get();
+      assert(row, 'Table analysis_cache must exist');
+    });
+
+    test('analysis_cache has expected columns', () => {
+      const cols = db.prepare("PRAGMA table_info(analysis_cache)").all().map(c => c.name);
+      for (const col of ['address', 'chain', 'symbol', 'analysis_score', 'risk_score', 'verdict', 'tier', 'reasoning', 'expires_at', 'created_at']) {
+        assert(cols.includes(col), `analysis_cache must have column '${col}'`);
+      }
+    });
+
+    test('insert and query cache entry', () => {
+      db.prepare(`
+        INSERT INTO analysis_cache (address, chain, symbol, verdict, expires_at)
+        VALUES ('0xtest_cache1', 'base', 'TEST1', 'avoid', datetime('now', '+24 hours'))
+      `).run();
+      const row = db.prepare("SELECT * FROM analysis_cache WHERE address = '0xtest_cache1' AND chain = 'base'").get();
+      assert(row, 'Cache entry must be insertable and queryable');
+      assertEqual(row.verdict, 'avoid', 'Verdict must match');
+      assertEqual(row.symbol, 'TEST1', 'Symbol must match');
+    });
+
+    test('upsert replaces existing entry', () => {
+      db.prepare(`
+        INSERT INTO analysis_cache (address, chain, symbol, verdict, analysis_score, expires_at)
+        VALUES ('0xtest_cache1', 'base', 'TEST1', 'risk_rejected', 45, datetime('now', '+12 hours'))
+        ON CONFLICT(address, chain) DO UPDATE SET
+          verdict = excluded.verdict, analysis_score = excluded.analysis_score,
+          expires_at = excluded.expires_at
+      `).run();
+      const row = db.prepare("SELECT * FROM analysis_cache WHERE address = '0xtest_cache1' AND chain = 'base'").get();
+      assertEqual(row.verdict, 'risk_rejected', 'Verdict must be updated');
+      assertEqual(row.analysis_score, 45, 'Score must be updated');
+    });
+
+    test('expired entries excluded from active query', () => {
+      db.prepare(`
+        INSERT INTO analysis_cache (address, chain, symbol, verdict, expires_at)
+        VALUES ('0xtest_expired', 'base', 'EXPD', 'avoid', datetime('now', '-1 hours'))
+      `).run();
+      const rows = db.prepare("SELECT * FROM analysis_cache WHERE expires_at > datetime('now') AND address = '0xtest_expired'").all();
+      assertEqual(rows.length, 0, 'Expired entry must not appear in active query');
+    });
+
+    test('same address on different chains = separate entries', () => {
+      db.prepare(`
+        INSERT INTO analysis_cache (address, chain, symbol, verdict, expires_at)
+        VALUES ('0xtest_multi', 'base', 'MULTI', 'avoid', datetime('now', '+24 hours'))
+      `).run();
+      db.prepare(`
+        INSERT INTO analysis_cache (address, chain, symbol, verdict, expires_at)
+        VALUES ('0xtest_multi', 'solana', 'MULTI', 'risk_rejected', datetime('now', '+24 hours'))
+      `).run();
+      const baseRow = db.prepare("SELECT verdict FROM analysis_cache WHERE address = '0xtest_multi' AND chain = 'base'").get();
+      const solRow = db.prepare("SELECT verdict FROM analysis_cache WHERE address = '0xtest_multi' AND chain = 'solana'").get();
+      assertEqual(baseRow.verdict, 'avoid', 'Base entry must have its own verdict');
+      assertEqual(solRow.verdict, 'risk_rejected', 'Solana entry must have its own verdict');
+    });
+
+    test('cleanup analysis cache test data', () => {
+      db.prepare("DELETE FROM analysis_cache WHERE address LIKE '0xtest_%'").run();
       assert(true, 'Cleanup ok');
     });
   });

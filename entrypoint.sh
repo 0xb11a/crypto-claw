@@ -23,6 +23,7 @@ GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
 RESEARCH_MODEL="${RESEARCH_MODEL:-}"
 SENTINEL_MODEL="${SENTINEL_MODEL:-}"
 EXECUTOR_MODEL="${EXECUTOR_MODEL:-}"
+RESEARCH_SUBAGENT_MODEL="${RESEARCH_SUBAGENT_MODEL:-}"
 PAPER_MODE="${PAPER_MODE:-false}"
 PAPER_STARTING_BALANCE="${PAPER_STARTING_BALANCE:-10000}"
 
@@ -315,6 +316,12 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"open"}' --strict-json
   echo "[entrypoint]   Memory: flush at compaction, hybrid search enabled, context pruning 5m TTL"
 
+  # --- Research sub-agent model (Sonnet for analysis/risk skills) ---
+  if [ -n "$RESEARCH_SUBAGENT_MODEL" ]; then
+    openclaw config set 'agents.list[1].subagents.model' "$RESEARCH_SUBAGENT_MODEL" 2>/dev/null
+    echo "[entrypoint]   Research sub-agent model: $RESEARCH_SUBAGENT_MODEL"
+  fi
+
   echo "[entrypoint] First-run configuration complete"
 else
   echo "[entrypoint] State volume exists — preserving config/pairing/sessions"
@@ -360,6 +367,11 @@ else
   sync_model research "$RESEARCH_MODEL" 1
   sync_model sentinel "$SENTINEL_MODEL" 2
   sync_model executor "$EXECUTOR_MODEL" 3
+
+  # Sync research sub-agent model
+  if [ -n "$RESEARCH_SUBAGENT_MODEL" ]; then
+    openclaw config set 'agents.list[1].subagents.model' "$RESEARCH_SUBAGENT_MODEL" 2>/dev/null || true
+  fi
 fi
 
 # ============================================================
@@ -463,7 +475,7 @@ run_wallet_scoring_loop() {
 # ============================================================
 
 # Build executor inline message (on-demand heartbeat — reads HEARTBEAT.md for details)
-EXECUTOR_MSG="Respond in English only. Read HEARTBEAT.md. Process all pending orders now. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent executor. Update heartbeat when done. If nothing pending, reply HEARTBEAT_OK."
+EXECUTOR_MSG="Read HEARTBEAT.md. Process all pending orders now. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent executor. Update heartbeat when done. If nothing pending, reply HEARTBEAT_OK."
 
 run_executor_loop() {
   sleep 30  # wait for gateway + agent registration
@@ -487,7 +499,7 @@ run_executor_loop() {
 # ============================================================
 
 # Build sentinel inline message (on-demand heartbeat — reads HEARTBEAT.md for details)
-SENTINEL_MSG="Respond in English only. Read HEARTBEAT.md. Run all monitoring checks on open positions now. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent sentinel. Update heartbeat when done. If nothing to report, reply HEARTBEAT_OK."
+SENTINEL_MSG="Read HEARTBEAT.md. Run all monitoring checks on open positions now. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent sentinel. Update heartbeat when done. If nothing to report, reply HEARTBEAT_OK."
 
 run_sentinel_loop() {
   sleep 60  # wait for gateway + agent registration
