@@ -75,26 +75,9 @@ When helping users configure memory, use these recommended settings for `~/.open
 
 ### Pre-Compaction Flush (Most Important Config)
 
-```json5
-{
-  "agents": {
-    "defaults": {
-      "compaction": {
-        // Headroom: space for flush turn + compaction summary
-        // Flush triggers at: context_window - reserveTokensFloor - softThresholdTokens
-        // With 200K window: 200,000 - 40,000 - 4,000 = 156K tokens
-        "reserveTokensFloor": 40000,
-        "memoryFlush": {
-          "enabled": true,        // Verify this is on!
-          "softThresholdTokens": 4000,  // How far before floor flush triggers
-          "systemPrompt": "Session nearing compaction. Store durable memories now.",
-          "prompt": "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."
-        }
-      }
-    }
-  }
-}
-```
+Configure in `agents.defaults.compaction` in `openclaw.json`. Key fields: `reserveTokensFloor` (headroom for flush + summary), `memoryFlush.enabled` (must be `true`), `memoryFlush.softThresholdTokens` (trigger distance before floor).
+
+Flush triggers at: `context_window - reserveTokensFloor - softThresholdTokens`. With 200K window and recommended settings: 200,000 - 40,000 - 4,000 = **156K tokens**.
 
 **Tuning guidance:**
 - `reserveTokensFloor: 40000` is a practical starting point (default of 20K is often insufficient). If the user rarely uses big tools, it can go lower. If they read large files or web snapshots regularly, go higher.
@@ -103,24 +86,9 @@ When helping users configure memory, use these recommended settings for `~/.open
 
 ### Context Pruning
 
-Session pruning trims old tool results in-memory to delay compaction and improve caching. The on-disk transcript is untouched.
+Session pruning trims old tool results in-memory (`cache-ttl` mode, default 5 min TTL) to delay compaction and improve caching. The on-disk transcript is untouched. Only affects tool result messages — user and assistant messages are never modified. Pruning is beneficial — it reduces bloat without destroying conversation context.
 
-```json5
-{
-  "agents": {
-    "defaults": {
-      "contextPruning": {
-        "mode": "cache-ttl",
-        "ttl": "5m"
-      }
-    }
-  }
-}
-```
-
-- Only affects tool result messages. User and assistant messages are never modified.
-- `cache-ttl` mode trims tool results based on time-to-live (default 5 minutes).
-- Pruning is beneficial — it reduces bloat without destroying conversation context.
+For full config JSON with all fields and ready-to-use examples, see `references/config-examples.md`. For a complete field reference, see `references/config-reference.md`.
 
 ### Retrieval Tracks (Advanced)
 
@@ -134,26 +102,26 @@ OpenClaw supports three retrieval configurations for searching memory files. If 
 
 Guide users to organize their bootstrap files correctly:
 
-| File | Purpose | What Goes Here |
-|---|---|---|
-| `SOUL.md` | Agent identity (character) | Tone, personality, broad boundaries |
-| `AGENTS.md` | Agent operations (process) | Workflow rules, tool conventions, do/don't rules, the memory protocol |
-| `USER.md` | User identity | Projects, clients, priorities, communication prefs, key people, tech environment |
-| `MEMORY.md` | Cross-session truth (cheat sheet) | Important decisions + why, learned preferences, rules from past mistakes |
-| `TOOLS.md` | Tool instructions | How to use specific tools, API conventions |
-| `IDENTITY.md` | Extended identity | Additional identity configuration |
-| `HEARTBEAT.md` | Periodic check-in rules | Heartbeat/cron behavior |
-| `BOOTSTRAP.md` | Additional bootstrap config | Extra startup instructions |
-| `memory/YYYY-MM-DD.md` | Daily working context | Today's decisions, active tasks, status updates, flush output |
+| File | Required | Purpose | What Goes Here |
+|------|----------|---------|----------------|
+| `AGENTS.md` | **Yes** | Operating contract | Workflow rules, pipeline stages, tool conventions, safety rules, memory protocol, do/don't lists |
+| `SOUL.md` | **Yes** | Identity & personality | Tone, values, persona, communication style, quirks |
+| `USER.md` | Recommended | Operator profile | Who the human is, their preferences, priorities, timezone, experience level |
+| `MEMORY.md` | Recommended | Cross-session truth | Learned patterns, important decisions, calibration data, rules from past mistakes |
+| `TOOLS.md` | If scripts exist | Tool documentation | How to use each script, CLI flags, expected output format, API keys needed |
+| `IDENTITY.md` | Optional | Extended identity | Agent name, emoji, theme, description (used by gateway for display) |
+| `HEARTBEAT.md` | If periodic | Heartbeat rules | Schedule of rotating checks, cadence, active hours, what to do per check |
+| `BOOT.md` | Optional | First-run checklist | One-time setup tasks, deleted after completion |
+| `BOOTSTRAP.md` | Optional | Extra bootstrap config | Additional startup instructions beyond AGENTS.md |
 
 **Key rules:**
-- `MEMORY.md` should stay under 100 lines — it's a cheat sheet, not a journal.
-- It's always loaded, always in context, expensive in tokens and attention.
-- Never store API keys, tokens, or secrets in memory files.
-- Negative instructions (what NOT to do) are often the most valuable additions.
-- Character → `SOUL.md`. Process → `AGENTS.md`.
-- Sub-agents only get `AGENTS.md` and `TOOLS.md` — other bootstrap files are filtered out.
-- These files are prompts, not real security. For actual protection, use system controls like tool permissions, workspace isolation, and allow lists.
+- `AGENTS.md` is the most important file. It defines what the agent does and how.
+- `SOUL.md` defines character. `AGENTS.md` defines process. Keep them separate.
+- Sub-agents (spawned via `sessions_spawn`) only receive `AGENTS.md` and `TOOLS.md` — other bootstrap files are filtered out.
+- Per-file character limit: 20,000 (default). Combined limit: 150,000 across all bootstrap files (~50K tokens).
+- Files exceeding the limit are truncated: 70% head, 20% tail, 10% truncation marker.
+- `MEMORY.md` should stay under 100 lines — it's a cheat sheet, not a journal. It's always loaded, always in context, expensive in tokens and attention.
+- Never store API keys, tokens, or secrets in workspace files.
 
 ## The Memory Protocol
 
