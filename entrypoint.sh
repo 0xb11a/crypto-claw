@@ -312,13 +312,9 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   openclaw config set 'agents.defaults.compaction.memoryFlush' '{"enabled":true,"softThresholdTokens":4000,"systemPrompt":"Session nearing compaction. Store durable memories now.","prompt":"Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."}' --strict-json
   openclaw config set 'agents.defaults.memorySearch' '{"enabled":true,"provider":"local","local":{"modelPath":"hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf"},"query":{"hybrid":{"enabled":true,"vectorWeight":0.7,"textWeight":0.3}},"cache":{"enabled":true}}' --strict-json
   openclaw config set 'agents.defaults.contextPruning' '{"mode":"cache-ttl","ttl":"5m"}' --strict-json
-  openclaw config set 'agents.defaults.sandbox.mode' 'on'
+  openclaw config set 'agents.defaults.sandbox.mode' 'off'
   openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"open"}' --strict-json
   echo "[entrypoint]   Memory: flush at compaction, hybrid search enabled, context pruning 5m TTL"
-
-  # Sentinel/Executor: disable memory flush (clean sessions never reach compaction)
-  openclaw config set 'agents.list[2].compaction.memoryFlush' '{"enabled":false}' --strict-json
-  openclaw config set 'agents.list[3].compaction.memoryFlush' '{"enabled":false}' --strict-json
 
   # --- Research sub-agent model (Sonnet for analysis/risk skills) ---
   if [ -n "$RESEARCH_SUBAGENT_MODEL" ]; then
@@ -377,9 +373,6 @@ else
     openclaw config set 'agents.list[1].subagents.model' "$RESEARCH_SUBAGENT_MODEL" 2>/dev/null || true
   fi
 
-  # Sentinel/Executor: ensure memory flush disabled (clean sessions)
-  openclaw config set 'agents.list[2].compaction.memoryFlush' '{"enabled":false}' --strict-json 2>/dev/null || true
-  openclaw config set 'agents.list[3].compaction.memoryFlush' '{"enabled":false}' --strict-json 2>/dev/null || true
 fi
 
 # ============================================================

@@ -457,11 +457,12 @@ function handle(db, cmd) {
     case 'propose-wallet': {
       const w = parseJson();
       if (!w.address || !w.chain) error('Missing address or chain');
+      const source = getArg('source') || w.source || 'agent';
       db.prepare(`
-        INSERT OR IGNORE INTO tracked_wallets (address, chain, label, source_token, status)
-        VALUES (?, ?, ?, ?, 'proposed')
-      `).run(w.address, w.chain, w.label || null, w.source_token || null);
-      output({ ok: true, address: w.address, status: 'proposed' });
+        INSERT OR IGNORE INTO tracked_wallets (address, chain, label, source_token, source, status)
+        VALUES (?, ?, ?, ?, ?, 'proposed')
+      `).run(w.address, w.chain, w.label || null, w.source_token || null, source);
+      output({ ok: true, address: w.address, status: 'proposed', source });
       break;
     }
     case 'get-unscored-wallets': {

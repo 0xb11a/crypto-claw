@@ -27,8 +27,8 @@ import { getDb, close } from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCORE_WALLET_SCRIPT = resolve(__dirname, 'score-wallet.js');
-const BATCH_SIZE = 5;
-const DELAY_MS = 6000;
+const BATCH_SIZE = 10;
+const DELAY_MS = 3000;
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));

@@ -452,6 +452,12 @@ const migrations = [
       CREATE INDEX idx_analysis_cache_expires ON analysis_cache(expires_at);
     `,
   },
+  {
+    name: '007_wallet_source',
+    sql: `
+      ALTER TABLE tracked_wallets ADD COLUMN source TEXT DEFAULT 'agent';
+    `,
+  },
 ];
 
 export default { getDb, close };

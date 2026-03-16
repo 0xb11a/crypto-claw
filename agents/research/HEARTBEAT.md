@@ -43,9 +43,10 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 **Smart Money**
 - Run `node scripts/check-wallets.js` (only checks scored wallets)
 - Log new activity, flag if smart money enters a watched token
-- If new interesting wallets appear (from holder-distribution, check-contract), propose them for background scoring:
+- Wallet harvesting is mostly automatic: each `score-wallet.js` call harvests ~150 wallets from Birdeye leaderboard + token traders. The scoring pipeline snowballs — scoring wallets discovers more wallets.
+- For deployer wallets from check-contract.js, propose manually:
   `node scripts/db-query.js propose-wallet --json '{"address":"<ADDR>","chain":"<CHAIN>","label":"<LABEL>","source_token":"<TOKEN_ADDR>"}'`
-- Background scorer runs every 10 min — wallets scoring 55+ auto-classified as whale/smart_money
+- Background scorer runs every 10 min (batch size 10, 3s delay) — wallets scoring 55+ auto-classified as whale/smart_money
 - For urgent wallets (multi-token overlap), score inline: `node scripts/score-wallet.js --address <ADDR> --chain <CHAIN> --add`
 
 **Conviction Token Scan**

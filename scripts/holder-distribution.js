@@ -17,10 +17,11 @@ const CHAIN_IDS = {
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const config = { address: '', chain: '' };
-  for (let i = 0; i < args.length; i += 2) {
-    if (args[i] === '--address') config.address = args[i + 1];
-    if (args[i] === '--chain') config.chain = args[i + 1];
+  const config = { address: '', chain: '', propose: false };
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--address') { config.address = args[++i]; continue; }
+    if (args[i] === '--chain') { config.chain = args[++i]; continue; }
+    if (args[i] === '--propose') { config.propose = true; continue; }
   }
   if (!config.address || !config.chain) {
     console.error('Error: --address and --chain are required');
@@ -77,6 +78,32 @@ async function main() {
       flags.push({ severity: 'high', message: `Top 10 holders own ${top10Percent.toFixed(1)}%` });
     }
 
+    // Auto-propose top 5 non-contract, non-locked holders when --propose is set
+    let walletsProposed = 0;
+    if (config.propose) {
+      try {
+        const { getDb, close } = await import('./db.js');
+        const db = getDb();
+        const stmt = db.prepare(`
+          INSERT OR IGNORE INTO tracked_wallets (address, chain, label, source, status)
+          VALUES (?, ?, ?, 'holder_extraction', 'proposed')
+        `);
+        const proposable = holders
+          .filter(h => !h.isContract && !h.isLocked && h.address)
+          .slice(0, 5);
+        const insertMany = db.transaction((list) => {
+          for (const h of list) {
+            const result = stmt.run(h.address, config.chain, `holder_rank${h.rank}_of_${config.address.slice(0, 8)}`);
+            walletsProposed += result.changes;
+          }
+        });
+        insertMany(proposable);
+        close();
+      } catch {
+        // Non-fatal — propose is best-effort
+      }
+    }
+
     console.log(JSON.stringify({
       status: 'ok',
       address: config.address,
@@ -89,6 +116,7 @@ async function main() {
       },
       topHolders: holders.slice(0, 20),
       flags,
+      ...(config.propose ? { walletsProposed } : {}),
       timestamp: new Date().toISOString(),
     }, null, 2));
   } catch (err) {

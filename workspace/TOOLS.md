@@ -209,7 +209,9 @@ node scripts/db-query.js update-wallet-score --address 0x... --chain base --json
   "status": "scored"
 }'
 ```
-The background scorer (`score-wallets-bg.js`) runs every 10 minutes and processes up to 5 wallets per cycle. It respects API rate limits (6s between wallets). Wallets that fail scoring are retried up to 3 times.
+The background scorer (`score-wallets-bg.js`) runs every 10 minutes and processes up to 10 wallets per cycle (3s between wallets). Each scoring call auto-harvests ~100 wallets from Birdeye leaderboard + ~50 from token top traders into `tracked_wallets` (snowball effect). Wallets that fail scoring are retried up to 3 times.
+
+The `source` column tracks how a wallet was discovered: `agent` (manually proposed), `leaderboard` (Birdeye top gainers), `token_traders` (Birdeye token top traders), `holder_extraction` (from holder-distribution.js `--propose`).
 
 ### Heartbeat & Logs
 ```bash
@@ -367,6 +369,9 @@ node scripts/check-wallets.js --type smart_money
 
 # Check holder distribution for a token
 node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN>
+
+# Check holders AND auto-propose top 5 non-contract holders for wallet scoring
+node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN> --propose
 ```
 
 ### Wallet Scoring (Smart Money Detection)

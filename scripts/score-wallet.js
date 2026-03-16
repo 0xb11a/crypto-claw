@@ -22,6 +22,33 @@ import 'dotenv/config';
 import { getDb, close } from './db.js';
 
 // ============================================================
+// Wallet harvesting helper — propose wallets from API results
+// ============================================================
+
+function harvestWallets(walletAddresses, chain, labelFn, source, excludeAddress) {
+  let harvested = 0;
+  try {
+    const db = getDb();
+    const stmt = db.prepare(`
+      INSERT OR IGNORE INTO tracked_wallets (address, chain, label, source, status)
+      VALUES (?, ?, ?, ?, 'proposed')
+    `);
+    const excludeLower = excludeAddress?.toLowerCase();
+    const insertMany = db.transaction((addrs) => {
+      for (const addr of addrs) {
+        if (!addr || addr.toLowerCase() === excludeLower) continue;
+        const result = stmt.run(addr, chain, labelFn(addr), source);
+        harvested += result.changes; // 1 if inserted, 0 if duplicate ignored
+      }
+    });
+    insertMany(walletAddresses);
+  } catch {
+    // Non-fatal — harvesting is best-effort
+  }
+  return harvested;
+}
+
+// ============================================================
 // Chain mapping for Birdeye
 // ============================================================
 
@@ -68,8 +95,8 @@ async function fetchBirdeyeTraderRank(address, chain) {
   if (!birdeyeChain) return null;
 
   try {
-    // Fetch top 10 gainers today — check if our wallet is among them
-    const url = `https://public-api.birdeye.so/trader/gainers-losers?type=today&sort_by=PnL&sort_type=desc&limit=10`;
+    // Fetch top 100 gainers today — check if our wallet is among them
+    const url = `https://public-api.birdeye.so/trader/gainers-losers?type=today&sort_by=PnL&sort_type=desc&limit=100`;
     const res = await fetch(url, {
       headers: { 'X-API-KEY': apiKey, 'x-chain': birdeyeChain },
     });
@@ -77,6 +104,17 @@ async function fetchBirdeyeTraderRank(address, chain) {
     if (!res.ok) return null;
     const data = await res.json();
     if (!data.success || !data.data?.items) return null;
+
+    // Harvest all wallets from the leaderboard response
+    const allAddresses = data.data.items.map(t => t.address).filter(Boolean);
+    const rankByAddress = new Map(
+      data.data.items.map((t, i) => [t.address?.toLowerCase(), i + 1])
+    );
+    const walletsHarvested = harvestWallets(
+      allAddresses, chain,
+      (addr) => `birdeye_leaderboard_top${rankByAddress.get(addr.toLowerCase()) ?? 0}`,
+      'leaderboard', address
+    );
 
     // Find our wallet in the list
     const match = data.data.items.find(
@@ -93,6 +131,7 @@ async function fetchBirdeyeTraderRank(address, chain) {
         volume: match.volume ?? 0,
         tradeCount: match.trade_count ?? 0,
         totalTraders: data.data.items.length,
+        walletsHarvested,
       };
     }
 
@@ -103,6 +142,7 @@ async function fetchBirdeyeTraderRank(address, chain) {
       // Return the median PnL as context
       medianPnl: data.data.items[Math.floor(data.data.items.length / 2)]?.pnl ?? 0,
       topPnl: data.data.items[0]?.pnl ?? 0,
+      walletsHarvested,
     };
   } catch {
     return null;
@@ -130,6 +170,15 @@ async function fetchBirdeyeTokenTraderStats(address, chain, tokenAddress) {
     const data = await res.json();
     if (!data.success || !data.data?.items) return null;
 
+    // Harvest all top traders from the response
+    const tokenSymbol = tokenAddress.slice(0, 8);
+    const allAddresses = data.data.items.map(t => t.owner).filter(Boolean);
+    const walletsHarvested = harvestWallets(
+      allAddresses, chain,
+      () => `top_trader_of_${tokenSymbol}`,
+      'token_traders', address
+    );
+
     const match = data.data.items.find(
       t => t.owner?.toLowerCase() === address.toLowerCase()
     );
@@ -144,10 +193,11 @@ async function fetchBirdeyeTokenTraderStats(address, chain, tokenAddress) {
         sells: match.tradeSell ?? 0,
         volumeBuy: match.volumeBuy ?? 0,
         volumeSell: match.volumeSell ?? 0,
+        walletsHarvested,
       };
     }
 
-    return { isTopTrader: false };
+    return { isTopTrader: false, walletsHarvested };
   } catch {
     return null;
   }
@@ -495,6 +545,7 @@ async function main() {
           sells: tokenStats.sells,
         },
       } : {}),
+      walletsHarvested: (traderRank?.walletsHarvested ?? 0) + (tokenStats?.walletsHarvested ?? 0),
       ...(config.add ? { addedToTracked: added } : {}),
       timestamp: new Date().toISOString(),
     }, null, 2));

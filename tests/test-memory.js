@@ -215,8 +215,30 @@ if (dbAvailable) {
   describe('Wallet Database — Wallet Scoring Pipeline', () => {
     test('tracked_wallets has scoring columns', () => {
       const cols = db.prepare("PRAGMA table_info(tracked_wallets)").all().map(c => c.name);
-      for (const col of ['status', 'score', 'score_breakdown', 'source_token', 'scored_at', 'score_error', 'retry_count']) {
+      for (const col of ['status', 'score', 'score_breakdown', 'source_token', 'scored_at', 'score_error', 'retry_count', 'source']) {
         assert(cols.includes(col), `tracked_wallets must have column '${col}'`);
+      }
+    });
+
+    test('source column defaults to agent', () => {
+      db.prepare(`
+        INSERT OR IGNORE INTO tracked_wallets (address, chain, label, status)
+        VALUES ('0xtest_source_default', 'base', 'test default source', 'proposed')
+      `).run();
+      const row = db.prepare("SELECT source FROM tracked_wallets WHERE address = '0xtest_source_default'").get();
+      assertEqual(row.source, 'agent', 'Default source must be agent');
+      db.prepare("DELETE FROM tracked_wallets WHERE address = '0xtest_source_default'").run();
+    });
+
+    test('source column accepts leaderboard, token_traders, holder_extraction', () => {
+      for (const source of ['leaderboard', 'token_traders', 'holder_extraction']) {
+        db.prepare(`
+          INSERT OR REPLACE INTO tracked_wallets (address, chain, source, status)
+          VALUES ('0xtest_source_${source}', 'base', ?, 'proposed')
+        `).run(source);
+        const row = db.prepare(`SELECT source FROM tracked_wallets WHERE address = '0xtest_source_${source}'`).get();
+        assertEqual(row.source, source, `Source '${source}' must be accepted`);
+        db.prepare(`DELETE FROM tracked_wallets WHERE address = '0xtest_source_${source}'`).run();
       }
     });
 
