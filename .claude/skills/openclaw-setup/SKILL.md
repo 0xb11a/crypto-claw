@@ -180,6 +180,109 @@ curl -sf http://localhost:18789/health
 - Always set `OPENCLAW_GATEWAY_TOKEN` in production
 - Never expose the gateway to the internet without auth
 
+## Secrets & Configuration
+
+All secrets and configuration should live in environment variables, never hardcoded in workspace files, scripts, or agent instructions. Use a `.env` file as the single source of truth.
+
+### .env File
+
+Create a `.env` file in your project root (and **never commit it**):
+```bash
+# .env — secrets and per-deployment config
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+OLLAMA_API_KEY=...
+
+AGENT_MODEL=openai/gpt-5-mini
+SUBAGENT_MODEL=anthropic/claude-sonnet-4-6
+
+OPENCLAW_GATEWAY_TOKEN=my-secret-token
+OPENCLAW_GATEWAY_PORT=18789
+
+# Project-specific
+MY_API_KEY=...
+DB_PATH=data/my-db.sqlite
+```
+
+### .env.example
+
+Commit a `.env.example` with placeholder values so collaborators know what's needed:
+```bash
+# .env.example — copy to .env and fill in real values
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=
+AGENT_MODEL=openai/gpt-5-mini
+SUBAGENT_MODEL=anthropic/claude-sonnet-4-6
+OPENCLAW_GATEWAY_TOKEN=
+MY_API_KEY=
+DB_PATH=data/my-db.sqlite
+```
+
+### Docker: env_file
+
+Pass the `.env` file to your container — don't bake secrets into the image:
+```yaml
+# docker-compose.yml
+services:
+  my-agent:
+    image: my-agent:latest
+    env_file: .env
+    # Or pass individual vars:
+    environment:
+      - AGENT_MODEL=${AGENT_MODEL}
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
+```
+
+### Bare-Metal: dotenv or Shell Export
+
+Scripts can load `.env` via `dotenv` (Node.js) or source it in your shell:
+```bash
+# Option 1: dotenv in scripts (Node.js)
+import 'dotenv/config';
+const apiKey = process.env.MY_API_KEY;
+
+# Option 2: source in shell before running
+set -a; source .env; set +a
+openclaw start
+```
+
+### Rules
+
+| Do | Don't |
+|----|-------|
+| Store secrets in `.env` | Hardcode keys in scripts or workspace files |
+| Add `.env` to `.gitignore` | Commit `.env` to version control |
+| Commit `.env.example` with placeholders | Put real values in `.env.example` |
+| Read secrets via `process.env` in scripts | Pass secrets as CLI arguments (visible in `ps`) |
+| Use `env_file` in docker-compose | Use `COPY .env` in Dockerfile |
+| Rotate keys if accidentally exposed | Assume a leaked key is still safe |
+
+### Accessing Config in Agent Scripts
+
+Scripts should always read configuration from environment variables:
+```javascript
+// Good — reads from environment
+const apiKey = process.env.MY_API_KEY;
+if (!apiKey) {
+  console.error(JSON.stringify({ error: 'MY_API_KEY not set' }));
+  process.exit(1);
+}
+
+// Bad — hardcoded
+const apiKey = 'sk-abc123...';
+```
+
+### Agent Instructions
+
+If an agent needs to know about available config, document the env var **names** (not values) in TOOLS.md:
+```markdown
+## Environment Variables
+- `MY_API_KEY` — required for data-source.js
+- `DB_PATH` — path to SQLite database (default: data/my-db.sqlite)
+```
+
+Never put actual secret values in AGENTS.md, SOUL.md, MEMORY.md, or any workspace file.
+
 ## Multi-Agent Patterns
 
 When building systems with multiple agents that need to coordinate:
@@ -317,8 +420,8 @@ When helping a user set up OpenClaw from scratch, walk through these decisions:
 
 ### Key Exposure
 - **NEVER** put private keys, API keys, or tokens in workspace files, bootstrap files, memory, or logs.
-- Keys belong in environment variables only.
-- If an agent writes a key to a file accidentally, treat it as compromised.
+- Keys belong in environment variables via `.env` files only. See the **Secrets & Configuration** section above.
+- If an agent writes a key to a file accidentally, treat it as compromised — rotate immediately.
 
 ### Bootstrap File Limits
 - Files over 20,000 characters get truncated silently.
