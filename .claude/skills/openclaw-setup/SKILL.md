@@ -100,10 +100,24 @@ Each agent can have different:
 
 The pattern for per-agent overrides in entrypoint:
 ```bash
-# Register agent with specific model
-openclaw agents add analyst --model "$ANALYST_MODEL"
-openclaw agents add monitor --model "$MONITOR_MODEL"
-openclaw agents add worker --model "$WORKER_MODEL"
+# Register agent with workspace path, agent state dir, and model
+openclaw agents add analyst \
+  --workspace "$OPENCLAW_HOME/agents/analyst/workspace" \
+  --agent-dir "$OPENCLAW_HOME/agents/analyst/agent" \
+  --model "$ANALYST_MODEL" \
+  --non-interactive
+
+openclaw agents add monitor \
+  --workspace "$OPENCLAW_HOME/agents/monitor/workspace" \
+  --agent-dir "$OPENCLAW_HOME/agents/monitor/agent" \
+  --model "$MONITOR_MODEL" \
+  --non-interactive
+
+openclaw agents add worker \
+  --workspace "$OPENCLAW_HOME/agents/worker/workspace" \
+  --agent-dir "$OPENCLAW_HOME/agents/worker/agent" \
+  --model "$WORKER_MODEL" \
+  --non-interactive
 ```
 
 ### Least Privilege for Scripts
@@ -117,7 +131,7 @@ Don't give every agent every script. Deploy only what each agent needs:
 
 The gateway configuration file lives at `~/.openclaw/.openclaw/openclaw.json` (JSON5 format). It controls agent defaults, model providers, gateway settings, and memory search.
 
-The essential sections are: `agents.defaults.compaction` (pre-compaction flush + reserve tokens), `agents.defaults.contextPruning` (tool result TTL), `agents.defaults.memorySearch` (hybrid search), and `gateway` (port, bind, auth token).
+The essential sections are: `agents.defaults.compaction` (pre-compaction flush + reserve tokens), `agents.defaults.contextPruning` (tool result TTL), `agents.defaults.memorySearch` (hybrid search), `tools.exec` (script execution security — allowlist, safeBins, denied flags), `gateway` (mode, port, bind, auth via `gateway.auth.mode` + `gateway.auth.token`), and `agents.list[N]` for per-agent overrides (indexed: 0 = built-in main, 1+ = custom agents in registration order).
 
 For a complete annotated reference with all fields and defaults, see `references/config-reference.md`. For ready-to-use config examples (Track A/A+/B, minimal), see `references/config-examples.md`.
 
@@ -172,7 +186,11 @@ The gateway is the HTTP server that connects messaging platforms to agents.
 
 ### Health Check
 ```bash
+# HTTP health check
 curl -sf http://localhost:18789/health
+
+# CLI health check (used in entrypoint wait loops)
+openclaw gateway health
 ```
 
 ### Security
@@ -357,11 +375,52 @@ Heartbeats are periodic check-ins. Configure them in `HEARTBEAT.md`:
 3. Track last-run timestamps in a state file or database
 4. Define what each check does and what happens with results
 
-The heartbeat interval is configured when registering the agent:
+There are two ways to schedule periodic agent runs:
+
+**Option A: Built-in heartbeat** — set via config after registration:
 ```bash
-openclaw agents add monitor --heartbeat 10m
-openclaw agents add analyst --heartbeat 30m
-openclaw agents add worker --heartbeat 1m
+# Register agents first (see Agent Registration section for full flags)
+# openclaw agents add analyst --workspace ... --agent-dir ... --model "$AGENT_MODEL" --non-interactive
+# openclaw agents add monitor --workspace ... --agent-dir ... --model "$AGENT_MODEL" --non-interactive
+
+# Then configure heartbeat intervals
+openclaw config set 'agents.list[1].heartbeat' '{"every":"30m"}' --strict-json
+openclaw config set 'agents.list[2].heartbeat' '{"every":"10m"}' --strict-json
+```
+
+**Option B: Cron jobs** (preferred for control — custom messages, model overrides, session isolation):
+```bash
+# Disable built-in heartbeats
+openclaw config set 'agents.list[1].heartbeat' '{"every":"0m"}' --strict-json
+
+# Use cron with explicit message and model
+openclaw cron add --name "analyst-cycle" \
+  --every "30m" --agent analyst --model "$AGENT_MODEL" \
+  --session isolated --no-deliver \
+  --message "Read HEARTBEAT.md. Run the most overdue check."
+
+openclaw cron add --name "monitor-cycle" \
+  --every "10m" --agent monitor --model "$AGENT_MODEL" \
+  --session isolated --no-deliver \
+  --message "Read HEARTBEAT.md. Run all monitoring checks."
+```
+
+**Option C: Background shell loops** (best for pre-check gating — skip the agent if there's nothing to do):
+```bash
+run_monitor_loop() {
+  sleep 60  # wait for gateway + agent registration
+  while true; do
+    # Pre-check: only invoke agent if there's work
+    SKIP=$(node scripts/pre-check.js 2>/dev/null | node -e "
+      process.stdin.on('data',d=>{try{console.log(JSON.parse(d).skip)}catch{console.log('true')}})")
+    if [ "$SKIP" != "true" ]; then
+      openclaw agent --agent monitor --session-id "monitor-$(date +%s)" \
+        --message "Read HEARTBEAT.md. Run monitoring checks."
+    fi
+    sleep 600  # 10 minutes
+  done
+}
+run_monitor_loop &
 ```
 
 ## Interactive Setup Checklist
@@ -456,6 +515,9 @@ curl -sf http://localhost:18789/health
 ```bash
 openclaw agents list
 # Should show all registered agents with correct models
+
+# Machine-readable output (used for idempotent re-registration checks)
+openclaw agents list --json
 ```
 
 ### 3. Test Message

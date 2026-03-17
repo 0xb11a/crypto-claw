@@ -60,32 +60,123 @@ The gateway configuration file lives at `~/.openclaw/.openclaw/openclaw.json`. I
         //   "~/Documents/notes/**/*.md",
         //   "~/Documents/specs/**/*.md"
         // ]
+      },
+
+      // --- Sandbox ---
+      // Sandbox mode for agent shell execution
+      "sandbox": {
+        "mode": "off"         // "off" disables sandboxing (use with allowlist security instead)
       }
     },
 
-    // --- Per-Agent Overrides ---
-    // Override any default for a specific agent
-    "overrides": {
-      "primary": {
-        "compaction": {
-          "reserveTokensFloor": 50000     // Primary may need more headroom for large tool outputs
+    // --- Per-Agent Overrides (via agents.list[N]) ---
+    // agents.list is an indexed array. Index 0 is the built-in "main" agent.
+    // Custom agents get indices 1, 2, 3... in registration order.
+    // Set via CLI: openclaw config set 'agents.list[N].key' 'value'
+    "list": [
+      // Index 0: built-in main agent (typically disabled)
+      {
+        "default": false,
+        "heartbeat": { "every": "0m" }
+      },
+      // Index 1: first registered agent
+      {
+        "default": true,
+        "heartbeat": { "every": "0m" },
+        "subagents": {
+          "model": "anthropic/claude-sonnet-4-6"  // Sub-agent model override
         }
       },
-      "worker": {
-        "compaction": {
-          "reserveTokensFloor": 30000     // Worker has smaller context needs
-        }
+      // Index 2, 3...: subsequent agents
+      {
+        "heartbeat": { "every": "0m" }
       }
-    }
+    ]
   },
 
   // ============================================================
   // Gateway — HTTP server settings
   // ============================================================
   "gateway": {
+    "mode": "local",          // Gateway mode
     "port": 18789,            // HTTP port
     "bind": "lan",            // "local" | "lan" | "wan"
-    "token": ""               // Bearer token for auth (set via OPENCLAW_GATEWAY_TOKEN env var)
+    "controlUi": {
+      "allowedOrigins": ["*"] // CORS origins for control UI
+    },
+    "auth": {
+      "mode": "token",        // "token" or "none"
+      "token": ""             // Bearer token (set via OPENCLAW_GATEWAY_TOKEN env var)
+    }
+  },
+
+  // ============================================================
+  // Tools — Script execution security
+  // ============================================================
+  "tools": {
+    "exec": {
+      "security": "allowlist",    // "allowlist" = only safeBins allowed, "ask" = prompt user
+      "ask": "on-miss",           // What to do when command not in allowlist
+      "safeBins": [               // Allowed command patterns
+        "node scripts/*",
+        "cat memory/*",
+        "ls memory/",
+        "echo *"
+      ],
+      "safeBinProfiles": {        // Per-command constraints
+        "node scripts/*": {
+          "minPositional": 1,
+          "maxPositional": 10,
+          "deniedFlags": ["-e", "--eval", "--input-type", "-p", "--print", "-c", "--check"]
+        },
+        "cat memory/*": { "minPositional": 1, "maxPositional": 5 },
+        "ls memory/":   { "minPositional": 0, "maxPositional": 2 },
+        "echo *":       { "minPositional": 0, "maxPositional": 10 }
+      }
+    },
+    "web": {
+      "search": { "enabled": false },  // Disable web search tool
+      "fetch":  { "enabled": true }     // Enable/disable web fetch tool
+    }
+  },
+
+  // ============================================================
+  // Skills — Bundled skill control
+  // ============================================================
+  "skills": {
+    "allowBundled": []        // Empty array disables all bundled skills
+  },
+
+  // ============================================================
+  // Browser — Browser tool control
+  // ============================================================
+  "browser": {
+    "enabled": false          // Disable browser tool
+  },
+
+  // ============================================================
+  // Model Providers — Custom provider registration
+  // ============================================================
+  "models": {
+    "providers": {
+      // Example: Ollama Cloud provider
+      // "ollama": {
+      //   "baseUrl": "https://ollama.com",
+      //   "api": "ollama",
+      //   "apiKey": "...",
+      //   "models": [{ "id": "deepseek-v3.1:671b-cloud", "name": "DeepSeek V3.1 Cloud" }]
+      // }
+    }
+  },
+
+  // ============================================================
+  // Channels — Messaging platform integrations
+  // ============================================================
+  "channels": {
+    "telegram": {
+      "enabled": false,
+      "groupPolicy": "open"
+    }
   },
 
   // ============================================================
@@ -141,9 +232,89 @@ The gateway configuration file lives at `~/.openclaw/.openclaw/openclaw.json`. I
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
+| `mode` | string | `"local"` | Gateway mode |
 | `port` | number | 18789 | HTTP listen port |
 | `bind` | string | `"lan"` | Network bind: `local`, `lan`, `wan` |
-| `token` | string | — | Bearer auth token (prefer env var) |
+| `controlUi.allowedOrigins` | string[] | — | CORS allowed origins for control UI |
+| `auth.mode` | string | `"none"` | Auth mode: `"token"` or `"none"` |
+| `auth.token` | string | — | Bearer auth token (prefer env var) |
+
+### tools.exec
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `security` | string | — | `"allowlist"` = only safeBins allowed |
+| `ask` | string | — | `"on-miss"` = prompt when command not in allowlist |
+| `safeBins` | string[] | — | Allowed command patterns (e.g., `"node scripts/*"`) |
+| `safeBinProfiles` | object | — | Per-command constraints (positional args, denied flags) |
+| `safeBinProfiles.<cmd>.minPositional` | number | — | Minimum positional arguments |
+| `safeBinProfiles.<cmd>.maxPositional` | number | — | Maximum positional arguments |
+| `safeBinProfiles.<cmd>.deniedFlags` | string[] | — | Flags the agent cannot use (e.g., `--eval`) |
+
+### tools.web
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `search.enabled` | boolean | true | Enable/disable web search tool |
+| `fetch.enabled` | boolean | true | Enable/disable web fetch tool |
+
+### skills
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `allowBundled` | string[] | (all) | List of allowed bundled skills. Empty array `[]` disables all |
+
+### browser
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `enabled` | boolean | true | Enable/disable browser tool |
+
+### agents.defaults.sandbox
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `mode` | string | — | Sandbox mode. `"off"` disables sandboxing |
+
+### agents.list[N] (per-agent overrides)
+
+Per-agent config uses indexed array access. Index 0 = built-in "main" agent, 1+ = custom agents in registration order.
+
+| Setting | Type | Description |
+|---------|------|-------------|
+| `agents.list[N].default` | boolean | Whether this agent is the default |
+| `agents.list[N].heartbeat` | object | Heartbeat config, e.g., `{"every":"30m"}`. `"0m"` disables |
+| `agents.list[N].model` | string | Model override for this agent |
+| `agents.list[N].subagents.model` | string | Model for sub-agents spawned by this agent |
+
+Set via CLI:
+```bash
+openclaw config set 'agents.list[1].heartbeat' '{"every":"30m"}' --strict-json
+openclaw config set 'agents.list[1].subagents.model' 'anthropic/claude-sonnet-4-6'
+```
+
+### models.providers
+
+Register custom model providers:
+
+| Setting | Type | Description |
+|---------|------|-------------|
+| `models.providers.<name>.baseUrl` | string | Provider API base URL |
+| `models.providers.<name>.api` | string | API type (e.g., `"ollama"`, `"openai"`) |
+| `models.providers.<name>.apiKey` | string | API key for authentication |
+| `models.providers.<name>.models` | array | Available models (`[{id, name}]`) |
+
+Set via CLI:
+```bash
+openclaw config set 'models.providers.ollama' '{"baseUrl":"https://ollama.com","api":"ollama","apiKey":"...","models":[{"id":"deepseek-v3.1:671b-cloud","name":"DeepSeek V3.1 Cloud"}]}' --strict-json
+```
+
+### channels
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `channels.telegram.enabled` | boolean | false | Enable Telegram integration |
+| `channels.telegram.groupPolicy` | string | — | Group join policy (`"open"`, etc.) |
 
 ### memory (QMD backend)
 

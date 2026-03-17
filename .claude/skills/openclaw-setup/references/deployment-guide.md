@@ -163,14 +163,51 @@ cp "$SRC/scripts/package.json" "$OPENCLAW_HOME/agents/primary/workspace/scripts/
 # Symlink node_modules (installed during build)
 ln -sfn "$SRC/scripts/node_modules" "$OPENCLAW_HOME/agents/primary/workspace/scripts/node_modules"
 
-# ---- Register agents ----
-openclaw agents add primary --model "${AGENT_MODEL:-openai/gpt-5-mini}" --heartbeat "${HEARTBEAT_INTERVAL:-30m}"
-
 # ---- Configure gateway ----
-openclaw gateway config --port "${OPENCLAW_GATEWAY_PORT:-18789}" --bind "${OPENCLAW_GATEWAY_BIND:-lan}"
+openclaw config set gateway.mode local
+openclaw config set gateway.bind "${OPENCLAW_GATEWAY_BIND:-lan}"
+openclaw config set gateway.port "${OPENCLAW_GATEWAY_PORT:-18789}"
+openclaw config set gateway.controlUi.allowedOrigins '["*"]' --strict-json
 
 if [ -n "${OPENCLAW_GATEWAY_TOKEN:-}" ]; then
-  openclaw gateway config --token "$OPENCLAW_GATEWAY_TOKEN"
+  openclaw config set gateway.auth.mode token
+  openclaw config set gateway.auth.token "$OPENCLAW_GATEWAY_TOKEN"
+else
+  openclaw config set gateway.auth none
+fi
+
+# ---- Register agents ----
+openclaw agents add primary \
+  --workspace "$OPENCLAW_HOME/agents/primary/workspace" \
+  --agent-dir "$OPENCLAW_HOME/agents/primary/agent" \
+  --model "${AGENT_MODEL:-openai/gpt-5-mini}" \
+  --non-interactive
+
+# Disable built-in "main" agent, make primary the default
+openclaw config set 'agents.list[0].default' 'false'
+openclaw config set 'agents.list[0].heartbeat' '{"every":"0m"}' --strict-json
+openclaw config set 'agents.list[1].default' 'true'
+
+# Configure heartbeat interval via config (not a flag on agents add)
+openclaw config set 'agents.list[1].heartbeat' "{\"every\":\"${HEARTBEAT_INTERVAL:-30m}\"}" --strict-json
+
+# ---- Security & tools config ----
+openclaw config set 'skills.allowBundled' '[]' --strict-json
+openclaw config set 'browser' '{"enabled":false}' --strict-json
+openclaw config set 'tools.web.search' '{"enabled":false}' --strict-json
+openclaw config set 'tools.web.fetch' '{"enabled":true}' --strict-json
+openclaw config set 'tools.exec' '{"security":"allowlist","ask":"on-miss","safeBins":["node scripts/*"],"safeBinProfiles":{"node scripts/*":{"minPositional":1,"maxPositional":10,"deniedFlags":["-e","--eval","--input-type"]}}}' --strict-json
+openclaw config set 'agents.defaults.sandbox.mode' 'off'
+
+# ---- Memory config ----
+openclaw config set 'agents.defaults.compaction.reserveTokensFloor' 40000
+openclaw config set 'agents.defaults.compaction.memoryFlush' '{"enabled":true,"softThresholdTokens":4000,"systemPrompt":"Session nearing compaction. Store durable memories now.","prompt":"Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."}' --strict-json
+openclaw config set 'agents.defaults.memorySearch' '{"enabled":true,"provider":"local","local":{"modelPath":"hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf"},"query":{"hybrid":{"enabled":true,"vectorWeight":0.7,"textWeight":0.3}},"cache":{"enabled":true}}' --strict-json
+openclaw config set 'agents.defaults.contextPruning' '{"mode":"cache-ttl","ttl":"5m"}' --strict-json
+
+# ---- Sub-agent model (optional) ----
+if [ -n "${SUBAGENT_MODEL:-}" ]; then
+  openclaw config set 'agents.list[1].subagents.model' "$SUBAGENT_MODEL"
 fi
 
 # ---- Start memory backup loop (optional) ----
@@ -183,8 +220,24 @@ if [ -n "${MEMORY_GIT_REMOTE:-}" ]; then
   done) &
 fi
 
+# ---- Background loop pattern (pre-check gating) ----
+# For agents that should only run when there's work to do:
+AGENT_MSG="Read HEARTBEAT.md. Process pending work now."
+run_agent_loop() {
+  sleep 30  # wait for gateway
+  while true; do
+    SKIP=$(node "$OPENCLAW_HOME/agents/primary/workspace/scripts/pre-check.js" 2>/dev/null \
+      | node -e "process.stdin.on('data',d=>{try{console.log(JSON.parse(d).skip)}catch{console.log('true')}})")
+    if [ "$SKIP" != "true" ]; then
+      openclaw agent --agent primary --session-id "primary-$(date +%s)" --message "$AGENT_MSG"
+    fi
+    sleep 60
+  done
+}
+run_agent_loop &
+
 echo "[entrypoint] Starting gateway..."
-exec openclaw gateway start
+exec openclaw gateway run --port "${OPENCLAW_GATEWAY_PORT:-18789}"
 ```
 
 ### 4. Docker Commands
@@ -279,17 +332,34 @@ echo "Next: edit USER.md, add API keys to .env, register agent"
 ### 2. Running the Gateway
 
 ```bash
+# Configure gateway
+openclaw config set gateway.mode local
+openclaw config set gateway.bind lan
+openclaw config set gateway.port 18789
+
+# Optional: set auth token
+openclaw config set gateway.auth.mode token
+openclaw config set gateway.auth.token "$OPENCLAW_GATEWAY_TOKEN"
+
+# Register agent with workspace and agent-dir paths
+openclaw agents add my-agent \
+  --workspace "$HOME/.openclaw/agents/my-agent/workspace" \
+  --agent-dir "$HOME/.openclaw/agents/my-agent/agent" \
+  --model openai/gpt-5-mini \
+  --non-interactive
+
+# Set heartbeat interval (agents.list[N] — find your agent's index with openclaw agents list --json)
+openclaw config set 'agents.list[1].heartbeat' '{"every":"30m"}' --strict-json
+
 # Start gateway (foreground)
-openclaw gateway start
+openclaw gateway run --port 18789
 
 # Start gateway (background)
-openclaw gateway start &
-
-# Register agent
-openclaw agents add my-agent --model openai/gpt-5-mini --heartbeat 30m
+openclaw gateway run --port 18789 &
 
 # Check status
-openclaw agents list
+openclaw agents list --json
+openclaw gateway health
 curl -sf http://localhost:18789/health
 ```
 
