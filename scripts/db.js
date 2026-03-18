@@ -458,6 +458,62 @@ const migrations = [
       ALTER TABLE tracked_wallets ADD COLUMN source TEXT DEFAULT 'agent';
     `,
   },
+  {
+    name: '008_portfolio_sync',
+    sql: `
+      -- Track on-chain portfolio sync state
+      CREATE TABLE portfolio_sync (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chain TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        trigger TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('success', 'error')),
+        positions_synced INTEGER DEFAULT 0,
+        positions_closed INTEGER DEFAULT 0,
+        positions_discovered INTEGER DEFAULT 0,
+        error TEXT,
+        synced_at TEXT DEFAULT (datetime('now'))
+      );
+
+      -- Add sync metadata to positions
+      ALTER TABLE positions ADD COLUMN onchain_balance REAL;
+      ALTER TABLE positions ADD COLUMN last_synced_at TEXT;
+
+      -- Extend positions status to include 'pending_analysis'
+      -- SQLite requires table recreation to change CHECK constraints
+      CREATE TABLE positions_new (
+        id TEXT PRIMARY KEY,
+        symbol TEXT NOT NULL,
+        name TEXT,
+        address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        tier TEXT NOT NULL CHECK (tier IN ('base', 'conviction', 'moonshot')),
+        entry_price REAL NOT NULL,
+        current_price REAL,
+        quantity REAL NOT NULL,
+        value_usd REAL,
+        percent_of_portfolio REAL,
+        entry_date TEXT NOT NULL DEFAULT (date('now')),
+        stop_loss REAL NOT NULL,
+        take_profit_levels TEXT NOT NULL,
+        narrative TEXT,
+        status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'partial_exit', 'closed', 'pending_analysis')),
+        notes TEXT,
+        onchain_balance REAL,
+        last_synced_at TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      INSERT INTO positions_new SELECT id, symbol, name, address, chain, tier, entry_price, current_price,
+        quantity, value_usd, percent_of_portfolio, entry_date, stop_loss, take_profit_levels, narrative,
+        status, notes, onchain_balance, last_synced_at, created_at, updated_at FROM positions;
+      DROP TABLE positions;
+      ALTER TABLE positions_new RENAME TO positions;
+
+      -- Seed heartbeat state for portfolio sync
+      INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('sentinel', 'portfolio_sync');
+    `,
+  },
 ];
 
 export default { getDb, close };

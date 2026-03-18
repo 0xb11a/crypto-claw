@@ -101,6 +101,7 @@
  */
 
 import { getDb, close } from './db.js';
+import { execSync } from 'child_process';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -846,6 +847,59 @@ function handle(db, cmd) {
     case 'clear-expired-cache': {
       const result = db.prepare("DELETE FROM analysis_cache WHERE expires_at <= datetime('now')").run();
       output({ ok: true, deleted: result.changes });
+      break;
+    }
+
+    // ============================================================
+    // Portfolio Sync (On-Chain)
+    // ============================================================
+    case 'sync-portfolio': {
+      const chain = getArg('chain');
+      if (!chain) error('Missing --chain');
+      const trigger = getArg('trigger') || 'manual';
+
+      // Fork to the appropriate loader script
+      const isPaper = process.env.PAPER_MODE === 'true';
+      if (isPaper) {
+        output({ ok: false, message: 'Portfolio sync skipped in paper mode — DB is sole source of truth' });
+        break;
+      }
+
+      try {
+        const scriptDir = new URL('.', import.meta.url).pathname;
+        const result = execSync(
+          `node ${scriptDir}portfolio-load-evm.js --chain ${chain} --trigger ${trigger}`,
+          { encoding: 'utf-8', timeout: 60_000 }
+        );
+        output(JSON.parse(result));
+      } catch (e) {
+        error(`Sync failed: ${e.message}`);
+      }
+      break;
+    }
+    case 'get-sync-status': {
+      const chain = getArg('chain');
+      if (chain) {
+        const rows = db.prepare(
+          'SELECT * FROM portfolio_sync WHERE chain = ? ORDER BY synced_at DESC LIMIT 5'
+        ).all(chain);
+        output(rows);
+      } else {
+        const rows = db.prepare(
+          'SELECT * FROM portfolio_sync ORDER BY synced_at DESC LIMIT 20'
+        ).all();
+        output(rows);
+      }
+      break;
+    }
+    case 'set-onchain-balance': {
+      const id = getArg('id');
+      const balance = getArg('balance');
+      if (!id || balance === null) error('Missing --id or --balance');
+      db.prepare(
+        "UPDATE positions SET onchain_balance = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
+      ).run(parseFloat(balance), id);
+      output({ ok: true, id, onchain_balance: parseFloat(balance) });
       break;
     }
 

@@ -10,44 +10,34 @@
  */
 
 import 'dotenv/config';
-import { readFileSync, existsSync } from 'fs';
-import { resolve } from 'path';
+import { getDb, close } from './db.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 
 function loadPositions() {
-  // Try to read positions from MEMORY.md portfolio state
-  const memoryPath = resolve(process.cwd(), 'workspace/MEMORY.md');
-  if (!existsSync(memoryPath)) {
+  try {
+    const db = getDb();
+    const isPaper = process.env.PAPER_MODE === 'true';
+    const table = isPaper ? 'paper_positions' : 'positions';
+    const rows = db.prepare(
+      `SELECT * FROM ${table} WHERE status IN ('open', 'partial_exit') ORDER BY created_at DESC`
+    ).all();
+    return rows.map(r => ({
+      id: r.id,
+      symbol: r.symbol,
+      address: r.address,
+      chain: r.chain,
+      entryPrice: r.entry_price,
+      currentPrice: r.current_price,
+      quantity: r.quantity,
+      sizePercent: r.percent_of_portfolio ?? null,
+      tier: r.tier,
+      stopLoss: r.stop_loss,
+      status: r.status,
+    }));
+  } catch {
     return [];
   }
-
-  const content = readFileSync(memoryPath, 'utf-8');
-
-  // Parse the portfolio state table
-  const tableMatch = content.match(/## Portfolio State\n\n\|.*\n\|.*\n([\s\S]*?)(?=\n##|\n$|$)/);
-  if (!tableMatch) return [];
-
-  const rows = tableMatch[1].trim().split('\n').filter(r => !r.includes('*no positions'));
-  const positions = [];
-
-  for (const row of rows) {
-    const cols = row.split('|').map(c => c.trim()).filter(Boolean);
-    if (cols.length >= 7) {
-      positions.push({
-        symbol: cols[0],
-        chain: cols[1],
-        entryPrice: parseFloat(cols[2].replace('$', '')),
-        currentPrice: parseFloat(cols[3].replace('$', '')),
-        sizePercent: parseFloat(cols[4].replace('%', '')),
-        tier: cols[5],
-        stopLoss: parseFloat(cols[6].replace('$', '')),
-        status: cols[7] ?? 'open',
-      });
-    }
-  }
-
-  return positions;
 }
 
 async function getCurrentPrice(symbol) {
@@ -124,6 +114,8 @@ async function main() {
     })),
     timestamp: new Date().toISOString(),
   }, null, 2));
+
+  close();
 }
 
 main();

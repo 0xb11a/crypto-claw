@@ -48,17 +48,7 @@ function harvestWallets(walletAddresses, chain, labelFn, source, excludeAddress)
   return harvested;
 }
 
-// ============================================================
-// Chain mapping for Birdeye
-// ============================================================
-
-const BIRDEYE_CHAINS = {
-  solana: 'solana',
-  ethereum: 'ethereum',
-  base: 'base',
-  arbitrum: 'arbitrum',
-  optimism: 'optimism',
-};
+import { getChain } from './chains.js';
 
 // ============================================================
 // CLI args
@@ -91,7 +81,8 @@ async function fetchBirdeyeTraderRank(address, chain) {
   const apiKey = process.env.BIRDEYE_API_KEY;
   if (!apiKey) return null;
 
-  const birdeyeChain = BIRDEYE_CHAINS[chain];
+  let birdeyeChain;
+  try { birdeyeChain = getChain(chain).birdeye; } catch { return null; }
   if (!birdeyeChain) return null;
 
   try {
@@ -157,7 +148,8 @@ async function fetchBirdeyeTokenTraderStats(address, chain, tokenAddress) {
   const apiKey = process.env.BIRDEYE_API_KEY;
   if (!apiKey || !tokenAddress) return null;
 
-  const birdeyeChain = BIRDEYE_CHAINS[chain];
+  let birdeyeChain;
+  try { birdeyeChain = getChain(chain).birdeye; } catch { return null; }
   if (!birdeyeChain) return null;
 
   try {
@@ -211,7 +203,8 @@ async function fetchBirdeyeWalletSwaps(address, chain, tokenAddress) {
   const apiKey = process.env.BIRDEYE_API_KEY;
   if (!apiKey || !tokenAddress) return null;
 
-  const birdeyeChain = BIRDEYE_CHAINS[chain];
+  let birdeyeChain;
+  try { birdeyeChain = getChain(chain).birdeye; } catch { return null; }
   if (!birdeyeChain) return null;
 
   try {

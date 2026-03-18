@@ -7,13 +7,9 @@
  */
 
 import 'dotenv/config';
+import { getChain, isSolana } from './chains.js';
 
 const GOPLUS_BASE = 'https://api.gopluslabs.io/api/v1';
-const CHAIN_IDS = {
-  ethereum: '1', bsc: '56', polygon: '137',
-  arbitrum: '42161', base: '8453',
-  // Solana uses a different endpoint — handled separately in main()
-};
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -32,9 +28,10 @@ function parseArgs() {
 
 async function main() {
   const config = parseArgs();
-  const chainId = CHAIN_IDS[config.chain];
-
-  if (!chainId && config.chain !== 'solana') {
+  let chainCfg;
+  try {
+    chainCfg = getChain(config.chain);
+  } catch {
     console.log(JSON.stringify({
       status: 'error',
       error: `Unsupported chain: ${config.chain}`,
@@ -43,14 +40,14 @@ async function main() {
   }
 
   try {
-    const url = config.chain === 'solana'
-      ? `${GOPLUS_BASE}/solana/token_security?contract_addresses=${config.address}`
-      : `${GOPLUS_BASE}/token_security/${chainId}?contract_addresses=${config.address}`;
+    const url = isSolana(config.chain)
+      ? `${GOPLUS_BASE}/${chainCfg.goplus.endpoint}/token_security?contract_addresses=${config.address}`
+      : `${GOPLUS_BASE}/token_security/${chainCfg.goplus.chainId}?contract_addresses=${config.address}`;
     const res = await fetch(url);
     const data = await res.json();
 
     // Solana addresses are base58 (case-sensitive); EVM addresses are hex (case-insensitive)
-    const key = config.chain === 'solana' ? config.address : config.address.toLowerCase();
+    const key = isSolana(config.chain) ? config.address : config.address.toLowerCase();
     const info = data.result?.[key];
     if (!info) {
       console.log(JSON.stringify({ status: 'not_found', address: config.address }));

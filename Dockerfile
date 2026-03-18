@@ -9,6 +9,8 @@ USER 1000:1000
 
 # Set workspace directory
 ENV OPENCLAW_HOME=/home/openclaw/.openclaw
+# node-llama-cpp defaults to /home/node which isn't writable as UID 1000
+ENV NODE_LLAMA_CPP_CACHE=/home/openclaw/.node-llama-cpp
 WORKDIR /home/openclaw
 
 # Copy CryptoClaw project
@@ -37,7 +39,7 @@ RUN chmod +x /home/openclaw/crypto-claw/build-templates.sh && \
     /home/openclaw/crypto-claw/build-templates.sh
 
 # Pre-create the OpenClaw state dir so Docker volumes inherit UID 1000 ownership
-RUN mkdir -p ${OPENCLAW_HOME}/.openclaw
+RUN mkdir -p ${OPENCLAW_HOME}/.openclaw ${NODE_LLAMA_CPP_CACHE}
 
 # Runtime entrypoint: syncs templates, registers agents, runs DB migrations, starts gateway
 COPY --chown=1000:1000 entrypoint.sh /home/openclaw/entrypoint.sh

@@ -104,16 +104,33 @@ Before building ANY transaction, re-verify. **Use paper commands if `PAPER_MODE=
 ## Transaction Building
 
 ### Safe Wallet Integration
-```
-Chain configs from environment:
-  SAFE_ADDRESS_ETH=0x...
-  SAFE_ADDRESS_BASE=0x...
-  SAFE_SIGNER_KEY=... (NEVER log this, NEVER write to file)
+Chain-specific Safe addresses and RPC endpoints are configured via environment variables. Resolve the correct env var names from the centralized chain config (`scripts/chains.js`):
+- Safe address env: `getChain(chain).safe.addressEnv` (e.g., `SAFE_ADDRESS_BASE`)
+- RPC env: `getChain(chain).safe.rpcEnv` (e.g., `RPC_BASE`)
+- Signer key: `SAFE_SIGNER_KEY` (NEVER log this, NEVER write to file)
 
-RPC endpoints:
-  RPC_ETH=https://...
-  RPC_BASE=https://...
+### Safe Wallet Status Checks
+Before executing, check Safe state (real mode only):
+```bash
+# Get Safe info (nonce, threshold, owners, ETH/USDC balances, pending txs)
+node scripts/check-safe-status.js --chain base
+
+# Check if a previously submitted tx was executed
+node scripts/check-safe-status.js --chain base --safe-hash 0xABC123...
 ```
+
+Use this to:
+- Verify the Safe is reachable before attempting execution
+- Check if previously queued transactions have been executed
+- Monitor pending transaction confirmations
+- Verify ETH balance for gas (if the Safe pays its own gas)
+
+### Post-Trade Portfolio Sync
+After a successful trade execution in real mode (not paper mode), trigger an on-chain portfolio sync to reconcile DB state with actual blockchain balances:
+```bash
+node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger post_trade
+```
+This ensures the DB reflects the actual on-chain state after each trade.
 
 ### Swap Execution Flow
 1. Determine chain from order

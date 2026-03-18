@@ -4,7 +4,10 @@
   "type": "module",
   "description": "Data fetching and state management scripts for CryptoClaw agent",
   "dependencies": {
+    "@safe-global/api-kit": "^2.5.6",
+    "@safe-global/protocol-kit": "^5.2.2",
     "better-sqlite3": "^11.7.0",
-    "dotenv": "^16.4.0"
+    "dotenv": "^16.4.0",
+    "viem": "^2.23.2"
   }
 }

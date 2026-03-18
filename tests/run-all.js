@@ -24,6 +24,8 @@ const suites = [
   { name: 'Paper Mode', file: 'test-paper-mode.js', requiresNetwork: false },
   { name: 'E2E Paper Mode', file: 'test-e2e-paper.js', requiresNetwork: false },
   { name: 'Market Regime', file: 'test-regime.js', requiresNetwork: false },
+  { name: 'Chain Config & Sync', file: 'test-chains.js', requiresNetwork: false },
+  { name: 'Execution Scripts', file: 'test-execution.js', requiresNetwork: false },
 ];
 
 // Scripts tests require network — run separately

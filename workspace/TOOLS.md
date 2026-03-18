@@ -285,6 +285,21 @@ node scripts/db-query.js get-paper-trades --limit 10
 node scripts/db-query.js get-paper-stats
 ```
 
+### Portfolio Sync (On-Chain — Real Mode Only)
+```bash
+# Trigger on-chain portfolio sync for a chain (calls portfolio-load-evm.js)
+node scripts/db-query.js sync-portfolio --chain base
+node scripts/db-query.js sync-portfolio --chain base --trigger post_trade
+
+# Get last sync status (per chain)
+node scripts/db-query.js get-sync-status
+node scripts/db-query.js get-sync-status --chain base
+
+# Update a position's on-chain balance (used by sync scripts)
+node scripts/db-query.js set-onchain-balance --id <position_id> --balance 1000.5
+```
+In paper mode, `sync-portfolio` returns a message explaining sync is skipped (DB is sole source of truth).
+
 ### Analysis Cache (Token Dedup)
 ```bash
 # Check if a token needs analysis (dedup before spawning sub-agents)
@@ -343,14 +358,19 @@ node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 
 ### Portfolio Monitoring
 ```bash
-# Get current prices for all positions
+# Get current prices for all positions (reads from DB, respects PAPER_MODE)
 node scripts/check-positions.js
 
 # Check liquidity for all open positions
 node scripts/check-liquidity.js
 
-# Get portfolio summary (value, allocation, P&L)
+# Get portfolio summary (value, allocation, P&L — reads from DB, respects PAPER_MODE)
 node scripts/portfolio-summary.js
+
+# Sync on-chain portfolio from DeBank (real mode only, requires DEBANK_API_KEY)
+node scripts/portfolio-load-evm.js --chain base
+node scripts/portfolio-load-evm.js --chain base --trigger post_trade
+node scripts/portfolio-load-evm.js --chain base --trigger manual
 ```
 
 ### Wallet Tracking
@@ -418,10 +438,56 @@ node scripts/heartbeat-check.js --agent sentinel
 # → {"agent":"sentinel","skip":false,"open_positions":3}
 ```
 
+## Trade Execution (Real Mode Only)
+
+### Execute Trade via Safe Wallet
+```bash
+# BUY: spend USDC to buy a token
+node scripts/execute-trade.js \
+  --action buy --chain base --address 0xTOKEN --symbol TOKEN \
+  --amount 500 --max-slippage 5 --tier moonshot --deadline 300
+
+# SELL: sell all tokens back to USDC
+node scripts/execute-trade.js \
+  --action sell --chain base --address 0xTOKEN --symbol TOKEN \
+  --amount all --max-slippage 5
+
+# SELL: sell specific quantity
+node scripts/execute-trade.js \
+  --action sell --chain base --address 0xTOKEN --symbol TOKEN \
+  --amount 10000 --max-slippage 2 --deadline 300
+```
+
+**Output statuses:**
+- `executed` — transaction confirmed on-chain (includes `txHash`)
+- `queued_in_safe` — proposed to Safe, needs more signatures (includes `safeHash`)
+- `failed` — with error message
+
+The script handles: 1inch swap quoting, ERC-20 approvals, Safe multi-send transaction building, signing with `SAFE_SIGNER_KEY`, and proposing/executing via Safe Transaction Service.
+
+### Check Safe Wallet Status
+```bash
+# Get Safe info: nonce, threshold, owners, balances, pending txs
+node scripts/check-safe-status.js --chain base
+
+# Check a specific pending transaction
+node scripts/check-safe-status.js --chain base --safe-hash 0xABC123...
+```
+
+**Requires:** `SAFE_ADDRESS_BASE`, `RPC_BASE` env vars.
+
+## Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `ACTIVE_CHAINS` | `base` | Comma-separated list of active chains. Controls which chains are scanned and synced. Supported: `base`, `solana`. |
+| `PAPER_MODE` | `false` | Enable simulated trading (no real transactions, no on-chain sync) |
+
 ## API Keys Required (set in environment)
 
 | Variable | Service | Used For |
 |----------|---------|----------|
+| `DEBANK_API_KEY` | DeBank Cloud | On-chain portfolio sync (EVM chains) |
 | `GOPLUS_API_KEY` | GoPlus | Contract security scanning |
 | `ETHERSCAN_API_KEY` | Etherscan | Ethereum wallet tracking + contract verification |
 | `BASESCAN_API_KEY` | Basescan | Base L2 wallet tracking |

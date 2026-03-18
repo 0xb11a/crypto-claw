@@ -179,6 +179,14 @@ node scripts/db-query.js update-position --id <id> --json '{"quantity":<new_qty>
 node scripts/db-query.js set-cash --amount <new_amount>
 ```
 
+### Step 5b: Post-Trade Portfolio Sync (real mode only)
+
+After a successful trade execution in real mode, sync on-chain portfolio state:
+```bash
+node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger post_trade
+```
+This ensures DB positions reflect actual on-chain balances after the trade. Skip in paper mode.
+
 ### Step 6: Mark Order Executed (both modes)
 
 ```bash

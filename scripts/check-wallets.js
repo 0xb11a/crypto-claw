@@ -14,24 +14,7 @@
 
 import 'dotenv/config';
 import { getDb, close } from './db.js';
-
-// ============================================================
-// Chain API configuration
-// ============================================================
-
-const EVM_CHAINS = {
-  ethereum: { baseUrl: 'https://api.etherscan.io/api', envKey: 'ETHERSCAN_API_KEY' },
-  base:     { baseUrl: 'https://api.basescan.org/api', envKey: 'BASESCAN_API_KEY' },
-  arbitrum: { baseUrl: 'https://api.arbiscan.io/api', envKey: 'ARBISCAN_API_KEY' },
-  optimism: { baseUrl: 'https://api-optimistic.etherscan.io/api', envKey: 'OPTIMISM_API_KEY' },
-};
-
-const SOLANA_CONFIG = {
-  solscan: { baseUrl: 'https://pro-api.solscan.io/v2.0', envKey: 'SOLSCAN_API_KEY' },
-  helius:  { envKey: 'HELIUS_API_KEY' },
-};
-
-const SUPPORTED_CHAINS = [...Object.keys(EVM_CHAINS), 'solana'];
+import { getChain, isEVM, isSolana, getAllChains } from './chains.js';
 
 // ============================================================
 // CLI args
@@ -55,16 +38,17 @@ function parseArgs() {
 // ============================================================
 
 async function checkEvmWallet(address, chain) {
-  const chainCfg = EVM_CHAINS[chain];
-  if (!chainCfg) return { address, chain, status: 'unsupported_chain' };
+  let chainCfg;
+  try { chainCfg = getChain(chain); } catch { return { address, chain, status: 'unsupported_chain' }; }
+  if (!chainCfg.explorer) return { address, chain, status: 'unsupported_chain' };
 
-  const apiKey = process.env[chainCfg.envKey];
+  const apiKey = process.env[chainCfg.explorer.apiKeyEnv];
   if (!apiKey) {
-    return { address, chain, status: 'no_api_key', message: `Set ${chainCfg.envKey} to enable ${chain} wallet tracking` };
+    return { address, chain, status: 'no_api_key', message: `Set ${chainCfg.explorer.apiKeyEnv} to enable ${chain} wallet tracking` };
   }
 
   try {
-    const url = `${chainCfg.baseUrl}?module=account&action=tokentx&address=${address}&page=1&offset=10&sort=desc&apikey=${apiKey}`;
+    const url = `${chainCfg.explorer.baseUrl}?module=account&action=tokentx&address=${address}&page=1&offset=10&sort=desc&apikey=${apiKey}`;
     const res = await fetch(url);
     const data = await res.json();
 
@@ -100,8 +84,9 @@ async function checkEvmWallet(address, chain) {
 // ============================================================
 
 async function checkSolanaWallet(address) {
-  const solscanKey = process.env[SOLANA_CONFIG.solscan.envKey];
-  const heliusKey = process.env[SOLANA_CONFIG.helius.envKey];
+  const chainCfg = getChain('solana');
+  const solscanKey = process.env[chainCfg.solana.solscan.apiKeyEnv];
+  const heliusKey = process.env[chainCfg.solana.helius.apiKeyEnv];
 
   if (solscanKey) return checkSolanaViaSolscan(address, solscanKey);
   if (heliusKey) return checkSolanaViaHelius(address, heliusKey);
@@ -111,7 +96,7 @@ async function checkSolanaWallet(address) {
 
 async function checkSolanaViaSolscan(address, apiKey) {
   try {
-    const url = `${SOLANA_CONFIG.solscan.baseUrl}/account/transactions?address=${address}&page_size=10`;
+    const url = `${getChain('solana').solana.solscan.baseUrl}/account/transactions?address=${address}&page_size=10`;
     const res = await fetch(url, { headers: { token: apiKey } });
     const data = await res.json();
 
@@ -173,9 +158,9 @@ async function checkSolanaViaHelius(address, apiKey) {
 // ============================================================
 
 async function checkWallet(address, chain) {
-  if (chain === 'solana') return checkSolanaWallet(address);
-  if (EVM_CHAINS[chain]) return checkEvmWallet(address, chain);
-  return { address, chain, status: 'unsupported_chain', message: `Chain '${chain}' not supported. Supported: ${SUPPORTED_CHAINS.join(', ')}` };
+  if (isSolana(chain)) return checkSolanaWallet(address);
+  if (isEVM(chain)) return checkEvmWallet(address, chain);
+  return { address, chain, status: 'unsupported_chain', message: `Chain '${chain}' not supported. Supported: ${getAllChains().join(', ')}` };
 }
 
 // ============================================================

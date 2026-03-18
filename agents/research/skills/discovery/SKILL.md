@@ -31,24 +31,22 @@ Read the current regime before scanning: `node scripts/db-query.js get-meta --ke
 - **Bullish/Neutral:** Proceed normally.
 
 ### Step 1: Gather Data
-Run the scanning script:
+Run the scanning script. The `--chain all` flag scans all active chains (controlled by `ACTIVE_CHAINS` env var, defaults to `base`):
 ```bash
-# Bullish/Neutral: full scan
+# Bullish/Neutral: full scan across active chains
 node scripts/scan-tokens.js --chain all --sort trending --limit 50
 
 # Bearish: reduced scan
 node scripts/scan-tokens.js --chain all --sort trending --limit 20
 ```
 
-Also check for new deployments:
+Also check for new deployments on each active chain:
 ```bash
-# Bullish/Neutral: standard limits
-node scripts/scan-tokens.js --chain solana --sort newest --min-liquidity 10000 --limit 30
-node scripts/scan-tokens.js --chain base --sort newest --min-liquidity 10000 --limit 30
+# Bullish/Neutral: scan each active chain for newest tokens
+node scripts/scan-tokens.js --chain all --sort newest --min-liquidity 10000 --limit 30
 
 # Bearish: tighter filters
-node scripts/scan-tokens.js --chain solana --sort newest --min-liquidity 20000 --limit 20
-node scripts/scan-tokens.js --chain base --sort newest --min-liquidity 20000 --limit 20
+node scripts/scan-tokens.js --chain all --sort newest --min-liquidity 20000 --limit 20
 ```
 
 ### Step 1b: Scan for Conviction Candidates

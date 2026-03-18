@@ -2,27 +2,40 @@
 /**
  * portfolio-summary.js — Calculate portfolio allocation and P&L
  *
+ * Reads positions and cash from SQLite database (via db.js).
+ *
  * Usage:
  *   node scripts/portfolio-summary.js
  */
 
 import 'dotenv/config';
-import { readFileSync, existsSync } from 'fs';
-import { resolve } from 'path';
+import { getDb, close } from './db.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 
-// Read portfolio from MEMORY.md or a dedicated state file
 function loadPortfolio() {
-  const stateFile = resolve(process.cwd(), 'workspace/memory/portfolio-state.json');
-  if (existsSync(stateFile)) {
-    try {
-      return JSON.parse(readFileSync(stateFile, 'utf-8'));
-    } catch {
-      return { positions: [], cash: 0, totalDeposited: 0 };
+  try {
+    const db = getDb();
+    const isPaper = process.env.PAPER_MODE === 'true';
+
+    if (isPaper) {
+      const positions = db.prepare(
+        "SELECT * FROM paper_positions WHERE status IN ('open', 'partial_exit') ORDER BY created_at DESC"
+      ).all();
+      const cash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash'").get()?.value || '10000');
+      const totalDeposited = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_initial_balance'").get()?.value || '10000');
+      return { positions, cash, totalDeposited };
     }
+
+    const positions = db.prepare(
+      "SELECT * FROM positions WHERE status IN ('open', 'partial_exit') ORDER BY created_at DESC"
+    ).all();
+    const cash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'cash'").get()?.value || '0');
+    const totalDeposited = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'total_deposited'").get()?.value || '0');
+    return { positions, cash, totalDeposited };
+  } catch {
+    return { positions: [], cash: 0, totalDeposited: 0 };
   }
-  return { positions: [], cash: 0, totalDeposited: 0 };
 }
 
 async function getCurrentPrice(symbol) {
@@ -43,30 +56,10 @@ async function main() {
   if (portfolio.positions.length === 0 && portfolio.cash === 0) {
     console.log(JSON.stringify({
       status: 'ok',
-      message: 'Empty portfolio. Initialize by creating workspace/memory/portfolio-state.json',
-      example: {
-        positions: [
-          {
-            symbol: 'TOKEN',
-            address: '0x...',
-            chain: 'ethereum',
-            entryPrice: 0.001,
-            quantity: 10000,
-            tier: 'moonshot',
-            stopLoss: 0.0005,
-            takeProfitLevels: [
-              { multiplier: 2, sellPercent: 50 },
-              { multiplier: 5, sellPercent: 30 },
-              { multiplier: 10, sellPercent: 15 },
-            ],
-            entryDate: '2026-03-01',
-          }
-        ],
-        cash: 5000,
-        totalDeposited: 10000,
-      },
+      message: 'Empty portfolio. Set up positions via db-query.js add-position or deposit cash via set-cash.',
       timestamp: new Date().toISOString(),
     }, null, 2));
+    close();
     return;
   }
 
@@ -75,24 +68,35 @@ async function main() {
   const positionDetails = [];
 
   for (const pos of portfolio.positions) {
-    const currentPrice = await getCurrentPrice(pos.symbol) ?? pos.entryPrice;
-    const value = currentPrice * pos.quantity;
-    const pnl = ((currentPrice - pos.entryPrice) / pos.entryPrice * 100);
+    const currentPrice = await getCurrentPrice(pos.symbol) ?? pos.entry_price;
+    const quantity = pos.quantity;
+    const value = currentPrice * quantity;
+    const pnl = ((currentPrice - pos.entry_price) / pos.entry_price * 100);
 
     totalPositionValue += value;
     positionDetails.push({
-      ...pos,
+      id: pos.id,
+      symbol: pos.symbol,
+      address: pos.address,
+      chain: pos.chain,
+      tier: pos.tier,
+      entryPrice: pos.entry_price,
       currentPrice,
+      quantity,
       value: parseFloat(value.toFixed(2)),
       pnlPercent: parseFloat(pnl.toFixed(2)),
-      pnlUsd: parseFloat((value - pos.entryPrice * pos.quantity).toFixed(2)),
+      pnlUsd: parseFloat((value - pos.entry_price * quantity).toFixed(2)),
+      stopLoss: pos.stop_loss,
+      status: pos.status,
     });
 
     await new Promise(r => setTimeout(r, 200));
   }
 
   const totalValue = totalPositionValue + portfolio.cash;
-  const totalPnl = ((totalValue - portfolio.totalDeposited) / portfolio.totalDeposited * 100);
+  const totalPnl = portfolio.totalDeposited > 0
+    ? ((totalValue - portfolio.totalDeposited) / portfolio.totalDeposited * 100)
+    : 0;
 
   // Calculate allocation by tier
   const allocation = { base: 0, conviction: 0, moonshot: 0, cash: portfolio.cash };
@@ -101,10 +105,10 @@ async function main() {
   }
 
   const allocationPercent = {
-    base: parseFloat((allocation.base / totalValue * 100).toFixed(1)),
-    conviction: parseFloat((allocation.conviction / totalValue * 100).toFixed(1)),
-    moonshot: parseFloat((allocation.moonshot / totalValue * 100).toFixed(1)),
-    cash: parseFloat((allocation.cash / totalValue * 100).toFixed(1)),
+    base: totalValue > 0 ? parseFloat((allocation.base / totalValue * 100).toFixed(1)) : 0,
+    conviction: totalValue > 0 ? parseFloat((allocation.conviction / totalValue * 100).toFixed(1)) : 0,
+    moonshot: totalValue > 0 ? parseFloat((allocation.moonshot / totalValue * 100).toFixed(1)) : 0,
+    cash: totalValue > 0 ? parseFloat((allocation.cash / totalValue * 100).toFixed(1)) : 0,
   };
 
   // Check allocation health
@@ -127,6 +131,8 @@ async function main() {
     positions: positionDetails,
     timestamp: new Date().toISOString(),
   }, null, 2));
+
+  close();
 }
 
 main();

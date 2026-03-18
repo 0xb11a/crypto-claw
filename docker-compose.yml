@@ -56,6 +56,8 @@ services:
       # Paper mode — simulate trades without real execution
       - PAPER_MODE=${PAPER_MODE:-false}
       - PAPER_STARTING_BALANCE=${PAPER_STARTING_BALANCE:-10000}
+      - ACTIVE_CHAINS=${ACTIVE_CHAINS:-base}
+      - DEBANK_API_KEY=${DEBANK_API_KEY:-}
 
       # Optional: API keys for data scripts
       - GOPLUS_API_KEY=${GOPLUS_API_KEY:-}

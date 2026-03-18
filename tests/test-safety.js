@@ -221,6 +221,76 @@ describe('Buy/Sell Approval Logic', () => {
 });
 
 // ============================================================
+// Same-Narrative Limit Tests
+// ============================================================
+
+function validateNarrativeConcentration(openPositions, newTokenNarrative) {
+  const MAX_SAME_NARRATIVE = 3;
+  const sameNarrative = openPositions.filter(p => p.narrative === newTokenNarrative);
+  if (sameNarrative.length >= MAX_SAME_NARRATIVE) {
+    return { valid: false, reason: `Already ${sameNarrative.length} positions in ${newTokenNarrative} narrative (max ${MAX_SAME_NARRATIVE})` };
+  }
+  return { valid: true };
+}
+
+describe('Same-Narrative Position Limits', () => {
+  test('3 positions in same narrative is allowed (adding 3rd)', () => {
+    const positions = [
+      { symbol: 'A', narrative: 'ai' },
+      { symbol: 'B', narrative: 'ai' },
+    ];
+    const result = validateNarrativeConcentration(positions, 'ai');
+    assert(result.valid, 'Should allow 3rd position');
+  });
+
+  test('4th position in same narrative is rejected', () => {
+    const positions = [
+      { symbol: 'A', narrative: 'ai' },
+      { symbol: 'B', narrative: 'ai' },
+      { symbol: 'C', narrative: 'ai' },
+    ];
+    const result = validateNarrativeConcentration(positions, 'ai');
+    assert(!result.valid, 'Should reject 4th same-narrative position');
+  });
+
+  test('different narrative is allowed even with 3 of another', () => {
+    const positions = [
+      { symbol: 'A', narrative: 'ai' },
+      { symbol: 'B', narrative: 'ai' },
+      { symbol: 'C', narrative: 'ai' },
+    ];
+    const result = validateNarrativeConcentration(positions, 'depin');
+    assert(result.valid, 'Different narrative should be allowed');
+  });
+});
+
+// ============================================================
+// Max Open Positions Tests
+// ============================================================
+
+function validateMaxPositions(openPositionCount) {
+  const MAX_OPEN_POSITIONS = 15;
+  if (openPositionCount >= MAX_OPEN_POSITIONS) {
+    return { valid: false, reason: `Already ${openPositionCount} open positions (max ${MAX_OPEN_POSITIONS})` };
+  }
+  return { valid: true };
+}
+
+describe('Max Open Positions Limit', () => {
+  test('14 open positions allows new one (15th)', () => {
+    assert(validateMaxPositions(14).valid, 'Should allow 15th position');
+  });
+
+  test('15 open positions rejects new one (16th)', () => {
+    assert(!validateMaxPositions(15).valid, 'Should reject 16th position');
+  });
+
+  test('0 open positions allows new one', () => {
+    assert(validateMaxPositions(0).valid, 'Should allow first position');
+  });
+});
+
+// ============================================================
 // Regime-Adjusted Limit Tests
 // ============================================================
 

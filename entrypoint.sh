@@ -376,8 +376,22 @@ else
 fi
 
 # ============================================================
-# 5c. Configure Ollama Cloud provider (runs every start — API key may change)
+# 5c. Configure model providers (runs every start — API keys may change)
 # ============================================================
+
+# OpenAI provider (required for GPT-5-mini agents)
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+  OPENAI_CONFIG="{\"baseUrl\":\"https://api.openai.com/v1\",\"api\":\"openai-responses\",\"apiKey\":\"$OPENAI_API_KEY\",\"models\":[{\"id\":\"gpt-5-mini\",\"name\":\"GPT-5 Mini\"}]}"
+  openclaw config set 'models.providers.openai' "$OPENAI_CONFIG" --strict-json
+  echo "[entrypoint] OpenAI provider configured"
+else
+  # Warn if agents are configured for OpenAI but no key is set
+  if echo "$RESEARCH_MODEL$SENTINEL_MODEL$EXECUTOR_MODEL" | grep -q "openai/"; then
+    echo "[entrypoint] WARNING: Agents configured for OpenAI models but OPENAI_API_KEY is not set — agents will fall back to default Anthropic model"
+  fi
+fi
+
+# Ollama Cloud provider (optional)
 if [ -n "${OLLAMA_API_KEY:-}" ]; then
   OLLAMA_CONFIG="{\"baseUrl\":\"https://ollama.com\",\"api\":\"ollama\",\"apiKey\":\"$OLLAMA_API_KEY\",\"models\":[{\"id\":\"deepseek-v3.1:671b-cloud\",\"name\":\"DeepSeek V3.1 Cloud\"}]}"
   openclaw config set 'models.providers.ollama' "$OLLAMA_CONFIG" --strict-json
@@ -404,13 +418,8 @@ ensure_cron_jobs() {
   EXISTING=$(openclaw cron list --json 2>/dev/null || echo '{"jobs":[]}')
   JOB_COUNT=$(echo "$EXISTING" | grep -c '"name"' || true)
 
-  # If research cron already exists and no legacy jobs remain, skip
-  if [ "$JOB_COUNT" -ge 1 ] && echo "$EXISTING" | grep -q '"name".*"research-cycle"' && \
-     ! echo "$EXISTING" | grep -q '"name".*"executor-poll"' && \
-     ! echo "$EXISTING" | grep -q '"name".*"sentinel-watch"'; then
-    echo "[cron-setup] Research cron exists, no legacy jobs, skipping"
-    return 0
-  fi
+  # Note: no early return — always proceed to force-recreate research-cycle
+  # with explicit --model flag and clean up any legacy jobs
 
   add_if_missing() {
     local name="$1"; shift
@@ -429,8 +438,14 @@ ensure_cron_jobs() {
     fi
   done
 
+  # Force recreate research-cycle if it exists (picks up --model flag)
+  if echo "$EXISTING" | grep -q '"name".*"research-cycle"'; then
+    openclaw cron delete --name "research-cycle" 2>/dev/null
+    echo "[cron-setup] Recreated research-cycle with explicit model"
+  fi
+
   add_if_missing "research-cycle" \
-    --every "30m" --agent research --session isolated --no-deliver \
+    --every "30m" --agent research --model "$RESEARCH_MODEL" --session isolated --no-deliver \
     --message "Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. If the check produces discoveries, run the FULL pipeline autonomously: analysis, risk assessment, trade proposal. Do not stop after scanning — you decide what to buy. Update timestamps via db-query.js. Log results to daily memory. If nothing actionable, reply HEARTBEAT_OK."
 
   echo "[cron-setup] Done"

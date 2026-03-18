@@ -10,6 +10,7 @@
 
 import 'dotenv/config';
 import { getDb, close } from './db.js';
+import { isActive } from './chains.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com';
 const DEXSCREENER_DEX = `${DEXSCREENER_BASE}/latest/dex`;
@@ -195,8 +196,15 @@ async function main() {
       data = await scanNewest(config.chain);
     }
 
-    const pairs = (data.pairs ?? [])
-      .filter(p => parseFloat(p.liquidity?.usd ?? 0) >= config.minLiquidity)
+    let filteredPairs = (data.pairs ?? [])
+      .filter(p => parseFloat(p.liquidity?.usd ?? 0) >= config.minLiquidity);
+
+    // When scanning all chains, filter to only active chains
+    if (config.chain === 'all') {
+      filteredPairs = filteredPairs.filter(p => isActive(p.chainId));
+    }
+
+    const pairs = filteredPairs
       .slice(0, config.limit)
       .map(formatToken);
 

@@ -130,6 +130,21 @@ node scripts/db-query.js add-sell-order --json '{
 
 The Executor agent polls for pending sell orders every heartbeat and executes them through the Safe wallet.
 
+### Periodic Portfolio Sync (Real Mode Only)
+When `PAPER_MODE` is not `true`, check if on-chain portfolio sync is due:
+```bash
+node scripts/db-query.js get-meta --key last_sync_base
+```
+If the last sync was more than 6 hours ago (or never), trigger a refresh:
+```bash
+node scripts/portfolio-load-evm.js --chain base --trigger periodic
+```
+Also check for `pending_analysis` positions — these were auto-discovered on-chain and need Research to analyze them:
+```bash
+node scripts/db-query.js get-positions --status pending_analysis
+```
+If found, create an alert for Research to investigate.
+
 ## Rules
 - CRITICAL alerts go to human IMMEDIATELY — never wait for next heartbeat
 - For CRITICAL events, write sell orders to DB right away — the Executor handles execution

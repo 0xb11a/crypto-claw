@@ -8,18 +8,9 @@
  */
 
 import 'dotenv/config';
+import { getChain, isSolana } from './chains.js';
 
 const GOPLUS_BASE = 'https://api.gopluslabs.io/api/v1';
-
-// GoPlus chain IDs
-const CHAIN_IDS = {
-  ethereum: '1',
-  bsc: '56',
-  polygon: '137',
-  arbitrum: '42161',
-  base: '8453',
-  // Solana uses a different endpoint
-};
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -39,7 +30,7 @@ function parseArgs() {
   return config;
 }
 
-async function checkEVMToken(address, chainId) {
+async function checkEVMToken(address, chainId, chainName) {
   const url = `${GOPLUS_BASE}/token_security/${chainId}?contract_addresses=${address}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`GoPlus API error: ${res.status}`);
@@ -115,7 +106,7 @@ async function checkEVMToken(address, chainId) {
   return {
     status: 'ok',
     address,
-    chain: Object.entries(CHAIN_IDS).find(([, v]) => v === chainId)?.[0],
+    chain: chainName,
     safety: {
       isHoneypot: info.is_honeypot === '1',
       isOpenSource: info.is_open_source === '1',
@@ -152,20 +143,16 @@ async function main() {
   const config = parseArgs();
 
   try {
-    const chainId = CHAIN_IDS[config.chain];
+    const chainCfg = getChain(config.chain);
 
-    if (!chainId && config.chain !== 'solana') {
-      throw new Error(`Unsupported chain: ${config.chain}. Supported: ${Object.keys(CHAIN_IDS).join(', ')}, solana`);
-    }
-
-    if (config.chain === 'solana') {
+    if (isSolana(config.chain)) {
       // Solana uses a different GoPlus endpoint
-      const url = `${GOPLUS_BASE}/solana/token_security?contract_addresses=${config.address}`;
+      const url = `${GOPLUS_BASE}/${chainCfg.goplus.endpoint}/token_security?contract_addresses=${config.address}`;
       const res = await fetch(url);
       const data = await res.json();
       console.log(JSON.stringify({ status: 'ok', chain: 'solana', raw: data, timestamp: new Date().toISOString() }, null, 2));
     } else {
-      const result = await checkEVMToken(config.address, chainId);
+      const result = await checkEVMToken(config.address, chainCfg.goplus.chainId, config.chain);
       console.log(JSON.stringify(result, null, 2));
     }
   } catch (err) {

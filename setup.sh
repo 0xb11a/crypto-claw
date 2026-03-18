@@ -177,9 +177,7 @@ for script in db.js db-query.js token-metrics.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$EXECUTOR_DIR/workspace/scripts/"
 done
 for script in execute-trade.js check-safe-status.js; do
-  if [ -f "$SCRIPT_DIR/scripts/$script" ]; then
-    cp "$SCRIPT_DIR/scripts/$script" "$EXECUTOR_DIR/workspace/scripts/"
-  fi
+  cp "$SCRIPT_DIR/scripts/$script" "$EXECUTOR_DIR/workspace/scripts/"
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$EXECUTOR_DIR/workspace/scripts/"
 
