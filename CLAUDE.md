@@ -10,11 +10,11 @@ CryptoClaw is a three-agent crypto research and portfolio management system buil
 
 Three agents communicate through a shared SQLite database:
 
-- **Research Agent** (`agents/research/`) — Runs on GPT-5-mini, 30-minute heartbeat. Handles discovery, market checks, trade proposals. Spawns Sonnet sub-agents for deep analysis and risk assessment. Has 4 skills: discovery, analyst, risk, portfolio.
-- **Sentinel Agent** (`agents/sentinel/`) — Runs on GPT-5-mini, 10-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders. Has 1 skill: sentinel.
-- **Executor Agent** (`agents/executor/`) — Runs on GPT-5-mini, 1-minute heartbeat. Reads approved trades and sell orders, validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
+- **Research Agent** (`agents/research/`) — Runs on GPT-5.4-nano, 30-minute heartbeat. Handles discovery, market checks, trade proposals. Spawns Sonnet sub-agents for deep analysis and risk assessment. Has 4 skills: discovery, analyst, risk, portfolio.
+- **Sentinel Agent** (`agents/sentinel/`) — Runs on GPT-5.4-nano, 10-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders. Has 1 skill: sentinel.
+- **Executor Agent** (`agents/executor/`) — Runs on GPT-5.4-nano, 1-minute heartbeat. Reads approved trades and sell orders, validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
 - **Ollama Cloud** — Some agents might use Ollama Cloud's API (`https://ollama.com/api/chat`). No sidecar needed — OpenClaw's built-in Ollama provider sends `OLLAMA_API_KEY` as a Bearer token directly.
-- **Model Routing** — All three agents run on GPT-5-mini by default (configured via `RESEARCH_MODEL`/`SENTINEL_MODEL`/`EXECUTOR_MODEL` env vars, requires `OPENAI_API_KEY`). For analyst and risk skills, Research spawns Sonnet sub-agents via `sessions_spawn --model`. Configured via `RESEARCH_SUBAGENT_MODEL` env var.
+- **Model Routing** — All three agents run on GPT-5.4-nano by default (configured via `RESEARCH_MODEL`/`SENTINEL_MODEL`/`EXECUTOR_MODEL` env vars, requires `OPENAI_API_KEY`). For analyst and risk skills, Research spawns Sonnet sub-agents via `sessions_spawn --model`. Configured via `RESEARCH_SUBAGENT_MODEL` env var.
 
 ## Memory System — Two Layers
 
@@ -142,7 +142,7 @@ docker compose down             # Stop
 PAPER_MODE=true docker compose up -d
 PAPER_MODE=true PAPER_STARTING_BALANCE=5000 docker compose up -d
 
-# All agents on GPT-5-mini by default; Research escalates to Sonnet for deep analysis
+# All agents on GPT-5.4-nano by default; Research escalates to Sonnet for deep analysis
 RESEARCH_SUBAGENT_MODEL=anthropic/claude-sonnet-4-6 docker compose up -d
 
 # Override to run Research on Sonnet (full quality, higher cost)

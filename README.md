@@ -7,43 +7,43 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
 ## Architecture
 
 ```
-                          YOU
-                     (approve buys)
-                           |
-          +----------------+---------------+
-          v                |               v
-   +---------------+       |       +---------------+
-   |   RESEARCH    |       |       |   SENTINEL    |
-   |    AGENT      |       |       |    AGENT      |
-   |               |    SQLite     |               |
-   | * Discovery   |   Database    | * Price watch |
-   | * Analysis    |   (shared)    | * LP monitor  |
-   | * Risk        |       |       | * Wallet track|
-   | * Portfolio   |       |       | * Auto-sells  |
-   |               |       |       |               |
-   | GPT-5-mini    |       |       | GPT-5-mini    |
-   |  + Sonnet     |       |       |   (10m)       |
-   |  sub-agents   |       |       |               |
-   |   (30m)       |       |       |               |
-   +------+--------+       |       +-------+-------+
-          |                |               |
-          v                v               v
-   approved_trades table   |    sell_orders table
-          |                |               |
-          +----------------+---------------+
-                           v
-                   +--------------+
-                   |   EXECUTOR   |
-                   |    AGENT     |
-                   |              |
-                   | * Validate   |
-                   | * Build tx   |
-                   | * Sign       |
-                   | * Submit     |
-                   |              |
-                   | GPT-5-mini   |
-                   |    (1m)      |
-                   +------+-------+
+                            YOU
+                       (approve buys)
+                             |
+          +------------------+---------------+
+          v                  |               v
+   +-----------------+       |       +-----------------+
+   |   RESEARCH      |       |       |    SENTINEL     |
+   |    AGENT        |       |       |      AGENT      |
+   |                 |    SQLite     |                 |
+   | * Discovery     |   Database    | * Price watch   |
+   | * Analysis      |   (shared)    | * LP monitor    |
+   | * Risk          |       |       | * Wallet track  |
+   | * Portfolio     |       |       | * Auto-sells    |
+   |                 |       |       |                 |
+   | GPT-5.4-nano    |       |       | GPT-5.4-nano    |
+   |  + Sonnet       |       |       |   (10m)         |
+   |  sub-agents     |       |       |                 |
+   |   (30m)         |       |       |                 |
+   +------+----------+       |       +-------+---------+
+          |                  |               |
+          v                  v               v
+   approved_trades table     |      sell_orders table
+          |                  |               |
+          +------------------+---------------+
+                             v
+                   +----------------+
+                   |   EXECUTOR     |
+                   |    AGENT       |
+                   |                |
+                   | * Validate     |
+                   | * Build tx     |
+                   | * Sign         |
+                   | * Submit       |
+                   |                |
+                   | GPT-5.4-nano   |
+                   |    (1m)        |
+                   +------+---------+
                           |
                           v
                    Safe Wallet
@@ -52,9 +52,9 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
 
 ## Key Design Decisions
 
-**Three agents, clear separation.** Research thinks deeply (GPT-5-mini, spawns Sonnet sub-agents for analysis/risk, 30m heartbeat). Sentinel reacts fast (GPT-5-mini, 10m). Executor handles wallet operations (GPT-5-mini, 1m).
+**Three agents, clear separation.** Research thinks deeply (GPT-5.4-nano, spawns Sonnet sub-agents for analysis/risk, 30m heartbeat). Sentinel reacts fast (GPT-5.4-nano, 10m). Executor handles wallet operations (GPT-5.4-nano, 1m).
 
-**Cost-optimized model routing.** All three agents run on GPT-5-mini by default. Research only escalates to Claude Sonnet for the two expensive skills — deep token analysis and risk assessment — by spawning sub-agents via `sessions_spawn`. Discovery, market checks, and portfolio work stay on GPT-5-mini.
+**Cost-optimized model routing.** All three agents run on GPT-5.4-nano by default. Research only escalates to Claude Sonnet for the two expensive skills — deep token analysis and risk assessment — by spawning sub-agents via `sessions_spawn`. Discovery, market checks, and portfolio work stay on GPT-5.4-nano.
 
 **Token deduplication.** Before spawning expensive Sonnet sub-agents, Research checks `check-token-status` against the database: open positions, pending orders, watchlist entries, and recently cached analysis results are all skipped. This prevents redundant analysis of the same trending tokens across heartbeats.
 
@@ -93,7 +93,7 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
 
 - Docker and Docker Compose (for Docker path) or OpenClaw installed locally (for manual path)
 - Node.js 22+ (manual path only)
-- OpenAI API key (GPT-5-mini for all agents)
+- OpenAI API key (GPT-5.4-nano for all agents)
 - Anthropic API key (Sonnet for Research sub-agents)
 - A deployed Safe wallet on your target chain(s) (Ethereum, Base, etc.)
 - RPC endpoints for each chain (Alchemy, Infura, etc.)
@@ -114,7 +114,7 @@ Edit `.env` with your values:
 SAFE_ID=fund-alpha
 
 # Required: LLM providers
-OPENAI_API_KEY=sk-...                # All agents (GPT-5-mini)
+OPENAI_API_KEY=sk-...                # All agents (GPT-5.4-nano)
 ANTHROPIC_API_KEY=sk-ant-...         # Research sub-agents (Sonnet)
 
 # Safe wallet
@@ -180,10 +180,10 @@ In paper mode:
 ### Model Configuration
 
 ```bash
-# Default: all agents on GPT-5-mini, deep analysis on Sonnet
-RESEARCH_MODEL=openai/gpt-5-mini
-SENTINEL_MODEL=openai/gpt-5-mini
-EXECUTOR_MODEL=openai/gpt-5-mini
+# Default: all agents on GPT-5.4-nano, deep analysis on Sonnet
+RESEARCH_MODEL=openai/gpt-5.4-nano
+SENTINEL_MODEL=openai/gpt-5.4-nano
+EXECUTOR_MODEL=openai/gpt-5.4-nano
 RESEARCH_SUBAGENT_MODEL=anthropic/claude-sonnet-4-6
 
 # Full quality Research (higher cost)
@@ -551,7 +551,7 @@ node tests/test-scripts.js     # Script output format (needs network)
 
 ## Cost Optimization
 
-- All three agents run on **GPT-5-mini** (~$0.001/heartbeat with small context)
+- All three agents run on **GPT-5.4-nano** (~$0.001/heartbeat with small context)
 - Research only escalates to **Sonnet** for deep analysis/risk (on-demand sub-agents)
 - **Token dedup** prevents redundant Sonnet spawns on already-analyzed tokens
 - **Background loops** with pre-checks skip agent invocation when nothing is pending

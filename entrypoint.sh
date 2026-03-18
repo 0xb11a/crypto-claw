@@ -379,9 +379,9 @@ fi
 # 5c. Configure model providers (runs every start — API keys may change)
 # ============================================================
 
-# OpenAI provider (required for GPT-5-mini agents)
+# OpenAI provider (required for GPT-5.4-nano agents)
 if [ -n "${OPENAI_API_KEY:-}" ]; then
-  OPENAI_CONFIG="{\"baseUrl\":\"https://api.openai.com/v1\",\"api\":\"openai-responses\",\"apiKey\":\"$OPENAI_API_KEY\",\"models\":[{\"id\":\"gpt-5-mini\",\"name\":\"GPT-5 Mini\"}]}"
+  OPENAI_CONFIG="{\"baseUrl\":\"https://api.openai.com/v1\",\"api\":\"openai-responses\",\"apiKey\":\"$OPENAI_API_KEY\",\"models\":[{\"id\":\"gpt-5.4-nano\",\"name\":\"GPT-5.4 Nano\"}]}"
   openclaw config set 'models.providers.openai' "$OPENAI_CONFIG" --strict-json
   echo "[entrypoint] OpenAI provider configured"
 else
