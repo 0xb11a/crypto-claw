@@ -367,7 +367,7 @@ node scripts/check-liquidity.js
 # Get portfolio summary (value, allocation, P&L — reads from DB, respects PAPER_MODE)
 node scripts/portfolio-summary.js
 
-# Sync on-chain portfolio from DeBank (real mode only, requires DEBANK_API_KEY)
+# Sync on-chain portfolio (Safe TX Service primary, DeBank fallback; real mode only)
 node scripts/portfolio-load-evm.js --chain base
 node scripts/portfolio-load-evm.js --chain base --trigger post_trade
 node scripts/portfolio-load-evm.js --chain base --trigger manual

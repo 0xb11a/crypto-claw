@@ -96,7 +96,7 @@ services:
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
 
       # Agent models
-      - AGENT_MODEL=${AGENT_MODEL:-openai/gpt-5.4-nano}
+      - AGENT_MODEL=${AGENT_MODEL:-openai/gpt-5.4-mini}
 
       # Gateway
       - OPENCLAW_HOME=/home/openclaw/.openclaw
@@ -180,7 +180,7 @@ fi
 openclaw agents add primary \
   --workspace "$OPENCLAW_HOME/agents/primary/workspace" \
   --agent-dir "$OPENCLAW_HOME/agents/primary/agent" \
-  --model "${AGENT_MODEL:-openai/gpt-5.4-nano}" \
+  --model "${AGENT_MODEL:-openai/gpt-5.4-mini}" \
   --non-interactive
 
 # Disable built-in "main" agent, make primary the default
@@ -345,7 +345,7 @@ openclaw config set gateway.auth.token "$OPENCLAW_GATEWAY_TOKEN"
 openclaw agents add my-agent \
   --workspace "$HOME/.openclaw/agents/my-agent/workspace" \
   --agent-dir "$HOME/.openclaw/agents/my-agent/agent" \
-  --model openai/gpt-5.4-nano \
+  --model openai/gpt-5.4-mini \
   --non-interactive
 
 # Set heartbeat interval (agents.list[N] — find your agent's index with openclaw agents list --json)
@@ -398,10 +398,10 @@ curl -sf http://localhost:18789/health
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENT_MODEL` | `openai/gpt-5.4-nano` | Primary agent model |
+| `AGENT_MODEL` | `openai/gpt-5.4-mini` | Primary agent model |
 | `SUBAGENT_MODEL` | — | Model for spawned sub-agents |
 
-Model format: `provider/model-name` (e.g., `openai/gpt-5.4-nano`, `anthropic/claude-sonnet-4-6`, `ollama/llama4-maverick`)
+Model format: `provider/model-name` (e.g., `openai/gpt-5.4-mini`, `anthropic/claude-sonnet-4-6`, `ollama/llama4-maverick`)
 
 ### Application
 

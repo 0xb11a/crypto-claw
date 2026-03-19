@@ -19,7 +19,7 @@ const CHAINS = {
     goplus: { chainId: '8453' },
     explorer: { baseUrl: 'https://api.basescan.org/api', apiKeyEnv: 'BASESCAN_API_KEY' },
     birdeye: 'base',
-    safe: { addressEnv: 'SAFE_ADDRESS_BASE', rpcEnv: 'RPC_BASE' },
+    safe: { addressEnv: 'SAFE_ADDRESS_BASE', rpcEnv: 'RPC_BASE', txServiceUrl: 'https://safe-transaction-base.safe.global' },
     dex: '1inch',
     portfolio: { provider: 'debank', apiKeyEnv: 'DEBANK_API_KEY' },
   },

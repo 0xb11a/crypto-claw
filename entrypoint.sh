@@ -23,7 +23,6 @@ GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
 RESEARCH_MODEL="${RESEARCH_MODEL:-}"
 SENTINEL_MODEL="${SENTINEL_MODEL:-}"
 EXECUTOR_MODEL="${EXECUTOR_MODEL:-}"
-RESEARCH_SUBAGENT_MODEL="${RESEARCH_SUBAGENT_MODEL:-}"
 PAPER_MODE="${PAPER_MODE:-false}"
 PAPER_STARTING_BALANCE="${PAPER_STARTING_BALANCE:-10000}"
 
@@ -316,12 +315,6 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"open"}' --strict-json
   echo "[entrypoint]   Memory: flush at compaction, hybrid search enabled, context pruning 5m TTL"
 
-  # --- Research sub-agent model (Sonnet for analysis/risk skills) ---
-  if [ -n "$RESEARCH_SUBAGENT_MODEL" ]; then
-    openclaw config set 'agents.list[1].subagents.model' "$RESEARCH_SUBAGENT_MODEL" 2>/dev/null
-    echo "[entrypoint]   Research sub-agent model: $RESEARCH_SUBAGENT_MODEL"
-  fi
-
   echo "[entrypoint] First-run configuration complete"
 else
   echo "[entrypoint] State volume exists — preserving config/pairing/sessions"
@@ -368,26 +361,32 @@ else
   sync_model sentinel "$SENTINEL_MODEL" 2
   sync_model executor "$EXECUTOR_MODEL" 3
 
-  # Sync research sub-agent model
-  if [ -n "$RESEARCH_SUBAGENT_MODEL" ]; then
-    openclaw config set 'agents.list[1].subagents.model' "$RESEARCH_SUBAGENT_MODEL" 2>/dev/null || true
-  fi
-
 fi
 
 # ============================================================
 # 5c. Configure model providers (runs every start — API keys may change)
 # ============================================================
 
-# OpenAI provider (required for GPT-5.4-nano agents)
+# OpenAI provider (required for GPT-5.4-mini agents)
 if [ -n "${OPENAI_API_KEY:-}" ]; then
-  OPENAI_CONFIG="{\"baseUrl\":\"https://api.openai.com/v1\",\"api\":\"openai-responses\",\"apiKey\":\"$OPENAI_API_KEY\",\"models\":[{\"id\":\"gpt-5.4-nano\",\"name\":\"GPT-5.4 Nano\"}]}"
+  OPENAI_CONFIG="{\"baseUrl\":\"https://api.openai.com/v1\",\"api\":\"openai-responses\",\"apiKey\":\"$OPENAI_API_KEY\",\"models\":[{\"id\":\"gpt-5.4-mini\",\"name\":\"GPT-5.4 Mini\"}]}"
   openclaw config set 'models.providers.openai' "$OPENAI_CONFIG" --strict-json
   echo "[entrypoint] OpenAI provider configured"
 else
   # Warn if agents are configured for OpenAI but no key is set
   if echo "$RESEARCH_MODEL$SENTINEL_MODEL$EXECUTOR_MODEL" | grep -q "openai/"; then
     echo "[entrypoint] WARNING: Agents configured for OpenAI models but OPENAI_API_KEY is not set — agents will fall back to default Anthropic model"
+  fi
+fi
+
+# Anthropic provider (required for Claude agents)
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  ANTHROPIC_CONFIG="{\"baseUrl\":\"https://api.anthropic.com/v1\",\"api\":\"anthropic-messages\",\"apiKey\":\"$ANTHROPIC_API_KEY\",\"models\":[{\"id\":\"claude-haiku-4-5-20251001\",\"name\":\"Claude Haiku 4.5\"},{\"id\":\"claude-sonnet-4-6\",\"name\":\"Claude Sonnet 4.6\"}]}"
+  openclaw config set 'models.providers.anthropic' "$ANTHROPIC_CONFIG" --strict-json
+  echo "[entrypoint] Anthropic provider configured"
+else
+  if echo "$RESEARCH_MODEL$SENTINEL_MODEL$EXECUTOR_MODEL" | grep -q "anthropic/"; then
+    echo "[entrypoint] WARNING: Agents configured for Anthropic models but ANTHROPIC_API_KEY is not set"
   fi
 fi
 

@@ -93,7 +93,7 @@ Agents are registered with the OpenClaw gateway. Each agent gets:
 ### Per-Agent Configuration
 
 Each agent can have different:
-- **Model** — set via environment variables (e.g., `AGENT_MODEL=openai/gpt-5.4-nano`)
+- **Model** — set via environment variables (e.g., `AGENT_MODEL=openai/gpt-5.4-mini`)
 - **Scripts** — deploy only the scripts each agent needs (least privilege)
 - **Skills** — each agent only sees skills in its own `workspace/skills/` directory
 - **Tools/permissions** — configured via `openclaw.json` agent overrides or entrypoint
@@ -142,7 +142,7 @@ OpenClaw supports multiple LLM providers. Configure them via environment variabl
 ### OpenAI
 ```bash
 OPENAI_API_KEY=sk-...
-AGENT_MODEL=openai/gpt-5.4-nano
+AGENT_MODEL=openai/gpt-5.4-mini
 ```
 
 ### Anthropic
@@ -162,11 +162,11 @@ AGENT_MODEL=ollama/llama4-maverick
 
 ### Cost-Optimization Pattern: Cheap Model + Smart Sub-Agents
 
-Run the main agent on a cheaper model (GPT-5.4-nano) and spawn expensive sub-agents only for tasks that need deep reasoning:
+Run the main agent on a cheaper model (GPT-5.4-mini) and spawn expensive sub-agents only for tasks that need deep reasoning:
 
 ```bash
 # Main agents: cheap and fast
-AGENT_MODEL=openai/gpt-5.4-nano
+AGENT_MODEL=openai/gpt-5.4-mini
 
 # Sub-agents: smart and expensive (only spawned when needed)
 SUBAGENT_MODEL=anthropic/claude-sonnet-4-6
@@ -211,7 +211,7 @@ OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 OLLAMA_API_KEY=...
 
-AGENT_MODEL=openai/gpt-5.4-nano
+AGENT_MODEL=openai/gpt-5.4-mini
 SUBAGENT_MODEL=anthropic/claude-sonnet-4-6
 
 OPENCLAW_GATEWAY_TOKEN=my-secret-token
@@ -229,7 +229,7 @@ Commit a `.env.example` with placeholder values so collaborators know what's nee
 # .env.example — copy to .env and fill in real values
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=
-AGENT_MODEL=openai/gpt-5.4-nano
+AGENT_MODEL=openai/gpt-5.4-mini
 SUBAGENT_MODEL=anthropic/claude-sonnet-4-6
 OPENCLAW_GATEWAY_TOKEN=
 MY_API_KEY=
@@ -437,8 +437,8 @@ When helping a user set up OpenClaw from scratch, walk through these decisions:
 - Multi-agent: plan the responsibility split, communication pattern, shared vs isolated resources
 
 ### 3. Which models?
-- Budget: GPT-5.4-nano for everything
-- Balanced: GPT-5.4-nano main + Sonnet sub-agents for complex tasks
+- Budget: GPT-5.4-mini for everything
+- Balanced: GPT-5.4-mini main + Sonnet sub-agents for complex tasks
 - Quality: Sonnet or Opus for main agents
 - Open-source: Ollama Cloud models
 

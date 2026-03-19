@@ -21,7 +21,7 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
    | * Risk          |       |       | * Wallet track  |
    | * Portfolio     |       |       | * Auto-sells    |
    |                 |       |       |                 |
-   | GPT-5.4-nano    |       |       | GPT-5.4-nano    |
+   | Claude Haiku    |       |       | GPT-5.4-mini    |
    |  + Sonnet       |       |       |   (10m)         |
    |  sub-agents     |       |       |                 |
    |   (30m)         |       |       |                 |
@@ -41,7 +41,7 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
                    | * Sign         |
                    | * Submit       |
                    |                |
-                   | GPT-5.4-nano   |
+                   | GPT-5.4-mini   |
                    |    (1m)        |
                    +------+---------+
                           |
@@ -52,9 +52,9 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
 
 ## Key Design Decisions
 
-**Three agents, clear separation.** Research thinks deeply (GPT-5.4-nano, spawns Sonnet sub-agents for analysis/risk, 30m heartbeat). Sentinel reacts fast (GPT-5.4-nano, 10m). Executor handles wallet operations (GPT-5.4-nano, 1m).
+**Three agents, clear separation.** Research thinks deeply (Claude Haiku 4.5, spawns Sonnet sub-agents for analysis/risk, 30m heartbeat). Sentinel reacts fast (GPT-5.4-mini, 10m). Executor handles wallet operations (GPT-5.4-mini, 1m).
 
-**Cost-optimized model routing.** All three agents run on GPT-5.4-nano by default. Research only escalates to Claude Sonnet for the two expensive skills — deep token analysis and risk assessment — by spawning sub-agents via `sessions_spawn`. Discovery, market checks, and portfolio work stay on GPT-5.4-nano.
+**Cost-optimized model routing.** Research runs on Claude Haiku 4.5 by default; Sentinel and Executor run on GPT-5.4-mini. Research escalates to Claude Sonnet for the two expensive skills — deep token analysis and risk assessment — by spawning sub-agents via `sessions_spawn`. Discovery, market checks, and portfolio work stay on Haiku.
 
 **Token deduplication.** Before spawning expensive Sonnet sub-agents, Research checks `check-token-status` against the database: open positions, pending orders, watchlist entries, and recently cached analysis results are all skipped. This prevents redundant analysis of the same trending tokens across heartbeats.
 
@@ -93,8 +93,8 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
 
 - Docker and Docker Compose (for Docker path) or OpenClaw installed locally (for manual path)
 - Node.js 22+ (manual path only)
-- OpenAI API key (GPT-5.4-nano for all agents)
-- Anthropic API key (Sonnet for Research sub-agents)
+- Anthropic API key (Haiku for Research agent, Sonnet for sub-agents)
+- OpenAI API key (GPT-5.4-mini for Sentinel/Executor agents)
 - A deployed Safe wallet on your target chain(s) (Ethereum, Base, etc.)
 - RPC endpoints for each chain (Alchemy, Infura, etc.)
 
@@ -114,8 +114,8 @@ Edit `.env` with your values:
 SAFE_ID=fund-alpha
 
 # Required: LLM providers
-OPENAI_API_KEY=sk-...                # All agents (GPT-5.4-nano)
-ANTHROPIC_API_KEY=sk-ant-...         # Research sub-agents (Sonnet)
+ANTHROPIC_API_KEY=sk-ant-...         # Research agent (Haiku) + sub-agents (Sonnet)
+OPENAI_API_KEY=sk-...                # Sentinel/Executor agents (GPT-5.4-mini)
 
 # Safe wallet
 SAFE_ADDRESS_ETH=0x...               # Your Safe address on Ethereum
@@ -180,10 +180,10 @@ In paper mode:
 ### Model Configuration
 
 ```bash
-# Default: all agents on GPT-5.4-nano, deep analysis on Sonnet
-RESEARCH_MODEL=openai/gpt-5.4-nano
-SENTINEL_MODEL=openai/gpt-5.4-nano
-EXECUTOR_MODEL=openai/gpt-5.4-nano
+# Default: Research on Claude Haiku, Sentinel/Executor on GPT-5.4-mini, deep analysis on Sonnet
+RESEARCH_MODEL=anthropic/claude-haiku-4-5-20251001
+SENTINEL_MODEL=openai/gpt-5.4-mini
+EXECUTOR_MODEL=openai/gpt-5.4-mini
 RESEARCH_SUBAGENT_MODEL=anthropic/claude-sonnet-4-6
 
 # Full quality Research (higher cost)
@@ -551,8 +551,8 @@ node tests/test-scripts.js     # Script output format (needs network)
 
 ## Cost Optimization
 
-- All three agents run on **GPT-5.4-nano** (~$0.001/heartbeat with small context)
-- Research only escalates to **Sonnet** for deep analysis/risk (on-demand sub-agents)
+- Research runs on **Claude Haiku 4.5**; Sentinel/Executor on **GPT-5.4-mini**
+- Research escalates to **Sonnet** for deep analysis/risk (on-demand sub-agents)
 - **Token dedup** prevents redundant Sonnet spawns on already-analyzed tokens
 - **Background loops** with pre-checks skip agent invocation when nothing is pending
 - Scripts handle ALL API calls — LLM never fetches data directly
