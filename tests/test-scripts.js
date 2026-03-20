@@ -102,7 +102,10 @@ describe('token-metrics.js', () => {
   });
 
   testAsync('handles non-existent token gracefully', async () => {
-    const result = runScript('token-metrics.js', '--address 0x0000000000000000000000000000000000000001 --chain ethereum');
+    const result = runScript(
+      'token-metrics.js',
+      '--address 0x0000000000000000000000000000000000000001 --chain ethereum',
+    );
     assert(result.parsed !== null, 'Must return JSON even for missing token');
     // Should return not_found or empty, not crash
   });
@@ -221,7 +224,10 @@ describe('score-wallet.js', () => {
   });
 
   testAsync('returns no_data when no API keys set', async () => {
-    const result = runScript('score-wallet.js', '--address 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 --chain ethereum');
+    const result = runScript(
+      'score-wallet.js',
+      '--address 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 --chain ethereum',
+    );
     assert(result.parsed !== null, 'Output must be valid JSON');
     // Without API keys, should return no_data or ok
     assert(['no_data', 'ok', 'error'].includes(result.parsed.status), 'Status should be no_data, ok, or error');
@@ -332,10 +338,19 @@ describe('heartbeat-check.js', () => {
 
   testAsync('executor detects pending sell order', async () => {
     // Add a pending sell order, then check
-    const addResult = runScript('db-query.js', `add-order --json '${JSON.stringify({
-      id: 'test-sell-hb', action: 'sell', symbol: 'TEST', address: '0xtest', chain: 'base',
-      amount: 'all', reason: 'stop_loss', urgency: 'immediate'
-    })}'`);
+    const addResult = runScript(
+      'db-query.js',
+      `add-order --json '${JSON.stringify({
+        id: 'test-sell-hb',
+        action: 'sell',
+        symbol: 'TEST',
+        address: '0xtest',
+        chain: 'base',
+        amount: 'all',
+        reason: 'stop_loss',
+        urgency: 'immediate',
+      })}'`,
+    );
     assert(addResult.parsed?.ok, 'Should add sell order');
 
     const result = runScript('heartbeat-check.js', '--agent executor');
@@ -350,20 +365,31 @@ describe('heartbeat-check.js', () => {
 
   testAsync('sentinel detects open paper position', async () => {
     // Add an open paper position, then check with PAPER_MODE
-    const addResult = runScript('db-query.js', `add-paper-position --json '${JSON.stringify({
-      id: 'test-pp-hb', symbol: 'TEST', address: '0xtest', chain: 'base',
-      tier: 'moonshot', entry_price: 0.001, current_price: 0.001,
-      quantity: 1000, value_usd: 1, stop_loss: 0.0005,
-      take_profit_levels: [{ level: 1, price: 0.002, sellPercent: 50 }]
-    })}'`);
+    const addResult = runScript(
+      'db-query.js',
+      `add-paper-position --json '${JSON.stringify({
+        id: 'test-pp-hb',
+        symbol: 'TEST',
+        address: '0xtest',
+        chain: 'base',
+        tier: 'moonshot',
+        entry_price: 0.001,
+        current_price: 0.001,
+        quantity: 1000,
+        value_usd: 1,
+        stop_loss: 0.0005,
+        take_profit_levels: [{ level: 1, price: 0.002, sellPercent: 50 }],
+      })}'`,
+    );
     assert(addResult.parsed?.ok, 'Should add paper position');
 
     // Run heartbeat-check with PAPER_MODE=true
     try {
-      const output = execSync(
-        `node ${SCRIPTS_DIR}/heartbeat-check.js --agent sentinel`,
-        { encoding: 'utf-8', timeout: 10_000, env: { ...process.env, NODE_ENV: 'test', PAPER_MODE: 'true' } }
-      );
+      const output = execSync(`node ${SCRIPTS_DIR}/heartbeat-check.js --agent sentinel`, {
+        encoding: 'utf-8',
+        timeout: 10_000,
+        env: { ...process.env, NODE_ENV: 'test', PAPER_MODE: 'true' },
+      });
       const parsed = JSON.parse(output);
       assertEqual(parsed.agent, 'sentinel', 'agent should be sentinel');
       assertEqual(parsed.skip, false, 'Should not skip with open paper position');
@@ -374,7 +400,10 @@ describe('heartbeat-check.js', () => {
     }
 
     // Clean up
-    runScript('db-query.js', `close-paper-position --id test-pp-hb --json '${JSON.stringify({ exit_price: 0.001, exit_reason: 'test_cleanup' })}'`);
+    runScript(
+      'db-query.js',
+      `close-paper-position --id test-pp-hb --json '${JSON.stringify({ exit_price: 0.001, exit_reason: 'test_cleanup' })}'`,
+    );
   });
 
   testAsync('rejects invalid agent name', async () => {

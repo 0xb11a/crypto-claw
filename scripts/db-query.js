@@ -115,7 +115,7 @@ function getAllCashBreakdown(db, paper = false) {
   let total = 0;
   for (const r of rows) {
     const chain = r.key.slice(prefix.length);
-    if (!chain) continue;  // skip exact prefix match (e.g. 'paper_cash' without chain suffix)
+    if (!chain) continue; // skip exact prefix match (e.g. 'paper_cash' without chain suffix)
     const val = parseFloat(r.value || '0');
     perChain[chain] = val;
     total += val;
@@ -138,7 +138,9 @@ function hasFlag(name) {
 
 function parseJson(name) {
   const raw = getArg(name || 'json');
-  if (!raw) { error(`Missing --${name || 'json'} argument`); }
+  if (!raw) {
+    error(`Missing --${name || 'json'} argument`);
+  }
   try {
     return JSON.parse(raw);
   } catch (e) {
@@ -173,16 +175,20 @@ function handle(db, cmd) {
       const symbol = getArg('symbol');
       let rows;
       if (symbol) {
-        rows = status === 'all'
-          ? db.prepare('SELECT * FROM positions WHERE symbol = ? ORDER BY created_at DESC').all(symbol)
-          : db.prepare('SELECT * FROM positions WHERE status = ? AND symbol = ? ORDER BY created_at DESC').all(status, symbol);
+        rows =
+          status === 'all'
+            ? db.prepare('SELECT * FROM positions WHERE symbol = ? ORDER BY created_at DESC').all(symbol)
+            : db
+                .prepare('SELECT * FROM positions WHERE status = ? AND symbol = ? ORDER BY created_at DESC')
+                .all(status, symbol);
       } else {
-        rows = status === 'all'
-          ? db.prepare('SELECT * FROM positions ORDER BY created_at DESC').all()
-          : db.prepare('SELECT * FROM positions WHERE status = ? ORDER BY created_at DESC').all(status);
+        rows =
+          status === 'all'
+            ? db.prepare('SELECT * FROM positions ORDER BY created_at DESC').all()
+            : db.prepare('SELECT * FROM positions WHERE status = ? ORDER BY created_at DESC').all(status);
       }
       // Parse JSON fields
-      output(rows.map(r => ({ ...r, take_profit_levels: JSON.parse(r.take_profit_levels) })));
+      output(rows.map((r) => ({ ...r, take_profit_levels: JSON.parse(r.take_profit_levels) })));
       break;
     }
     case 'get-position': {
@@ -195,14 +201,32 @@ function handle(db, cmd) {
     }
     case 'add-position': {
       const p = parseJson();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO positions (id, symbol, name, address, chain, tier, entry_price, current_price,
           quantity, value_usd, percent_of_portfolio, entry_date, stop_loss, take_profit_levels,
           narrative, status, notes)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(p.id, p.symbol, p.name, p.address, p.chain, p.tier, p.entry_price, p.current_price,
-        p.quantity, p.value_usd, p.percent_of_portfolio, p.entry_date || new Date().toISOString().split('T')[0],
-        p.stop_loss, JSON.stringify(p.take_profit_levels), p.narrative, p.status || 'open', p.notes);
+      `,
+      ).run(
+        p.id,
+        p.symbol,
+        p.name,
+        p.address,
+        p.chain,
+        p.tier,
+        p.entry_price,
+        p.current_price,
+        p.quantity,
+        p.value_usd,
+        p.percent_of_portfolio,
+        p.entry_date || new Date().toISOString().split('T')[0],
+        p.stop_loss,
+        JSON.stringify(p.take_profit_levels),
+        p.narrative,
+        p.status || 'open',
+        p.notes,
+      );
       output({ ok: true, id: p.id });
       break;
     }
@@ -211,12 +235,8 @@ function handle(db, cmd) {
       const updates = parseJson();
       if (!id) error('Missing --id');
       const fields = Object.keys(updates);
-      const setClauses = fields.map(f =>
-        f === 'take_profit_levels' ? `${f} = ?` : `${f} = ?`
-      ).join(', ');
-      const values = fields.map(f =>
-        f === 'take_profit_levels' ? JSON.stringify(updates[f]) : updates[f]
-      );
+      const setClauses = fields.map((f) => (f === 'take_profit_levels' ? `${f} = ?` : `${f} = ?`)).join(', ');
+      const values = fields.map((f) => (f === 'take_profit_levels' ? JSON.stringify(updates[f]) : updates[f]));
       db.prepare(`UPDATE positions SET ${setClauses}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
       output({ ok: true, id });
       break;
@@ -246,25 +266,48 @@ function handle(db, cmd) {
         const pnlUsd = (exitPrice - position.entry_price) * qty;
         const prevPnl = position.pnl_usd || 0;
         const newQty = position.quantity - qty;
-        db.prepare(`
+        db.prepare(
+          `
           UPDATE positions SET quantity = ?, status = 'partial_exit',
             pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
           WHERE id = ?
-        `).run(newQty, Math.round(pnlPercent * 100) / 100,
+        `,
+        ).run(
+          newQty,
+          Math.round(pnlPercent * 100) / 100,
           Math.round((prevPnl + pnlUsd) * 100) / 100,
-          updates.exit_reason || null, id);
-        output({ ok: true, id, pnl_percent: Math.round(pnlPercent * 100) / 100, pnl_usd: Math.round(pnlUsd * 100) / 100 });
+          updates.exit_reason || null,
+          id,
+        );
+        output({
+          ok: true,
+          id,
+          pnl_percent: Math.round(pnlPercent * 100) / 100,
+          pnl_usd: Math.round(pnlUsd * 100) / 100,
+        });
       } else {
         // Full exit
         const pnlPercent = ((exitPrice - position.entry_price) / position.entry_price) * 100;
         const pnlUsd = (exitPrice - position.entry_price) * position.quantity;
-        db.prepare(`
+        db.prepare(
+          `
           UPDATE positions SET status = 'closed', exit_price = ?, exit_date = date('now'),
             pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
           WHERE id = ?
-        `).run(exitPrice, Math.round(pnlPercent * 100) / 100, Math.round(pnlUsd * 100) / 100,
-          updates.exit_reason || null, id);
-        output({ ok: true, id, pnl_percent: Math.round(pnlPercent * 100) / 100, pnl_usd: Math.round(pnlUsd * 100) / 100 });
+        `,
+        ).run(
+          exitPrice,
+          Math.round(pnlPercent * 100) / 100,
+          Math.round(pnlUsd * 100) / 100,
+          updates.exit_reason || null,
+          id,
+        );
+        output({
+          ok: true,
+          id,
+          pnl_percent: Math.round(pnlPercent * 100) / 100,
+          pnl_usd: Math.round(pnlUsd * 100) / 100,
+        });
       }
       break;
     }
@@ -276,22 +319,43 @@ function handle(db, cmd) {
       const chain = getArg('chain');
       const safeId = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'safe_id'").get()?.value;
       if (chain) {
-        const positions = db.prepare("SELECT * FROM positions WHERE chain = ? AND status IN ('open', 'partial_exit') ORDER BY created_at DESC").all(chain)
-          .map(r => ({ ...r, take_profit_levels: JSON.parse(r.take_profit_levels) }));
-        const cash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(cashKey(chain))?.value || '0');
-        const totalDeposited = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(`total_deposited_${chain}`)?.value || '0');
-        const positionValue = positions.reduce((sum, p) => sum + ((p.current_price || p.entry_price) * p.quantity), 0);
-        output({ safe_id: safeId, chain, cash, total_deposited: totalDeposited, positions, total_value: Math.round((cash + positionValue) * 100) / 100 });
+        const positions = db
+          .prepare(
+            "SELECT * FROM positions WHERE chain = ? AND status IN ('open', 'partial_exit') ORDER BY created_at DESC",
+          )
+          .all(chain)
+          .map((r) => ({ ...r, take_profit_levels: JSON.parse(r.take_profit_levels) }));
+        const cash = parseFloat(
+          db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(cashKey(chain))?.value || '0',
+        );
+        const totalDeposited = parseFloat(
+          db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(`total_deposited_${chain}`)?.value || '0',
+        );
+        const positionValue = positions.reduce((sum, p) => sum + (p.current_price || p.entry_price) * p.quantity, 0);
+        output({
+          safe_id: safeId,
+          chain,
+          cash,
+          total_deposited: totalDeposited,
+          positions,
+          total_value: Math.round((cash + positionValue) * 100) / 100,
+        });
       } else {
-        const allPositions = db.prepare("SELECT * FROM positions WHERE status IN ('open', 'partial_exit') ORDER BY created_at DESC").all()
-          .map(r => ({ ...r, take_profit_levels: JSON.parse(r.take_profit_levels) }));
+        const allPositions = db
+          .prepare("SELECT * FROM positions WHERE status IN ('open', 'partial_exit') ORDER BY created_at DESC")
+          .all()
+          .map((r) => ({ ...r, take_profit_levels: JSON.parse(r.take_profit_levels) }));
         const cashBreakdown = getAllCashBreakdown(db);
         const chains = {};
         for (const c of getAllChains()) {
-          const cPositions = allPositions.filter(p => p.chain === c);
+          const cPositions = allPositions.filter((p) => p.chain === c);
           const cCash = cashBreakdown[c] || 0;
-          const positionValue = cPositions.reduce((sum, p) => sum + ((p.current_price || p.entry_price) * p.quantity), 0);
-          chains[c] = { cash: cCash, positions: cPositions, total_value: Math.round((cCash + positionValue) * 100) / 100 };
+          const positionValue = cPositions.reduce((sum, p) => sum + (p.current_price || p.entry_price) * p.quantity, 0);
+          chains[c] = {
+            cash: cCash,
+            positions: cPositions,
+            total_value: Math.round((cCash + positionValue) * 100) / 100,
+          };
         }
         const totalValue = Object.values(chains).reduce((sum, c) => sum + c.total_value, 0);
         output({ safe_id: safeId, chains, total_value: Math.round(totalValue * 100) / 100 });
@@ -301,7 +365,9 @@ function handle(db, cmd) {
     case 'get-cash': {
       const chain = getArg('chain');
       if (chain) {
-        const cash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(cashKey(chain))?.value || '0');
+        const cash = parseFloat(
+          db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(cashKey(chain))?.value || '0',
+        );
         output({ chain, cash });
       } else {
         output(getAllCashBreakdown(db));
@@ -314,7 +380,9 @@ function handle(db, cmd) {
       if (amount === null) error('Missing --amount');
       if (!chain) error('Missing --chain (required for set-cash)');
       const key = cashKey(chain);
-      db.prepare("INSERT INTO portfolio_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')").run(key, String(amount), String(amount));
+      db.prepare(
+        "INSERT INTO portfolio_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')",
+      ).run(key, String(amount), String(amount));
       output({ ok: true, chain, cash: parseFloat(amount) });
       break;
     }
@@ -329,10 +397,12 @@ function handle(db, cmd) {
       const key = getArg('key');
       const value = getArg('value');
       if (!key || value === null) error('Missing --key or --value');
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO portfolio_meta (key, value) VALUES (?, ?)
         ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')
-      `).run(key, value, value);
+      `,
+      ).run(key, value, value);
       output({ ok: true, key, value });
       break;
     }
@@ -343,7 +413,8 @@ function handle(db, cmd) {
     case 'get-orders': {
       const pending = hasFlag('pending');
       const action = getArg('action');
-      let sql, params = [];
+      let sql,
+        params = [];
       if (pending && action) {
         sql = 'SELECT * FROM orders WHERE executed = 0 AND action = ? ORDER BY created_at ASC';
         params = [action];
@@ -356,35 +427,60 @@ function handle(db, cmd) {
         sql = 'SELECT * FROM orders ORDER BY created_at DESC';
       }
       const rows = db.prepare(sql).all(...params);
-      output(rows.map(r => r.take_profit_levels ? { ...r, take_profit_levels: JSON.parse(r.take_profit_levels) } : r));
+      output(
+        rows.map((r) => (r.take_profit_levels ? { ...r, take_profit_levels: JSON.parse(r.take_profit_levels) } : r)),
+      );
       break;
     }
     case 'add-order': {
       const t = parseJson();
       if (!t.action || !['buy', 'sell'].includes(t.action)) error('add-order requires "action": "buy" or "sell"');
       if (t.action === 'buy') {
-        if (!t.symbol || !t.address || !t.chain || t.amount == null || !t.tier || t.entry_price == null || t.stop_loss == null || !t.take_profit_levels)
+        if (
+          !t.symbol ||
+          !t.address ||
+          !t.chain ||
+          t.amount == null ||
+          !t.tier ||
+          t.entry_price == null ||
+          t.stop_loss == null ||
+          !t.take_profit_levels
+        )
           error('Buy order requires: symbol, address, chain, amount, tier, entry_price, stop_loss, take_profit_levels');
       } else {
         if (!t.symbol || !t.address || !t.chain || t.amount == null || !t.reason)
           error('Sell order requires: symbol, address, chain, amount, reason');
       }
       const isSell = t.action === 'sell';
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO orders (id, action, symbol, name, address, chain, amount,
           percent_of_portfolio, tier, entry_price, stop_loss, take_profit_levels,
           analysis_score, risk_score, reasoning, reason, urgency,
           approved, approved_at, approved_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        t.id, t.action, t.symbol, t.name || null, t.address, t.chain, String(t.amount),
-        t.percent_of_portfolio || null, t.tier || null, t.entry_price || null,
-        t.stop_loss || null, t.take_profit_levels ? JSON.stringify(t.take_profit_levels) : null,
-        t.analysis_score || null, t.risk_score || null, t.reasoning || null,
-        t.reason || null, t.urgency || (isSell ? 'immediate' : null),
-        isSell ? 1 : (t.approved ? 1 : 0),
-        isSell ? new Date().toISOString() : (t.approved_at || null),
-        isSell ? 'sentinel' : (t.approved_by || 'human')
+      `,
+      ).run(
+        t.id,
+        t.action,
+        t.symbol,
+        t.name || null,
+        t.address,
+        t.chain,
+        String(t.amount),
+        t.percent_of_portfolio || null,
+        t.tier || null,
+        t.entry_price || null,
+        t.stop_loss || null,
+        t.take_profit_levels ? JSON.stringify(t.take_profit_levels) : null,
+        t.analysis_score || null,
+        t.risk_score || null,
+        t.reasoning || null,
+        t.reason || null,
+        t.urgency || (isSell ? 'immediate' : null),
+        isSell ? 1 : t.approved ? 1 : 0,
+        isSell ? new Date().toISOString() : t.approved_at || null,
+        isSell ? 'sentinel' : t.approved_by || 'human',
       );
       output({ ok: true, id: t.id });
       break;
@@ -402,15 +498,35 @@ function handle(db, cmd) {
     // ============================================================
     case 'add-receipt': {
       const r = parseJson();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO receipts (id, order_id, action, symbol, address, chain,
           amount, quantity, expected_price, executed_price, slippage, status, safe_tx_hash,
           onchain_tx_hash, safe_nonce, signatures_collected, signatures_required, gas_used, error, notes)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(r.id, r.order_id, r.action, r.symbol, r.address, r.chain,
-        r.amount, r.quantity, r.expected_price, r.executed_price, r.slippage, r.status,
-        r.safe_tx_hash, r.onchain_tx_hash, r.safe_nonce, r.signatures_collected,
-        r.signatures_required, r.gas_used, r.error, r.notes);
+      `,
+      ).run(
+        r.id,
+        r.order_id,
+        r.action,
+        r.symbol,
+        r.address,
+        r.chain,
+        r.amount,
+        r.quantity,
+        r.expected_price,
+        r.executed_price,
+        r.slippage,
+        r.status,
+        r.safe_tx_hash,
+        r.onchain_tx_hash,
+        r.safe_nonce,
+        r.signatures_collected,
+        r.signatures_required,
+        r.gas_used,
+        r.error,
+        r.notes,
+      );
       output({ ok: true, id: r.id });
       break;
     }
@@ -444,12 +560,24 @@ function handle(db, cmd) {
     }
     case 'add-alert': {
       const a = parseJson();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO sentinel_alerts (id, symbol, chain, alert_type, severity, current_price,
           trigger_price, details, action, sell_amount)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(a.id, a.symbol, a.chain, a.alert_type, a.severity, a.current_price,
-        a.trigger_price, a.details, a.action, a.sell_amount);
+      `,
+      ).run(
+        a.id,
+        a.symbol,
+        a.chain,
+        a.alert_type,
+        a.severity,
+        a.current_price,
+        a.trigger_price,
+        a.details,
+        a.action,
+        a.sell_amount,
+      );
       output({ ok: true, id: a.id });
       break;
     }
@@ -473,12 +601,26 @@ function handle(db, cmd) {
     }
     case 'add-to-watchlist': {
       const w = parseJson();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO watchlist (id, symbol, address, chain, target_entry, current_price,
           analysis_score, risk_score, narrative, reason, expires_at, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(w.id, w.symbol, w.address, w.chain, w.target_entry, w.current_price,
-        w.analysis_score, w.risk_score, w.narrative, w.reason, w.expires_at, w.status || 'watching');
+      `,
+      ).run(
+        w.id,
+        w.symbol,
+        w.address,
+        w.chain,
+        w.target_entry,
+        w.current_price,
+        w.analysis_score,
+        w.risk_score,
+        w.narrative,
+        w.reason,
+        w.expires_at,
+        w.status || 'watching',
+      );
       output({ ok: true, id: w.id });
       break;
     }
@@ -487,8 +629,8 @@ function handle(db, cmd) {
       const updates = parseJson();
       if (!id) error('Missing --id');
       const fields = Object.keys(updates);
-      const setClauses = fields.map(f => `${f} = ?`).join(', ');
-      const values = fields.map(f => updates[f]);
+      const setClauses = fields.map((f) => `${f} = ?`).join(', ');
+      const values = fields.map((f) => updates[f]);
       db.prepare(`UPDATE watchlist SET ${setClauses}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
       output({ ok: true, id });
       break;
@@ -509,9 +651,9 @@ function handle(db, cmd) {
       const chain = getArg('chain');
       const limit = parseInt(getArg('limit') || '2');
       if (!address || !chain) error('Missing --address or --chain');
-      const rows = db.prepare(
-        'SELECT * FROM liquidity_snapshots WHERE address = ? AND chain = ? ORDER BY checked_at DESC LIMIT ?'
-      ).all(address, chain, limit);
+      const rows = db
+        .prepare('SELECT * FROM liquidity_snapshots WHERE address = ? AND chain = ? ORDER BY checked_at DESC LIMIT ?')
+        .all(address, chain, limit);
       output(rows);
       break;
     }
@@ -520,9 +662,11 @@ function handle(db, cmd) {
       const chain = getArg('chain');
       const liquidity = getArg('liquidity');
       if (!address || !chain || liquidity === null) error('Missing --address, --chain, or --liquidity');
-      db.prepare(
-        'INSERT INTO liquidity_snapshots (address, chain, liquidity_usd) VALUES (?, ?, ?)'
-      ).run(address, chain, parseFloat(liquidity));
+      db.prepare('INSERT INTO liquidity_snapshots (address, chain, liquidity_usd) VALUES (?, ?, ?)').run(
+        address,
+        chain,
+        parseFloat(liquidity),
+      );
       output({ ok: true });
       break;
     }
@@ -535,9 +679,9 @@ function handle(db, cmd) {
       const chain = getArg('chain');
       const limit = parseInt(getArg('limit') || '5');
       if (!address || !chain) error('Missing --address or --chain');
-      const rows = db.prepare(
-        'SELECT * FROM contract_snapshots WHERE address = ? AND chain = ? ORDER BY checked_at DESC LIMIT ?'
-      ).all(address, chain, limit);
+      const rows = db
+        .prepare('SELECT * FROM contract_snapshots WHERE address = ? AND chain = ? ORDER BY checked_at DESC LIMIT ?')
+        .all(address, chain, limit);
       output(rows);
       break;
     }
@@ -546,9 +690,11 @@ function handle(db, cmd) {
       const chain = getArg('chain');
       const json = getArg('json');
       if (!address || !chain || !json) error('Missing --address, --chain, or --json');
-      db.prepare(
-        'INSERT INTO contract_snapshots (address, chain, safety_data) VALUES (?, ?, ?)'
-      ).run(address, chain, json);
+      db.prepare('INSERT INTO contract_snapshots (address, chain, safety_data) VALUES (?, ?, ?)').run(
+        address,
+        chain,
+        json,
+      );
       output({ ok: true });
       break;
     }
@@ -567,11 +713,22 @@ function handle(db, cmd) {
     case 'add-tracked-wallet': {
       const w = parseJson();
       const walletStatus = w.type ? 'scored' : 'proposed';
-      db.prepare(`
+      db.prepare(
+        `
         INSERT OR REPLACE INTO tracked_wallets (address, chain, label, type, notes, status, score, score_breakdown, source_token)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(w.address, w.chain, w.label, w.type, w.notes, w.status || walletStatus,
-        w.score || null, w.score_breakdown ? JSON.stringify(w.score_breakdown) : null, w.source_token || null);
+      `,
+      ).run(
+        w.address,
+        w.chain,
+        w.label,
+        w.type,
+        w.notes,
+        w.status || walletStatus,
+        w.score || null,
+        w.score_breakdown ? JSON.stringify(w.score_breakdown) : null,
+        w.source_token || null,
+      );
       output({ ok: true, address: w.address });
       break;
     }
@@ -579,21 +736,27 @@ function handle(db, cmd) {
       const w = parseJson();
       if (!w.address || !w.chain) error('Missing address or chain');
       const source = getArg('source') || w.source || 'agent';
-      db.prepare(`
+      db.prepare(
+        `
         INSERT OR IGNORE INTO tracked_wallets (address, chain, label, source_token, source, status)
         VALUES (?, ?, ?, ?, ?, 'proposed')
-      `).run(w.address, w.chain, w.label || null, w.source_token || null, source);
+      `,
+      ).run(w.address, w.chain, w.label || null, w.source_token || null, source);
       output({ ok: true, address: w.address, status: 'proposed', source });
       break;
     }
     case 'get-unscored-wallets': {
       const limit = parseInt(getArg('limit') || '5');
-      const rows = db.prepare(`
+      const rows = db
+        .prepare(
+          `
         SELECT * FROM tracked_wallets
         WHERE status = 'proposed' OR (status = 'failed' AND retry_count < 3)
         ORDER BY created_at ASC
         LIMIT ?
-      `).all(limit);
+      `,
+        )
+        .all(limit);
       output(rows);
       break;
     }
@@ -602,16 +765,26 @@ function handle(db, cmd) {
       const chain = getArg('chain');
       const data = parseJson();
       if (!address || !chain) error('Missing --address or --chain');
-      db.prepare(`
+      db.prepare(
+        `
         UPDATE tracked_wallets
         SET score = ?, type = ?, score_breakdown = ?, status = ?,
             scored_at = datetime('now'), score_error = ?, retry_count = CASE WHEN ? = 'failed' THEN retry_count + 1 ELSE retry_count END
         WHERE address = ? AND chain = ?
-      `).run(
-        data.score || null, data.type || null,
-        data.score_breakdown ? (typeof data.score_breakdown === 'string' ? data.score_breakdown : JSON.stringify(data.score_breakdown)) : null,
-        data.status || 'scored', data.score_error || null, data.status || 'scored',
-        address, chain
+      `,
+      ).run(
+        data.score || null,
+        data.type || null,
+        data.score_breakdown
+          ? typeof data.score_breakdown === 'string'
+            ? data.score_breakdown
+            : JSON.stringify(data.score_breakdown)
+          : null,
+        data.status || 'scored',
+        data.score_error || null,
+        data.status || 'scored',
+        address,
+        chain,
       );
       output({ ok: true, address, chain, status: data.status || 'scored' });
       break;
@@ -638,7 +811,10 @@ function handle(db, cmd) {
       const agent = getArg('agent');
       const check = getArg('check');
       if (!agent || !check) error('Missing --agent or --check');
-      db.prepare("UPDATE heartbeat_state SET last_run = datetime('now') WHERE agent = ? AND check_type = ?").run(agent, check);
+      db.prepare("UPDATE heartbeat_state SET last_run = datetime('now') WHERE agent = ? AND check_type = ?").run(
+        agent,
+        check,
+      );
       output({ ok: true });
       break;
     }
@@ -648,21 +824,32 @@ function handle(db, cmd) {
     // ============================================================
     case 'add-sentinel-log': {
       const l = parseJson();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO sentinel_log (check_type, positions_checked, alerts_generated, sells_executed, status)
         VALUES (?, ?, ?, ?, ?)
-      `).run(l.check_type, l.positions_checked || 0, l.alerts_generated || 0, l.sells_executed || 0, l.status || 'ok');
+      `,
+      ).run(l.check_type, l.positions_checked || 0, l.alerts_generated || 0, l.sells_executed || 0, l.status || 'ok');
       output({ ok: true });
       break;
     }
     case 'add-executor-log': {
       const l = parseJson();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO executor_log (sell_orders_processed, buy_orders_processed, pending_checked,
           success_count, fail_count, queued_count, status)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(l.sell_orders_processed || 0, l.buy_orders_processed || 0, l.pending_checked || 0,
-        l.success_count || 0, l.fail_count || 0, l.queued_count || 0, l.status || 'ok');
+      `,
+      ).run(
+        l.sell_orders_processed || 0,
+        l.buy_orders_processed || 0,
+        l.pending_checked || 0,
+        l.success_count || 0,
+        l.fail_count || 0,
+        l.queued_count || 0,
+        l.status || 'ok',
+      );
       output({ ok: true });
       break;
     }
@@ -682,14 +869,34 @@ function handle(db, cmd) {
     // ============================================================
     case 'add-trade': {
       const t = parseJson();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO trades (id, symbol, address, chain, tier, action, entry_price, exit_price,
           quantity, entry_date, exit_date, pnl_percent, pnl_usd, exit_reason, analysis_score,
           risk_score, narrative, lesson, duration_days)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(t.id, t.symbol, t.address, t.chain, t.tier, t.action, t.entry_price, t.exit_price,
-        t.quantity, t.entry_date, t.exit_date, t.pnl_percent, t.pnl_usd, t.exit_reason,
-        t.analysis_score, t.risk_score, t.narrative, t.lesson, t.duration_days);
+      `,
+      ).run(
+        t.id,
+        t.symbol,
+        t.address,
+        t.chain,
+        t.tier,
+        t.action,
+        t.entry_price,
+        t.exit_price,
+        t.quantity,
+        t.entry_date,
+        t.exit_date,
+        t.pnl_percent,
+        t.pnl_usd,
+        t.exit_reason,
+        t.analysis_score,
+        t.risk_score,
+        t.narrative,
+        t.lesson,
+        t.duration_days,
+      );
       output({ ok: true, id: t.id });
       break;
     }
@@ -699,7 +906,9 @@ function handle(db, cmd) {
       break;
     }
     case 'get-trade-stats': {
-      const stats = db.prepare(`
+      const stats = db
+        .prepare(
+          `
         SELECT
           COUNT(*) as total_trades,
           SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
@@ -710,7 +919,9 @@ function handle(db, cmd) {
           MAX(pnl_usd) as best_trade_pnl,
           MIN(pnl_usd) as worst_trade_pnl
         FROM trades
-      `).get();
+      `,
+        )
+        .get();
       stats.win_rate = stats.total_trades > 0 ? Math.round((stats.wins / stats.total_trades) * 100) : 0;
       output(stats);
       break;
@@ -721,16 +932,32 @@ function handle(db, cmd) {
     // ============================================================
     case 'add-paper-receipt': {
       const t = parseJson();
-      if (!t.quantity || t.quantity <= 0) error('Paper receipt requires quantity > 0 (use add-receipt for failed trades)');
-      db.prepare(`
+      if (!t.quantity || t.quantity <= 0)
+        error('Paper receipt requires quantity > 0 (use add-receipt for failed trades)');
+      db.prepare(
+        `
         INSERT INTO paper_receipts (id, order_id, action, symbol, address, chain,
           tier, proposed_price, quantity, amount, stop_loss, take_profit_levels, reasoning,
           pnl_percent, pnl_usd)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(t.id, t.order_id, t.action, t.symbol, t.address, t.chain,
-        t.tier, t.proposed_price, t.quantity, t.amount, t.stop_loss,
+      `,
+      ).run(
+        t.id,
+        t.order_id,
+        t.action,
+        t.symbol,
+        t.address,
+        t.chain,
+        t.tier,
+        t.proposed_price,
+        t.quantity,
+        t.amount,
+        t.stop_loss,
         t.take_profit_levels ? JSON.stringify(t.take_profit_levels) : null,
-        t.reasoning, t.pnl_percent, t.pnl_usd);
+        t.reasoning,
+        t.pnl_percent,
+        t.pnl_usd,
+      );
       output({ ok: true, id: t.id });
       break;
     }
@@ -744,35 +971,57 @@ function handle(db, cmd) {
       const symbol = getArg('symbol');
       let rows;
       if (symbol) {
-        rows = status === 'all'
-          ? db.prepare('SELECT * FROM paper_positions WHERE symbol = ? ORDER BY created_at DESC').all(symbol)
-          : db.prepare('SELECT * FROM paper_positions WHERE status = ? AND symbol = ? ORDER BY created_at DESC').all(status, symbol);
+        rows =
+          status === 'all'
+            ? db.prepare('SELECT * FROM paper_positions WHERE symbol = ? ORDER BY created_at DESC').all(symbol)
+            : db
+                .prepare('SELECT * FROM paper_positions WHERE status = ? AND symbol = ? ORDER BY created_at DESC')
+                .all(status, symbol);
       } else {
-        rows = status === 'all'
-          ? db.prepare('SELECT * FROM paper_positions ORDER BY created_at DESC').all()
-          : db.prepare('SELECT * FROM paper_positions WHERE status = ? ORDER BY created_at DESC').all(status);
+        rows =
+          status === 'all'
+            ? db.prepare('SELECT * FROM paper_positions ORDER BY created_at DESC').all()
+            : db.prepare('SELECT * FROM paper_positions WHERE status = ? ORDER BY created_at DESC').all(status);
       }
-      output(rows.map(r => ({ ...r, take_profit_levels: JSON.parse(r.take_profit_levels) })));
+      output(rows.map((r) => ({ ...r, take_profit_levels: JSON.parse(r.take_profit_levels) })));
       break;
     }
     case 'add-paper-position': {
       const p = parseJson();
       const valueUsd = p.value_usd || p.amount_usd;
-      const qty = valueUsd && p.entry_price ? (valueUsd / p.entry_price) : p.quantity;
-      const cost = valueUsd || (p.entry_price * qty);
+      const qty = valueUsd && p.entry_price ? valueUsd / p.entry_price : p.quantity;
+      const cost = valueUsd || p.entry_price * qty;
       const posChain = p.chain || 'base';
       const pcKey = cashKey(posChain, true);
-      const currentCash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(pcKey)?.value || '0');
+      const currentCash = parseFloat(
+        db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(pcKey)?.value || '0',
+      );
       const newCash = Math.round((currentCash - cost) * 100) / 100;
       const txn = db.transaction(() => {
-        db.prepare(`
+        db.prepare(
+          `
           INSERT INTO paper_positions (id, symbol, address, chain, tier, entry_price, current_price,
             quantity, value_usd, entry_date, stop_loss, take_profit_levels, status)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(p.id, p.symbol, p.address, posChain, p.tier, p.entry_price, p.current_price,
-          qty, valueUsd || null, p.entry_date || new Date().toISOString().split('T')[0],
-          p.stop_loss, JSON.stringify(p.take_profit_levels), p.status || 'open');
-        db.prepare("INSERT INTO portfolio_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')").run(pcKey, String(newCash), String(newCash));
+        `,
+        ).run(
+          p.id,
+          p.symbol,
+          p.address,
+          posChain,
+          p.tier,
+          p.entry_price,
+          p.current_price,
+          qty,
+          valueUsd || null,
+          p.entry_date || new Date().toISOString().split('T')[0],
+          p.stop_loss,
+          JSON.stringify(p.take_profit_levels),
+          p.status || 'open',
+        );
+        db.prepare(
+          "INSERT INTO portfolio_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')",
+        ).run(pcKey, String(newCash), String(newCash));
       });
       txn();
       output({ ok: true, id: p.id, chain: posChain, cash: newCash });
@@ -783,11 +1032,12 @@ function handle(db, cmd) {
       const updates = parseJson();
       if (!id) error('Missing --id');
       const fields = Object.keys(updates);
-      const setClauses = fields.map(f => `${f} = ?`).join(', ');
-      const values = fields.map(f =>
-        f === 'take_profit_levels' ? JSON.stringify(updates[f]) : updates[f]
+      const setClauses = fields.map((f) => `${f} = ?`).join(', ');
+      const values = fields.map((f) => (f === 'take_profit_levels' ? JSON.stringify(updates[f]) : updates[f]));
+      db.prepare(`UPDATE paper_positions SET ${setClauses}, updated_at = datetime('now') WHERE id = ?`).run(
+        ...values,
+        id,
       );
-      db.prepare(`UPDATE paper_positions SET ${setClauses}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
       output({ ok: true, id });
       break;
     }
@@ -803,19 +1053,37 @@ function handle(db, cmd) {
       const saleProceeds = exitPrice * position.quantity;
       const posChain = position.chain || 'base';
       const pcKey = cashKey(posChain, true);
-      const currentCash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(pcKey)?.value || '0');
+      const currentCash = parseFloat(
+        db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(pcKey)?.value || '0',
+      );
       const newCash = Math.round((currentCash + saleProceeds) * 100) / 100;
       const txn = db.transaction(() => {
-        db.prepare(`
+        db.prepare(
+          `
           UPDATE paper_positions SET status = 'closed', exit_price = ?, exit_date = date('now'),
             pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
           WHERE id = ?
-        `).run(exitPrice, Math.round(pnlPercent * 100) / 100, Math.round(pnlUsd * 100) / 100,
-          updates.exit_reason || null, id);
-        db.prepare("INSERT INTO portfolio_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')").run(pcKey, String(newCash), String(newCash));
+        `,
+        ).run(
+          exitPrice,
+          Math.round(pnlPercent * 100) / 100,
+          Math.round(pnlUsd * 100) / 100,
+          updates.exit_reason || null,
+          id,
+        );
+        db.prepare(
+          "INSERT INTO portfolio_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')",
+        ).run(pcKey, String(newCash), String(newCash));
       });
       txn();
-      output({ ok: true, id, chain: posChain, pnl_percent: Math.round(pnlPercent * 100) / 100, pnl_usd: Math.round(pnlUsd * 100) / 100, cash: newCash });
+      output({
+        ok: true,
+        id,
+        chain: posChain,
+        pnl_percent: Math.round(pnlPercent * 100) / 100,
+        pnl_usd: Math.round(pnlUsd * 100) / 100,
+        cash: newCash,
+      });
       break;
     }
     case 'get-paper-portfolio': {
@@ -824,39 +1092,65 @@ function handle(db, cmd) {
       const chainArgs = chain ? [chain] : [];
 
       const initialBalanceKey = chain ? `paper_initial_balance_${chain}` : 'paper_initial_balance';
-      const initialBalance = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(initialBalanceKey)?.value || '10000');
+      const initialBalance = parseFloat(
+        db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(initialBalanceKey)?.value || '10000',
+      );
 
-      const closedPnl = db.prepare(`SELECT COALESCE(SUM(pnl_usd), 0) as total, COUNT(*) as count FROM paper_positions WHERE status = 'closed' AND pnl_usd IS NOT NULL ${chainFilter}`).get(...chainArgs);
-      const partialPnl = db.prepare(`
+      const closedPnl = db
+        .prepare(
+          `SELECT COALESCE(SUM(pnl_usd), 0) as total, COUNT(*) as count FROM paper_positions WHERE status = 'closed' AND pnl_usd IS NOT NULL ${chainFilter}`,
+        )
+        .get(...chainArgs);
+      const partialPnl = db
+        .prepare(
+          `
         SELECT COALESCE(SUM(pnl_usd), 0) as total, COUNT(*) as count FROM paper_receipts
         WHERE action = 'sell' AND pnl_usd IS NOT NULL
         AND address IN (SELECT address FROM paper_positions WHERE status IN ('open', 'partial_exit') ${chainFilter})
-      `).get(...chainArgs);
+      `,
+        )
+        .get(...chainArgs);
       const realizedPnl = closedPnl.total + partialPnl.total;
       const realizedCount = closedPnl.count + partialPnl.count;
 
-      const positions = db.prepare(`SELECT * FROM paper_positions WHERE status IN ('open', 'partial_exit') ${chainFilter} ORDER BY created_at DESC`).all(...chainArgs)
-        .map(r => ({ ...r, take_profit_levels: JSON.parse(r.take_profit_levels) }));
+      const positions = db
+        .prepare(
+          `SELECT * FROM paper_positions WHERE status IN ('open', 'partial_exit') ${chainFilter} ORDER BY created_at DESC`,
+        )
+        .all(...chainArgs)
+        .map((r) => ({ ...r, take_profit_levels: JSON.parse(r.take_profit_levels) }));
 
       let cash;
       if (chain) {
-        cash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(cashKey(chain, true))?.value || '0');
+        cash = parseFloat(
+          db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(cashKey(chain, true))?.value || '0',
+        );
       } else {
         const breakdown = getAllCashBreakdown(db, true);
         cash = breakdown.total;
       }
 
-      const positionValue = positions.reduce((sum, p) => sum + ((p.current_price || p.entry_price) * p.quantity), 0);
+      const positionValue = positions.reduce((sum, p) => sum + (p.current_price || p.entry_price) * p.quantity, 0);
       const totalValue = Math.round((cash + positionValue) * 100) / 100;
       const pnl = Math.round((totalValue - initialBalance) * 100) / 100;
-      const pnlPercent = initialBalance > 0 ? Math.round(((totalValue - initialBalance) / initialBalance) * 10000) / 100 : 0;
+      const pnlPercent =
+        initialBalance > 0 ? Math.round(((totalValue - initialBalance) / initialBalance) * 10000) / 100 : 0;
 
-      const closedPositions = db.prepare(`SELECT id, symbol, chain, tier, entry_price, exit_price, pnl_percent, pnl_usd, exit_reason, exit_date FROM paper_positions WHERE status = 'closed' ${chainFilter} ORDER BY exit_date DESC LIMIT 20`).all(...chainArgs);
-      const recentTrades = db.prepare(`SELECT * FROM paper_receipts WHERE quantity > 0 ${chainFilter} ORDER BY created_at DESC LIMIT 10`).all(...chainArgs);
+      const closedPositions = db
+        .prepare(
+          `SELECT id, symbol, chain, tier, entry_price, exit_price, pnl_percent, pnl_usd, exit_reason, exit_date FROM paper_positions WHERE status = 'closed' ${chainFilter} ORDER BY exit_date DESC LIMIT 20`,
+        )
+        .all(...chainArgs);
+      const recentTrades = db
+        .prepare(`SELECT * FROM paper_receipts WHERE quantity > 0 ${chainFilter} ORDER BY created_at DESC LIMIT 10`)
+        .all(...chainArgs);
 
       const result = {
-        cash, initial_balance: initialBalance, total_value: totalValue,
-        pnl, pnl_percent: pnlPercent,
+        cash,
+        initial_balance: initialBalance,
+        total_value: totalValue,
+        pnl,
+        pnl_percent: pnlPercent,
         realized_pnl: Math.round(realizedPnl * 100) / 100,
         total_closed_trades: realizedCount,
         positions,
@@ -870,7 +1164,9 @@ function handle(db, cmd) {
     case 'get-paper-cash': {
       const chain = getArg('chain');
       if (chain) {
-        const cash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(cashKey(chain, true))?.value || '0');
+        const cash = parseFloat(
+          db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(cashKey(chain, true))?.value || '0',
+        );
         output({ chain, cash });
       } else {
         output(getAllCashBreakdown(db, true));
@@ -883,15 +1179,19 @@ function handle(db, cmd) {
       if (amount === null) error('Missing --amount');
       if (!chain) error('Missing --chain (required for set-paper-cash)');
       const key = cashKey(chain, true);
-      db.prepare("INSERT INTO portfolio_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')").run(key, String(amount), String(amount));
+      db.prepare(
+        "INSERT INTO portfolio_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')",
+      ).run(key, String(amount), String(amount));
       output({ ok: true, chain, cash: parseFloat(amount) });
       break;
     }
     case 'get-paper-stats': {
       const chain = getArg('chain');
-      const chainFilter = chain ? "AND chain = ?" : "";
+      const chainFilter = chain ? 'AND chain = ?' : '';
       const chainArgs = chain ? [chain] : [];
-      const stats = db.prepare(`
+      const stats = db
+        .prepare(
+          `
         SELECT
           COUNT(*) as total_trades,
           SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
@@ -902,20 +1202,35 @@ function handle(db, cmd) {
           MAX(pnl_usd) as best_trade_pnl,
           MIN(pnl_usd) as worst_trade_pnl
         FROM paper_receipts WHERE pnl_usd IS NOT NULL ${chainFilter}
-      `).get(...chainArgs);
+      `,
+        )
+        .get(...chainArgs);
       let cash, initialBalance;
       if (chain) {
-        cash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(cashKey(chain, true))?.value || '0');
-        initialBalance = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(`paper_initial_balance_${chain}`)?.value || '0');
+        cash = parseFloat(
+          db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(cashKey(chain, true))?.value || '0',
+        );
+        initialBalance = parseFloat(
+          db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(`paper_initial_balance_${chain}`)?.value ||
+            '0',
+        );
       } else {
         cash = getAllCashBreakdown(db, true).total;
-        initialBalance = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_initial_balance'").get()?.value || '10000');
+        initialBalance = parseFloat(
+          db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_initial_balance'").get()?.value || '10000',
+        );
       }
-      const openPositions = db.prepare(`SELECT * FROM paper_positions WHERE status IN ('open', 'partial_exit') ${chainFilter}`).all(...chainArgs);
-      const positionValue = openPositions.reduce((sum, p) => sum + (p.value_usd || (p.current_price || p.entry_price) * p.quantity), 0);
+      const openPositions = db
+        .prepare(`SELECT * FROM paper_positions WHERE status IN ('open', 'partial_exit') ${chainFilter}`)
+        .all(...chainArgs);
+      const positionValue = openPositions.reduce(
+        (sum, p) => sum + (p.value_usd || (p.current_price || p.entry_price) * p.quantity),
+        0,
+      );
       const totalValue = cash + positionValue;
       stats.win_rate = stats.total_trades > 0 ? Math.round((stats.wins / stats.total_trades) * 100) : 0;
-      stats.total_return_percent = initialBalance > 0 ? Math.round(((totalValue - initialBalance) / initialBalance) * 10000) / 100 : 0;
+      stats.total_return_percent =
+        initialBalance > 0 ? Math.round(((totalValue - initialBalance) / initialBalance) * 10000) / 100 : 0;
       stats.current_value = totalValue;
       stats.initial_balance = initialBalance;
       if (chain) stats.chain = chain;
@@ -934,37 +1249,59 @@ function handle(db, cmd) {
 
       // 1. Open positions (or paper_positions)
       const posTable = isPaper ? 'paper_positions' : 'positions';
-      const pos = db.prepare(
-        `SELECT id, symbol, status FROM ${posTable} WHERE address = ? AND chain = ? AND status IN ('open', 'partial_exit')`
-      ).get(address, chain);
+      const pos = db
+        .prepare(
+          `SELECT id, symbol, status FROM ${posTable} WHERE address = ? AND chain = ? AND status IN ('open', 'partial_exit')`,
+        )
+        .get(address, chain);
       if (pos) {
-        output({ address, chain, action: 'skip', reason: 'open_position', details: { id: pos.id, symbol: pos.symbol, status: pos.status } });
+        output({
+          address,
+          chain,
+          action: 'skip',
+          reason: 'open_position',
+          details: { id: pos.id, symbol: pos.symbol, status: pos.status },
+        });
         break;
       }
 
       // 2. Pending orders (buy or sell, not yet executed)
-      const pendingOrder = db.prepare(
-        'SELECT id, symbol, action FROM orders WHERE address = ? AND chain = ? AND executed = 0'
-      ).get(address, chain);
+      const pendingOrder = db
+        .prepare('SELECT id, symbol, action FROM orders WHERE address = ? AND chain = ? AND executed = 0')
+        .get(address, chain);
       if (pendingOrder) {
         const reason = pendingOrder.action === 'buy' ? 'pending_buy' : 'pending_sell';
-        output({ address, chain, action: 'skip', reason, details: { id: pendingOrder.id, symbol: pendingOrder.symbol } });
+        output({
+          address,
+          chain,
+          action: 'skip',
+          reason,
+          details: { id: pendingOrder.id, symbol: pendingOrder.symbol },
+        });
         break;
       }
 
       // 4. Active watchlist
-      const watched = db.prepare(
-        "SELECT id, symbol FROM watchlist WHERE address = ? AND chain = ? AND status = 'watching'"
-      ).get(address, chain);
+      const watched = db
+        .prepare("SELECT id, symbol FROM watchlist WHERE address = ? AND chain = ? AND status = 'watching'")
+        .get(address, chain);
       if (watched) {
-        output({ address, chain, action: 'skip', reason: 'on_watchlist', details: { id: watched.id, symbol: watched.symbol } });
+        output({
+          address,
+          chain,
+          action: 'skip',
+          reason: 'on_watchlist',
+          details: { id: watched.id, symbol: watched.symbol },
+        });
         break;
       }
 
       // 5. Unexpired analysis cache
-      const cached = db.prepare(
-        "SELECT symbol, verdict, analysis_score, risk_score, reasoning, expires_at FROM analysis_cache WHERE address = ? AND chain = ? AND expires_at > datetime('now')"
-      ).get(address, chain);
+      const cached = db
+        .prepare(
+          "SELECT symbol, verdict, analysis_score, risk_score, reasoning, expires_at FROM analysis_cache WHERE address = ? AND chain = ? AND expires_at > datetime('now')",
+        )
+        .get(address, chain);
       if (cached) {
         output({ address, chain, action: 'skip', reason: 'cached_analysis', details: cached });
         break;
@@ -978,7 +1315,8 @@ function handle(db, cmd) {
       const c = parseJson();
       if (!c.address || !c.chain || !c.verdict) error('Missing required fields: address, chain, verdict');
       const ttlHours = c.ttl_hours || 24;
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO analysis_cache (address, chain, symbol, analysis_score, risk_score, verdict, tier, reasoning, expires_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+' || ? || ' hours'))
         ON CONFLICT(address, chain) DO UPDATE SET
@@ -986,13 +1324,25 @@ function handle(db, cmd) {
           risk_score = excluded.risk_score, verdict = excluded.verdict,
           tier = excluded.tier, reasoning = excluded.reasoning,
           expires_at = excluded.expires_at, created_at = datetime('now')
-      `).run(c.address, c.chain, c.symbol || null, c.analysis_score || null,
-        c.risk_score || null, c.verdict, c.tier || null, c.reasoning || null, ttlHours);
+      `,
+      ).run(
+        c.address,
+        c.chain,
+        c.symbol || null,
+        c.analysis_score || null,
+        c.risk_score || null,
+        c.verdict,
+        c.tier || null,
+        c.reasoning || null,
+        ttlHours,
+      );
       output({ ok: true, address: c.address, chain: c.chain, verdict: c.verdict, ttl_hours: ttlHours });
       break;
     }
     case 'get-analysis-cache': {
-      const rows = db.prepare("SELECT * FROM analysis_cache WHERE expires_at > datetime('now') ORDER BY created_at DESC").all();
+      const rows = db
+        .prepare("SELECT * FROM analysis_cache WHERE expires_at > datetime('now') ORDER BY created_at DESC")
+        .all();
       output(rows);
       break;
     }
@@ -1020,10 +1370,10 @@ function handle(db, cmd) {
       try {
         const scriptDir = new URL('.', import.meta.url).pathname;
         const script = isSolana(chain) ? 'portfolio-load-solana.js' : 'portfolio-load-evm.js';
-        const result = execSync(
-          `node ${scriptDir}${script} --chain ${chain} --trigger ${trigger}`,
-          { encoding: 'utf-8', timeout: 60_000 }
-        );
+        const result = execSync(`node ${scriptDir}${script} --chain ${chain} --trigger ${trigger}`, {
+          encoding: 'utf-8',
+          timeout: 60_000,
+        });
         output(JSON.parse(result));
       } catch (e) {
         error(`Sync failed: ${e.message}`);
@@ -1033,14 +1383,12 @@ function handle(db, cmd) {
     case 'get-sync-status': {
       const chain = getArg('chain');
       if (chain) {
-        const rows = db.prepare(
-          'SELECT * FROM portfolio_sync WHERE chain = ? ORDER BY synced_at DESC LIMIT 5'
-        ).all(chain);
+        const rows = db
+          .prepare('SELECT * FROM portfolio_sync WHERE chain = ? ORDER BY synced_at DESC LIMIT 5')
+          .all(chain);
         output(rows);
       } else {
-        const rows = db.prepare(
-          'SELECT * FROM portfolio_sync ORDER BY synced_at DESC LIMIT 20'
-        ).all();
+        const rows = db.prepare('SELECT * FROM portfolio_sync ORDER BY synced_at DESC LIMIT 20').all();
         output(rows);
       }
       break;
@@ -1050,7 +1398,7 @@ function handle(db, cmd) {
       const balance = getArg('balance');
       if (!id || balance === null) error('Missing --id or --balance');
       db.prepare(
-        "UPDATE positions SET onchain_balance = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
+        "UPDATE positions SET onchain_balance = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
       ).run(parseFloat(balance), id);
       output({ ok: true, id, onchain_balance: parseFloat(balance) });
       break;

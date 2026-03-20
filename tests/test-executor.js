@@ -6,7 +6,7 @@
  * portfolio state updates, and order processing rules.
  */
 
-import { describe, test, assert, assertEqual, assertType, summary } from './test-helpers.js';
+import { describe, test, assert, assertEqual, assertType as _assertType, summary } from './test-helpers.js';
 
 // ============================================================
 // Executor Validation Logic (extracted from AGENTS.md)
@@ -33,7 +33,7 @@ function validateBuyOrder(order, portfolioState) {
 
   if (order.currentPrice && order.entryPrice) {
     const deviation = Math.abs(order.currentPrice - order.entryPrice) / order.entryPrice;
-    if (deviation > 0.10) {
+    if (deviation > 0.1) {
       errors.push(`Price deviated ${(deviation * 100).toFixed(1)}% from proposal (max 10%)`);
     }
   }
@@ -44,9 +44,7 @@ function validateBuyOrder(order, portfolioState) {
 function validateSellOrder(order, portfolioState) {
   const errors = [];
 
-  const position = portfolioState.positions.find(p =>
-    p.address === order.address && p.chain === order.chain
-  );
+  const position = portfolioState.positions.find((p) => p.address === order.address && p.chain === order.chain);
 
   if (!position) {
     errors.push(`No position found for ${order.symbol} on ${order.chain}`);
@@ -98,8 +96,10 @@ function checkSlippage(expectedPrice, quotedPrice, tier) {
 
 function processOrderPriority(sellOrders, buyOrders) {
   // Sells always processed first
-  return [...sellOrders.map(o => ({ ...o, _priority: 'sell' })),
-          ...buyOrders.map(o => ({ ...o, _priority: 'buy' }))];
+  return [
+    ...sellOrders.map((o) => ({ ...o, _priority: 'sell' })),
+    ...buyOrders.map((o) => ({ ...o, _priority: 'buy' })),
+  ];
 }
 
 // ============================================================
@@ -120,9 +120,7 @@ const mockPortfolio = {
       currentPrice: 0.0015,
       quantity: 100000,
       stopLoss: 0.0005,
-      takeProfitLevels: [
-        { level: 1, multiplier: 2, price: 0.002, sellPercent: 50, triggered: false },
-      ],
+      takeProfitLevels: [{ level: 1, multiplier: 2, price: 0.002, sellPercent: 50, triggered: false }],
       status: 'open',
     },
   ],
@@ -168,7 +166,10 @@ describe('Executor — Buy Order Validation', () => {
     const order = { ...mockApprovedBuy, approved: false };
     const result = validateBuyOrder(order, mockPortfolio);
     assert(!result.valid, 'Unapproved buy must be rejected');
-    assert(result.errors.some(e => e.includes('not approved')), 'Should mention approval');
+    assert(
+      result.errors.some((e) => e.includes('not approved')),
+      'Should mention approval',
+    );
   });
 
   test('buy exceeding tier limit is rejected', () => {
@@ -181,14 +182,20 @@ describe('Executor — Buy Order Validation', () => {
     const order = { ...mockApprovedBuy, amount: 6000 };
     const result = validateBuyOrder(order, mockPortfolio);
     assert(!result.valid, 'Insufficient cash must be rejected');
-    assert(result.errors.some(e => e.includes('Insufficient cash')), 'Should mention cash');
+    assert(
+      result.errors.some((e) => e.includes('Insufficient cash')),
+      'Should mention cash',
+    );
   });
 
   test('buy with stale price (>10% deviation) is rejected', () => {
     const order = { ...mockApprovedBuy, currentPrice: 0.06 }; // 20% above entry
     const result = validateBuyOrder(order, mockPortfolio);
     assert(!result.valid, 'Stale price must be rejected');
-    assert(result.errors.some(e => e.includes('deviated')), 'Should mention price deviation');
+    assert(
+      result.errors.some((e) => e.includes('deviated')),
+      'Should mention price deviation',
+    );
   });
 
   test('buy with price within 10% passes', () => {
@@ -211,7 +218,10 @@ describe('Executor — Sell Order Validation', () => {
     const order = { ...mockSellOrder, address: '0xnonexistent' };
     const result = validateSellOrder(order, mockPortfolio);
     assert(!result.valid, 'Non-existent position must be rejected');
-    assert(result.errors.some(e => e.includes('No position found')), 'Should mention missing position');
+    assert(
+      result.errors.some((e) => e.includes('No position found')),
+      'Should mention missing position',
+    );
   });
 
   test('sell order with wrong chain is rejected', () => {
@@ -309,7 +319,10 @@ describe('Executor — Receipt Generation', () => {
 // ============================================================
 describe('Executor — Order Priority', () => {
   test('sell orders come before buy orders', () => {
-    const sells = [{ id: 's1', action: 'sell' }, { id: 's2', action: 'sell' }];
+    const sells = [
+      { id: 's1', action: 'sell' },
+      { id: 's2', action: 'sell' },
+    ];
     const buys = [{ id: 'b1', action: 'buy' }];
     const ordered = processOrderPriority(sells, buys);
 
@@ -364,7 +377,7 @@ describe('Executor — Portfolio State Updates', () => {
     const proceeds = position.quantity * position.currentPrice;
 
     state.cash += proceeds;
-    state.positions = state.positions.filter(p => p.id !== position.id);
+    state.positions = state.positions.filter((p) => p.id !== position.id);
 
     assertEqual(state.positions.length, 0, 'Position should be removed');
     assert(state.cash > mockPortfolio.cash, 'Cash should increase');
@@ -499,13 +512,16 @@ describe('Executor — Solana Slippage (Basis Points)', () => {
 
 describe('Executor — Cross-Chain Cash Isolation', () => {
   test('Base order cannot pass validation with only Solana cash', () => {
-    const baseCash = 0;     // No Base cash
-    const solanaCash = 5000; // Plenty on Solana
+    const baseCash = 0; // No Base cash
+    const _solanaCash = 5000; // Plenty on Solana
     const basePortfolio = { cash: baseCash, positions: [] };
     const order = { ...mockApprovedBuy, chain: 'base', amount: 400, approved: true };
     const result = validateBuyOrder(order, basePortfolio);
     assert(!result.valid, 'Should reject — Base has no cash even though Solana does');
-    assert(result.errors.some(e => e.includes('Insufficient cash')), 'Should mention insufficient cash');
+    assert(
+      result.errors.some((e) => e.includes('Insufficient cash')),
+      'Should mention insufficient cash',
+    );
   });
 
   test('Solana order passes with Solana cash only', () => {

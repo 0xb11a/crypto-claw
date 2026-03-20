@@ -15,15 +15,7 @@
 
 import 'dotenv/config';
 import { getChain, getCashToken } from './chains.js';
-import {
-  createPublicClient,
-  http,
-  parseAbi,
-  encodeFunctionData,
-  formatUnits,
-  parseUnits,
-  maxUint256,
-} from 'viem';
+import { createPublicClient, http, parseAbi, encodeFunctionData, formatUnits, parseUnits, maxUint256 } from 'viem';
 import SafeModule from '@safe-global/protocol-kit';
 import SafeApiKitModule from '@safe-global/api-kit';
 const Safe = SafeModule.default || SafeModule;
@@ -63,14 +55,30 @@ export function parseArgs(argv) {
   };
   for (let i = 0; i < args.length; i += 2) {
     switch (args[i]) {
-      case '--action': config.action = args[i + 1]; break;
-      case '--chain': config.chain = args[i + 1]; break;
-      case '--address': config.address = args[i + 1]; break;
-      case '--symbol': config.symbol = args[i + 1]; break;
-      case '--amount': config.amount = args[i + 1]; break;
-      case '--max-slippage': config.maxSlippage = args[i + 1]; break;
-      case '--tier': config.tier = args[i + 1]; break;
-      case '--deadline': config.deadline = args[i + 1]; break;
+      case '--action':
+        config.action = args[i + 1];
+        break;
+      case '--chain':
+        config.chain = args[i + 1];
+        break;
+      case '--address':
+        config.address = args[i + 1];
+        break;
+      case '--symbol':
+        config.symbol = args[i + 1];
+        break;
+      case '--amount':
+        config.amount = args[i + 1];
+        break;
+      case '--max-slippage':
+        config.maxSlippage = args[i + 1];
+        break;
+      case '--tier':
+        config.tier = args[i + 1];
+        break;
+      case '--deadline':
+        config.deadline = args[i + 1];
+        break;
     }
   }
   return config;
@@ -149,7 +157,7 @@ async function get1inchSwap(chainId, params, apiKey) {
 
   // Retry once on 429
   if (res.status === 429) {
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 2000));
     res = await fetch(url, {
       headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     });
@@ -305,13 +313,17 @@ async function executeBuy(args, env) {
   const amountWei = parseUnits(args.amount, usdcDecimals).toString();
 
   // Get 1inch swap quote
-  const swap = await get1inchSwap(env.chainId, {
-    src: env.usdcAddress,
-    dst: args.address,
-    amount: amountWei,
-    from: env.safeAddress,
-    slippage: args.maxSlippage,
-  }, env.oneInchApiKey);
+  const swap = await get1inchSwap(
+    env.chainId,
+    {
+      src: env.usdcAddress,
+      dst: args.address,
+      amount: amountWei,
+      from: env.safeAddress,
+      slippage: args.maxSlippage,
+    },
+    env.oneInchApiKey,
+  );
 
   // Build Safe transactions: approve + swap
   const transactions = [];
@@ -375,13 +387,17 @@ async function executeSell(args, env) {
   }
 
   // Get 1inch swap quote
-  const swap = await get1inchSwap(env.chainId, {
-    src: args.address,
-    dst: env.usdcAddress,
-    amount: sellAmountWei.toString(),
-    from: env.safeAddress,
-    slippage: args.maxSlippage,
-  }, env.oneInchApiKey);
+  const swap = await get1inchSwap(
+    env.chainId,
+    {
+      src: args.address,
+      dst: env.usdcAddress,
+      amount: sellAmountWei.toString(),
+      from: env.safeAddress,
+      slippage: args.maxSlippage,
+    },
+    env.oneInchApiKey,
+  );
 
   // Build Safe transactions: approve (if needed) + swap
   const transactions = [];
@@ -440,9 +456,7 @@ async function main() {
   }
 
   try {
-    const result = args.action === 'buy'
-      ? await executeBuy(args, env)
-      : await executeSell(args, env);
+    const result = args.action === 'buy' ? await executeBuy(args, env) : await executeSell(args, env);
 
     // Safety: ensure no private key in output
     const output = JSON.stringify(result, null, 2);
@@ -460,14 +474,20 @@ async function main() {
       ? errorMsg.replace(process.env.SAFE_SIGNER_KEY, '[REDACTED]')
       : errorMsg;
 
-    console.log(JSON.stringify({
-      status: 'failed',
-      error: safeMsg,
-      action: args.action,
-      symbol: args.symbol,
-      chain: args.chain,
-      timestamp: new Date().toISOString(),
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: 'failed',
+          error: safeMsg,
+          action: args.action,
+          symbol: args.symbol,
+          chain: args.chain,
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
     process.exit(1);
   }
 }

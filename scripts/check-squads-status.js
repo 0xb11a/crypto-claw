@@ -98,14 +98,11 @@ async function getSquadsInfo(env, showPending) {
   // Multisig info only available when multisig PDA is configured
   if (multisigPda) {
     try {
-      const multisigAccount = await multisig.accounts.Multisig.fromAccountAddress(
-        connection,
-        multisigPda,
-      );
+      const multisigAccount = await multisig.accounts.Multisig.fromAccountAddress(connection, multisigPda);
       result.multisig = {
         address: multisigPda.toString(),
         threshold: Number(multisigAccount.threshold),
-        members: multisigAccount.members.map(m => ({
+        members: multisigAccount.members.map((m) => ({
           key: m.key.toString(),
           permissions: m.permissions,
         })),
@@ -123,10 +120,7 @@ async function getSquadsInfo(env, showPending) {
               multisigPda,
               transactionIndex: BigInt(i),
             });
-            const proposal = await multisig.accounts.Proposal.fromAccountAddress(
-              connection,
-              proposalPda,
-            );
+            const proposal = await multisig.accounts.Proposal.fromAccountAddress(connection, proposalPda);
             if (proposal.status && proposal.status.__kind === 'Active') {
               pending.push({
                 transactionIndex: i,
@@ -141,10 +135,16 @@ async function getSquadsInfo(env, showPending) {
         result.pendingTransactions = { count: pending.length, transactions: pending };
       }
     } catch {
-      result.multisig = { status: 'unavailable', note: 'SQUADS_MULTISIG_ADDRESS not set or not a valid multisig account' };
+      result.multisig = {
+        status: 'unavailable',
+        note: 'SQUADS_MULTISIG_ADDRESS not set or not a valid multisig account',
+      };
     }
   } else {
-    result.multisig = { status: 'not_configured', note: 'Only SQUADS_VAULT_ADDRESS is set — multisig info unavailable' };
+    result.multisig = {
+      status: 'not_configured',
+      note: 'Only SQUADS_VAULT_ADDRESS is set — multisig info unavailable',
+    };
   }
 
   return result;
@@ -157,11 +157,17 @@ async function main() {
   try {
     env = resolveConfig();
   } catch (err) {
-    console.log(JSON.stringify({
-      status: 'error',
-      error: err.message,
-      timestamp: new Date().toISOString(),
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: 'error',
+          error: err.message,
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
     process.exit(1);
   }
 
@@ -169,11 +175,17 @@ async function main() {
     const result = await getSquadsInfo(env, args.pending);
     console.log(JSON.stringify(result, null, 2));
   } catch (err) {
-    console.log(JSON.stringify({
-      status: 'error',
-      error: err.message,
-      timestamp: new Date().toISOString(),
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: 'error',
+          error: err.message,
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
     process.exit(1);
   }
 }

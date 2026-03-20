@@ -33,7 +33,7 @@ function parseArgs() {
 }
 
 async function checkNarrative(name, keywords) {
-  const results = [];
+  const _results = [];
   // Search for top keyword
   const keyword = keywords[0];
   try {
@@ -44,9 +44,8 @@ async function checkNarrative(name, keywords) {
 
     const pairs = (data.pairs ?? []).slice(0, 10);
     const totalVolume = pairs.reduce((sum, p) => sum + parseFloat(p.volume?.h24 ?? 0), 0);
-    const avgPriceChange = pairs.length > 0
-      ? pairs.reduce((sum, p) => sum + parseFloat(p.priceChange?.h24 ?? 0), 0) / pairs.length
-      : 0;
+    const avgPriceChange =
+      pairs.length > 0 ? pairs.reduce((sum, p) => sum + parseFloat(p.priceChange?.h24 ?? 0), 0) / pairs.length : 0;
     const totalLiquidity = pairs.reduce((sum, p) => sum + parseFloat(p.liquidity?.usd ?? 0), 0);
 
     return {
@@ -56,8 +55,9 @@ async function checkNarrative(name, keywords) {
       totalVolume24h: parseFloat(totalVolume.toFixed(0)),
       avgPriceChange24h: parseFloat(avgPriceChange.toFixed(2)),
       totalLiquidity: parseFloat(totalLiquidity.toFixed(0)),
-      momentum: avgPriceChange > 10 ? 'hot' : avgPriceChange > 0 ? 'warming' : avgPriceChange > -10 ? 'cooling' : 'cold',
-      topPicks: pairs.slice(0, 3).map(p => ({
+      momentum:
+        avgPriceChange > 10 ? 'hot' : avgPriceChange > 0 ? 'warming' : avgPriceChange > -10 ? 'cooling' : 'cold',
+      topPicks: pairs.slice(0, 3).map((p) => ({
         symbol: p.baseToken?.symbol,
         price: p.priceUsd,
         change24h: p.priceChange?.h24,
@@ -81,7 +81,7 @@ async function main() {
   for (const [name, keywords] of Object.entries(narratives)) {
     const result = await checkNarrative(name, keywords);
     results.push(result);
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 300));
   }
 
   // Sort by momentum
@@ -93,9 +93,9 @@ async function main() {
   const result = {
     status: 'ok',
     narratives: sorted,
-    hottest: sorted.filter(n => n.momentum === 'hot').map(n => n.narrative),
-    warming: sorted.filter(n => n.momentum === 'warming').map(n => n.narrative),
-    cooling: sorted.filter(n => n.momentum === 'cooling').map(n => n.narrative),
+    hottest: sorted.filter((n) => n.momentum === 'hot').map((n) => n.narrative),
+    warming: sorted.filter((n) => n.momentum === 'warming').map((n) => n.narrative),
+    cooling: sorted.filter((n) => n.momentum === 'cooling').map((n) => n.narrative),
     timestamp: new Date().toISOString(),
   };
 
@@ -112,12 +112,16 @@ async function main() {
         keywords: NARRATIVE_KEYWORDS,
         updated_at: result.timestamp,
       });
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO portfolio_meta (key, value) VALUES ('narrative_momentum', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
-      `).run(data);
+      `,
+      ).run(data);
       close();
-    } catch { /* DB write is best-effort — don't break the script */ }
+    } catch {
+      /* DB write is best-effort — don't break the script */
+    }
   }
 }
 

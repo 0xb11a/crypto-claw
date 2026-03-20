@@ -15,9 +15,18 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const config = { address: '', chain: '', propose: false };
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--address') { config.address = args[++i]; continue; }
-    if (args[i] === '--chain') { config.chain = args[++i]; continue; }
-    if (args[i] === '--propose') { config.propose = true; continue; }
+    if (args[i] === '--address') {
+      config.address = args[++i];
+      continue;
+    }
+    if (args[i] === '--chain') {
+      config.chain = args[++i];
+      continue;
+    }
+    if (args[i] === '--propose') {
+      config.propose = true;
+      continue;
+    }
   }
   if (!config.address || !config.chain) {
     console.error('Error: --address and --chain are required');
@@ -32,10 +41,12 @@ async function main() {
   try {
     chainCfg = getChain(config.chain);
   } catch {
-    console.log(JSON.stringify({
-      status: 'error',
-      error: `Unsupported chain: ${config.chain}`,
-    }));
+    console.log(
+      JSON.stringify({
+        status: 'error',
+        error: `Unsupported chain: ${config.chain}`,
+      }),
+    );
     process.exit(1);
   }
 
@@ -85,9 +96,7 @@ async function main() {
           INSERT OR IGNORE INTO tracked_wallets (address, chain, label, source, status)
           VALUES (?, ?, ?, 'holder_extraction', 'proposed')
         `);
-        const proposable = holders
-          .filter(h => !h.isContract && !h.isLocked && h.address)
-          .slice(0, 5);
+        const proposable = holders.filter((h) => !h.isContract && !h.isLocked && h.address).slice(0, 5);
         const insertMany = db.transaction((list) => {
           for (const h of list) {
             const result = stmt.run(h.address, config.chain, `holder_rank${h.rank}_of_${config.address.slice(0, 8)}`);
@@ -101,26 +110,34 @@ async function main() {
       }
     }
 
-    console.log(JSON.stringify({
-      status: 'ok',
-      address: config.address,
-      chain: config.chain,
-      totalHolders: parseInt(info.holder_count ?? 0),
-      concentration: {
-        top1: holders[0]?.percent ?? 0,
-        top5: parseFloat(top5Percent.toFixed(2)),
-        top10: parseFloat(top10Percent.toFixed(2)),
-      },
-      topHolders: holders.slice(0, 20),
-      flags,
-      ...(config.propose ? { walletsProposed } : {}),
-      timestamp: new Date().toISOString(),
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: 'ok',
+          address: config.address,
+          chain: config.chain,
+          totalHolders: parseInt(info.holder_count ?? 0),
+          concentration: {
+            top1: holders[0]?.percent ?? 0,
+            top5: parseFloat(top5Percent.toFixed(2)),
+            top10: parseFloat(top10Percent.toFixed(2)),
+          },
+          topHolders: holders.slice(0, 20),
+          flags,
+          ...(config.propose ? { walletsProposed } : {}),
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
   } catch (err) {
-    console.log(JSON.stringify({
-      status: 'error',
-      error: err.message,
-    }));
+    console.log(
+      JSON.stringify({
+        status: 'error',
+        error: err.message,
+      }),
+    );
     process.exit(1);
   }
 }

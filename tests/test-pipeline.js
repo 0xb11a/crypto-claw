@@ -65,9 +65,7 @@ const mockRiskAssessment = {
     narrative: 10,
     overall: 20,
   },
-  flags: [
-    { type: 'no_audit', severity: 'medium', description: 'Contract not audited' },
-  ],
+  flags: [{ type: 'no_audit', severity: 'medium', description: 'Contract not audited' }],
   verdict: 'approve',
   maxPositionPercent: 4,
   reasoning: 'Low overall risk, no critical flags.',
@@ -151,7 +149,7 @@ describe('Risk → Trade Proposal Handoff', () => {
   test('risk maxPositionPercent constrains trade size', () => {
     assert(
       mockTradeProposal.percentOfPortfolio <= mockRiskAssessment.maxPositionPercent,
-      `Trade size ${mockTradeProposal.percentOfPortfolio}% must not exceed risk limit ${mockRiskAssessment.maxPositionPercent}%`
+      `Trade size ${mockTradeProposal.percentOfPortfolio}% must not exceed risk limit ${mockRiskAssessment.maxPositionPercent}%`,
     );
   });
 
@@ -195,7 +193,7 @@ describe('Trade Proposal Validation', () => {
     const max = tierLimits[mockTradeProposal.tier];
     assert(
       mockTradeProposal.percentOfPortfolio <= max,
-      `${mockTradeProposal.tier} position ${mockTradeProposal.percentOfPortfolio}% exceeds ${max}%`
+      `${mockTradeProposal.tier} position ${mockTradeProposal.percentOfPortfolio}% exceeds ${max}%`,
     );
   });
 });
@@ -301,7 +299,7 @@ describe('Market Regime Pipeline Integration', () => {
 
   test('crisis regime blocks moonshot discoveries from entering pipeline', () => {
     const regime = { value: 'crisis' };
-    const token = { ...mockDiscovery, tier: 'moonshot' };
+    const _token = { ...mockDiscovery, tier: 'moonshot' };
     const shouldSkipMoonshots = regime.value === 'crisis';
     assert(shouldSkipMoonshots, 'Crisis must skip moonshot scanning');
   });

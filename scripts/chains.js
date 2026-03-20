@@ -12,7 +12,7 @@
 
 // Global default portfolio rules (applied to any chain that doesn't override)
 const PORTFOLIO_RULES = {
-  maxMoonshotPosition: 5,      // % of chain portfolio
+  maxMoonshotPosition: 5, // % of chain portfolio
   maxConvictionPosition: 10,
   maxBasePosition: 50,
   maxMoonshotAllocation: 20,
@@ -31,11 +31,15 @@ const CHAINS = {
     goplus: { chainId: '8453' },
     explorer: { baseUrl: 'https://api.basescan.org/api', apiKeyEnv: 'BASESCAN_API_KEY' },
     birdeye: 'base',
-    safe: { addressEnv: 'SAFE_ADDRESS_BASE', rpcEnv: 'RPC_BASE', txServiceUrl: 'https://safe-transaction-base.safe.global' },
+    safe: {
+      addressEnv: 'SAFE_ADDRESS_BASE',
+      rpcEnv: 'RPC_BASE',
+      txServiceUrl: 'https://safe-transaction-base.safe.global',
+    },
     dex: '1inch',
     cashToken: { symbol: 'USDC', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6 },
     portfolio: { provider: 'debank', apiKeyEnv: 'DEBANK_API_KEY' },
-    rules: {},  // Base uses all global defaults
+    rules: {}, // Base uses all global defaults
   },
   solana: {
     name: 'solana',
@@ -77,7 +81,10 @@ const CHAINS = {
 export function getActiveChains() {
   const raw = process.env.ACTIVE_CHAINS;
   if (!raw || raw.trim() === '') return ['base'];
-  return raw.split(',').map(c => c.trim()).filter(c => c.length > 0 && CHAINS[c]);
+  return raw
+    .split(',')
+    .map((c) => c.trim())
+    .filter((c) => c.length > 0 && CHAINS[c]);
 }
 
 /**

@@ -30,9 +30,7 @@ const suites = [
 ];
 
 // Scripts tests require network — run separately
-const networkSuites = [
-  { name: 'Scripts (network)', file: 'test-scripts.js', requiresNetwork: true },
-];
+const networkSuites = [{ name: 'Scripts (network)', file: 'test-scripts.js', requiresNetwork: true }];
 
 const skipNetwork = process.argv.includes('--offline');
 const allSuites = skipNetwork ? suites : [...suites, ...networkSuites];

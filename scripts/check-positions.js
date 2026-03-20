@@ -19,10 +19,10 @@ function loadPositions() {
     const db = getDb();
     const isPaper = process.env.PAPER_MODE === 'true';
     const table = isPaper ? 'paper_positions' : 'positions';
-    const rows = db.prepare(
-      `SELECT * FROM ${table} WHERE status IN ('open', 'partial_exit') ORDER BY created_at DESC`
-    ).all();
-    return rows.map(r => ({
+    const rows = db
+      .prepare(`SELECT * FROM ${table} WHERE status IN ('open', 'partial_exit') ORDER BY created_at DESC`)
+      .all();
+    return rows.map((r) => ({
       id: r.id,
       symbol: r.symbol,
       address: r.address,
@@ -47,12 +47,14 @@ async function getCurrentPrice(symbol) {
     if (!res.ok) return null;
     const data = await res.json();
     const pair = data.pairs?.[0];
-    return pair ? {
-      price: parseFloat(pair.priceUsd ?? 0),
-      liquidity: parseFloat(pair.liquidity?.usd ?? 0),
-      volume24h: parseFloat(pair.volume?.h24 ?? 0),
-      priceChange24h: parseFloat(pair.priceChange?.h24 ?? 0),
-    } : null;
+    return pair
+      ? {
+          price: parseFloat(pair.priceUsd ?? 0),
+          liquidity: parseFloat(pair.liquidity?.usd ?? 0),
+          volume24h: parseFloat(pair.volume?.h24 ?? 0),
+          priceChange24h: parseFloat(pair.priceChange?.h24 ?? 0),
+        }
+      : null;
   } catch {
     return null;
   }
@@ -62,21 +64,25 @@ async function main() {
   const positions = loadPositions();
 
   if (positions.length === 0) {
-    console.log(JSON.stringify({
-      status: 'ok',
-      message: 'No open positions found',
-      positions: [],
-      timestamp: new Date().toISOString(),
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: 'ok',
+          message: 'No open positions found',
+          positions: [],
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
   const results = [];
   for (const pos of positions) {
     const current = await getCurrentPrice(pos.symbol);
-    const pnlPercent = current
-      ? ((current.price - pos.entryPrice) / pos.entryPrice * 100)
-      : null;
+    const pnlPercent = current ? ((current.price - pos.entryPrice) / pos.entryPrice) * 100 : null;
 
     results.push({
       ...pos,
@@ -93,27 +99,35 @@ async function main() {
     });
 
     // Rate limit
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200));
   }
 
-  const alerts = results.filter(r => r.alerts.stopLossHit || r.alerts.downMoreThan20 || r.alerts.liquidityLow);
+  const alerts = results.filter((r) => r.alerts.stopLossHit || r.alerts.downMoreThan20 || r.alerts.liquidityLow);
 
-  console.log(JSON.stringify({
-    status: 'ok',
-    totalPositions: results.length,
-    alertCount: alerts.length,
-    positions: results,
-    alerts: alerts.map(a => ({
-      symbol: a.symbol,
-      reason: a.alerts.stopLossHit ? 'STOP_LOSS_HIT'
-        : a.alerts.liquidityLow ? 'LOW_LIQUIDITY'
-        : 'DOWN_MORE_THAN_20PCT',
-      currentPrice: a.currentPrice,
-      entryPrice: a.entryPrice,
-      pnlPercent: a.pnlPercent,
-    })),
-    timestamp: new Date().toISOString(),
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        status: 'ok',
+        totalPositions: results.length,
+        alertCount: alerts.length,
+        positions: results,
+        alerts: alerts.map((a) => ({
+          symbol: a.symbol,
+          reason: a.alerts.stopLossHit
+            ? 'STOP_LOSS_HIT'
+            : a.alerts.liquidityLow
+              ? 'LOW_LIQUIDITY'
+              : 'DOWN_MORE_THAN_20PCT',
+          currentPrice: a.currentPrice,
+          entryPrice: a.entryPrice,
+          pnlPercent: a.pnlPercent,
+        })),
+        timestamp: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+  );
 
   close();
 }

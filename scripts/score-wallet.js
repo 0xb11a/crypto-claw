@@ -59,11 +59,21 @@ function parseArgs() {
   const config = { address: '', chain: '', add: false, label: '', token: '' };
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case '--address': config.address = args[++i]; break;
-      case '--chain': config.chain = args[++i]; break;
-      case '--add': config.add = true; break;
-      case '--label': config.label = args[++i]; break;
-      case '--token': config.token = args[++i]; break;
+      case '--address':
+        config.address = args[++i];
+        break;
+      case '--chain':
+        config.chain = args[++i];
+        break;
+      case '--add':
+        config.add = true;
+        break;
+      case '--label':
+        config.label = args[++i];
+        break;
+      case '--token':
+        config.token = args[++i];
+        break;
     }
   }
   if (!config.address || !config.chain) {
@@ -82,7 +92,11 @@ async function fetchBirdeyeTraderRank(address, chain) {
   if (!apiKey) return null;
 
   let birdeyeChain;
-  try { birdeyeChain = getChain(chain).birdeye; } catch { return null; }
+  try {
+    birdeyeChain = getChain(chain).birdeye;
+  } catch {
+    return null;
+  }
   if (!birdeyeChain) return null;
 
   try {
@@ -97,20 +111,18 @@ async function fetchBirdeyeTraderRank(address, chain) {
     if (!data.success || !data.data?.items) return null;
 
     // Harvest all wallets from the leaderboard response
-    const allAddresses = data.data.items.map(t => t.address).filter(Boolean);
-    const rankByAddress = new Map(
-      data.data.items.map((t, i) => [t.address?.toLowerCase(), i + 1])
-    );
+    const allAddresses = data.data.items.map((t) => t.address).filter(Boolean);
+    const rankByAddress = new Map(data.data.items.map((t, i) => [t.address?.toLowerCase(), i + 1]));
     const walletsHarvested = harvestWallets(
-      allAddresses, chain,
+      allAddresses,
+      chain,
       (addr) => `birdeye_leaderboard_top${rankByAddress.get(addr.toLowerCase()) ?? 0}`,
-      'leaderboard', address
+      'leaderboard',
+      address,
     );
 
     // Find our wallet in the list
-    const match = data.data.items.find(
-      t => t.address?.toLowerCase() === address.toLowerCase()
-    );
+    const match = data.data.items.find((t) => t.address?.toLowerCase() === address.toLowerCase());
 
     if (match) {
       const rank = data.data.items.indexOf(match) + 1;
@@ -149,7 +161,11 @@ async function fetchBirdeyeTokenTraderStats(address, chain, tokenAddress) {
   if (!apiKey || !tokenAddress) return null;
 
   let birdeyeChain;
-  try { birdeyeChain = getChain(chain).birdeye; } catch { return null; }
+  try {
+    birdeyeChain = getChain(chain).birdeye;
+  } catch {
+    return null;
+  }
   if (!birdeyeChain) return null;
 
   try {
@@ -164,16 +180,16 @@ async function fetchBirdeyeTokenTraderStats(address, chain, tokenAddress) {
 
     // Harvest all top traders from the response
     const tokenSymbol = tokenAddress.slice(0, 8);
-    const allAddresses = data.data.items.map(t => t.owner).filter(Boolean);
+    const allAddresses = data.data.items.map((t) => t.owner).filter(Boolean);
     const walletsHarvested = harvestWallets(
-      allAddresses, chain,
+      allAddresses,
+      chain,
       () => `top_trader_of_${tokenSymbol}`,
-      'token_traders', address
+      'token_traders',
+      address,
     );
 
-    const match = data.data.items.find(
-      t => t.owner?.toLowerCase() === address.toLowerCase()
-    );
+    const match = data.data.items.find((t) => t.owner?.toLowerCase() === address.toLowerCase());
 
     if (match) {
       return {
@@ -199,12 +215,16 @@ async function fetchBirdeyeTokenTraderStats(address, chain, tokenAddress) {
 // Birdeye: Fetch wallet's recent swaps for a token
 // ============================================================
 
-async function fetchBirdeyeWalletSwaps(address, chain, tokenAddress) {
+async function _fetchBirdeyeWalletSwaps(address, chain, tokenAddress) {
   const apiKey = process.env.BIRDEYE_API_KEY;
   if (!apiKey || !tokenAddress) return null;
 
   let birdeyeChain;
-  try { birdeyeChain = getChain(chain).birdeye; } catch { return null; }
+  try {
+    birdeyeChain = getChain(chain).birdeye;
+  } catch {
+    return null;
+  }
   if (!birdeyeChain) return null;
 
   try {
@@ -218,9 +238,8 @@ async function fetchBirdeyeWalletSwaps(address, chain, tokenAddress) {
     if (!data.data?.items) return null;
 
     // Filter to only this wallet's swaps
-    const walletSwaps = data.data.items.filter(tx =>
-      tx.owner?.toLowerCase() === address.toLowerCase() ||
-      tx.source?.toLowerCase() === address.toLowerCase()
+    const walletSwaps = data.data.items.filter(
+      (tx) => tx.owner?.toLowerCase() === address.toLowerCase() || tx.source?.toLowerCase() === address.toLowerCase(),
     );
 
     if (walletSwaps.length === 0) return null;
@@ -289,7 +308,7 @@ async function fetchZerionPnl(address, chain) {
       source: 'zerion',
       realizedPnl,
       unrealizedPnl,
-      totalPnl: pnl.total_gain ?? (realizedPnl + unrealizedPnl),
+      totalPnl: pnl.total_gain ?? realizedPnl + unrealizedPnl,
       totalInvested: costBasis > 0 ? costBasis : (pnl.total_invested ?? 0),
       relativeRealizedGain: pnl.relative_realized_gain_percentage ?? null,
     };
@@ -304,11 +323,11 @@ async function fetchZerionPnl(address, chain) {
 
 function computeScore(traderRank, zerionPnl, tokenStats) {
   const scores = {
-    profitability: 0,   // 0-100: PnL performance
-    consistency: 0,     // 0-100: trade pattern quality
-    volume: 0,          // 0-100: meaningful trading volume
-    activity: 0,        // 0-100: active trader
-    reputation: 0,      // 0-100: appears in leaderboards
+    profitability: 0, // 0-100: PnL performance
+    consistency: 0, // 0-100: trade pattern quality
+    volume: 0, // 0-100: meaningful trading volume
+    activity: 0, // 0-100: active trader
+    reputation: 0, // 0-100: appears in leaderboards
   };
 
   let dataPoints = 0;
@@ -319,25 +338,16 @@ function computeScore(traderRank, zerionPnl, tokenStats) {
 
     if (traderRank.inTopGainers) {
       // In top 100 gainers = strong signal
-      scores.reputation = traderRank.rank <= 10 ? 100
-        : traderRank.rank <= 25 ? 85
-        : traderRank.rank <= 50 ? 70
-        : 55;
+      scores.reputation = traderRank.rank <= 10 ? 100 : traderRank.rank <= 25 ? 85 : traderRank.rank <= 50 ? 70 : 55;
 
-      scores.profitability = traderRank.pnl > 100_000 ? 100
-        : traderRank.pnl > 10_000 ? 85
-        : traderRank.pnl > 1_000 ? 70
-        : 55;
+      scores.profitability =
+        traderRank.pnl > 100_000 ? 100 : traderRank.pnl > 10_000 ? 85 : traderRank.pnl > 1_000 ? 70 : 55;
 
-      scores.volume = traderRank.volume > 1_000_000 ? 100
-        : traderRank.volume > 100_000 ? 80
-        : traderRank.volume > 10_000 ? 60
-        : 40;
+      scores.volume =
+        traderRank.volume > 1_000_000 ? 100 : traderRank.volume > 100_000 ? 80 : traderRank.volume > 10_000 ? 60 : 40;
 
-      scores.activity = traderRank.tradeCount > 100 ? 100
-        : traderRank.tradeCount > 50 ? 80
-        : traderRank.tradeCount > 10 ? 60
-        : 40;
+      scores.activity =
+        traderRank.tradeCount > 100 ? 100 : traderRank.tradeCount > 50 ? 80 : traderRank.tradeCount > 10 ? 60 : 40;
     } else {
       // Not in top 100, use whatever context we have
       scores.reputation = 15;
@@ -348,33 +358,25 @@ function computeScore(traderRank, zerionPnl, tokenStats) {
   if (zerionPnl) {
     dataPoints++;
 
-    const roi = zerionPnl.relativeRealizedGain != null
-      ? zerionPnl.relativeRealizedGain / 100
-      : zerionPnl.totalInvested > 0 ? zerionPnl.totalPnl / zerionPnl.totalInvested : 0;
+    const roi =
+      zerionPnl.relativeRealizedGain != null
+        ? zerionPnl.relativeRealizedGain / 100
+        : zerionPnl.totalInvested > 0
+          ? zerionPnl.totalPnl / zerionPnl.totalInvested
+          : 0;
 
-    const profitScore = roi > 5 ? 100
-      : roi > 2 ? 85
-      : roi > 1 ? 70
-      : roi > 0.5 ? 55
-      : roi > 0.1 ? 40
-      : roi > 0 ? 25
-      : 10;
+    const profitScore =
+      roi > 5 ? 100 : roi > 2 ? 85 : roi > 1 ? 70 : roi > 0.5 ? 55 : roi > 0.1 ? 40 : roi > 0 ? 25 : 10;
 
     // Average with Birdeye if both exist
-    scores.profitability = scores.profitability > 0
-      ? Math.round((scores.profitability + profitScore) / 2)
-      : profitScore;
+    scores.profitability =
+      scores.profitability > 0 ? Math.round((scores.profitability + profitScore) / 2) : profitScore;
 
     // Cost basis indicates portfolio size
     const invested = zerionPnl.totalInvested;
-    const sizeScore = invested > 1_000_000 ? 100
-      : invested > 100_000 ? 80
-      : invested > 10_000 ? 60
-      : invested > 1_000 ? 40
-      : 15;
-    scores.volume = scores.volume > 0
-      ? Math.round((scores.volume + sizeScore) / 2)
-      : sizeScore;
+    const sizeScore =
+      invested > 1_000_000 ? 100 : invested > 100_000 ? 80 : invested > 10_000 ? 60 : invested > 1_000 ? 40 : 15;
+    scores.volume = scores.volume > 0 ? Math.round((scores.volume + sizeScore) / 2) : sizeScore;
   }
 
   // --- Token-specific trader data (bonus) ---
@@ -385,18 +387,20 @@ function computeScore(traderRank, zerionPnl, tokenStats) {
     scores.reputation = Math.min(100, scores.reputation + bonus);
 
     if (scores.activity === 0) {
-      scores.activity = tokenStats.trades > 50 ? 80
-        : tokenStats.trades > 10 ? 60
-        : 40;
+      scores.activity = tokenStats.trades > 50 ? 80 : tokenStats.trades > 10 ? 60 : 40;
     }
 
     // Buy/sell ratio can indicate conviction
     if (tokenStats.buys > 0 && tokenStats.sells > 0) {
       const ratio = tokenStats.volumeBuy / (tokenStats.volumeSell || 1);
-      scores.consistency = ratio > 2 ? 70  // heavy accumulator
-        : ratio > 1 ? 60                   // net buyer
-        : ratio > 0.5 ? 40                 // balanced
-        : 30;                              // net seller
+      scores.consistency =
+        ratio > 2
+          ? 70 // heavy accumulator
+          : ratio > 1
+            ? 60 // net buyer
+            : ratio > 0.5
+              ? 40 // balanced
+              : 30; // net seller
     }
   }
 
@@ -406,11 +410,11 @@ function computeScore(traderRank, zerionPnl, tokenStats) {
 
   // Weighted overall
   const overall = Math.round(
-    scores.profitability * 0.30 +
-    scores.reputation * 0.25 +
-    scores.volume * 0.20 +
-    scores.activity * 0.15 +
-    scores.consistency * 0.10
+    scores.profitability * 0.3 +
+      scores.reputation * 0.25 +
+      scores.volume * 0.2 +
+      scores.activity * 0.15 +
+      scores.consistency * 0.1,
   );
 
   // Classification
@@ -455,16 +459,23 @@ async function main() {
       if (!process.env.BIRDEYE_API_KEY) missing.push('BIRDEYE_API_KEY');
       if (!process.env.ZERION_API_KEY && chain !== 'solana') missing.push('ZERION_API_KEY');
 
-      console.log(JSON.stringify({
-        status: 'no_data',
-        address,
-        chain,
-        message: missing.length > 0
-          ? `Set ${missing.join(' or ')} to enable wallet scoring`
-          : 'APIs returned no data for this wallet',
-        score: null,
-        timestamp: new Date().toISOString(),
-      }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            status: 'no_data',
+            address,
+            chain,
+            message:
+              missing.length > 0
+                ? `Set ${missing.join(' or ')} to enable wallet scoring`
+                : 'APIs returned no data for this wallet',
+            score: null,
+            timestamp: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+      );
       return;
     }
 
@@ -494,15 +505,17 @@ async function main() {
       try {
         const db = getDb();
         const label = config.label || `${score.classification} (score: ${score.overall})`;
-        db.prepare(`
+        db.prepare(
+          `
           INSERT OR REPLACE INTO tracked_wallets (address, chain, label, type, notes)
           VALUES (?, ?, ?, ?, ?)
-        `).run(
+        `,
+        ).run(
           address,
           chain,
           label,
           score.classification === 'smart_money' ? 'smart_money' : 'whale',
-          `Auto-scored: ${score.overall}/100. ${score.reason}`
+          `Auto-scored: ${score.overall}/100. ${score.reason}`,
         );
         added = true;
         close();
@@ -517,39 +530,49 @@ async function main() {
       tokenStats ? 'birdeye_token' : null,
     ].filter(Boolean);
 
-    console.log(JSON.stringify({
-      status: 'ok',
-      address,
-      chain,
-      sources,
-      score: {
-        overall: score.overall,
-        classification: score.classification,
-        reason: score.reason,
-        breakdown: score.scores,
-      },
-      pnl: pnlSummary,
-      ...(tokenStats?.isTopTrader ? {
-        tokenTrader: {
-          rank: tokenStats.rank,
-          volume: tokenStats.volume,
-          trades: tokenStats.trades,
-          buys: tokenStats.buys,
-          sells: tokenStats.sells,
+    console.log(
+      JSON.stringify(
+        {
+          status: 'ok',
+          address,
+          chain,
+          sources,
+          score: {
+            overall: score.overall,
+            classification: score.classification,
+            reason: score.reason,
+            breakdown: score.scores,
+          },
+          pnl: pnlSummary,
+          ...(tokenStats?.isTopTrader
+            ? {
+                tokenTrader: {
+                  rank: tokenStats.rank,
+                  volume: tokenStats.volume,
+                  trades: tokenStats.trades,
+                  buys: tokenStats.buys,
+                  sells: tokenStats.sells,
+                },
+              }
+            : {}),
+          walletsHarvested: (traderRank?.walletsHarvested ?? 0) + (tokenStats?.walletsHarvested ?? 0),
+          ...(config.add ? { addedToTracked: added } : {}),
+          timestamp: new Date().toISOString(),
         },
-      } : {}),
-      walletsHarvested: (traderRank?.walletsHarvested ?? 0) + (tokenStats?.walletsHarvested ?? 0),
-      ...(config.add ? { addedToTracked: added } : {}),
-      timestamp: new Date().toISOString(),
-    }, null, 2));
+        null,
+        2,
+      ),
+    );
   } catch (err) {
-    console.log(JSON.stringify({
-      status: 'error',
-      address,
-      chain,
-      error: err.message,
-      timestamp: new Date().toISOString(),
-    }));
+    console.log(
+      JSON.stringify({
+        status: 'error',
+        address,
+        chain,
+        error: err.message,
+        timestamp: new Date().toISOString(),
+      }),
+    );
     process.exit(1);
   }
 }

@@ -31,7 +31,7 @@ const BATCH_SIZE = 10;
 const DELAY_MS = 3000;
 
 function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 async function main() {
@@ -45,12 +45,16 @@ async function main() {
 
   try {
     // 1. Get unscored wallets
-    const wallets = db.prepare(`
+    const wallets = db
+      .prepare(
+        `
       SELECT * FROM tracked_wallets
       WHERE status = 'proposed' OR (status = 'failed' AND retry_count < 3)
       ORDER BY created_at ASC
       LIMIT ?
-    `).all(BATCH_SIZE);
+    `,
+      )
+      .all(BATCH_SIZE);
 
     if (wallets.length === 0) {
       console.log(JSON.stringify({ status: 'ok', scored: 0, failed: 0, skipped: 0, message: 'No wallets to score' }));
@@ -59,14 +63,16 @@ async function main() {
 
     let scored = 0;
     let failed = 0;
-    let skipped = 0;
+    const skipped = 0;
 
     for (let i = 0; i < wallets.length; i++) {
       const wallet = wallets[i];
 
       // 2. Set status to scoring
-      db.prepare("UPDATE tracked_wallets SET status = 'scoring' WHERE address = ? AND chain = ?")
-        .run(wallet.address, wallet.chain);
+      db.prepare("UPDATE tracked_wallets SET status = 'scoring' WHERE address = ? AND chain = ?").run(
+        wallet.address,
+        wallet.chain,
+      );
 
       try {
         // 3. Run score-wallet.js
@@ -85,57 +91,59 @@ async function main() {
 
         if (result.status === 'ok' && result.score) {
           // Success — update with score
-          db.prepare(`
+          db.prepare(
+            `
             UPDATE tracked_wallets
             SET status = 'scored', score = ?, type = ?, score_breakdown = ?,
                 scored_at = datetime('now'), score_error = NULL
             WHERE address = ? AND chain = ?
-          `).run(
+          `,
+          ).run(
             result.score.overall,
             result.score.classification,
             JSON.stringify(result.score.breakdown),
             wallet.address,
-            wallet.chain
+            wallet.chain,
           );
           scored++;
-          console.error(`[wallet-scorer] Scored ${wallet.address} (${wallet.chain}): ${result.score.overall} → ${result.score.classification}`);
+          console.error(
+            `[wallet-scorer] Scored ${wallet.address} (${wallet.chain}): ${result.score.overall} → ${result.score.classification}`,
+          );
         } else if (result.status === 'no_data') {
           // No data available — mark failed
-          db.prepare(`
+          db.prepare(
+            `
             UPDATE tracked_wallets
             SET status = 'failed', retry_count = retry_count + 1,
                 score_error = ?, scored_at = datetime('now')
             WHERE address = ? AND chain = ?
-          `).run(
-            result.message || 'No data from scoring APIs',
-            wallet.address,
-            wallet.chain
-          );
+          `,
+          ).run(result.message || 'No data from scoring APIs', wallet.address, wallet.chain);
           failed++;
           console.error(`[wallet-scorer] No data for ${wallet.address} (${wallet.chain}): ${result.message}`);
         } else {
           // Unexpected response
-          db.prepare(`
+          db.prepare(
+            `
             UPDATE tracked_wallets
             SET status = 'failed', retry_count = retry_count + 1,
                 score_error = ?, scored_at = datetime('now')
             WHERE address = ? AND chain = ?
-          `).run(
-            `Unexpected response: ${result.status}`,
-            wallet.address,
-            wallet.chain
-          );
+          `,
+          ).run(`Unexpected response: ${result.status}`, wallet.address, wallet.chain);
           failed++;
         }
       } catch (err) {
         // Script error — mark failed
         const errorMsg = err.stderr ? err.stderr.toString().slice(0, 200) : err.message;
-        db.prepare(`
+        db.prepare(
+          `
           UPDATE tracked_wallets
           SET status = 'failed', retry_count = retry_count + 1,
               score_error = ?, scored_at = datetime('now')
           WHERE address = ? AND chain = ?
-        `).run(errorMsg, wallet.address, wallet.chain);
+        `,
+        ).run(errorMsg, wallet.address, wallet.chain);
         failed++;
         console.error(`[wallet-scorer] Error scoring ${wallet.address} (${wallet.chain}): ${errorMsg}`);
       }

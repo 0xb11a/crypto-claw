@@ -18,7 +18,11 @@ import { describe, test, assert, assertEqual, summary } from './test-helpers.js'
 function validatePositionSize(percentOfPortfolio, tier, chainRules = null) {
   const defaults = { moonshot: 5, conviction: 10, base: 50 };
   const limits = chainRules
-    ? { moonshot: chainRules.maxMoonshotPosition, conviction: chainRules.maxConvictionPosition, base: chainRules.maxBasePosition }
+    ? {
+        moonshot: chainRules.maxMoonshotPosition,
+        conviction: chainRules.maxConvictionPosition,
+        base: chainRules.maxBasePosition,
+      }
     : defaults;
   const max = limits[tier];
   if (max === undefined) return { valid: false, reason: `Unknown tier: ${tier}` };
@@ -132,9 +136,13 @@ describe('Portfolio Allocation Limits', () => {
 describe('Auto-Reject Conditions', () => {
   test('honeypot is rejected', () => {
     const result = validateAutoReject({
-      isHoneypot: true, topHolderPercent: 5, liquidity: 100000,
-      liquidityLocked: true, contractRenounced: false,
-      knownScamDeployer: false, canPause: false,
+      isHoneypot: true,
+      topHolderPercent: 5,
+      liquidity: 100000,
+      liquidityLocked: true,
+      contractRenounced: false,
+      knownScamDeployer: false,
+      canPause: false,
     });
     assert(result.rejected, 'Honeypot must be auto-rejected');
     assert(result.reasons.includes('Honeypot detected'), 'Reason should mention honeypot');
@@ -142,54 +150,78 @@ describe('Auto-Reject Conditions', () => {
 
   test('top holder >30% is rejected', () => {
     const result = validateAutoReject({
-      isHoneypot: false, topHolderPercent: 35, liquidity: 100000,
-      liquidityLocked: true, contractRenounced: false,
-      knownScamDeployer: false, canPause: false,
+      isHoneypot: false,
+      topHolderPercent: 35,
+      liquidity: 100000,
+      liquidityLocked: true,
+      contractRenounced: false,
+      knownScamDeployer: false,
+      canPause: false,
     });
     assert(result.rejected, '>30% holder must be auto-rejected');
   });
 
   test('top holder at 30% is NOT rejected', () => {
     const result = validateAutoReject({
-      isHoneypot: false, topHolderPercent: 30, liquidity: 100000,
-      liquidityLocked: true, contractRenounced: false,
-      knownScamDeployer: false, canPause: false,
+      isHoneypot: false,
+      topHolderPercent: 30,
+      liquidity: 100000,
+      liquidityLocked: true,
+      contractRenounced: false,
+      knownScamDeployer: false,
+      canPause: false,
     });
     assert(!result.rejected, '30% exactly should pass');
   });
 
   test('liquidity below $5k is rejected', () => {
     const result = validateAutoReject({
-      isHoneypot: false, topHolderPercent: 5, liquidity: 4999,
-      liquidityLocked: true, contractRenounced: false,
-      knownScamDeployer: false, canPause: false,
+      isHoneypot: false,
+      topHolderPercent: 5,
+      liquidity: 4999,
+      liquidityLocked: true,
+      contractRenounced: false,
+      knownScamDeployer: false,
+      canPause: false,
     });
     assert(result.rejected, '<$5k liquidity must be auto-rejected');
   });
 
   test('no LP lock AND not renounced is rejected', () => {
     const result = validateAutoReject({
-      isHoneypot: false, topHolderPercent: 5, liquidity: 100000,
-      liquidityLocked: false, contractRenounced: false,
-      knownScamDeployer: false, canPause: false,
+      isHoneypot: false,
+      topHolderPercent: 5,
+      liquidity: 100000,
+      liquidityLocked: false,
+      contractRenounced: false,
+      knownScamDeployer: false,
+      canPause: false,
     });
     assert(result.rejected, 'No lock + not renounced must be rejected');
   });
 
   test('no LP lock BUT renounced is OK', () => {
     const result = validateAutoReject({
-      isHoneypot: false, topHolderPercent: 5, liquidity: 100000,
-      liquidityLocked: false, contractRenounced: true,
-      knownScamDeployer: false, canPause: false,
+      isHoneypot: false,
+      topHolderPercent: 5,
+      liquidity: 100000,
+      liquidityLocked: false,
+      contractRenounced: true,
+      knownScamDeployer: false,
+      canPause: false,
     });
     assert(!result.rejected, 'Renounced should compensate for no LP lock');
   });
 
   test('clean token passes all checks', () => {
     const result = validateAutoReject({
-      isHoneypot: false, topHolderPercent: 10, liquidity: 50000,
-      liquidityLocked: true, contractRenounced: true,
-      knownScamDeployer: false, canPause: false,
+      isHoneypot: false,
+      topHolderPercent: 10,
+      liquidity: 50000,
+      liquidityLocked: true,
+      contractRenounced: true,
+      knownScamDeployer: false,
+      canPause: false,
     });
     assert(!result.rejected, 'Clean token should pass');
     assert(result.reasons.length === 0, 'Should have no rejection reasons');
@@ -197,9 +229,13 @@ describe('Auto-Reject Conditions', () => {
 
   test('multiple red flags are all reported', () => {
     const result = validateAutoReject({
-      isHoneypot: true, topHolderPercent: 50, liquidity: 1000,
-      liquidityLocked: false, contractRenounced: false,
-      knownScamDeployer: true, canPause: true,
+      isHoneypot: true,
+      topHolderPercent: 50,
+      liquidity: 1000,
+      liquidityLocked: false,
+      contractRenounced: false,
+      knownScamDeployer: true,
+      canPause: true,
     });
     assert(result.rejected, 'Should be rejected');
     assert(result.reasons.length >= 5, `Should report all flags, got ${result.reasons.length}`);
@@ -229,9 +265,12 @@ describe('Buy/Sell Approval Logic', () => {
 
 function validateNarrativeConcentration(openPositions, newTokenNarrative) {
   const MAX_SAME_NARRATIVE = 3;
-  const sameNarrative = openPositions.filter(p => p.narrative === newTokenNarrative);
+  const sameNarrative = openPositions.filter((p) => p.narrative === newTokenNarrative);
   if (sameNarrative.length >= MAX_SAME_NARRATIVE) {
-    return { valid: false, reason: `Already ${sameNarrative.length} positions in ${newTokenNarrative} narrative (max ${MAX_SAME_NARRATIVE})` };
+    return {
+      valid: false,
+      reason: `Already ${sameNarrative.length} positions in ${newTokenNarrative} narrative (max ${MAX_SAME_NARRATIVE})`,
+    };
   }
   return { valid: true };
 }
@@ -299,10 +338,10 @@ describe('Max Open Positions Limit', () => {
 
 function validateRegimePositionSize(percentOfPortfolio, tier, regime) {
   const regimeLimits = {
-    bullish:  { moonshot: 5, conviction: 10, base: 50 },
-    neutral:  { moonshot: 5, conviction: 10, base: 50 },
-    bearish:  { moonshot: 3, conviction: 7,  base: 50 },
-    crisis:   { moonshot: 0, conviction: 5,  base: 50 },
+    bullish: { moonshot: 5, conviction: 10, base: 50 },
+    neutral: { moonshot: 5, conviction: 10, base: 50 },
+    bearish: { moonshot: 3, conviction: 7, base: 50 },
+    crisis: { moonshot: 0, conviction: 5, base: 50 },
   };
   const hardLimits = { moonshot: 5, conviction: 10, base: 50 };
   const rLimits = regimeLimits[regime] || hardLimits;
@@ -389,8 +428,26 @@ describe('Regime-Adjusted Cash Reserve', () => {
 // ============================================================
 
 describe('Per-Chain Portfolio Rules', () => {
-  const baseRules = { maxMoonshotPosition: 5, maxConvictionPosition: 10, maxBasePosition: 50, maxMoonshotAllocation: 20, minCashReserve: 10, maxSameNarrative: 3, maxOpenPositions: 15, tiersEnabled: ['moonshot', 'conviction', 'base'] };
-  const solanaRules = { maxMoonshotPosition: 7, maxConvictionPosition: 10, maxBasePosition: 50, maxMoonshotAllocation: 30, minCashReserve: 10, maxSameNarrative: 3, maxOpenPositions: 10, tiersEnabled: ['moonshot', 'conviction'] };
+  const baseRules = {
+    maxMoonshotPosition: 5,
+    maxConvictionPosition: 10,
+    maxBasePosition: 50,
+    maxMoonshotAllocation: 20,
+    minCashReserve: 10,
+    maxSameNarrative: 3,
+    maxOpenPositions: 15,
+    tiersEnabled: ['moonshot', 'conviction', 'base'],
+  };
+  const solanaRules = {
+    maxMoonshotPosition: 7,
+    maxConvictionPosition: 10,
+    maxBasePosition: 50,
+    maxMoonshotAllocation: 30,
+    minCashReserve: 10,
+    maxSameNarrative: 3,
+    maxOpenPositions: 10,
+    tiersEnabled: ['moonshot', 'conviction'],
+  };
 
   test('Solana allows 7% moonshot vs Base 5%', () => {
     const baseResult = validatePositionSize(6, 'moonshot', baseRules);

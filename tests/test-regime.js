@@ -124,32 +124,42 @@ describe('Safety Invariant — Regime Never Relaxes Hard Limits', () => {
   for (const regime of ['bullish', 'neutral', 'bearish', 'crisis']) {
     test(`${regime}: minCashReserve >= ${HARD_LIMITS.minCashReserve}%`, () => {
       const adj = getRegimeAdjustments(regime);
-      assert(adj.minCashReserve >= HARD_LIMITS.minCashReserve,
-        `${regime} minCashReserve ${adj.minCashReserve}% < hard limit ${HARD_LIMITS.minCashReserve}%`);
+      assert(
+        adj.minCashReserve >= HARD_LIMITS.minCashReserve,
+        `${regime} minCashReserve ${adj.minCashReserve}% < hard limit ${HARD_LIMITS.minCashReserve}%`,
+      );
     });
 
     test(`${regime}: maxMoonshotPosition <= ${HARD_LIMITS.maxMoonshotPosition}%`, () => {
       const adj = getRegimeAdjustments(regime);
-      assert(adj.maxMoonshotPosition <= HARD_LIMITS.maxMoonshotPosition,
-        `${regime} maxMoonshotPosition ${adj.maxMoonshotPosition}% > hard limit ${HARD_LIMITS.maxMoonshotPosition}%`);
+      assert(
+        adj.maxMoonshotPosition <= HARD_LIMITS.maxMoonshotPosition,
+        `${regime} maxMoonshotPosition ${adj.maxMoonshotPosition}% > hard limit ${HARD_LIMITS.maxMoonshotPosition}%`,
+      );
     });
 
     test(`${regime}: maxConvictionPosition <= ${HARD_LIMITS.maxConvictionPosition}%`, () => {
       const adj = getRegimeAdjustments(regime);
-      assert(adj.maxConvictionPosition <= HARD_LIMITS.maxConvictionPosition,
-        `${regime} maxConvictionPosition ${adj.maxConvictionPosition}% > hard limit ${HARD_LIMITS.maxConvictionPosition}%`);
+      assert(
+        adj.maxConvictionPosition <= HARD_LIMITS.maxConvictionPosition,
+        `${regime} maxConvictionPosition ${adj.maxConvictionPosition}% > hard limit ${HARD_LIMITS.maxConvictionPosition}%`,
+      );
     });
 
     test(`${regime}: maxBasePosition <= ${HARD_LIMITS.maxBasePosition}%`, () => {
       const adj = getRegimeAdjustments(regime);
-      assert(adj.maxBasePosition <= HARD_LIMITS.maxBasePosition,
-        `${regime} maxBasePosition ${adj.maxBasePosition}% > hard limit ${HARD_LIMITS.maxBasePosition}%`);
+      assert(
+        adj.maxBasePosition <= HARD_LIMITS.maxBasePosition,
+        `${regime} maxBasePosition ${adj.maxBasePosition}% > hard limit ${HARD_LIMITS.maxBasePosition}%`,
+      );
     });
 
     test(`${regime}: maxMoonshotAllocation <= ${HARD_LIMITS.maxMoonshotAllocation}%`, () => {
       const adj = getRegimeAdjustments(regime);
-      assert(adj.maxMoonshotAllocation <= HARD_LIMITS.maxMoonshotAllocation,
-        `${regime} maxMoonshotAllocation ${adj.maxMoonshotAllocation}% > hard limit ${HARD_LIMITS.maxMoonshotAllocation}%`);
+      assert(
+        adj.maxMoonshotAllocation <= HARD_LIMITS.maxMoonshotAllocation,
+        `${regime} maxMoonshotAllocation ${adj.maxMoonshotAllocation}% > hard limit ${HARD_LIMITS.maxMoonshotAllocation}%`,
+      );
     });
   }
 });
@@ -164,41 +174,35 @@ describe('Anti-Whipsaw', () => {
   });
 
   test('same regime does not transition', () => {
-    assert(!shouldTransition('neutral', 'neutral', [{ regime: 'neutral' }]),
-      'Same regime should not transition');
+    assert(!shouldTransition('neutral', 'neutral', [{ regime: 'neutral' }]), 'Same regime should not transition');
   });
 
   test('single different reading does NOT transition', () => {
     const history = [{ regime: 'neutral' }];
-    assert(!shouldTransition('neutral', 'bearish', history),
-      'Single reading should not cause transition');
+    assert(!shouldTransition('neutral', 'bearish', history), 'Single reading should not cause transition');
   });
 
   test('two consecutive same readings DOES transition', () => {
     const history = [{ regime: 'bearish' }];
-    assert(shouldTransition('neutral', 'bearish', history),
-      'Two consecutive bearish readings should transition from neutral');
+    assert(
+      shouldTransition('neutral', 'bearish', history),
+      'Two consecutive bearish readings should transition from neutral',
+    );
   });
 
   test('alternating readings do NOT transition', () => {
-    const history = [
-      { regime: 'bearish' },
-      { regime: 'neutral' },
-    ];
-    assert(!shouldTransition('neutral', 'bearish', history),
-      'Alternating readings should not transition');
+    const history = [{ regime: 'bearish' }, { regime: 'neutral' }];
+    assert(!shouldTransition('neutral', 'bearish', history), 'Alternating readings should not transition');
   });
 
   test('transition from bearish to crisis requires confirmation', () => {
     const history = [{ regime: 'crisis' }];
-    assert(shouldTransition('bearish', 'crisis', history),
-      'Confirmed crisis should transition');
+    assert(shouldTransition('bearish', 'crisis', history), 'Confirmed crisis should transition');
   });
 
   test('recovery from crisis to neutral requires confirmation', () => {
     const history = [{ regime: 'neutral' }];
-    assert(shouldTransition('crisis', 'neutral', history),
-      'Confirmed neutral should transition from crisis');
+    assert(shouldTransition('crisis', 'neutral', history), 'Confirmed neutral should transition from crisis');
   });
 });
 

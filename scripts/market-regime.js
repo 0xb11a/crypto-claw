@@ -61,10 +61,10 @@ const REGIMES = {
 
 // Hard limits from AGENTS.md — regime can only tighten, never relax
 const HARD_LIMITS = {
-  minCashReserve: 10,       // regime can raise this, never lower
-  maxMoonshotPosition: 5,   // regime can lower this, never raise
+  minCashReserve: 10, // regime can raise this, never lower
+  maxMoonshotPosition: 5, // regime can lower this, never raise
   maxConvictionPosition: 10, // regime can lower this, never raise
-  maxBasePosition: 50,       // regime can lower this, never raise
+  maxBasePosition: 50, // regime can lower this, never raise
   maxMoonshotAllocation: 20, // regime can lower this, never raise
 };
 
@@ -139,7 +139,9 @@ async function main() {
     let history = [];
     try {
       history = historyRow?.value ? JSON.parse(historyRow.value) : [];
-    } catch { history = []; }
+    } catch {
+      history = [];
+    }
 
     // Anti-whipsaw check
     const transition = shouldTransition(currentRegime, newClassification, history);
@@ -164,7 +166,9 @@ async function main() {
     upsert.run('market_regime_history', JSON.stringify(history), JSON.stringify(history));
 
     // Update heartbeat
-    db.prepare("UPDATE heartbeat_state SET last_run = datetime('now') WHERE agent = 'research' AND check_type = 'market_regime'").run();
+    db.prepare(
+      "UPDATE heartbeat_state SET last_run = datetime('now') WHERE agent = 'research' AND check_type = 'market_regime'",
+    ).run();
 
     close();
 
@@ -176,9 +180,10 @@ async function main() {
       previousRegime: currentRegime,
       regimeChanged: transition,
       classification: newClassification,
-      antiWhipsaw: !transition && newClassification !== currentRegime
-        ? `Pending confirmation (need 2 consecutive ${newClassification} readings)`
-        : null,
+      antiWhipsaw:
+        !transition && newClassification !== currentRegime
+          ? `Pending confirmation (need 2 consecutive ${newClassification} readings)`
+          : null,
       inputs: {
         fearGreedValue,
         fearGreedClassification: fgi?.value_classification ?? 'Unknown',
@@ -192,11 +197,13 @@ async function main() {
 
     console.log(JSON.stringify(output, null, 2));
   } catch (err) {
-    console.log(JSON.stringify({
-      status: 'error',
-      error: err.message,
-      timestamp: new Date().toISOString(),
-    }));
+    console.log(
+      JSON.stringify({
+        status: 'error',
+        error: err.message,
+        timestamp: new Date().toISOString(),
+      }),
+    );
     process.exit(1);
   }
 }

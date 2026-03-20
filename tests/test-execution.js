@@ -12,7 +12,13 @@
  */
 
 import { describe, test, assert, assertEqual, summary } from './test-helpers.js';
-import { parseArgs, validateArgs, build1inchUrl, checkSlippage, buildApproveCalldata } from '../scripts/execute-trade.js';
+import {
+  parseArgs,
+  validateArgs,
+  build1inchUrl,
+  checkSlippage,
+  buildApproveCalldata,
+} from '../scripts/execute-trade.js';
 
 // ============================================================
 // CLI Argument Parsing
@@ -20,9 +26,22 @@ import { parseArgs, validateArgs, build1inchUrl, checkSlippage, buildApproveCall
 describe('execute-trade.js — Argument Parsing', () => {
   test('parses all valid arguments', () => {
     const args = parseArgs([
-      '--action', 'buy', '--chain', 'base', '--address', '0xABC',
-      '--symbol', 'TOKEN', '--amount', '500', '--max-slippage', '5',
-      '--tier', 'moonshot', '--deadline', '300',
+      '--action',
+      'buy',
+      '--chain',
+      'base',
+      '--address',
+      '0xABC',
+      '--symbol',
+      'TOKEN',
+      '--amount',
+      '500',
+      '--max-slippage',
+      '5',
+      '--tier',
+      'moonshot',
+      '--deadline',
+      '300',
     ]);
     assertEqual(args.action, 'buy');
     assertEqual(args.chain, 'base');
@@ -35,12 +54,38 @@ describe('execute-trade.js — Argument Parsing', () => {
   });
 
   test('defaults deadline to 300', () => {
-    const args = parseArgs(['--action', 'sell', '--chain', 'base', '--address', '0x1', '--symbol', 'X', '--amount', 'all', '--max-slippage', '2']);
+    const args = parseArgs([
+      '--action',
+      'sell',
+      '--chain',
+      'base',
+      '--address',
+      '0x1',
+      '--symbol',
+      'X',
+      '--amount',
+      'all',
+      '--max-slippage',
+      '2',
+    ]);
     assertEqual(args.deadline, '300');
   });
 
   test('handles sell with amount=all', () => {
-    const args = parseArgs(['--action', 'sell', '--chain', 'base', '--address', '0x1', '--symbol', 'X', '--amount', 'all', '--max-slippage', '5']);
+    const args = parseArgs([
+      '--action',
+      'sell',
+      '--chain',
+      'base',
+      '--address',
+      '0x1',
+      '--symbol',
+      'X',
+      '--amount',
+      'all',
+      '--max-slippage',
+      '5',
+    ]);
     assertEqual(args.amount, 'all');
   });
 });
@@ -51,8 +96,20 @@ describe('execute-trade.js — Argument Parsing', () => {
 describe('execute-trade.js — Argument Validation', () => {
   test('valid buy args produce no errors', () => {
     const args = parseArgs([
-      '--action', 'buy', '--chain', 'base', '--address', '0x1',
-      '--symbol', 'T', '--amount', '500', '--max-slippage', '5', '--tier', 'moonshot',
+      '--action',
+      'buy',
+      '--chain',
+      'base',
+      '--address',
+      '0x1',
+      '--symbol',
+      'T',
+      '--amount',
+      '500',
+      '--max-slippage',
+      '5',
+      '--tier',
+      'moonshot',
     ]);
     const errors = validateArgs(args);
     assertEqual(errors.length, 0, `Expected no errors, got: ${errors.join(', ')}`);
@@ -60,59 +117,152 @@ describe('execute-trade.js — Argument Validation', () => {
 
   test('valid sell args produce no errors', () => {
     const args = parseArgs([
-      '--action', 'sell', '--chain', 'base', '--address', '0x1',
-      '--symbol', 'T', '--amount', 'all', '--max-slippage', '2',
+      '--action',
+      'sell',
+      '--chain',
+      'base',
+      '--address',
+      '0x1',
+      '--symbol',
+      'T',
+      '--amount',
+      'all',
+      '--max-slippage',
+      '2',
     ]);
     const errors = validateArgs(args);
     assertEqual(errors.length, 0, `Expected no errors, got: ${errors.join(', ')}`);
   });
 
   test('missing action is caught', () => {
-    const args = parseArgs(['--chain', 'base', '--address', '0x1', '--symbol', 'T', '--amount', '100', '--max-slippage', '2']);
+    const args = parseArgs([
+      '--chain',
+      'base',
+      '--address',
+      '0x1',
+      '--symbol',
+      'T',
+      '--amount',
+      '100',
+      '--max-slippage',
+      '2',
+    ]);
     const errors = validateArgs(args);
-    assert(errors.some(e => e.includes('action')), 'Should catch missing action');
+    assert(
+      errors.some((e) => e.includes('action')),
+      'Should catch missing action',
+    );
   });
 
   test('invalid action is caught', () => {
-    const args = parseArgs(['--action', 'transfer', '--chain', 'base', '--address', '0x1', '--symbol', 'T', '--amount', '100', '--max-slippage', '2']);
+    const args = parseArgs([
+      '--action',
+      'transfer',
+      '--chain',
+      'base',
+      '--address',
+      '0x1',
+      '--symbol',
+      'T',
+      '--amount',
+      '100',
+      '--max-slippage',
+      '2',
+    ]);
     const errors = validateArgs(args);
-    assert(errors.some(e => e.includes('action')), 'Should catch invalid action');
+    assert(
+      errors.some((e) => e.includes('action')),
+      'Should catch invalid action',
+    );
   });
 
   test('buy without --tier is caught', () => {
     const args = parseArgs([
-      '--action', 'buy', '--chain', 'base', '--address', '0x1',
-      '--symbol', 'T', '--amount', '500', '--max-slippage', '5',
+      '--action',
+      'buy',
+      '--chain',
+      'base',
+      '--address',
+      '0x1',
+      '--symbol',
+      'T',
+      '--amount',
+      '500',
+      '--max-slippage',
+      '5',
     ]);
     const errors = validateArgs(args);
-    assert(errors.some(e => e.includes('tier')), 'Should require tier for buy');
+    assert(
+      errors.some((e) => e.includes('tier')),
+      'Should require tier for buy',
+    );
   });
 
   test('sell without --tier is allowed', () => {
     const args = parseArgs([
-      '--action', 'sell', '--chain', 'base', '--address', '0x1',
-      '--symbol', 'T', '--amount', 'all', '--max-slippage', '2',
+      '--action',
+      'sell',
+      '--chain',
+      'base',
+      '--address',
+      '0x1',
+      '--symbol',
+      'T',
+      '--amount',
+      'all',
+      '--max-slippage',
+      '2',
     ]);
     const errors = validateArgs(args);
-    assert(!errors.some(e => e.includes('tier')), 'Tier not required for sell');
+    assert(!errors.some((e) => e.includes('tier')), 'Tier not required for sell');
   });
 
   test('non-numeric slippage is caught', () => {
     const args = parseArgs([
-      '--action', 'buy', '--chain', 'base', '--address', '0x1',
-      '--symbol', 'T', '--amount', '500', '--max-slippage', 'abc', '--tier', 'moonshot',
+      '--action',
+      'buy',
+      '--chain',
+      'base',
+      '--address',
+      '0x1',
+      '--symbol',
+      'T',
+      '--amount',
+      '500',
+      '--max-slippage',
+      'abc',
+      '--tier',
+      'moonshot',
     ]);
     const errors = validateArgs(args);
-    assert(errors.some(e => e.includes('slippage')), 'Should catch non-numeric slippage');
+    assert(
+      errors.some((e) => e.includes('slippage')),
+      'Should catch non-numeric slippage',
+    );
   });
 
   test('non-numeric amount (not "all") is caught', () => {
     const args = parseArgs([
-      '--action', 'buy', '--chain', 'base', '--address', '0x1',
-      '--symbol', 'T', '--amount', 'xyz', '--max-slippage', '5', '--tier', 'moonshot',
+      '--action',
+      'buy',
+      '--chain',
+      'base',
+      '--address',
+      '0x1',
+      '--symbol',
+      'T',
+      '--amount',
+      'xyz',
+      '--max-slippage',
+      '5',
+      '--tier',
+      'moonshot',
     ]);
     const errors = validateArgs(args);
-    assert(errors.some(e => e.includes('amount')), 'Should catch non-numeric amount');
+    assert(
+      errors.some((e) => e.includes('amount')),
+      'Should catch non-numeric amount',
+    );
   });
 
   test('missing multiple args reports all errors', () => {
@@ -145,14 +295,23 @@ describe('execute-trade.js — 1inch URL Construction', () => {
 
   test('disableEstimate is always true', () => {
     const url = build1inchUrl('1', {
-      src: '0xA', dst: '0xB', amount: '1', from: '0xC', slippage: '1',
+      src: '0xA',
+      dst: '0xB',
+      amount: '1',
+      from: '0xC',
+      slippage: '1',
     });
     assert(url.includes('disableEstimate=true'), 'disableEstimate must always be true');
   });
 
   test('includes receiver when provided', () => {
     const url = build1inchUrl('8453', {
-      src: '0xA', dst: '0xB', amount: '1', from: '0xC', slippage: '1', receiver: '0xD',
+      src: '0xA',
+      dst: '0xB',
+      amount: '1',
+      from: '0xC',
+      slippage: '1',
+      receiver: '0xD',
     });
     assert(url.includes('receiver=0xD'), 'Should include receiver param');
   });
@@ -207,7 +366,10 @@ describe('execute-trade.js — Approve Calldata', () => {
     const spender = '0x111111125421cA6dc452d289314280a0f8842A65';
     const calldata = buildApproveCalldata(spender, 1000000n);
     // Address is padded to 32 bytes in the calldata
-    assert(calldata.toLowerCase().includes('111111125421ca6dc452d289314280a0f8842a65'), 'Should include spender address');
+    assert(
+      calldata.toLowerCase().includes('111111125421ca6dc452d289314280a0f8842a65'),
+      'Should include spender address',
+    );
   });
 });
 
@@ -273,9 +435,22 @@ describe('execute-trade.js — Output Format', () => {
 describe('execute-trade.js — Security', () => {
   test('output format has no key-like fields', () => {
     const validFields = [
-      'status', 'safeHash', 'txHash', 'action', 'symbol', 'chain',
-      'tokenAddress', 'usdcSpent', 'expectedTokens', 'tokensSold',
-      'expectedUsdc', 'timestamp', 'error', 'threshold', 'confirmations', 'note',
+      'status',
+      'safeHash',
+      'txHash',
+      'action',
+      'symbol',
+      'chain',
+      'tokenAddress',
+      'usdcSpent',
+      'expectedTokens',
+      'tokensSold',
+      'expectedUsdc',
+      'timestamp',
+      'error',
+      'threshold',
+      'confirmations',
+      'note',
     ];
     // Ensure known output fields don't include anything key-related
     const forbidden = ['privateKey', 'signerKey', 'secret', 'mnemonic', 'seed'];
@@ -309,10 +484,20 @@ import { parseArgs as parseSolanaArgs, validateArgs as validateSolanaArgs } from
 describe('execute-trade-solana.js — Argument Parsing', () => {
   test('parses all valid Solana arguments', () => {
     const args = parseSolanaArgs([
-      '--action', 'buy', '--chain', 'solana',
-      '--address', 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
-      '--symbol', 'BONK', '--amount', '500', '--max-slippage', '5',
-      '--tier', 'moonshot',
+      '--action',
+      'buy',
+      '--chain',
+      'solana',
+      '--address',
+      'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+      '--symbol',
+      'BONK',
+      '--amount',
+      '500',
+      '--max-slippage',
+      '5',
+      '--tier',
+      'moonshot',
     ]);
     assertEqual(args.action, 'buy');
     assertEqual(args.chain, 'solana');
@@ -325,9 +510,18 @@ describe('execute-trade-solana.js — Argument Parsing', () => {
 
   test('handles sell with amount=all', () => {
     const args = parseSolanaArgs([
-      '--action', 'sell', '--chain', 'solana',
-      '--address', 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
-      '--symbol', 'BONK', '--amount', 'all', '--max-slippage', '5',
+      '--action',
+      'sell',
+      '--chain',
+      'solana',
+      '--address',
+      'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+      '--symbol',
+      'BONK',
+      '--amount',
+      'all',
+      '--max-slippage',
+      '5',
     ]);
     assertEqual(args.amount, 'all');
   });
@@ -336,9 +530,20 @@ describe('execute-trade-solana.js — Argument Parsing', () => {
 describe('execute-trade-solana.js — Argument Validation', () => {
   test('valid Solana buy args produce no errors', () => {
     const args = parseSolanaArgs([
-      '--action', 'buy', '--chain', 'solana',
-      '--address', 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
-      '--symbol', 'BONK', '--amount', '500', '--max-slippage', '5', '--tier', 'moonshot',
+      '--action',
+      'buy',
+      '--chain',
+      'solana',
+      '--address',
+      'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+      '--symbol',
+      'BONK',
+      '--amount',
+      '500',
+      '--max-slippage',
+      '5',
+      '--tier',
+      'moonshot',
     ]);
     const errors = validateSolanaArgs(args);
     assertEqual(errors.length, 0, `Expected no errors, got: ${errors.join(', ')}`);
@@ -346,9 +551,18 @@ describe('execute-trade-solana.js — Argument Validation', () => {
 
   test('valid Solana sell args produce no errors', () => {
     const args = parseSolanaArgs([
-      '--action', 'sell', '--chain', 'solana',
-      '--address', 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
-      '--symbol', 'BONK', '--amount', 'all', '--max-slippage', '2',
+      '--action',
+      'sell',
+      '--chain',
+      'solana',
+      '--address',
+      'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+      '--symbol',
+      'BONK',
+      '--amount',
+      'all',
+      '--max-slippage',
+      '2',
     ]);
     const errors = validateSolanaArgs(args);
     assertEqual(errors.length, 0, `Expected no errors, got: ${errors.join(', ')}`);
@@ -356,37 +570,87 @@ describe('execute-trade-solana.js — Argument Validation', () => {
 
   test('missing action is caught', () => {
     const args = parseSolanaArgs([
-      '--chain', 'solana', '--address', 'ABC', '--symbol', 'T', '--amount', '100', '--max-slippage', '2',
+      '--chain',
+      'solana',
+      '--address',
+      'ABC',
+      '--symbol',
+      'T',
+      '--amount',
+      '100',
+      '--max-slippage',
+      '2',
     ]);
     const errors = validateSolanaArgs(args);
-    assert(errors.some(e => e.includes('action')), 'Should catch missing action');
+    assert(
+      errors.some((e) => e.includes('action')),
+      'Should catch missing action',
+    );
   });
 
   test('buy without --tier is caught', () => {
     const args = parseSolanaArgs([
-      '--action', 'buy', '--chain', 'solana', '--address', 'ABC',
-      '--symbol', 'T', '--amount', '500', '--max-slippage', '5',
+      '--action',
+      'buy',
+      '--chain',
+      'solana',
+      '--address',
+      'ABC',
+      '--symbol',
+      'T',
+      '--amount',
+      '500',
+      '--max-slippage',
+      '5',
     ]);
     const errors = validateSolanaArgs(args);
-    assert(errors.some(e => e.includes('tier')), 'Should require tier for buy');
+    assert(
+      errors.some((e) => e.includes('tier')),
+      'Should require tier for buy',
+    );
   });
 
   test('sell without --tier is allowed', () => {
     const args = parseSolanaArgs([
-      '--action', 'sell', '--chain', 'solana', '--address', 'ABC',
-      '--symbol', 'T', '--amount', 'all', '--max-slippage', '2',
+      '--action',
+      'sell',
+      '--chain',
+      'solana',
+      '--address',
+      'ABC',
+      '--symbol',
+      'T',
+      '--amount',
+      'all',
+      '--max-slippage',
+      '2',
     ]);
     const errors = validateSolanaArgs(args);
-    assert(!errors.some(e => e.includes('tier')), 'Tier not required for sell');
+    assert(!errors.some((e) => e.includes('tier')), 'Tier not required for sell');
   });
 
   test('non-numeric slippage is caught', () => {
     const args = parseSolanaArgs([
-      '--action', 'buy', '--chain', 'solana', '--address', 'ABC',
-      '--symbol', 'T', '--amount', '500', '--max-slippage', 'abc', '--tier', 'moonshot',
+      '--action',
+      'buy',
+      '--chain',
+      'solana',
+      '--address',
+      'ABC',
+      '--symbol',
+      'T',
+      '--amount',
+      '500',
+      '--max-slippage',
+      'abc',
+      '--tier',
+      'moonshot',
     ]);
     const errors = validateSolanaArgs(args);
-    assert(errors.some(e => e.includes('slippage')), 'Should catch non-numeric slippage');
+    assert(
+      errors.some((e) => e.includes('slippage')),
+      'Should catch non-numeric slippage',
+    );
   });
 });
 
@@ -428,9 +692,22 @@ describe('execute-trade-solana.js — Output Format', () => {
 describe('execute-trade-solana.js — Security', () => {
   test('output format has no key-like fields', () => {
     const validFields = [
-      'status', 'txSignature', 'squadsTransactionIndex', 'action', 'symbol',
-      'chain', 'tokenAddress', 'usdcSpent', 'expectedTokens', 'tokensSold',
-      'expectedUsdc', 'timestamp', 'error', 'threshold', 'confirmations', 'note',
+      'status',
+      'txSignature',
+      'squadsTransactionIndex',
+      'action',
+      'symbol',
+      'chain',
+      'tokenAddress',
+      'usdcSpent',
+      'expectedTokens',
+      'tokensSold',
+      'expectedUsdc',
+      'timestamp',
+      'error',
+      'threshold',
+      'confirmations',
+      'note',
     ];
     const forbidden = ['privateKey', 'signerKey', 'secret', 'mnemonic', 'seed'];
     for (const f of forbidden) {

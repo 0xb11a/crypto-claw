@@ -38,7 +38,7 @@ function dbq(command) {
     timeout: 10_000,
   }).trim();
   const lines = output.split('\n');
-  const jsonStart = lines.findIndex(l => l.startsWith('{') || l.startsWith('['));
+  const jsonStart = lines.findIndex((l) => l.startsWith('{') || l.startsWith('['));
   const jsonStr = lines.slice(jsonStart).join('\n');
   return JSON.parse(jsonStr);
 }
@@ -98,11 +98,11 @@ describe('E2E Real Step 2: Research → Approve Trade', () => {
       amount: 500,
       percent_of_portfolio: 10,
       tier: 'conviction',
-      entry_price: 2.50,
+      entry_price: 2.5,
       stop_loss: 1.75,
       take_profit_levels: JSON.stringify([
-        { level: 1, price: 5.00, sellPercent: 50 },
-        { level: 2, price: 10.00, sellPercent: 30 },
+        { level: 1, price: 5.0, sellPercent: 50 },
+        { level: 2, price: 10.0, sellPercent: 30 },
       ]),
       analysis_score: 82,
       risk_score: 18,
@@ -117,7 +117,7 @@ describe('E2E Real Step 2: Research → Approve Trade', () => {
 
   test('trade appears as pending', () => {
     const trades = dbq('get-orders --action buy --pending');
-    const trade = trades.find(t => t.id === 'real-trade-001');
+    const trade = trades.find((t) => t.id === 'real-trade-001');
     assert(trade, 'Trade must appear in pending list');
     assertEqual(trade.approved, 1, 'Must be approved');
     assertEqual(trade.approved_by, 'human', 'Must be human-approved');
@@ -135,46 +135,50 @@ describe('E2E Real Step 3: Executor → Buy', () => {
   });
 
   test('executor records receipt', () => {
-    const result = dbq(`add-receipt --json '${JSON.stringify({
-      id: 'rcpt-buy-001',
-      order_id: 'real-trade-001',
+    const result = dbq(
+      `add-receipt --json '${JSON.stringify({
+        id: 'rcpt-buy-001',
+        order_id: 'real-trade-001',
 
-      action: 'buy',
-      symbol: 'REALTEST',
-      address: '0xrealtest001',
-      chain: 'base',
-      amount: 500,
-      quantity: 200,
-      expected_price: 2.50,
-      executed_price: 2.52,
-      slippage: 0.008,
-      status: 'executed',
-      safe_tx_hash: '0xfake_safe_hash_001',
-      onchain_tx_hash: '0xfake_onchain_hash_001',
-    })}'`);
+        action: 'buy',
+        symbol: 'REALTEST',
+        address: '0xrealtest001',
+        chain: 'base',
+        amount: 500,
+        quantity: 200,
+        expected_price: 2.5,
+        executed_price: 2.52,
+        slippage: 0.008,
+        status: 'executed',
+        safe_tx_hash: '0xfake_safe_hash_001',
+        onchain_tx_hash: '0xfake_onchain_hash_001',
+      })}'`,
+    );
     assert(result.ok, 'add-receipt must succeed');
   });
 
   test('executor creates position', () => {
-    const result = dbq(`add-position --json '${JSON.stringify({
-      id: 'pos-real-001',
-      symbol: 'REALTEST',
-      name: 'Real Test Token',
-      address: '0xrealtest001',
-      chain: 'base',
-      tier: 'conviction',
-      entry_price: 2.52,
-      current_price: 2.52,
-      quantity: 200,
-      value_usd: 504,
-      percent_of_portfolio: 10,
-      stop_loss: 1.75,
-      take_profit_levels: JSON.stringify([
-        { level: 1, price: 5.00, sellPercent: 50 },
-        { level: 2, price: 10.00, sellPercent: 30 },
-      ]),
-      status: 'open',
-    })}'`);
+    const result = dbq(
+      `add-position --json '${JSON.stringify({
+        id: 'pos-real-001',
+        symbol: 'REALTEST',
+        name: 'Real Test Token',
+        address: '0xrealtest001',
+        chain: 'base',
+        tier: 'conviction',
+        entry_price: 2.52,
+        current_price: 2.52,
+        quantity: 200,
+        value_usd: 504,
+        percent_of_portfolio: 10,
+        stop_loss: 1.75,
+        take_profit_levels: JSON.stringify([
+          { level: 1, price: 5.0, sellPercent: 50 },
+          { level: 2, price: 10.0, sellPercent: 30 },
+        ]),
+        status: 'open',
+      })}'`,
+    );
     assert(result.ok, 'add-position must succeed');
   });
 
@@ -193,7 +197,7 @@ describe('E2E Real Step 3: Executor → Buy', () => {
 
   test('trade no longer pending', () => {
     const trades = dbq('get-orders --action buy --pending');
-    const trade = trades.find(t => t.id === 'real-trade-001');
+    const trade = trades.find((t) => t.id === 'real-trade-001');
     assert(!trade, 'Executed trade must not be pending');
   });
 
@@ -217,42 +221,46 @@ describe('E2E Real Step 4: Sentinel → Stop-Loss → Sell Order', () => {
 
   test('sentinel detects stop-loss hit', () => {
     const pos = dbq('get-positions --status open')[0];
-    const currentPrice = 1.50;
+    const currentPrice = 1.5;
     assert(currentPrice <= pos.stop_loss, `Price ${currentPrice} triggers stop at ${pos.stop_loss}`);
   });
 
   test('sentinel writes sell order', () => {
-    const result = dbq(`add-order --json '${JSON.stringify({
-      id: 'real-sell-001',
-      action: 'sell',
-      symbol: 'REALTEST',
-      address: '0xrealtest001',
-      chain: 'base',
-      amount: 'all',
-      reason: 'stop_loss',
-      urgency: 'immediate',
-    })}'`);
+    const result = dbq(
+      `add-order --json '${JSON.stringify({
+        id: 'real-sell-001',
+        action: 'sell',
+        symbol: 'REALTEST',
+        address: '0xrealtest001',
+        chain: 'base',
+        amount: 'all',
+        reason: 'stop_loss',
+        urgency: 'immediate',
+      })}'`,
+    );
     assert(result.ok, 'add-order must succeed');
   });
 
   test('sentinel writes alert', () => {
-    const result = dbq(`add-alert --json '${JSON.stringify({
-      id: 'real-alert-001',
-      symbol: 'REALTEST',
-      chain: 'base',
-      alert_type: 'stop_loss',
-      severity: 'critical',
-      current_price: 1.50,
-      trigger_price: 1.75,
-      details: 'Stop-loss hit: $1.50 < $1.75',
-      action: 'sell_all',
-    })}'`);
+    const result = dbq(
+      `add-alert --json '${JSON.stringify({
+        id: 'real-alert-001',
+        symbol: 'REALTEST',
+        chain: 'base',
+        alert_type: 'stop_loss',
+        severity: 'critical',
+        current_price: 1.5,
+        trigger_price: 1.75,
+        details: 'Stop-loss hit: $1.50 < $1.75',
+        action: 'sell_all',
+      })}'`,
+    );
     assert(result.ok, 'add-alert must succeed');
   });
 
   test('sell order appears as pending', () => {
     const orders = dbq('get-orders --action sell --pending');
-    const order = orders.find(o => o.id === 'real-sell-001');
+    const order = orders.find((o) => o.id === 'real-sell-001');
     assert(order, 'Sell order must be pending');
     assertEqual(order.reason, 'stop_loss', 'Reason must be stop_loss');
   });
@@ -264,28 +272,30 @@ describe('E2E Real Step 4: Sentinel → Stop-Loss → Sell Order', () => {
 describe('E2E Real Step 5: Executor → Sell', () => {
   test('executor reads pending sell order', () => {
     const orders = dbq('get-orders --action sell --pending');
-    const order = orders.find(o => o.id === 'real-sell-001');
+    const order = orders.find((o) => o.id === 'real-sell-001');
     assert(order, 'Must find pending sell order');
   });
 
   test('executor records sell receipt', () => {
-    const result = dbq(`add-receipt --json '${JSON.stringify({
-      id: 'rcpt-sell-001',
-      order_id: 'real-sell-001',
+    const result = dbq(
+      `add-receipt --json '${JSON.stringify({
+        id: 'rcpt-sell-001',
+        order_id: 'real-sell-001',
 
-      action: 'sell',
-      symbol: 'REALTEST',
-      address: '0xrealtest001',
-      chain: 'base',
-      amount: 300,
-      quantity: 200,
-      expected_price: 1.50,
-      executed_price: 1.48,
-      slippage: 0.013,
-      status: 'executed',
-      safe_tx_hash: '0xfake_safe_hash_002',
-      onchain_tx_hash: '0xfake_onchain_hash_002',
-    })}'`);
+        action: 'sell',
+        symbol: 'REALTEST',
+        address: '0xrealtest001',
+        chain: 'base',
+        amount: 300,
+        quantity: 200,
+        expected_price: 1.5,
+        executed_price: 1.48,
+        slippage: 0.013,
+        status: 'executed',
+        safe_tx_hash: '0xfake_safe_hash_002',
+        onchain_tx_hash: '0xfake_onchain_hash_002',
+      })}'`,
+    );
     assert(result.ok, 'add-receipt (sell) must succeed');
   });
 
@@ -307,7 +317,7 @@ describe('E2E Real Step 5: Executor → Sell', () => {
 
   test('sell order no longer pending', () => {
     const orders = dbq('get-orders --action sell --pending');
-    const order = orders.find(o => o.id === 'real-sell-001');
+    const order = orders.find((o) => o.id === 'real-sell-001');
     assert(!order, 'Executed sell must not be pending');
   });
 });
@@ -323,7 +333,7 @@ describe('E2E Real Step 6: Final State Verification', () => {
 
   test('position is marked closed', () => {
     const positions = dbq('get-positions --status closed');
-    const pos = positions.find(p => p.id === 'pos-real-001');
+    const pos = positions.find((p) => p.id === 'pos-real-001');
     assert(pos, 'Closed position must exist');
     assertEqual(pos.status, 'closed', 'Status must be closed');
   });
@@ -335,8 +345,8 @@ describe('E2E Real Step 6: Final State Verification', () => {
 
   test('receipts show buy and sell', () => {
     const receipts = dbq('get-receipts --limit 50');
-    const buy = receipts.find(r => r.id === 'rcpt-buy-001');
-    const sell = receipts.find(r => r.id === 'rcpt-sell-001');
+    const buy = receipts.find((r) => r.id === 'rcpt-buy-001');
+    const sell = receipts.find((r) => r.id === 'rcpt-sell-001');
     assert(buy, 'Buy receipt must exist');
     assert(sell, 'Sell receipt must exist');
     assertEqual(buy.action, 'buy', 'Buy action');
@@ -347,19 +357,19 @@ describe('E2E Real Step 6: Final State Verification', () => {
 
   test('approved trade marked executed', () => {
     const trades = dbq('get-orders --action buy --pending');
-    const trade = trades.find(t => t.id === 'real-trade-001');
+    const trade = trades.find((t) => t.id === 'real-trade-001');
     assert(!trade, 'Must not be pending');
   });
 
   test('sell order marked executed', () => {
     const orders = dbq('get-orders --action sell --pending');
-    const order = orders.find(o => o.id === 'real-sell-001');
+    const order = orders.find((o) => o.id === 'real-sell-001');
     assert(!order, 'Must not be pending');
   });
 
   test('alert was recorded', () => {
     const alerts = dbq('get-alerts --unprocessed');
-    const alert = alerts.find(a => a.id === 'real-alert-001');
+    const alert = alerts.find((a) => a.id === 'real-alert-001');
     assert(alert, 'Alert must exist');
     assertEqual(alert.alert_type, 'stop_loss', 'Alert type');
   });
@@ -381,65 +391,71 @@ describe('E2E Real Step 6: Final State Verification', () => {
 // ============================================================
 describe('E2E Real Step 7: Solana Cross-Chain Isolation', () => {
   test('add approved Solana trade', () => {
-    const result = dbq(`add-order --json '${JSON.stringify({
-      id: 'real-trade-sol-001',
-      symbol: 'SOLTEST',
-      name: 'Solana Test Token',
-      address: 'SoLtEsT2222222222222222222222222222222222222',
-      chain: 'solana',
-      action: 'buy',
-      amount: 600,
-      percent_of_portfolio: 20,
-      tier: 'moonshot',
-      entry_price: 0.30,
-      stop_loss: 0.15,
-      take_profit_levels: JSON.stringify([{ level: 1, price: 0.60, sellPercent: 50 }]),
-      analysis_score: 75,
-      risk_score: 22,
-      reasoning: 'Solana cross-chain test',
-      approved: 1,
-      approved_at: new Date().toISOString(),
-      approved_by: 'human',
-    })}'`);
+    const result = dbq(
+      `add-order --json '${JSON.stringify({
+        id: 'real-trade-sol-001',
+        symbol: 'SOLTEST',
+        name: 'Solana Test Token',
+        address: 'SoLtEsT2222222222222222222222222222222222222',
+        chain: 'solana',
+        action: 'buy',
+        amount: 600,
+        percent_of_portfolio: 20,
+        tier: 'moonshot',
+        entry_price: 0.3,
+        stop_loss: 0.15,
+        take_profit_levels: JSON.stringify([{ level: 1, price: 0.6, sellPercent: 50 }]),
+        analysis_score: 75,
+        risk_score: 22,
+        reasoning: 'Solana cross-chain test',
+        approved: 1,
+        approved_at: new Date().toISOString(),
+        approved_by: 'human',
+      })}'`,
+    );
     assert(result.ok, 'Solana trade approved');
   });
 
   test('executor buys on Solana', () => {
     const baseBefore = dbq('get-cash --chain base').cash;
 
-    dbq(`add-receipt --json '${JSON.stringify({
-      id: 'rcpt-sol-buy-001',
-      order_id: 'real-trade-sol-001',
+    dbq(
+      `add-receipt --json '${JSON.stringify({
+        id: 'rcpt-sol-buy-001',
+        order_id: 'real-trade-sol-001',
 
-      action: 'buy',
-      symbol: 'SOLTEST',
-      address: 'SoLtEsT2222222222222222222222222222222222222',
-      chain: 'solana',
-      amount: 600,
-      quantity: 2000,
-      expected_price: 0.30,
-      executed_price: 0.30,
-      slippage: 0,
-      status: 'executed',
-      onchain_tx_hash: 'fakeSolTxSig001',
-    })}'`);
+        action: 'buy',
+        symbol: 'SOLTEST',
+        address: 'SoLtEsT2222222222222222222222222222222222222',
+        chain: 'solana',
+        amount: 600,
+        quantity: 2000,
+        expected_price: 0.3,
+        executed_price: 0.3,
+        slippage: 0,
+        status: 'executed',
+        onchain_tx_hash: 'fakeSolTxSig001',
+      })}'`,
+    );
 
-    dbq(`add-position --json '${JSON.stringify({
-      id: 'pos-sol-001',
-      symbol: 'SOLTEST',
-      name: 'Solana Test Token',
-      address: 'SoLtEsT2222222222222222222222222222222222222',
-      chain: 'solana',
-      tier: 'moonshot',
-      entry_price: 0.30,
-      current_price: 0.30,
-      quantity: 2000,
-      value_usd: 600,
-      percent_of_portfolio: 20,
-      stop_loss: 0.15,
-      take_profit_levels: JSON.stringify([{ level: 1, price: 0.60, sellPercent: 50 }]),
-      status: 'open',
-    })}'`);
+    dbq(
+      `add-position --json '${JSON.stringify({
+        id: 'pos-sol-001',
+        symbol: 'SOLTEST',
+        name: 'Solana Test Token',
+        address: 'SoLtEsT2222222222222222222222222222222222222',
+        chain: 'solana',
+        tier: 'moonshot',
+        entry_price: 0.3,
+        current_price: 0.3,
+        quantity: 2000,
+        value_usd: 600,
+        percent_of_portfolio: 20,
+        stop_loss: 0.15,
+        take_profit_levels: JSON.stringify([{ level: 1, price: 0.6, sellPercent: 50 }]),
+        status: 'open',
+      })}'`,
+    );
 
     dbq('set-cash --chain solana --amount 2400');
     dbq('mark-order-executed --id real-trade-sol-001');
@@ -454,34 +470,38 @@ describe('E2E Real Step 7: Solana Cross-Chain Isolation', () => {
   test('sell Solana position updates Solana cash only', () => {
     const baseBefore = dbq('get-cash --chain base').cash;
 
-    dbq(`add-order --json '${JSON.stringify({
-      id: 'real-sell-sol-001',
-      action: 'sell',
-      symbol: 'SOLTEST',
-      address: 'SoLtEsT2222222222222222222222222222222222222',
-      chain: 'solana',
-      amount: 'all',
-      reason: 'stop_loss',
-      urgency: 'immediate',
-    })}'`);
+    dbq(
+      `add-order --json '${JSON.stringify({
+        id: 'real-sell-sol-001',
+        action: 'sell',
+        symbol: 'SOLTEST',
+        address: 'SoLtEsT2222222222222222222222222222222222222',
+        chain: 'solana',
+        amount: 'all',
+        reason: 'stop_loss',
+        urgency: 'immediate',
+      })}'`,
+    );
 
     // Sell at $0.20 — proceeds: 2000 * $0.20 = $400
-    dbq(`add-receipt --json '${JSON.stringify({
-      id: 'rcpt-sol-sell-001',
-      order_id: 'real-sell-sol-001',
+    dbq(
+      `add-receipt --json '${JSON.stringify({
+        id: 'rcpt-sol-sell-001',
+        order_id: 'real-sell-sol-001',
 
-      action: 'sell',
-      symbol: 'SOLTEST',
-      address: 'SoLtEsT2222222222222222222222222222222222222',
-      chain: 'solana',
-      amount: 400,
-      quantity: 2000,
-      expected_price: 0.20,
-      executed_price: 0.20,
-      slippage: 0,
-      status: 'executed',
-      onchain_tx_hash: 'fakeSolTxSig002',
-    })}'`);
+        action: 'sell',
+        symbol: 'SOLTEST',
+        address: 'SoLtEsT2222222222222222222222222222222222222',
+        chain: 'solana',
+        amount: 400,
+        quantity: 2000,
+        expected_price: 0.2,
+        executed_price: 0.2,
+        slippage: 0,
+        status: 'executed',
+        onchain_tx_hash: 'fakeSolTxSig002',
+      })}'`,
+    );
 
     dbq('remove-position --id pos-sol-001');
     // $2400 + $400 = $2800
@@ -510,58 +530,64 @@ describe('E2E Real Step 7: Solana Cross-Chain Isolation', () => {
 // ============================================================
 describe('E2E Real Step 8: Happy Path — TP1 Partial Sell', () => {
   test('buy second token on Base', () => {
-    dbq(`add-order --json '${JSON.stringify({
-      id: 'real-trade-002',
-      symbol: 'REALWIN',
-      address: '0xrealwin002',
-      chain: 'base',
-      action: 'buy',
-      amount: 400,
-      percent_of_portfolio: 8,
-      tier: 'conviction',
-      entry_price: 1.00,
-      stop_loss: 0.60,
-      take_profit_levels: JSON.stringify([{ level: 1, price: 2.00, sellPercent: 50 }]),
-      analysis_score: 85,
-      risk_score: 12,
-      reasoning: 'Happy path test',
-      approved: 1,
-      approved_at: new Date().toISOString(),
-      approved_by: 'human',
-    })}'`);
+    dbq(
+      `add-order --json '${JSON.stringify({
+        id: 'real-trade-002',
+        symbol: 'REALWIN',
+        address: '0xrealwin002',
+        chain: 'base',
+        action: 'buy',
+        amount: 400,
+        percent_of_portfolio: 8,
+        tier: 'conviction',
+        entry_price: 1.0,
+        stop_loss: 0.6,
+        take_profit_levels: JSON.stringify([{ level: 1, price: 2.0, sellPercent: 50 }]),
+        analysis_score: 85,
+        risk_score: 12,
+        reasoning: 'Happy path test',
+        approved: 1,
+        approved_at: new Date().toISOString(),
+        approved_by: 'human',
+      })}'`,
+    );
 
-    dbq(`add-receipt --json '${JSON.stringify({
-      id: 'rcpt-buy-002',
-      order_id: 'real-trade-002',
+    dbq(
+      `add-receipt --json '${JSON.stringify({
+        id: 'rcpt-buy-002',
+        order_id: 'real-trade-002',
 
-      action: 'buy',
-      symbol: 'REALWIN',
-      address: '0xrealwin002',
-      chain: 'base',
-      amount: 400,
-      quantity: 400,
-      expected_price: 1.00,
-      executed_price: 1.00,
-      slippage: 0,
-      status: 'executed',
-      safe_tx_hash: '0xfake_safe_hash_003',
-      onchain_tx_hash: '0xfake_onchain_hash_003',
-    })}'`);
+        action: 'buy',
+        symbol: 'REALWIN',
+        address: '0xrealwin002',
+        chain: 'base',
+        amount: 400,
+        quantity: 400,
+        expected_price: 1.0,
+        executed_price: 1.0,
+        slippage: 0,
+        status: 'executed',
+        safe_tx_hash: '0xfake_safe_hash_003',
+        onchain_tx_hash: '0xfake_onchain_hash_003',
+      })}'`,
+    );
 
-    dbq(`add-position --json '${JSON.stringify({
-      id: 'pos-real-002',
-      symbol: 'REALWIN',
-      address: '0xrealwin002',
-      chain: 'base',
-      tier: 'conviction',
-      entry_price: 1.00,
-      current_price: 1.00,
-      quantity: 400,
-      value_usd: 400,
-      stop_loss: 0.60,
-      take_profit_levels: JSON.stringify([{ level: 1, price: 2.00, sellPercent: 50 }]),
-      status: 'open',
-    })}'`);
+    dbq(
+      `add-position --json '${JSON.stringify({
+        id: 'pos-real-002',
+        symbol: 'REALWIN',
+        address: '0xrealwin002',
+        chain: 'base',
+        tier: 'conviction',
+        entry_price: 1.0,
+        current_price: 1.0,
+        quantity: 400,
+        value_usd: 400,
+        stop_loss: 0.6,
+        take_profit_levels: JSON.stringify([{ level: 1, price: 2.0, sellPercent: 50 }]),
+        status: 'open',
+      })}'`,
+    );
 
     // $4792 - $400 = $4392
     dbq('set-cash --chain base --amount 4392');
@@ -573,47 +599,53 @@ describe('E2E Real Step 8: Happy Path — TP1 Partial Sell', () => {
   });
 
   test('sentinel detects TP1, writes partial sell order', () => {
-    const result = dbq(`add-order --json '${JSON.stringify({
-      id: 'real-sell-002',
-      action: 'sell',
-      symbol: 'REALWIN',
-      address: '0xrealwin002',
-      chain: 'base',
-      amount: '50%',
-      reason: 'tp1_hit',
-      urgency: 'immediate',
-    })}'`);
+    const result = dbq(
+      `add-order --json '${JSON.stringify({
+        id: 'real-sell-002',
+        action: 'sell',
+        symbol: 'REALWIN',
+        address: '0xrealwin002',
+        chain: 'base',
+        amount: '50%',
+        reason: 'tp1_hit',
+        urgency: 'immediate',
+      })}'`,
+    );
     assert(result.ok, 'Partial sell order created');
   });
 
   test('executor processes partial sell', () => {
     const sellQty = 200; // 50% of 400
-    const sellProceeds = sellQty * 2.10; // $420
+    const sellProceeds = sellQty * 2.1; // $420
 
-    dbq(`add-receipt --json '${JSON.stringify({
-      id: 'rcpt-sell-002',
-      order_id: 'real-sell-002',
+    dbq(
+      `add-receipt --json '${JSON.stringify({
+        id: 'rcpt-sell-002',
+        order_id: 'real-sell-002',
 
-      action: 'sell',
-      symbol: 'REALWIN',
-      address: '0xrealwin002',
-      chain: 'base',
-      amount: sellProceeds,
-      quantity: sellQty,
-      expected_price: 2.00,
-      executed_price: 2.10,
-      slippage: -0.05,
-      status: 'executed',
-      safe_tx_hash: '0xfake_safe_hash_004',
-      onchain_tx_hash: '0xfake_onchain_hash_004',
-    })}'`);
+        action: 'sell',
+        symbol: 'REALWIN',
+        address: '0xrealwin002',
+        chain: 'base',
+        amount: sellProceeds,
+        quantity: sellQty,
+        expected_price: 2.0,
+        executed_price: 2.1,
+        slippage: -0.05,
+        status: 'executed',
+        safe_tx_hash: '0xfake_safe_hash_004',
+        onchain_tx_hash: '0xfake_onchain_hash_004',
+      })}'`,
+    );
 
     // Update position: half quantity, mark partial_exit
-    dbq(`update-position --id pos-real-002 --json '${JSON.stringify({
-      quantity: 200,
-      current_price: 2.10,
-      status: 'partial_exit',
-    })}'`);
+    dbq(
+      `update-position --id pos-real-002 --json '${JSON.stringify({
+        quantity: 200,
+        current_price: 2.1,
+        status: 'partial_exit',
+      })}'`,
+    );
 
     // $4392 + $420 = $4812
     dbq('set-cash --chain base --amount 4812');
@@ -622,7 +654,7 @@ describe('E2E Real Step 8: Happy Path — TP1 Partial Sell', () => {
 
   test('position still open with reduced quantity', () => {
     const positions = dbq('get-positions --status all');
-    const pos = positions.find(p => p.id === 'pos-real-002');
+    const pos = positions.find((p) => p.id === 'pos-real-002');
     assert(pos, 'Position must still exist');
     assertEqual(pos.quantity, 200, 'Quantity halved');
     assertEqual(pos.status, 'partial_exit', 'Status should be partial_exit');
@@ -669,27 +701,29 @@ describe('E2E Real Step 9: Portfolio Sync Metadata', () => {
 
   test('queued receipt status can be recorded', () => {
     // Simulate a queued-in-safe receipt
-    const result = dbq(`add-receipt --json '${JSON.stringify({
-      id: 'rcpt-queued-001',
-      order_id: 'real-trade-002',
+    const result = dbq(
+      `add-receipt --json '${JSON.stringify({
+        id: 'rcpt-queued-001',
+        order_id: 'real-trade-002',
 
-      action: 'buy',
-      symbol: 'QUEUETEST',
-      address: '0xqueuetest',
-      chain: 'base',
-      amount: 100,
-      expected_price: 1.00,
-      status: 'queued_in_safe',
-      safe_tx_hash: '0xfake_queued_hash',
-      signatures_collected: 1,
-      signatures_required: 2,
-    })}'`);
+        action: 'buy',
+        symbol: 'QUEUETEST',
+        address: '0xqueuetest',
+        chain: 'base',
+        amount: 100,
+        expected_price: 1.0,
+        status: 'queued_in_safe',
+        safe_tx_hash: '0xfake_queued_hash',
+        signatures_collected: 1,
+        signatures_required: 2,
+      })}'`,
+    );
     assert(result.ok, 'queued receipt must succeed');
 
     // Verify we can filter by status
     const queued = dbq('get-receipts --status queued_in_safe');
     assert(queued.length >= 1, 'Should find queued receipts');
-    const r = queued.find(q => q.id === 'rcpt-queued-001');
+    const r = queued.find((q) => q.id === 'rcpt-queued-001');
     assert(r, 'Queued receipt must be found');
     assertEqual(r.status, 'queued_in_safe', 'Status must be queued_in_safe');
     assertEqual(r.signatures_collected, 1, 'Signatures collected');
@@ -703,9 +737,21 @@ describe('E2E Real Step 9: Portfolio Sync Metadata', () => {
 describe('E2E Real Cleanup', () => {
   test('remove test database', () => {
     const dbPath = resolve(PROJECT_ROOT, 'data', `${SAFE_ID}.db`);
-    try { unlinkSync(dbPath); } catch { /* ok */ }
-    try { unlinkSync(dbPath + '-wal'); } catch { /* ok */ }
-    try { unlinkSync(dbPath + '-shm'); } catch { /* ok */ }
+    try {
+      unlinkSync(dbPath);
+    } catch {
+      /* ok */
+    }
+    try {
+      unlinkSync(dbPath + '-wal');
+    } catch {
+      /* ok */
+    }
+    try {
+      unlinkSync(dbPath + '-shm');
+    } catch {
+      /* ok */
+    }
     assert(true, 'Cleanup complete');
   });
 });

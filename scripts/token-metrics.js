@@ -15,8 +15,12 @@ function parseArgs() {
   const config = { address: '', chain: '' };
   for (let i = 0; i < args.length; i += 2) {
     switch (args[i]) {
-      case '--address': config.address = args[i + 1]; break;
-      case '--chain': config.chain = args[i + 1]; break;
+      case '--address':
+        config.address = args[i + 1];
+        break;
+      case '--chain':
+        config.chain = args[i + 1];
+        break;
     }
   }
   if (!config.address) {
@@ -26,7 +30,7 @@ function parseArgs() {
   return config;
 }
 
-async function getTokenMetrics(address, chain) {
+async function getTokenMetrics(address, _chain) {
   // Get pair data from DEXScreener
   const url = `${DEXSCREENER_BASE}/tokens/${address}`;
   const res = await fetch(url);
@@ -39,9 +43,7 @@ async function getTokenMetrics(address, chain) {
   }
 
   // Use the highest-liquidity pair
-  const mainPair = pairs.sort((a, b) =>
-    parseFloat(b.liquidity?.usd ?? 0) - parseFloat(a.liquidity?.usd ?? 0)
-  )[0];
+  const mainPair = pairs.sort((a, b) => parseFloat(b.liquidity?.usd ?? 0) - parseFloat(a.liquidity?.usd ?? 0))[0];
 
   return {
     status: 'ok',
@@ -72,12 +74,8 @@ async function getTokenMetrics(address, chain) {
         h6: mainPair.txns?.h6 ?? { buys: 0, sells: 0 },
         h24: mainPair.txns?.h24 ?? { buys: 0, sells: 0 },
       },
-      pairCreatedAt: mainPair.pairCreatedAt
-        ? new Date(mainPair.pairCreatedAt).toISOString()
-        : null,
-      ageHours: mainPair.pairCreatedAt
-        ? ((Date.now() - mainPair.pairCreatedAt) / 3_600_000).toFixed(1)
-        : null,
+      pairCreatedAt: mainPair.pairCreatedAt ? new Date(mainPair.pairCreatedAt).toISOString() : null,
+      ageHours: mainPair.pairCreatedAt ? ((Date.now() - mainPair.pairCreatedAt) / 3_600_000).toFixed(1) : null,
     },
     dex: mainPair.dexId,
     pairAddress: mainPair.pairAddress,
@@ -93,11 +91,13 @@ async function main() {
     const result = await getTokenMetrics(config.address, config.chain);
     console.log(JSON.stringify(result, null, 2));
   } catch (err) {
-    console.log(JSON.stringify({
-      status: 'error',
-      error: err.message,
-      timestamp: new Date().toISOString(),
-    }));
+    console.log(
+      JSON.stringify({
+        status: 'error',
+        error: err.message,
+        timestamp: new Date().toISOString(),
+      }),
+    );
     process.exit(1);
   }
 }

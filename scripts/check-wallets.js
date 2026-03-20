@@ -25,9 +25,15 @@ function parseArgs() {
   const config = { positions: false, chain: null, type: null };
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case '--positions': config.positions = true; break;
-      case '--chain': config.chain = args[++i]; break;
-      case '--type': config.type = args[++i]; break;
+      case '--positions':
+        config.positions = true;
+        break;
+      case '--chain':
+        config.chain = args[++i];
+        break;
+      case '--type':
+        config.type = args[++i];
+        break;
     }
   }
   return config;
@@ -39,12 +45,21 @@ function parseArgs() {
 
 async function checkEvmWallet(address, chain) {
   let chainCfg;
-  try { chainCfg = getChain(chain); } catch { return { address, chain, status: 'unsupported_chain' }; }
+  try {
+    chainCfg = getChain(chain);
+  } catch {
+    return { address, chain, status: 'unsupported_chain' };
+  }
   if (!chainCfg.explorer) return { address, chain, status: 'unsupported_chain' };
 
   const apiKey = process.env[chainCfg.explorer.apiKeyEnv];
   if (!apiKey) {
-    return { address, chain, status: 'no_api_key', message: `Set ${chainCfg.explorer.apiKeyEnv} to enable ${chain} wallet tracking` };
+    return {
+      address,
+      chain,
+      status: 'no_api_key',
+      message: `Set ${chainCfg.explorer.apiKeyEnv} to enable ${chain} wallet tracking`,
+    };
   }
 
   try {
@@ -56,7 +71,7 @@ async function checkEvmWallet(address, chain) {
       return { address, chain, status: 'no_activity', recentTransactions: [] };
     }
 
-    const txs = data.result.map(tx => ({
+    const txs = data.result.map((tx) => ({
       hash: tx.hash,
       tokenSymbol: tx.tokenSymbol,
       tokenAddress: tx.contractAddress,
@@ -91,7 +106,12 @@ async function checkSolanaWallet(address) {
   if (solscanKey) return checkSolanaViaSolscan(address, solscanKey);
   if (heliusKey) return checkSolanaViaHelius(address, heliusKey);
 
-  return { address, chain: 'solana', status: 'no_api_key', message: 'Set SOLSCAN_API_KEY or HELIUS_API_KEY to enable Solana wallet tracking' };
+  return {
+    address,
+    chain: 'solana',
+    status: 'no_api_key',
+    message: 'Set SOLSCAN_API_KEY or HELIUS_API_KEY to enable Solana wallet tracking',
+  };
 }
 
 async function checkSolanaViaSolscan(address, apiKey) {
@@ -104,7 +124,7 @@ async function checkSolanaViaSolscan(address, apiKey) {
       return { address, chain: 'solana', status: 'no_activity', recentTransactions: [] };
     }
 
-    const txs = data.data.map(tx => ({
+    const txs = data.data.map((tx) => ({
       hash: tx.tx_hash,
       timestamp: new Date((tx.block_time ?? 0) * 1000).toISOString(),
       status: tx.status,
@@ -133,7 +153,7 @@ async function checkSolanaViaHelius(address, apiKey) {
       return { address, chain: 'solana', status: 'no_activity', recentTransactions: [] };
     }
 
-    const txs = data.map(tx => ({
+    const txs = data.map((tx) => ({
       hash: tx.signature,
       type: tx.type,
       timestamp: new Date((tx.timestamp ?? 0) * 1000).toISOString(),
@@ -160,7 +180,12 @@ async function checkSolanaViaHelius(address, apiKey) {
 async function checkWallet(address, chain) {
   if (isSolana(chain)) return checkSolanaWallet(address);
   if (isEVM(chain)) return checkEvmWallet(address, chain);
-  return { address, chain, status: 'unsupported_chain', message: `Chain '${chain}' not supported. Supported: ${getAllChains().join(', ')}` };
+  return {
+    address,
+    chain,
+    status: 'unsupported_chain',
+    message: `Chain '${chain}' not supported. Supported: ${getAllChains().join(', ')}`,
+  };
 }
 
 // ============================================================
@@ -177,12 +202,13 @@ function getPositionRelatedWallets(db, allWallets) {
   if (positions.length === 0) return [];
 
   // Match tracked wallets whose notes reference a position's token address or symbol
-  return allWallets.filter(w => {
+  return allWallets.filter((w) => {
     if (w.type === 'dev' || w.type === 'deployer') {
-      return positions.some(p =>
-        (w.notes && w.notes.toLowerCase().includes(p.address.toLowerCase())) ||
-        (w.notes && w.notes.toLowerCase().includes(p.symbol.toLowerCase())) ||
-        (w.chain === p.chain)
+      return positions.some(
+        (p) =>
+          (w.notes && w.notes.toLowerCase().includes(p.address.toLowerCase())) ||
+          (w.notes && w.notes.toLowerCase().includes(p.symbol.toLowerCase())) ||
+          w.chain === p.chain,
       );
     }
     return false;
@@ -210,33 +236,35 @@ async function main() {
 
     // Apply filters
     if (config.chain) {
-      wallets = wallets.filter(w => w.chain === config.chain);
+      wallets = wallets.filter((w) => w.chain === config.chain);
     }
     if (config.type) {
-      wallets = wallets.filter(w => w.type === config.type);
+      wallets = wallets.filter((w) => w.type === config.type);
     }
 
     // --positions: narrow to wallets related to open positions
     let positionRelated = null;
     if (config.positions) {
       const related = getPositionRelatedWallets(db, wallets);
-      positionRelated = related.map(w => ({ address: w.address, chain: w.chain, label: w.label, type: w.type }));
+      positionRelated = related.map((w) => ({ address: w.address, chain: w.chain, label: w.label, type: w.type }));
       // If --positions, only check position-related wallets
       if (related.length > 0) {
-        const relatedKeys = new Set(related.map(w => `${w.address}:${w.chain}`));
-        wallets = wallets.filter(w => relatedKeys.has(`${w.address}:${w.chain}`));
+        const relatedKeys = new Set(related.map((w) => `${w.address}:${w.chain}`));
+        wallets = wallets.filter((w) => relatedKeys.has(`${w.address}:${w.chain}`));
       }
     }
 
     if (wallets.length === 0) {
-      console.log(JSON.stringify({
-        status: 'ok',
-        tracked: 0,
-        recentActivity: 0,
-        wallets: [],
-        ...(positionRelated !== null ? { positionRelated } : {}),
-        timestamp: new Date().toISOString(),
-      }));
+      console.log(
+        JSON.stringify({
+          status: 'ok',
+          tracked: 0,
+          recentActivity: 0,
+          wallets: [],
+          ...(positionRelated !== null ? { positionRelated } : {}),
+          timestamp: new Date().toISOString(),
+        }),
+      );
       return;
     }
 
@@ -259,31 +287,37 @@ async function main() {
           });
           // Rate limit: 250ms between calls to same chain's API
           if (chainWallets.indexOf(wallet) < chainWallets.length - 1) {
-            await new Promise(r => setTimeout(r, 250));
+            await new Promise((r) => setTimeout(r, 250));
           }
         }
         return results;
-      })
+      }),
     );
 
     const results = chainResults.flat();
 
     // Find noteworthy activity (last hour)
-    const noteworthy = results.filter(r =>
-      r.recentTransactions?.some(tx => {
+    const noteworthy = results.filter((r) =>
+      r.recentTransactions?.some((tx) => {
         const age = Date.now() - new Date(tx.timestamp).getTime();
         return age < 3_600_000;
-      })
+      }),
     );
 
-    console.log(JSON.stringify({
-      status: 'ok',
-      tracked: wallets.length,
-      recentActivity: noteworthy.length,
-      wallets: results,
-      ...(positionRelated !== null ? { positionRelated } : {}),
-      timestamp: new Date().toISOString(),
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: 'ok',
+          tracked: wallets.length,
+          recentActivity: noteworthy.length,
+          wallets: results,
+          ...(positionRelated !== null ? { positionRelated } : {}),
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
   } finally {
     close();
   }

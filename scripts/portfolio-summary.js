@@ -36,27 +36,37 @@ function loadPortfolio(chain) {
       const cashPrefix = isPaper ? 'paper_cash_' : 'cash_';
       const depositedPrefix = isPaper ? 'paper_initial_balance_' : 'total_deposited_';
 
-      const positions = db.prepare(
-        `SELECT * FROM ${posTable} WHERE chain = ? AND status IN ('open', 'partial_exit') ORDER BY created_at DESC`
-      ).all(chain);
-      const cash = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(`${cashPrefix}${chain}`)?.value || '0');
-      const totalDeposited = parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(`${depositedPrefix}${chain}`)?.value || '0');
+      const positions = db
+        .prepare(
+          `SELECT * FROM ${posTable} WHERE chain = ? AND status IN ('open', 'partial_exit') ORDER BY created_at DESC`,
+        )
+        .all(chain);
+      const cash = parseFloat(
+        db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(`${cashPrefix}${chain}`)?.value || '0',
+      );
+      const totalDeposited = parseFloat(
+        db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(`${depositedPrefix}${chain}`)?.value || '0',
+      );
       return { positions, cash, totalDeposited };
     }
 
     // No chain filter — sum all chains
     const posTable = isPaper ? 'paper_positions' : 'positions';
-    const positions = db.prepare(
-      `SELECT * FROM ${posTable} WHERE status IN ('open', 'partial_exit') ORDER BY created_at DESC`
-    ).all();
+    const positions = db
+      .prepare(`SELECT * FROM ${posTable} WHERE status IN ('open', 'partial_exit') ORDER BY created_at DESC`)
+      .all();
 
     let cash = 0;
     let totalDeposited = 0;
     const cashPrefix = isPaper ? 'paper_cash_' : 'cash_';
     const depositedPrefix = isPaper ? 'paper_initial_balance_' : 'total_deposited_';
     for (const c of getAllChains()) {
-      cash += parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(`${cashPrefix}${c}`)?.value || '0');
-      totalDeposited += parseFloat(db.prepare("SELECT value FROM portfolio_meta WHERE key = ?").get(`${depositedPrefix}${c}`)?.value || '0');
+      cash += parseFloat(
+        db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(`${cashPrefix}${c}`)?.value || '0',
+      );
+      totalDeposited += parseFloat(
+        db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(`${depositedPrefix}${c}`)?.value || '0',
+      );
     }
     return { positions, cash, totalDeposited };
   } catch {
@@ -81,11 +91,17 @@ async function main() {
   const portfolio = loadPortfolio(chain);
 
   if (portfolio.positions.length === 0 && portfolio.cash === 0) {
-    console.log(JSON.stringify({
-      status: 'ok',
-      message: 'Empty portfolio. Set up positions via db-query.js add-position or deposit cash via set-cash.',
-      timestamp: new Date().toISOString(),
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: 'ok',
+          message: 'Empty portfolio. Set up positions via db-query.js add-position or deposit cash via set-cash.',
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
     close();
     return;
   }
@@ -95,10 +111,10 @@ async function main() {
   const positionDetails = [];
 
   for (const pos of portfolio.positions) {
-    const currentPrice = await getCurrentPrice(pos.symbol) ?? pos.entry_price;
+    const currentPrice = (await getCurrentPrice(pos.symbol)) ?? pos.entry_price;
     const quantity = pos.quantity;
     const value = currentPrice * quantity;
-    const pnl = ((currentPrice - pos.entry_price) / pos.entry_price * 100);
+    const pnl = ((currentPrice - pos.entry_price) / pos.entry_price) * 100;
 
     totalPositionValue += value;
     positionDetails.push({
@@ -117,13 +133,12 @@ async function main() {
       status: pos.status,
     });
 
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200));
   }
 
   const totalValue = totalPositionValue + portfolio.cash;
-  const totalPnl = portfolio.totalDeposited > 0
-    ? ((totalValue - portfolio.totalDeposited) / portfolio.totalDeposited * 100)
-    : 0;
+  const totalPnl =
+    portfolio.totalDeposited > 0 ? ((totalValue - portfolio.totalDeposited) / portfolio.totalDeposited) * 100 : 0;
 
   // Calculate allocation by tier
   const allocation = { base: 0, conviction: 0, moonshot: 0, cash: portfolio.cash };
@@ -132,18 +147,20 @@ async function main() {
   }
 
   const allocationPercent = {
-    base: totalValue > 0 ? parseFloat((allocation.base / totalValue * 100).toFixed(1)) : 0,
-    conviction: totalValue > 0 ? parseFloat((allocation.conviction / totalValue * 100).toFixed(1)) : 0,
-    moonshot: totalValue > 0 ? parseFloat((allocation.moonshot / totalValue * 100).toFixed(1)) : 0,
-    cash: totalValue > 0 ? parseFloat((allocation.cash / totalValue * 100).toFixed(1)) : 0,
+    base: totalValue > 0 ? parseFloat(((allocation.base / totalValue) * 100).toFixed(1)) : 0,
+    conviction: totalValue > 0 ? parseFloat(((allocation.conviction / totalValue) * 100).toFixed(1)) : 0,
+    moonshot: totalValue > 0 ? parseFloat(((allocation.moonshot / totalValue) * 100).toFixed(1)) : 0,
+    cash: totalValue > 0 ? parseFloat(((allocation.cash / totalValue) * 100).toFixed(1)) : 0,
   };
 
   // Check allocation health — use per-chain rules if chain specified
   const allocationAlerts = [];
   if (chain) {
     const rules = getPortfolioRules(chain);
-    if (allocationPercent.moonshot > rules.maxMoonshotAllocation) allocationAlerts.push(`Moonshot allocation exceeds ${rules.maxMoonshotAllocation}% target`);
-    if (allocationPercent.cash < rules.minCashReserve) allocationAlerts.push(`Cash reserve below ${rules.minCashReserve}% minimum`);
+    if (allocationPercent.moonshot > rules.maxMoonshotAllocation)
+      allocationAlerts.push(`Moonshot allocation exceeds ${rules.maxMoonshotAllocation}% target`);
+    if (allocationPercent.cash < rules.minCashReserve)
+      allocationAlerts.push(`Cash reserve below ${rules.minCashReserve}% minimum`);
   } else {
     if (allocationPercent.moonshot > 20) allocationAlerts.push('Moonshot allocation exceeds 20% target');
     if (allocationPercent.cash < 10) allocationAlerts.push('Cash reserve below 10% minimum');

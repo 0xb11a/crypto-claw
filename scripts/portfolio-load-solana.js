@@ -21,21 +21,27 @@ import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import * as multisig from '@sqds/multisig';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
-const USDC_MINT = getCashToken('solana').address;
+const _USDC_MINT = getCashToken('solana').address;
 const STABLECOIN_MINTS = new Set([
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
 ]);
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 function parseArgs() {
   const args = process.argv.slice(2);
   const config = { chain: '', trigger: 'periodic' };
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case '--chain': config.chain = args[++i]; break;
-      case '--trigger': config.trigger = args[++i]; break;
+      case '--chain':
+        config.chain = args[++i];
+        break;
+      case '--trigger':
+        config.trigger = args[++i];
+        break;
     }
   }
   if (!config.chain) {
@@ -78,9 +84,7 @@ async function fetchTokenPrice(address) {
     const data = await res.json();
     const pairs = data.pairs ?? [];
     if (pairs.length === 0) return null;
-    const mainPair = pairs.sort((a, b) =>
-      parseFloat(b.liquidity?.usd ?? 0) - parseFloat(a.liquidity?.usd ?? 0)
-    )[0];
+    const mainPair = pairs.sort((a, b) => parseFloat(b.liquidity?.usd ?? 0) - parseFloat(a.liquidity?.usd ?? 0))[0];
     const price = parseFloat(mainPair.priceUsd ?? 0);
     return price > 0 ? price : null;
   } catch {
@@ -222,11 +226,17 @@ async function main() {
 
   // Paper mode check
   if (process.env.PAPER_MODE === 'true') {
-    console.log(JSON.stringify({
-      status: 'skipped',
-      reason: 'paper_mode',
-      message: 'Portfolio sync skipped in paper mode — DB is sole source of truth',
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: 'skipped',
+          reason: 'paper_mode',
+          message: 'Portfolio sync skipped in paper mode — DB is sole source of truth',
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
@@ -239,10 +249,12 @@ async function main() {
   }
 
   if (!isSolana(chain)) {
-    console.log(JSON.stringify({
-      status: 'error',
-      error: `Chain '${chain}' is not Solana. Use portfolio-load-evm.js for EVM chains.`,
-    }));
+    console.log(
+      JSON.stringify({
+        status: 'error',
+        error: `Chain '${chain}' is not Solana. Use portfolio-load-evm.js for EVM chains.`,
+      }),
+    );
     process.exit(1);
   }
 
@@ -250,11 +262,17 @@ async function main() {
   try {
     vaultEnv = resolveVaultAddress(chainCfg);
   } catch (err) {
-    console.log(JSON.stringify({
-      status: 'error',
-      error: err.message,
-      timestamp: new Date().toISOString(),
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: 'error',
+          error: err.message,
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
     process.exit(1);
   }
 
@@ -266,7 +284,7 @@ async function main() {
     process.exit(1);
   }
 
-  let syncResult = { positions_synced: 0, positions_closed: 0, positions_discovered: 0, cash_synced: 0 };
+  const syncResult = { positions_synced: 0, positions_closed: 0, positions_discovered: 0, cash_synced: 0 };
   let provider = 'rpc';
 
   try {
@@ -314,9 +332,9 @@ async function main() {
     }
 
     // 3. Load current DB positions for this chain
-    const dbPositions = db.prepare(
-      "SELECT * FROM positions WHERE chain = ? AND status IN ('open', 'partial_exit', 'pending_analysis')"
-    ).all(chain);
+    const dbPositions = db
+      .prepare("SELECT * FROM positions WHERE chain = ? AND status IN ('open', 'partial_exit', 'pending_analysis')")
+      .all(chain);
 
     const now = new Date().toISOString();
 
@@ -330,23 +348,27 @@ async function main() {
 
         if (onchain && onchain.balance > 0) {
           matchedAddresses.add(addrKey);
-          db.prepare(`
+          db.prepare(
+            `
             UPDATE positions SET
               quantity = ?, value_usd = ?, onchain_balance = ?,
               current_price = ?, last_synced_at = ?, updated_at = datetime('now')
             WHERE id = ?
-          `).run(onchain.balance, onchain.value_usd, onchain.balance, onchain.price, now, pos.id);
+          `,
+          ).run(onchain.balance, onchain.value_usd, onchain.balance, onchain.price, now, pos.id);
           syncResult.positions_synced++;
         } else {
           matchedAddresses.add(addrKey);
-          db.prepare(`
+          db.prepare(
+            `
             UPDATE positions SET
               status = 'closed', onchain_balance = 0, last_synced_at = ?,
               exit_reason = 'onchain_sync_zero_balance', exit_date = date('now'),
               notes = COALESCE(notes || ' | ', '') || 'Closed by on-chain sync: balance_zero_onchain',
               updated_at = datetime('now')
             WHERE id = ?
-          `).run(now, pos.id);
+          `,
+          ).run(now, pos.id);
           syncResult.positions_closed++;
         }
       }
@@ -358,15 +380,26 @@ async function main() {
 
         const stopLoss = token.price > 0 ? token.price * 0.5 : 0;
         const id = generateId();
-        db.prepare(`
+        db.prepare(
+          `
           INSERT INTO positions (id, symbol, name, address, chain, tier, entry_price, current_price,
             quantity, value_usd, stop_loss, take_profit_levels, status, onchain_balance, last_synced_at, notes)
           VALUES (?, ?, ?, ?, ?, 'moonshot', ?, ?, ?, ?, ?, '[]', 'pending_analysis', ?, ?, ?)
-        `).run(
-          id, token.symbol, token.name, token.address, chain,
-          token.price, token.price, token.balance, token.value_usd,
-          stopLoss, token.balance, now,
-          'Auto-discovered on-chain — awaiting analysis'
+        `,
+        ).run(
+          id,
+          token.symbol,
+          token.name,
+          token.address,
+          chain,
+          token.price,
+          token.price,
+          token.balance,
+          token.value_usd,
+          stopLoss,
+          token.balance,
+          now,
+          'Auto-discovered on-chain — awaiting analysis',
         );
         syncResult.positions_discovered++;
       }
@@ -374,53 +407,77 @@ async function main() {
       // 6. Sync stablecoin balance → per-chain cash
       if (cashBalance > 0) {
         const chainCashKey = `cash_${chain}`;
-        db.prepare(`
+        db.prepare(
+          `
           INSERT INTO portfolio_meta (key, value) VALUES (?, ?)
           ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')
-        `).run(chainCashKey, cashBalance.toString(), cashBalance.toString());
+        `,
+        ).run(chainCashKey, cashBalance.toString(), cashBalance.toString());
         syncResult.cash_synced = cashBalance;
       }
 
       // 7. Record sync
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO portfolio_sync (chain, provider, trigger, status, positions_synced, positions_closed, positions_discovered)
         VALUES (?, ?, ?, 'success', ?, ?, ?)
-      `).run(chain, provider, trigger, syncResult.positions_synced, syncResult.positions_closed, syncResult.positions_discovered);
+      `,
+      ).run(
+        chain,
+        provider,
+        trigger,
+        syncResult.positions_synced,
+        syncResult.positions_closed,
+        syncResult.positions_discovered,
+      );
 
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO portfolio_meta (key, value) VALUES (?, ?)
         ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')
-      `).run(`last_sync_${chain}`, now, now);
+      `,
+      ).run(`last_sync_${chain}`, now, now);
     });
 
     reconcile();
 
-    console.log(JSON.stringify({
-      status: 'ok',
-      chain,
-      trigger,
-      provider,
-      wallet: vaultEnv.vaultPda.toString(),
-      onchain_tokens: onchainMap.size,
-      ...syncResult,
-      synced_at: now,
-      timestamp: new Date().toISOString(),
-    }, null, 2));
-
+    console.log(
+      JSON.stringify(
+        {
+          status: 'ok',
+          chain,
+          trigger,
+          provider,
+          wallet: vaultEnv.vaultPda.toString(),
+          onchain_tokens: onchainMap.size,
+          ...syncResult,
+          synced_at: now,
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
   } catch (err) {
     try {
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO portfolio_sync (chain, provider, trigger, status, error)
         VALUES (?, ?, ?, 'error', ?)
-      `).run(chain, provider, trigger, err.message);
-    } catch { /* best effort */ }
+      `,
+      ).run(chain, provider, trigger, err.message);
+    } catch {
+      /* best effort */
+    }
 
-    console.log(JSON.stringify({
-      status: 'error',
-      chain,
-      error: err.message,
-      timestamp: new Date().toISOString(),
-    }));
+    console.log(
+      JSON.stringify({
+        status: 'error',
+        chain,
+        error: err.message,
+        timestamp: new Date().toISOString(),
+      }),
+    );
     process.exit(1);
   } finally {
     close();

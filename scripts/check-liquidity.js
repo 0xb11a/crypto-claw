@@ -33,15 +33,19 @@ function loadPositions(db) {
 }
 
 function getPreviousSnapshot(db, address, chain) {
-  return db.prepare(
-    'SELECT * FROM liquidity_snapshots WHERE address = ? AND chain = ? ORDER BY checked_at DESC LIMIT 1'
-  ).get(address, chain) || null;
+  return (
+    db
+      .prepare('SELECT * FROM liquidity_snapshots WHERE address = ? AND chain = ? ORDER BY checked_at DESC LIMIT 1')
+      .get(address, chain) || null
+  );
 }
 
 function writeSnapshot(db, address, chain, liquidityUsd) {
-  db.prepare(
-    'INSERT INTO liquidity_snapshots (address, chain, liquidity_usd) VALUES (?, ?, ?)'
-  ).run(address, chain, liquidityUsd);
+  db.prepare('INSERT INTO liquidity_snapshots (address, chain, liquidity_usd) VALUES (?, ?, ?)').run(
+    address,
+    chain,
+    liquidityUsd,
+  );
 }
 
 async function getLiquidity(address) {
@@ -50,13 +54,13 @@ async function getLiquidity(address) {
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
-    const pair = data.pairs?.sort((a, b) =>
-      parseFloat(b.liquidity?.usd ?? 0) - parseFloat(a.liquidity?.usd ?? 0)
-    )[0];
-    return pair ? {
-      liquidity: parseFloat(pair.liquidity?.usd ?? 0),
-      symbol: pair.baseToken?.symbol,
-    } : null;
+    const pair = data.pairs?.sort((a, b) => parseFloat(b.liquidity?.usd ?? 0) - parseFloat(a.liquidity?.usd ?? 0))[0];
+    return pair
+      ? {
+          liquidity: parseFloat(pair.liquidity?.usd ?? 0),
+          symbol: pair.baseToken?.symbol,
+        }
+      : null;
   } catch {
     return null;
   }
@@ -67,15 +71,21 @@ async function main() {
   const positions = loadPositions(db);
 
   if (positions.length === 0) {
-    console.log(JSON.stringify({
-      status: 'ok',
-      message: 'No open positions to check liquidity for',
-      tracked: 0,
-      alertCount: 0,
-      alerts: [],
-      positions: {},
-      timestamp: new Date().toISOString(),
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: 'ok',
+          message: 'No open positions to check liquidity for',
+          tracked: 0,
+          alertCount: 0,
+          alerts: [],
+          positions: {},
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
     close();
     return;
   }
@@ -88,9 +98,7 @@ async function main() {
     if (!current) continue;
 
     const prev = getPreviousSnapshot(db, pos.address, pos.chain);
-    const change = prev
-      ? ((current.liquidity - prev.liquidity_usd) / prev.liquidity_usd * 100)
-      : 0;
+    const change = prev ? ((current.liquidity - prev.liquidity_usd) / prev.liquidity_usd) * 100 : 0;
 
     // Write new snapshot to DB
     writeSnapshot(db, pos.address, pos.chain, current.liquidity);
@@ -130,17 +138,23 @@ async function main() {
       });
     }
 
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200));
   }
 
-  console.log(JSON.stringify({
-    status: 'ok',
-    tracked: positions.length,
-    alertCount: alerts.length,
-    alerts,
-    positions: updates,
-    timestamp: new Date().toISOString(),
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        status: 'ok',
+        tracked: positions.length,
+        alertCount: alerts.length,
+        alerts,
+        positions: updates,
+        timestamp: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+  );
 
   close();
 }

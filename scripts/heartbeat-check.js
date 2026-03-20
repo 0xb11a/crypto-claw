@@ -32,33 +32,44 @@ try {
   const paperMode = (process.env.PAPER_MODE || 'false') === 'true';
 
   if (agent === 'executor') {
-    const counts = db.prepare(`
+    const counts = db
+      .prepare(
+        `
       SELECT
         SUM(CASE WHEN action='sell' THEN 1 ELSE 0 END) as sell_count,
         SUM(CASE WHEN action='buy' THEN 1 ELSE 0 END) as buy_count
       FROM orders WHERE executed = 0
-    `).get();
+    `,
+      )
+      .get();
     const pendingSells = counts.sell_count || 0;
     const pendingBuys = counts.buy_count || 0;
 
     let pendingSafe = 0;
     if (!paperMode) {
-      pendingSafe = db.prepare("SELECT COUNT(*) as count FROM receipts WHERE status IN ('queued_in_safe', 'queued_in_squads')").get().count;
+      pendingSafe = db
+        .prepare("SELECT COUNT(*) as count FROM receipts WHERE status IN ('queued_in_safe', 'queued_in_squads')")
+        .get().count;
     }
 
     if (pendingSells === 0 && pendingBuys === 0 && pendingSafe === 0) {
       console.log(JSON.stringify({ agent: 'executor', skip: true, reason: 'no pending orders' }));
     } else {
-      console.log(JSON.stringify({
-        agent: 'executor', skip: false,
-        pending_sells: pendingSells,
-        pending_buys: pendingBuys,
-        ...(pendingSafe > 0 ? { pending_safe: pendingSafe } : {}),
-      }));
+      console.log(
+        JSON.stringify({
+          agent: 'executor',
+          skip: false,
+          pending_sells: pendingSells,
+          pending_buys: pendingBuys,
+          ...(pendingSafe > 0 ? { pending_safe: pendingSafe } : {}),
+        }),
+      );
     }
   } else if (agent === 'sentinel') {
     const table = paperMode ? 'paper_positions' : 'positions';
-    const openPositions = db.prepare(`SELECT COUNT(*) as count FROM ${table} WHERE status IN ('open', 'partial_exit')`).get().count;
+    const openPositions = db
+      .prepare(`SELECT COUNT(*) as count FROM ${table} WHERE status IN ('open', 'partial_exit')`)
+      .get().count;
 
     if (openPositions === 0) {
       console.log(JSON.stringify({ agent: 'sentinel', skip: true, reason: 'no open positions' }));

@@ -14,10 +14,10 @@ import SafeApiKitModule from '@safe-global/api-kit';
 const SafeApiKit = SafeApiKitModule.default || SafeApiKitModule;
 
 const SAFE_TX_SERVICE_URLS = {
-  '1': 'https://safe-transaction-mainnet.safe.global',
-  '8453': 'https://safe-transaction-base.safe.global',
-  '42161': 'https://safe-transaction-arbitrum.safe.global',
-  '10': 'https://safe-transaction-optimism.safe.global',
+  1: 'https://safe-transaction-mainnet.safe.global',
+  8453: 'https://safe-transaction-base.safe.global',
+  42161: 'https://safe-transaction-arbitrum.safe.global',
+  10: 'https://safe-transaction-optimism.safe.global',
 };
 
 // USDC address resolved per-chain from chains.js
@@ -32,8 +32,12 @@ function parseArgs() {
   const config = { chain: '', safeHash: '' };
   for (let i = 0; i < args.length; i += 2) {
     switch (args[i]) {
-      case '--chain': config.chain = args[i + 1]; break;
-      case '--safe-hash': config.safeHash = args[i + 1]; break;
+      case '--chain':
+        config.chain = args[i + 1];
+        break;
+      case '--safe-hash':
+        config.safeHash = args[i + 1];
+        break;
     }
   }
   if (!config.chain) {
@@ -73,7 +77,7 @@ async function retryOnRateLimit(fn, retries = 2, delay = 2000) {
     } catch (err) {
       const is429 = err.message?.includes('Too Many Requests') || err.status === 429;
       if (is429 && i < retries) {
-        await new Promise(r => setTimeout(r, delay * (i + 1)));
+        await new Promise((r) => setTimeout(r, delay * (i + 1)));
         continue;
       }
       throw err;
@@ -109,7 +113,7 @@ async function getSafeInfo(config) {
     },
     pendingTransactions: {
       count: pendingTxs.count,
-      results: pendingTxs.results.map(tx => ({
+      results: pendingTxs.results.map((tx) => ({
         safeHash: tx.safeTxHash,
         nonce: tx.nonce,
         confirmations: tx.confirmations?.length ?? 0,
@@ -138,11 +142,12 @@ async function getTransactionStatus(config) {
       value: tx.value,
       executed: tx.isExecuted,
       txHash: tx.transactionHash || null,
-      confirmations: tx.confirmations?.map(c => ({
-        owner: c.owner,
-        signature: c.signature?.slice(0, 20) + '...',
-        submitted: c.submissionDate,
-      })) ?? [],
+      confirmations:
+        tx.confirmations?.map((c) => ({
+          owner: c.owner,
+          signature: c.signature?.slice(0, 20) + '...',
+          submitted: c.submissionDate,
+        })) ?? [],
       confirmationsRequired: tx.confirmationsRequired,
       submissionDate: tx.submissionDate,
       executionDate: tx.executionDate || null,
@@ -182,9 +187,7 @@ async function main() {
   config.safeHash = args.safeHash;
 
   try {
-    const result = args.safeHash
-      ? await getTransactionStatus(config)
-      : await getSafeInfo(config);
+    const result = args.safeHash ? await getTransactionStatus(config) : await getSafeInfo(config);
 
     console.log(JSON.stringify(result, null, 2));
   } catch (err) {

@@ -75,7 +75,7 @@ export function summary() {
   console.log(`Tests: ${passedTests} passed, ${failedTests} failed, ${totalTests} total`);
   if (failures.length > 0) {
     console.log('\nFailures:');
-    failures.forEach(f => console.log(`  - ${f.name}: ${f.error}`));
+    failures.forEach((f) => console.log(`  - ${f.name}: ${f.error}`));
   }
   console.log('='.repeat(50));
   return failedTests === 0;

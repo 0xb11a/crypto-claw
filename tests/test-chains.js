@@ -138,7 +138,11 @@ async function runTests() {
 
     test('getChain throws for unknown chain', () => {
       let threw = false;
-      try { chains.getChain('ethereum'); } catch { threw = true; }
+      try {
+        chains.getChain('ethereum');
+      } catch {
+        threw = true;
+      }
       assert(threw, 'Should throw for unknown chain');
     });
 
@@ -285,16 +289,14 @@ async function runTests() {
   describe('Portfolio Sync Schema', () => {
     test('portfolio_sync table exists after migration', () => {
       const db = dbMod.getDb();
-      const tables = db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='portfolio_sync'"
-      ).all();
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='portfolio_sync'").all();
       assertEqual(tables.length, 1);
     });
 
     test('positions table has onchain_balance and last_synced_at columns', () => {
       const db = dbMod.getDb();
-      const cols = db.prepare("PRAGMA table_info(positions)").all();
-      const colNames = cols.map(c => c.name);
+      const cols = db.prepare('PRAGMA table_info(positions)').all();
+      const colNames = cols.map((c) => c.name);
       assert(colNames.includes('onchain_balance'), 'Should have onchain_balance');
       assert(colNames.includes('last_synced_at'), 'Should have last_synced_at');
     });
@@ -302,10 +304,12 @@ async function runTests() {
     test('positions table allows pending_analysis status', () => {
       const db = dbMod.getDb();
       const id = `test-pa-${Date.now()}`;
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO positions (id, symbol, address, chain, tier, entry_price, quantity, stop_loss, take_profit_levels, status)
         VALUES (?, 'TEST', '0xtest', 'base', 'moonshot', 1.0, 100, 0.5, '[]', 'pending_analysis')
-      `).run(id);
+      `,
+      ).run(id);
       const row = db.prepare('SELECT status FROM positions WHERE id = ?').get(id);
       assertEqual(row.status, 'pending_analysis');
       db.prepare('DELETE FROM positions WHERE id = ?').run(id);
@@ -313,9 +317,9 @@ async function runTests() {
 
     test('portfolio_sync heartbeat seeded', () => {
       const db = dbMod.getDb();
-      const row = db.prepare(
-        "SELECT * FROM heartbeat_state WHERE agent = 'sentinel' AND check_type = 'portfolio_sync'"
-      ).get();
+      const row = db
+        .prepare("SELECT * FROM heartbeat_state WHERE agent = 'sentinel' AND check_type = 'portfolio_sync'")
+        .get();
       assert(row !== undefined, 'Should have portfolio_sync heartbeat');
     });
   });
@@ -328,16 +332,20 @@ async function runTests() {
     test('on-chain zero balance closes DB position', () => {
       const db = dbMod.getDb();
       const id = `test-sync-close-${Date.now()}`;
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO positions (id, symbol, address, chain, tier, entry_price, quantity, stop_loss, take_profit_levels, status)
         VALUES (?, 'CLOSE', '0xclose', 'base', 'moonshot', 1.0, 100, 0.5, '[]', 'open')
-      `).run(id);
+      `,
+      ).run(id);
       // Simulate sync: close the position
-      db.prepare(`
+      db.prepare(
+        `
         UPDATE positions SET status = 'closed', onchain_balance = 0, last_synced_at = datetime('now'),
           notes = 'Closed by on-chain sync: balance_zero_onchain', updated_at = datetime('now')
         WHERE id = ?
-      `).run(id);
+      `,
+      ).run(id);
       const row = db.prepare('SELECT * FROM positions WHERE id = ?').get(id);
       assertEqual(row.status, 'closed');
       assertEqual(row.onchain_balance, 0);
@@ -349,12 +357,14 @@ async function runTests() {
       const db = dbMod.getDb();
       const id = `test-sync-discover-${Date.now()}`;
       const now = new Date().toISOString();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO positions (id, symbol, name, address, chain, tier, entry_price, current_price,
           quantity, value_usd, stop_loss, take_profit_levels, status, onchain_balance, last_synced_at, notes)
         VALUES (?, 'NEWTOKEN', 'New Token', '0xnew', 'base', 'moonshot', 0.5, 0.5,
           1000, 500, 0.25, '[]', 'pending_analysis', 1000, ?, 'Auto-discovered on-chain — awaiting analysis')
-      `).run(id, now);
+      `,
+      ).run(id, now);
       const row = db.prepare('SELECT * FROM positions WHERE id = ?').get(id);
       assertEqual(row.status, 'pending_analysis');
       assertEqual(row.tier, 'moonshot');
@@ -366,15 +376,19 @@ async function runTests() {
     test('balance update propagates to quantity and value_usd', () => {
       const db = dbMod.getDb();
       const id = `test-sync-update-${Date.now()}`;
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO positions (id, symbol, address, chain, tier, entry_price, quantity, value_usd, stop_loss, take_profit_levels, status)
         VALUES (?, 'UPD', '0xupd', 'base', 'moonshot', 1.0, 100, 100, 0.5, '[]', 'open')
-      `).run(id);
-      db.prepare(`
+      `,
+      ).run(id);
+      db.prepare(
+        `
         UPDATE positions SET quantity = 200, value_usd = 400, onchain_balance = 200, current_price = 2.0,
           last_synced_at = datetime('now'), updated_at = datetime('now')
         WHERE id = ?
-      `).run(id);
+      `,
+      ).run(id);
       const row = db.prepare('SELECT * FROM positions WHERE id = ?').get(id);
       assertEqual(row.quantity, 200);
       assertEqual(row.value_usd, 400);
@@ -385,10 +399,12 @@ async function runTests() {
 
     test('sync record written to portfolio_sync table', () => {
       const db = dbMod.getDb();
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO portfolio_sync (chain, provider, trigger, status, positions_synced, positions_closed, positions_discovered)
         VALUES ('base', 'debank', 'manual', 'success', 5, 1, 2)
-      `).run();
+      `,
+      ).run();
       const row = db.prepare("SELECT * FROM portfolio_sync WHERE chain = 'base' ORDER BY id DESC LIMIT 1").get();
       assertEqual(row.chain, 'base');
       assertEqual(row.provider, 'debank');

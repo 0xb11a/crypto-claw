@@ -23,11 +23,7 @@ import {
   VersionedTransaction,
   TransactionInstruction,
 } from '@solana/web3.js';
-import {
-  getAssociatedTokenAddress,
-  getAccount,
-  TOKEN_PROGRAM_ID,
-} from '@solana/spl-token';
+import { getAssociatedTokenAddress, getAccount, TOKEN_PROGRAM_ID as _TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import * as multisig from '@sqds/multisig';
 import bs58 from 'bs58';
 
@@ -57,13 +53,27 @@ export function parseArgs(argv) {
   };
   for (let i = 0; i < args.length; i += 2) {
     switch (args[i]) {
-      case '--action': config.action = args[i + 1]; break;
-      case '--chain': config.chain = args[i + 1]; break;
-      case '--address': config.address = args[i + 1]; break;
-      case '--symbol': config.symbol = args[i + 1]; break;
-      case '--amount': config.amount = args[i + 1]; break;
-      case '--max-slippage': config.maxSlippage = args[i + 1]; break;
-      case '--tier': config.tier = args[i + 1]; break;
+      case '--action':
+        config.action = args[i + 1];
+        break;
+      case '--chain':
+        config.chain = args[i + 1];
+        break;
+      case '--address':
+        config.address = args[i + 1];
+        break;
+      case '--symbol':
+        config.symbol = args[i + 1];
+        break;
+      case '--amount':
+        config.amount = args[i + 1];
+        break;
+      case '--max-slippage':
+        config.maxSlippage = args[i + 1];
+        break;
+      case '--tier':
+        config.tier = args[i + 1];
+        break;
     }
   }
   return config;
@@ -184,7 +194,7 @@ async function getJupiterSwapInstructions(quoteResponse, userPublicKey) {
 function deserializeInstruction(ix) {
   return new TransactionInstruction({
     programId: new PublicKey(ix.programId),
-    keys: ix.accounts.map(a => ({
+    keys: ix.accounts.map((a) => ({
       pubkey: new PublicKey(a.pubkey),
       isSigner: a.isSigner,
       isWritable: a.isWritable,
@@ -201,10 +211,7 @@ async function buildAndSubmitSquadsTx(env, instructions) {
   const { connection, multisigPda, vaultPda, signer, vaultIndex } = env;
 
   // Get current multisig state for transaction index
-  const multisigAccount = await multisig.accounts.Multisig.fromAccountAddress(
-    connection,
-    multisigPda,
-  );
+  const multisigAccount = await multisig.accounts.Multisig.fromAccountAddress(connection, multisigPda);
   const transactionIndex = Number(multisigAccount.transactionIndex) + 1;
   const transactionIndexBN = BigInt(transactionIndex);
 
@@ -461,9 +468,7 @@ async function main() {
   }
 
   try {
-    const result = args.action === 'buy'
-      ? await executeBuy(args, env)
-      : await executeSell(args, env);
+    const result = args.action === 'buy' ? await executeBuy(args, env) : await executeSell(args, env);
 
     // Safety: ensure no private key in output
     const output = JSON.stringify(result, null, 2);
@@ -480,14 +485,20 @@ async function main() {
       ? errorMsg.replace(process.env.SQUADS_SIGNER_KEY, '[REDACTED]')
       : errorMsg;
 
-    console.log(JSON.stringify({
-      status: 'failed',
-      error: safeMsg,
-      action: args.action,
-      symbol: args.symbol,
-      chain: args.chain,
-      timestamp: new Date().toISOString(),
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: 'failed',
+          error: safeMsg,
+          action: args.action,
+          symbol: args.symbol,
+          chain: args.chain,
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
     process.exit(1);
   }
 }

@@ -34,7 +34,7 @@ function dbq(command) {
   }).trim();
   // db-query.js may print migration logs to stdout before JSON — take last JSON block
   const lines = output.split('\n');
-  const jsonStart = lines.findIndex(l => l.startsWith('{') || l.startsWith('['));
+  const jsonStart = lines.findIndex((l) => l.startsWith('{') || l.startsWith('['));
   const jsonStr = lines.slice(jsonStart).join('\n');
   return JSON.parse(jsonStr);
 }
@@ -98,7 +98,7 @@ describe('E2E Step 1: Research → Auto-Approve Trade', () => {
 
   test('trade appears as pending', () => {
     const trades = dbq('get-orders --action buy --pending');
-    const trade = trades.find(t => t.id === 'e2e-trade-001');
+    const trade = trades.find((t) => t.id === 'e2e-trade-001');
     assert(trade, 'Trade must appear in pending list');
     assertEqual(trade.approved, 1, 'Must be approved');
     assertEqual(trade.approved_by, 'paper_mode', 'Must be auto-approved');
@@ -112,7 +112,7 @@ describe('E2E Step 1: Research → Auto-Approve Trade', () => {
 describe('E2E Step 2: Executor → Paper Buy', () => {
   test('executor reads pending trade', () => {
     const trades = dbq('get-orders --action buy --pending');
-    const trade = trades.find(t => t.id === 'e2e-trade-001');
+    const trade = trades.find((t) => t.id === 'e2e-trade-001');
     assert(trade, 'Must find pending trade');
   });
 
@@ -122,39 +122,43 @@ describe('E2E Step 2: Executor → Paper Buy', () => {
   });
 
   test('executor records paper trade', () => {
-    const result = dbq(`add-paper-receipt --json '${JSON.stringify({
-      id: 'e2e-ptrade-buy-001',
-      order_id: 'e2e-trade-001',
-      action: 'buy',
-      symbol: 'E2ETEST',
-      address: '0xe2etest123',
-      chain: 'base',
-      tier: 'moonshot',
-      proposed_price: 0.001,
-      quantity: 500000,
-      amount: 500,
-    })}'`);
+    const result = dbq(
+      `add-paper-receipt --json '${JSON.stringify({
+        id: 'e2e-ptrade-buy-001',
+        order_id: 'e2e-trade-001',
+        action: 'buy',
+        symbol: 'E2ETEST',
+        address: '0xe2etest123',
+        chain: 'base',
+        tier: 'moonshot',
+        proposed_price: 0.001,
+        quantity: 500000,
+        amount: 500,
+      })}'`,
+    );
     assert(result.ok, 'add-paper-receipt must succeed');
   });
 
   test('executor creates paper position', () => {
-    const result = dbq(`add-paper-position --json '${JSON.stringify({
-      id: 'e2e-pos-001',
-      symbol: 'E2ETEST',
-      address: '0xe2etest123',
-      chain: 'base',
-      tier: 'moonshot',
-      entry_price: 0.001,
-      current_price: 0.001,
-      quantity: 500000,
-      amount_usd: 500,
-      stop_loss: 0.0005,
-      take_profit_levels: JSON.stringify([
-        { level: 1, price: 0.002, sellPercent: 50 },
-        { level: 2, price: 0.005, sellPercent: 30 },
-      ]),
-      status: 'open',
-    })}'`);
+    const result = dbq(
+      `add-paper-position --json '${JSON.stringify({
+        id: 'e2e-pos-001',
+        symbol: 'E2ETEST',
+        address: '0xe2etest123',
+        chain: 'base',
+        tier: 'moonshot',
+        entry_price: 0.001,
+        current_price: 0.001,
+        quantity: 500000,
+        amount_usd: 500,
+        stop_loss: 0.0005,
+        take_profit_levels: JSON.stringify([
+          { level: 1, price: 0.002, sellPercent: 50 },
+          { level: 2, price: 0.005, sellPercent: 30 },
+        ]),
+        status: 'open',
+      })}'`,
+    );
     assert(result.ok, 'add-paper-position must succeed');
   });
 
@@ -170,7 +174,7 @@ describe('E2E Step 2: Executor → Paper Buy', () => {
 
   test('trade no longer pending', () => {
     const trades = dbq('get-orders --action buy --pending');
-    const trade = trades.find(t => t.id === 'e2e-trade-001');
+    const trade = trades.find((t) => t.id === 'e2e-trade-001');
     assert(!trade, 'Executed trade must not be pending');
   });
 
@@ -204,37 +208,41 @@ describe('E2E Step 3: Sentinel → Stop-Loss → Sell Order', () => {
   });
 
   test('sentinel writes sell order', () => {
-    const result = dbq(`add-order --json '${JSON.stringify({
-      id: 'e2e-sell-001',
-      action: 'sell',
-      symbol: 'E2ETEST',
-      address: '0xe2etest123',
-      chain: 'base',
-      amount: 'all',
-      reason: 'stop_loss',
-      urgency: 'immediate',
-    })}'`);
+    const result = dbq(
+      `add-order --json '${JSON.stringify({
+        id: 'e2e-sell-001',
+        action: 'sell',
+        symbol: 'E2ETEST',
+        address: '0xe2etest123',
+        chain: 'base',
+        amount: 'all',
+        reason: 'stop_loss',
+        urgency: 'immediate',
+      })}'`,
+    );
     assert(result.ok, 'add-order must succeed');
   });
 
   test('sentinel writes alert', () => {
-    const result = dbq(`add-alert --json '${JSON.stringify({
-      id: 'e2e-alert-001',
-      symbol: 'E2ETEST',
-      chain: 'base',
-      alert_type: 'stop_loss',
-      severity: 'critical',
-      current_price: 0.0004,
-      trigger_price: 0.0005,
-      details: 'Stop-loss hit',
-      action: 'sell_all',
-    })}'`);
+    const result = dbq(
+      `add-alert --json '${JSON.stringify({
+        id: 'e2e-alert-001',
+        symbol: 'E2ETEST',
+        chain: 'base',
+        alert_type: 'stop_loss',
+        severity: 'critical',
+        current_price: 0.0004,
+        trigger_price: 0.0005,
+        details: 'Stop-loss hit',
+        action: 'sell_all',
+      })}'`,
+    );
     assert(result.ok, 'add-alert must succeed');
   });
 
   test('sell order appears as pending', () => {
     const orders = dbq('get-orders --action sell --pending');
-    const order = orders.find(o => o.id === 'e2e-sell-001');
+    const order = orders.find((o) => o.id === 'e2e-sell-001');
     assert(order, 'Sell order must be pending');
     assertEqual(order.reason, 'stop_loss', 'Reason must be stop_loss');
   });
@@ -246,40 +254,44 @@ describe('E2E Step 3: Sentinel → Stop-Loss → Sell Order', () => {
 describe('E2E Step 4: Executor → Paper Sell', () => {
   test('executor reads pending sell order', () => {
     const orders = dbq('get-orders --action sell --pending');
-    const order = orders.find(o => o.id === 'e2e-sell-001');
+    const order = orders.find((o) => o.id === 'e2e-sell-001');
     assert(order, 'Must find pending sell order');
   });
 
   test('executor validates paper position exists', () => {
     const positions = dbq('get-paper-positions --status open');
-    const pos = positions.find(p => p.symbol === 'E2ETEST');
+    const pos = positions.find((p) => p.symbol === 'E2ETEST');
     assert(pos, 'Position must exist in paper_positions');
   });
 
   test('executor records paper sell trade with P&L', () => {
     const sellProceeds = 500000 * 0.0004; // $200
-    const result = dbq(`add-paper-receipt --json '${JSON.stringify({
-      id: 'e2e-ptrade-sell-001',
-      order_id: 'e2e-sell-001',
-      action: 'sell',
-      symbol: 'E2ETEST',
-      address: '0xe2etest123',
-      chain: 'base',
-      tier: 'moonshot',
-      proposed_price: 0.0004,
-      quantity: 500000,
-      amount: sellProceeds,
-      pnl_percent: -60,
-      pnl_usd: sellProceeds - 500,
-    })}'`);
+    const result = dbq(
+      `add-paper-receipt --json '${JSON.stringify({
+        id: 'e2e-ptrade-sell-001',
+        order_id: 'e2e-sell-001',
+        action: 'sell',
+        symbol: 'E2ETEST',
+        address: '0xe2etest123',
+        chain: 'base',
+        tier: 'moonshot',
+        proposed_price: 0.0004,
+        quantity: 500000,
+        amount: sellProceeds,
+        pnl_percent: -60,
+        pnl_usd: sellProceeds - 500,
+      })}'`,
+    );
     assert(result.ok, 'add-paper-receipt (sell) must succeed');
   });
 
   test('executor closes paper position', () => {
-    const result = dbq(`close-paper-position --id e2e-pos-001 --json '${JSON.stringify({
-      exit_price: 0.0004,
-      exit_reason: 'stop_loss',
-    })}'`);
+    const result = dbq(
+      `close-paper-position --id e2e-pos-001 --json '${JSON.stringify({
+        exit_price: 0.0004,
+        exit_reason: 'stop_loss',
+      })}'`,
+    );
     assert(result.ok, 'close-paper-position must succeed');
   });
 
@@ -296,7 +308,7 @@ describe('E2E Step 4: Executor → Paper Sell', () => {
 
   test('sell order no longer pending', () => {
     const orders = dbq('get-orders --action sell --pending');
-    const order = orders.find(o => o.id === 'e2e-sell-001');
+    const order = orders.find((o) => o.id === 'e2e-sell-001');
     assert(!order, 'Executed sell must not be pending');
   });
 });
@@ -312,7 +324,7 @@ describe('E2E Step 5: Final State Verification', () => {
 
   test('closed position has correct P&L', () => {
     const positions = dbq('get-paper-positions --status closed');
-    const pos = positions.find(p => p.id === 'e2e-pos-001');
+    const pos = positions.find((p) => p.id === 'e2e-pos-001');
     assert(pos, 'Closed position must exist');
     assertEqual(pos.exit_price, 0.0004, 'Exit price must match');
     assertEqual(pos.exit_reason, 'stop_loss', 'Exit reason must be stop_loss');
@@ -325,8 +337,8 @@ describe('E2E Step 5: Final State Verification', () => {
 
   test('paper trades show buy and sell', () => {
     const trades = dbq('get-paper-receipts --limit 50');
-    const buy = trades.find(t => t.id === 'e2e-ptrade-buy-001');
-    const sell = trades.find(t => t.id === 'e2e-ptrade-sell-001');
+    const buy = trades.find((t) => t.id === 'e2e-ptrade-buy-001');
+    const sell = trades.find((t) => t.id === 'e2e-ptrade-sell-001');
     assert(buy, 'Buy trade must exist');
     assert(sell, 'Sell trade must exist');
     assertEqual(buy.action, 'buy', 'Buy action');
@@ -336,19 +348,19 @@ describe('E2E Step 5: Final State Verification', () => {
 
   test('approved trade marked executed', () => {
     const trades = dbq('get-orders --action buy --pending');
-    const trade = trades.find(t => t.id === 'e2e-trade-001');
+    const trade = trades.find((t) => t.id === 'e2e-trade-001');
     assert(!trade, 'Must not be pending');
   });
 
   test('sell order marked executed', () => {
     const orders = dbq('get-orders --action sell --pending');
-    const order = orders.find(o => o.id === 'e2e-sell-001');
+    const order = orders.find((o) => o.id === 'e2e-sell-001');
     assert(!order, 'Must not be pending');
   });
 
   test('alert was recorded', () => {
     const alerts = dbq('get-alerts --unprocessed');
-    const alert = alerts.find(a => a.id === 'e2e-alert-001');
+    const alert = alerts.find((a) => a.id === 'e2e-alert-001');
     assert(alert, 'Alert must exist');
     assertEqual(alert.alert_type, 'stop_loss', 'Alert type');
   });
@@ -370,56 +382,62 @@ describe('E2E Step 5: Final State Verification', () => {
 // ============================================================
 describe('E2E Step 6: Happy Path — TP1 Partial Sell', () => {
   test('research auto-approves second trade', () => {
-    const result = dbq(`add-order --json '${JSON.stringify({
-      id: 'e2e-trade-002',
-      symbol: 'E2EWIN',
-      address: '0xe2ewin456',
-      chain: 'base',
-      action: 'buy',
-      amount: 400,
-      percent_of_portfolio: 4,
-      tier: 'moonshot',
-      entry_price: 0.01,
-      stop_loss: 0.005,
-      take_profit_levels: JSON.stringify([{ level: 1, price: 0.02, sellPercent: 50 }]),
-      analysis_score: 82,
-      risk_score: 15,
-      reasoning: 'E2E happy path',
-      approved: 1,
-      approved_at: new Date().toISOString(),
-      approved_by: 'paper_mode',
-    })}'`);
+    const result = dbq(
+      `add-order --json '${JSON.stringify({
+        id: 'e2e-trade-002',
+        symbol: 'E2EWIN',
+        address: '0xe2ewin456',
+        chain: 'base',
+        action: 'buy',
+        amount: 400,
+        percent_of_portfolio: 4,
+        tier: 'moonshot',
+        entry_price: 0.01,
+        stop_loss: 0.005,
+        take_profit_levels: JSON.stringify([{ level: 1, price: 0.02, sellPercent: 50 }]),
+        analysis_score: 82,
+        risk_score: 15,
+        reasoning: 'E2E happy path',
+        approved: 1,
+        approved_at: new Date().toISOString(),
+        approved_by: 'paper_mode',
+      })}'`,
+    );
     assert(result.ok, 'Trade approved');
   });
 
   test('executor buys paper position', () => {
-    dbq(`add-paper-receipt --json '${JSON.stringify({
-      id: 'e2e-ptrade-buy-002',
-      order_id: 'e2e-trade-002',
-      action: 'buy',
-      symbol: 'E2EWIN',
-      address: '0xe2ewin456',
-      chain: 'base',
-      tier: 'moonshot',
-      proposed_price: 0.01,
-      quantity: 40000,
-      amount: 400,
-    })}'`);
+    dbq(
+      `add-paper-receipt --json '${JSON.stringify({
+        id: 'e2e-ptrade-buy-002',
+        order_id: 'e2e-trade-002',
+        action: 'buy',
+        symbol: 'E2EWIN',
+        address: '0xe2ewin456',
+        chain: 'base',
+        tier: 'moonshot',
+        proposed_price: 0.01,
+        quantity: 40000,
+        amount: 400,
+      })}'`,
+    );
 
-    dbq(`add-paper-position --json '${JSON.stringify({
-      id: 'e2e-pos-002',
-      symbol: 'E2EWIN',
-      address: '0xe2ewin456',
-      chain: 'base',
-      tier: 'moonshot',
-      entry_price: 0.01,
-      current_price: 0.01,
-      quantity: 40000,
-      amount_usd: 400,
-      stop_loss: 0.005,
-      take_profit_levels: JSON.stringify([{ level: 1, price: 0.02, sellPercent: 50 }]),
-      status: 'open',
-    })}'`);
+    dbq(
+      `add-paper-position --json '${JSON.stringify({
+        id: 'e2e-pos-002',
+        symbol: 'E2EWIN',
+        address: '0xe2ewin456',
+        chain: 'base',
+        tier: 'moonshot',
+        entry_price: 0.01,
+        current_price: 0.01,
+        quantity: 40000,
+        amount_usd: 400,
+        stop_loss: 0.005,
+        take_profit_levels: JSON.stringify([{ level: 1, price: 0.02, sellPercent: 50 }]),
+        status: 'open',
+      })}'`,
+    );
 
     // Cash auto-deducted by add-paper-position: $9,700 - $400 = $9,300
     dbq('mark-order-executed --id e2e-trade-002');
@@ -430,16 +448,18 @@ describe('E2E Step 6: Happy Path — TP1 Partial Sell', () => {
   });
 
   test('sentinel detects TP1, writes partial sell order', () => {
-    const result = dbq(`add-order --json '${JSON.stringify({
-      id: 'e2e-sell-002',
-      action: 'sell',
-      symbol: 'E2EWIN',
-      address: '0xe2ewin456',
-      chain: 'base',
-      amount: '50%',
-      reason: 'tp1_hit',
-      urgency: 'immediate',
-    })}'`);
+    const result = dbq(
+      `add-order --json '${JSON.stringify({
+        id: 'e2e-sell-002',
+        action: 'sell',
+        symbol: 'E2EWIN',
+        address: '0xe2ewin456',
+        chain: 'base',
+        amount: '50%',
+        reason: 'tp1_hit',
+        urgency: 'immediate',
+      })}'`,
+    );
     assert(result.ok, 'Partial sell order created');
   });
 
@@ -447,25 +467,29 @@ describe('E2E Step 6: Happy Path — TP1 Partial Sell', () => {
     const sellQty = 20000;
     const sellProceeds = sellQty * 0.021; // $420
 
-    dbq(`add-paper-receipt --json '${JSON.stringify({
-      id: 'e2e-ptrade-sell-002',
-      order_id: 'e2e-sell-002',
-      action: 'sell',
-      symbol: 'E2EWIN',
-      address: '0xe2ewin456',
-      chain: 'base',
-      tier: 'moonshot',
-      proposed_price: 0.021,
-      quantity: sellQty,
-      amount: sellProceeds,
-      pnl_percent: 110,
-      pnl_usd: sellProceeds - 200,
-    })}'`);
+    dbq(
+      `add-paper-receipt --json '${JSON.stringify({
+        id: 'e2e-ptrade-sell-002',
+        order_id: 'e2e-sell-002',
+        action: 'sell',
+        symbol: 'E2EWIN',
+        address: '0xe2ewin456',
+        chain: 'base',
+        tier: 'moonshot',
+        proposed_price: 0.021,
+        quantity: sellQty,
+        amount: sellProceeds,
+        pnl_percent: 110,
+        pnl_usd: sellProceeds - 200,
+      })}'`,
+    );
 
-    dbq(`update-paper-position --id e2e-pos-002 --json '${JSON.stringify({
-      quantity: 20000,
-      current_price: 0.021,
-    })}'`);
+    dbq(
+      `update-paper-position --id e2e-pos-002 --json '${JSON.stringify({
+        quantity: 20000,
+        current_price: 0.021,
+      })}'`,
+    );
 
     dbq(`set-paper-cash --chain base --amount ${9300 + sellProceeds}`);
     dbq('mark-order-executed --id e2e-sell-002');
@@ -506,33 +530,37 @@ describe('E2E Step 7: Multi-Chain Cash Isolation', () => {
   test('buy on Solana deducts from Solana cash only', () => {
     const baseBefore = dbq('get-paper-cash --chain base').cash;
 
-    dbq(`add-paper-receipt --json '${JSON.stringify({
-      id: 'e2e-ptrade-sol-001',
-      order_id: 'e2e-trade-sol',
-      action: 'buy',
-      symbol: 'SOLTEST',
-      address: 'SoLtEsT1111111111111111111111111111111111111',
-      chain: 'solana',
-      tier: 'moonshot',
-      proposed_price: 0.5,
-      quantity: 1000,
-      amount: 500,
-    })}'`);
+    dbq(
+      `add-paper-receipt --json '${JSON.stringify({
+        id: 'e2e-ptrade-sol-001',
+        order_id: 'e2e-trade-sol',
+        action: 'buy',
+        symbol: 'SOLTEST',
+        address: 'SoLtEsT1111111111111111111111111111111111111',
+        chain: 'solana',
+        tier: 'moonshot',
+        proposed_price: 0.5,
+        quantity: 1000,
+        amount: 500,
+      })}'`,
+    );
 
-    dbq(`add-paper-position --json '${JSON.stringify({
-      id: 'e2e-pos-sol-001',
-      symbol: 'SOLTEST',
-      address: 'SoLtEsT1111111111111111111111111111111111111',
-      chain: 'solana',
-      tier: 'moonshot',
-      entry_price: 0.5,
-      current_price: 0.5,
-      quantity: 1000,
-      amount_usd: 500,
-      stop_loss: 0.25,
-      take_profit_levels: JSON.stringify([{ level: 1, price: 1.0, sellPercent: 50 }]),
-      status: 'open',
-    })}'`);
+    dbq(
+      `add-paper-position --json '${JSON.stringify({
+        id: 'e2e-pos-sol-001',
+        symbol: 'SOLTEST',
+        address: 'SoLtEsT1111111111111111111111111111111111111',
+        chain: 'solana',
+        tier: 'moonshot',
+        entry_price: 0.5,
+        current_price: 0.5,
+        quantity: 1000,
+        amount_usd: 500,
+        stop_loss: 0.25,
+        take_profit_levels: JSON.stringify([{ level: 1, price: 1.0, sellPercent: 50 }]),
+        status: 'open',
+      })}'`,
+    );
 
     const solCash = dbq('get-paper-cash --chain solana');
     assertEqual(solCash.cash, 2500, 'Solana: $3000 - $500 = $2500');
@@ -544,10 +572,12 @@ describe('E2E Step 7: Multi-Chain Cash Isolation', () => {
   test('close Solana position updates Solana cash only', () => {
     const baseBefore = dbq('get-paper-cash --chain base').cash;
 
-    dbq(`close-paper-position --id e2e-pos-sol-001 --json '${JSON.stringify({
-      exit_price: 0.75,
-      exit_reason: 'tp1_hit',
-    })}'`);
+    dbq(
+      `close-paper-position --id e2e-pos-sol-001 --json '${JSON.stringify({
+        exit_price: 0.75,
+        exit_reason: 'tp1_hit',
+      })}'`,
+    );
 
     const solCash = dbq('get-paper-cash --chain solana');
     // $2500 + (0.75 * 1000) = $2500 + $750 = $3250
@@ -571,13 +601,21 @@ describe('E2E Step 7: Multi-Chain Cash Isolation', () => {
 describe('E2E Step 8: Missing --chain Errors', () => {
   test('set-cash without --chain returns error', () => {
     let threw = false;
-    try { dbq('set-cash --amount 5000'); } catch { threw = true; }
+    try {
+      dbq('set-cash --amount 5000');
+    } catch {
+      threw = true;
+    }
     assert(threw, 'set-cash must require --chain');
   });
 
   test('set-paper-cash without --chain returns error', () => {
     let threw = false;
-    try { dbq('set-paper-cash --amount 5000'); } catch { threw = true; }
+    try {
+      dbq('set-paper-cash --amount 5000');
+    } catch {
+      threw = true;
+    }
     assert(threw, 'set-paper-cash must require --chain');
   });
 
@@ -596,9 +634,21 @@ describe('E2E Step 8: Missing --chain Errors', () => {
 describe('E2E Cleanup', () => {
   test('remove test database', () => {
     const dbPath = resolve(PROJECT_ROOT, 'data', `${SAFE_ID}.db`);
-    try { unlinkSync(dbPath); } catch { /* ok */ }
-    try { unlinkSync(dbPath + '-wal'); } catch { /* ok */ }
-    try { unlinkSync(dbPath + '-shm'); } catch { /* ok */ }
+    try {
+      unlinkSync(dbPath);
+    } catch {
+      /* ok */
+    }
+    try {
+      unlinkSync(dbPath + '-wal');
+    } catch {
+      /* ok */
+    }
+    try {
+      unlinkSync(dbPath + '-shm');
+    } catch {
+      /* ok */
+    }
     assert(true, 'Cleanup complete');
   });
 });
