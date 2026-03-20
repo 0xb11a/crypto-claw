@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+STAGED_JS=$(git diff --cached --name-only --diff-filter=ACM | grep '\.js$' || true)
+
+# 1. Secret scan (all staged files)
+echo "🔍 Scanning for secrets..."
+node "$REPO_ROOT/scripts/pre-commit-check.js"
+
+# 2. ESLint (staged .js only)
+if [ -n "$STAGED_JS" ]; then
+  echo "🔎 Linting staged JS files..."
+  echo "$STAGED_JS" | xargs npx --prefix "$REPO_ROOT" eslint
+fi
+
+# 3. Prettier check (staged .js only)
+if [ -n "$STAGED_JS" ]; then
+  echo "🎨 Checking formatting..."
+  echo "$STAGED_JS" | xargs npx --prefix "$REPO_ROOT" prettier --check
+fi
+
+# 4. Offline tests
+echo "🧪 Running offline tests..."
+cd "$REPO_ROOT/tests" && node run-all.js --offline
+
+echo "✅ All pre-commit checks passed."

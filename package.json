@@ -1,0 +1,18 @@
+{
+  "name": "crypto-claw",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint 'scripts/**/*.js' 'tests/**/*.js'",
+    "lint:fix": "eslint --fix 'scripts/**/*.js' 'tests/**/*.js'",
+    "format": "prettier --check 'scripts/**/*.js' 'tests/**/*.js'",
+    "format:fix": "prettier --write 'scripts/**/*.js' 'tests/**/*.js'",
+    "test": "cd tests && node run-all.js --offline",
+    "setup-hooks": "bash setup-hooks.sh"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "globals": "^16.0.0",
+    "prettier": "^3.0.0"
+  }
+}
