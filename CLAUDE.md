@@ -11,8 +11,8 @@ CryptoClaw is a three-agent crypto research and portfolio management system buil
 Three agents communicate through a shared SQLite database:
 
 - **Research Agent** (`agents/research/`) — Runs on GPT-5.4-mini, 30-minute heartbeat. Handles discovery, market checks, trade proposals. Spawns Sonnet sub-agents for deep analysis and risk assessment. Has 4 skills: discovery, analyst, risk, portfolio.
-- **Sentinel Agent** (`agents/sentinel/`) — Runs on GPT-5.4-mini, 10-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders. Has 1 skill: sentinel.
-- **Executor Agent** (`agents/executor/`) — Runs on GPT-5.4-mini, 1-minute heartbeat. Reads approved trades and sell orders, validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
+- **Sentinel Agent** (`agents/sentinel/`) — Runs on GPT-5.4-mini, 10-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders to the unified orders table. Has 1 skill: sentinel.
+- **Executor Agent** (`agents/executor/`) — Runs on GPT-5.4-mini, 1-minute heartbeat. Reads orders (buy and sell), validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
 - **Ollama Cloud** — Some agents might use Ollama Cloud's API (`https://ollama.com/api/chat`). No sidecar needed — OpenClaw's built-in Ollama provider sends `OLLAMA_API_KEY` as a Bearer token directly.
 - **Model Routing** — Research runs on Claude Haiku 4.5 by default; Sentinel and Executor run on GPT-5.4-mini (configured via `RESEARCH_MODEL`/`SENTINEL_MODEL`/`EXECUTOR_MODEL` env vars). For analyst and risk skills, Research spawns Sonnet sub-agents via `sessions_spawn --model`. Configured via `sessions_spawn --model` in AGENTS.md instructions (not OpenClaw config).
 
@@ -34,7 +34,7 @@ Positions, trades, orders, alerts, receipts — everything tied to a specific Sa
 - Database path: `data/<SAFE_ID>.db`
 - Access via CLI: `node scripts/db-query.js <command> [--flags]`
 - Schema managed by auto-migrations in `scripts/db.js`
-- 17 tables: positions, trades, approved_trades, sell_orders, trade_receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_trades, paper_positions, analysis_cache, _migrations
+- 20 tables: positions, trades, approved_trades, sell_orders, trade_receipts, orders, receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_trades, paper_positions, paper_receipts, analysis_cache, _migrations
 
 ### Why Two Layers?
 The project can be deployed multiple times managing different Safe wallets/funds. Agent memory (patterns, lessons) is universal knowledge shared across all deployments. Wallet data (positions, cash, orders) is specific to one fund and must be isolated.
@@ -42,15 +42,15 @@ The project can be deployed multiple times managing different Safe wallets/funds
 ## Data Flow
 
 ```
-Research → approved_trades table  → Executor → Safe wallet → positions table
-Sentinel → sell_orders table      → Executor → Safe wallet → positions table
-Executor → trade_receipts table   → Research (learning), Sentinel (awareness)
+Research → orders table            → Executor → Safe wallet → positions table
+Sentinel → orders table            → Executor → Safe wallet → positions table
+Executor → receipts table          → Research (learning), Sentinel (awareness)
 ```
 
 In **paper mode** (`PAPER_MODE=true`), the flow is identical but uses simulated tables:
 ```
-Research → approved_trades (auto-approved) → Executor → paper_trades + paper_positions
-Sentinel → sell_orders                     → Executor → paper_trades + paper_positions
+Research → orders (auto-approved)          → Executor → paper_receipts + paper_positions
+Sentinel → orders                          → Executor → paper_receipts + paper_positions
 ```
 
 All agent-to-agent communication goes through the database via `db-query.js`.
@@ -84,10 +84,17 @@ scripts/                  # Node.js scripts
   market-regime.js        # Market regime classification + parameter adjustment
   heartbeat-check.js      # Pre-check for sentinel/executor background loops
   portfolio-summary.js    # Allocation + P&L
+  portfolio-load-evm.js   # On-chain portfolio sync (EVM via DeBank)
+  portfolio-load-solana.js # On-chain portfolio sync (Solana via Helius)
+  chains.js               # Centralized chain config (single source of truth)
+  execute-trade.js        # Safe wallet swap execution (EVM)
+  execute-trade-solana.js # Squads/Jupiter swap execution (Solana)
+  check-safe-status.js    # Safe wallet status check (EVM)
+  check-squads-status.js  # Squads multisig status check (Solana)
   narrative-check.js      # Narrative momentum
   holder-distribution.js  # Top holder analysis
   memory-backup.sh        # Git auto-commit for agent memory
-tests/                    # 7 test suites + runner + helpers
+tests/                    # 9 test suites + runner + helpers
 Dockerfile                # Based on ghcr.io/openclaw/openclaw:latest
 docker-compose.yml        # One-command deployment
 build-templates.sh        # Docker build-time template assembly (replaces setup.sh in Docker)
@@ -104,6 +111,7 @@ setup.sh                  # Bare-metal installer (deploys agents into OpenClaw d
 | `agents/executor/AGENTS.md` | Transaction rules, validation logic, receipt format, Safe integration |
 | `scripts/db.js` | SQLite schema, migrations, connection management |
 | `scripts/db-query.js` | 35+ CLI commands for agents to interact with wallet data |
+| `scripts/chains.js` | Centralized chain config — Safe/Squads env vars, portfolio rules, cash tokens |
 | `workspace/TOOLS.md` | CLI usage for every script + db-query.js — check this before modifying |
 | `setup.sh` | Understand this to know how files get deployed to OpenClaw |
 
@@ -156,7 +164,7 @@ SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup sy
 - **Database:** SQLite via better-sqlite3 (WAL mode, auto-migration)
 - **Dependencies:** better-sqlite3, dotenv
 - **APIs used by scripts:** DEXScreener (free), GoPlus Security (free tier), CoinGecko (free), Etherscan (free tier), Birdeye (optional), Solscan (optional)
-- **Execution:** Safe wallet SDK for transaction building/signing, DEX aggregators (1inch, 0x, Jupiter) for swaps
+- **Execution:** Safe wallet SDK (EVM) and Squads Protocol V4 (Solana) for transaction building/signing, DEX aggregators (1inch for EVM, Jupiter for Solana) for swaps
 - **No framework.** Scripts are standalone CLI tools that output JSON to stdout.
 
 ## Conventions
@@ -169,6 +177,7 @@ SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup sy
 - **Safety rules are hard-coded** in `agents/research/AGENTS.md` under "Portfolio Rules" and in `agents/executor/AGENTS.md` under "Pre-Execution Validation." Never weaken these without explicit human approval.
 - **Private keys** live ONLY in environment variables. Never in any file, log, receipt, or agent instruction.
 - **SAFE_ID** env var determines which database file is used. One DB per fund/wallet.
+- **Solana wallet config:** `SQUADS_VAULT_ADDRESS` (direct vault) takes priority over `SQUADS_MULTISIG_ADDRESS` (vault derived from multisig PDA). Set at least one for Solana.
 - **OLLAMA_API_KEY** env var authenticates with Ollama Cloud model access.
 
 ## Safety Rules (Do Not Weaken)
@@ -191,7 +200,7 @@ Paper mode (`PAPER_MODE=true`) runs the full system autonomously without touchin
 ### How It Works
 - **Research Agent:** BUY proposals that pass all safety checks are auto-approved (`approved_by: 'paper_mode'`). No human in the loop.
 - **Sentinel Agent:** Monitors `paper_positions` instead of `positions`. All monitoring logic (price checks, liquidity, wallets) runs identically.
-- **Executor Agent:** Validates orders normally but skips Safe wallet transactions. Records results in `paper_trades` and `paper_positions` tables. Updates `paper_cash` instead of `cash`.
+- **Executor Agent:** Validates orders normally but skips Safe wallet transactions. Records results in `paper_receipts` and `paper_positions` tables. Updates `paper_cash` instead of `cash`.
 - **Safety rules are fully enforced** — paper mode tests the strategy, not a weakened version of it.
 
 ### Environment Variables
@@ -199,12 +208,12 @@ Paper mode (`PAPER_MODE=true`) runs the full system autonomously without touchin
 - `PAPER_STARTING_BALANCE=10000` (default: `10000`, simulated USD)
 
 ### Paper-Specific Tables
-- `paper_trades` — what would have been executed (buy/sell records with P&L)
+- `paper_receipts` — what would have been executed (buy/sell records with P&L)
 - `paper_positions` — simulated portfolio positions
 
 ### Paper-Specific Commands
-- `get-paper-portfolio`, `get-paper-positions`, `get-paper-trades`, `get-paper-stats`
-- `add-paper-position`, `update-paper-position`, `close-paper-position`, `add-paper-trade`
+- `get-paper-portfolio`, `get-paper-positions`, `get-paper-receipts`, `get-paper-stats`
+- `add-paper-position`, `update-paper-position`, `close-paper-position`, `add-paper-receipt`
 - `get-paper-cash`, `set-paper-cash`
 
 ## When Modifying
@@ -217,6 +226,7 @@ Paper mode (`PAPER_MODE=true`) runs the full system autonomously without touchin
 - **Modifying the pipeline:** Update `tests/test-pipeline.js` to verify the new data flow between stages.
 - **Changing Safe wallet config:** Update `.env.example`, `docker-compose.yml`, and `agents/executor/AGENTS.md`. Never put keys in files.
 - **Multi-fund deployment:** Set different `SAFE_ID` values. Each gets its own SQLite database. Agent memory (markdown) is shared across all deployments.
+- **Changing agent instructions:** After editing any AGENTS.md, HEARTBEAT.md, SOUL.md, or SKILL.md file, run `/audit-instructions` to check for inconsistencies with source-of-truth files and other agent instructions.
 
 ## Common Pitfalls
 

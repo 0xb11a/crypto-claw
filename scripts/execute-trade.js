@@ -14,7 +14,7 @@
  */
 
 import 'dotenv/config';
-import { getChain } from './chains.js';
+import { getChain, getCashToken } from './chains.js';
 import {
   createPublicClient,
   http,
@@ -33,9 +33,7 @@ const SafeApiKit = SafeApiKitModule.default || SafeApiKitModule;
 // Constants
 // ============================================================
 
-const USDC_ADDRESSES = {
-  '8453': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-};
+// USDC address resolved per-chain from chains.js in resolveConfig()
 
 const ONEINCH_ROUTER = '0x111111125421cA6dc452d289314280a0f8842A65';
 const ONEINCH_BASE_URL = 'https://api.1inch.dev/swap/v6.0';
@@ -114,13 +112,15 @@ function resolveConfig(chainName) {
   if (!signerKey) throw new Error('SAFE_SIGNER_KEY not set');
   if (!oneInchApiKey) throw new Error('ONEINCH_API_KEY not set');
 
+  const cashToken = getCashToken(chainName);
   return {
     safeAddress,
     rpcUrl,
     signerKey,
     oneInchApiKey,
     chainId: chain.chainId,
-    usdcAddress: USDC_ADDRESSES[chain.chainId],
+    usdcAddress: cashToken.address,
+    usdcDecimals: cashToken.decimals,
   };
 }
 
@@ -286,7 +286,7 @@ async function executeBuy(args, env) {
   const client = createPublicClient({ transport: http(env.rpcUrl) });
 
   // Check Safe's USDC balance
-  const usdcDecimals = 6; // USDC on Base is 6 decimals
+  const usdcDecimals = env.usdcDecimals;
   const usdcBalance = await getTokenBalance(client, env.usdcAddress, env.safeAddress);
   const usdcBalanceFormatted = parseFloat(formatUnits(usdcBalance, usdcDecimals));
   const buyAmount = parseFloat(args.amount);
@@ -403,7 +403,7 @@ async function executeSell(args, env) {
 
   const result = await buildAndSubmitSafeTx(env, transactions);
 
-  const usdcDecimals = 6;
+  const usdcDecimals = env.usdcDecimals;
   return {
     ...result,
     action: 'sell',

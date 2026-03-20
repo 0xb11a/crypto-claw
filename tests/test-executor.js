@@ -67,11 +67,10 @@ function validateSellOrder(order, portfolioState) {
   return { valid: errors.length === 0, errors };
 }
 
-function buildReceipt(order, source, status, details = {}) {
+function buildReceipt(order, status, details = {}) {
   return {
     id: `receipt-${Date.now()}`,
     orderId: order.id,
-    orderSource: source,
     timestamp: new Date().toISOString(),
     action: order.action,
     symbol: order.symbol,
@@ -269,7 +268,7 @@ describe('Executor — Slippage Protection', () => {
 // ============================================================
 describe('Executor — Receipt Generation', () => {
   test('receipt has all required fields', () => {
-    const receipt = buildReceipt(mockSellOrder, 'sell-orders', 'executed', {
+    const receipt = buildReceipt(mockSellOrder, 'executed', {
       safeTxHash: '0xsafe123',
       onchainTxHash: '0xchain456',
       executedPrice: 0.0014,
@@ -278,7 +277,6 @@ describe('Executor — Receipt Generation', () => {
 
     assert(receipt.id, 'Must have id');
     assertEqual(receipt.orderId, 'sell-001', 'Must reference source order');
-    assertEqual(receipt.orderSource, 'sell-orders', 'Must identify source');
     assertEqual(receipt.status, 'executed', 'Must have status');
     assertEqual(receipt.safeTxHash, '0xsafe123', 'Must have Safe tx hash');
     assertEqual(receipt.onchainTxHash, '0xchain456', 'Must have on-chain tx hash');
@@ -286,7 +284,7 @@ describe('Executor — Receipt Generation', () => {
   });
 
   test('failed receipt includes error', () => {
-    const receipt = buildReceipt(mockApprovedBuy, 'approved-trades', 'validation_failed', {
+    const receipt = buildReceipt(mockApprovedBuy, 'validation_failed', {
       error: 'Order not approved',
     });
 
@@ -296,7 +294,7 @@ describe('Executor — Receipt Generation', () => {
   });
 
   test('queued receipt has Safe hash but no on-chain hash', () => {
-    const receipt = buildReceipt(mockApprovedBuy, 'approved-trades', 'queued_in_safe', {
+    const receipt = buildReceipt(mockApprovedBuy, 'queued_in_safe', {
       safeTxHash: '0xsafe789',
     });
 
@@ -385,6 +383,196 @@ describe('Executor — Portfolio State Updates', () => {
     assertEqual(position.quantity, 50000, 'Quantity should be halved');
     assert(state.cash > mockPortfolio.cash, 'Cash should increase');
     assertEqual(state.positions.length, 1, 'Position should still exist');
+  });
+});
+
+// ============================================================
+// Solana Order Validation Tests
+// ============================================================
+
+const mockSolanaPortfolio = {
+  cash: 5000,
+  totalDeposited: 10000,
+  positions: [
+    {
+      id: 'pos-sol-001',
+      symbol: 'BONK',
+      address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+      chain: 'solana',
+      tier: 'moonshot',
+      entryPrice: 0.00001,
+      currentPrice: 0.000015,
+      quantity: 50000000,
+      stopLoss: 0.000005,
+      status: 'open',
+    },
+  ],
+};
+
+const mockSolanaBuy = {
+  id: 'trade-sol-001',
+  action: 'buy',
+  symbol: 'WIF',
+  address: 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm',
+  chain: 'solana',
+  amount: 300,
+  percentOfPortfolio: 3,
+  tier: 'moonshot',
+  entryPrice: 1.5,
+  currentPrice: 1.55,
+  approved: true,
+  executed: false,
+};
+
+const mockSolanaSell = {
+  id: 'sell-sol-001',
+  action: 'sell',
+  symbol: 'BONK',
+  address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+  chain: 'solana',
+  amount: 'all',
+  reason: 'stop_loss',
+  urgency: 'immediate',
+  executed: false,
+};
+
+describe('Executor — Solana Buy Order Validation', () => {
+  test('approved Solana buy within limits passes', () => {
+    const result = validateBuyOrder(mockSolanaBuy, mockSolanaPortfolio);
+    assert(result.valid, `Should pass: ${result.errors.join(', ')}`);
+  });
+
+  test('Solana buy exceeding cash is rejected', () => {
+    const order = { ...mockSolanaBuy, amount: 6000 };
+    const result = validateBuyOrder(order, mockSolanaPortfolio);
+    assert(!result.valid, 'Insufficient cash must be rejected');
+  });
+
+  test('Solana buy with stale price rejected', () => {
+    const order = { ...mockSolanaBuy, currentPrice: 2.0 }; // >10% from 1.5
+    const result = validateBuyOrder(order, mockSolanaPortfolio);
+    assert(!result.valid, 'Stale Solana price must be rejected');
+  });
+});
+
+describe('Executor — Solana Sell Order Validation', () => {
+  test('sell order for existing Solana position passes', () => {
+    const result = validateSellOrder(mockSolanaSell, mockSolanaPortfolio);
+    assert(result.valid, `Should pass: ${result.errors.join(', ')}`);
+  });
+
+  test('sell order for non-existent Solana position is rejected', () => {
+    const order = { ...mockSolanaSell, address: 'FakeMintttttttttttttttttttttttttttttttttttttt' };
+    const result = validateSellOrder(order, mockSolanaPortfolio);
+    assert(!result.valid, 'Non-existent Solana position must be rejected');
+  });
+
+  test('Solana sell with wrong chain is rejected', () => {
+    const order = { ...mockSolanaSell, chain: 'base' };
+    const result = validateSellOrder(order, mockSolanaPortfolio);
+    assert(!result.valid, 'Wrong chain must be rejected');
+  });
+});
+
+describe('Executor — Solana Slippage (Basis Points)', () => {
+  test('slippage conversion: 5% = 500 bps', () => {
+    const slippagePct = 5;
+    const bps = Math.round(slippagePct * 100);
+    assertEqual(bps, 500, '5% should be 500 basis points');
+  });
+
+  test('slippage conversion: 0.5% = 50 bps', () => {
+    const slippagePct = 0.5;
+    const bps = Math.round(slippagePct * 100);
+    assertEqual(bps, 50, '0.5% should be 50 basis points');
+  });
+
+  test('moonshot slippage check works for Solana orders', () => {
+    const result = checkSlippage(0.00001, 0.0000104, 'moonshot');
+    assert(result.acceptable, '4% slippage on moonshot should be ok');
+  });
+});
+
+// ============================================================
+// Cross-Chain Cash Isolation Tests
+// ============================================================
+
+describe('Executor — Cross-Chain Cash Isolation', () => {
+  test('Base order cannot pass validation with only Solana cash', () => {
+    const baseCash = 0;     // No Base cash
+    const solanaCash = 5000; // Plenty on Solana
+    const basePortfolio = { cash: baseCash, positions: [] };
+    const order = { ...mockApprovedBuy, chain: 'base', amount: 400, approved: true };
+    const result = validateBuyOrder(order, basePortfolio);
+    assert(!result.valid, 'Should reject — Base has no cash even though Solana does');
+    assert(result.errors.some(e => e.includes('Insufficient cash')), 'Should mention insufficient cash');
+  });
+
+  test('Solana order passes with Solana cash only', () => {
+    const solanaPortfolio = { cash: 5000, positions: mockSolanaPortfolio.positions };
+    const result = validateBuyOrder(mockSolanaBuy, solanaPortfolio);
+    assert(result.valid, 'Should pass with chain-specific cash');
+  });
+
+  test('cash validation uses chain-specific amount', () => {
+    const baseCash = 100;
+    const basePortfolio = { cash: baseCash, positions: [] };
+    const order = { ...mockApprovedBuy, chain: 'base', amount: 500, approved: true };
+    const result = validateBuyOrder(order, basePortfolio);
+    assert(!result.valid, 'Should fail — Base cash too low');
+  });
+});
+
+// ============================================================
+// Close Position P&L Calculation Tests
+// ============================================================
+
+function calculateClosePnl(position, exitPrice, soldQuantity = null) {
+  const qty = soldQuantity || position.quantity;
+  const pnlPercent = ((exitPrice - position.entryPrice) / position.entryPrice) * 100;
+  const pnlUsd = (exitPrice - position.entryPrice) * qty;
+  return {
+    pnl_percent: Math.round(pnlPercent * 100) / 100,
+    pnl_usd: Math.round(pnlUsd * 100) / 100,
+  };
+}
+
+describe('Executor — Close Position P&L (Full Exit)', () => {
+  test('profitable full exit calculates positive P&L', () => {
+    const position = { entryPrice: 0.001, quantity: 100000 };
+    const result = calculateClosePnl(position, 0.002);
+    assertEqual(result.pnl_percent, 100, 'Should be +100%');
+    assertEqual(result.pnl_usd, 100, 'Should be +$100');
+  });
+
+  test('losing full exit calculates negative P&L', () => {
+    const position = { entryPrice: 0.001, quantity: 100000 };
+    const result = calculateClosePnl(position, 0.0005);
+    assertEqual(result.pnl_percent, -50, 'Should be -50%');
+    assertEqual(result.pnl_usd, -50, 'Should be -$50');
+  });
+
+  test('breakeven exit shows 0 P&L', () => {
+    const position = { entryPrice: 1.5, quantity: 200 };
+    const result = calculateClosePnl(position, 1.5);
+    assertEqual(result.pnl_percent, 0, 'Should be 0%');
+    assertEqual(result.pnl_usd, 0, 'Should be $0');
+  });
+});
+
+describe('Executor — Close Position P&L (Partial Exit)', () => {
+  test('partial exit calculates P&L on sold quantity only', () => {
+    const position = { entryPrice: 0.001, quantity: 100000 };
+    const result = calculateClosePnl(position, 0.002, 50000);
+    assertEqual(result.pnl_percent, 100, 'Percent based on price change');
+    assertEqual(result.pnl_usd, 50, 'USD P&L on 50k tokens only');
+  });
+
+  test('partial exit with loss', () => {
+    const position = { entryPrice: 0.01, quantity: 10000 };
+    const result = calculateClosePnl(position, 0.005, 3000);
+    assertEqual(result.pnl_percent, -50, 'Should be -50%');
+    assertEqual(result.pnl_usd, -15, 'Loss on 3000 tokens at -0.005 each');
   });
 });
 

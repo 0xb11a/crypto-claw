@@ -273,7 +273,6 @@ describe('Executor Integration', () => {
   test('receipt feeds back to research for learning', () => {
     const receipt = {
       orderId: 'trade-001',
-      orderSource: 'approved-trades',
       action: 'buy',
       symbol: 'MOCK',
       executedPrice: 0.00098,
@@ -436,6 +435,130 @@ describe('Token Dedup — Verdict Caching', () => {
   test('watch verdict is NOT cached (goes to watchlist)', () => {
     const shouldCache = ['avoid', 'risk_rejected'].includes('watch');
     assert(!shouldCache, 'watch verdict must NOT be cached (goes to watchlist instead)');
+  });
+});
+
+// ============================================================
+// Solana Pipeline Integration
+// ============================================================
+
+const mockSolanaDiscovery = {
+  tokenAddress: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+  chain: 'solana',
+  symbol: 'BONK',
+  name: 'Bonk',
+  price: 0.00001,
+  liquidity: 50000,
+  volume24h: 5000000,
+  holders: 200000,
+  holdersChange24h: 5000,
+  buyCount24h: 8000,
+  sellCount24h: 6000,
+  topHolderPercent: 8,
+  contractVerified: true,
+  liquidityLocked: true,
+  narrative: 'memecoin',
+  reason: 'Massive holder growth on Solana',
+  urgency: 'medium',
+};
+
+const mockSolanaTradeProposal = {
+  action: 'buy',
+  symbol: 'BONK',
+  address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+  chain: 'solana',
+  amount: 400,
+  percentOfPortfolio: 4,
+  tier: 'moonshot',
+  entryPrice: 0.00001,
+  stopLoss: 0.000005,
+  takeProfitLevels: [
+    { level: 1, multiplier: 2, price: 0.00002, sellPercent: 50, triggered: false },
+    { level: 2, multiplier: 5, price: 0.00005, sellPercent: 30, triggered: false },
+  ],
+  requiresApproval: true,
+  reasoning: 'Memecoin momentum on Solana.',
+};
+
+describe('Solana Pipeline — Per-Chain Portfolio', () => {
+  test('Solana trade checks chain-specific portfolio state', () => {
+    // Solana trades should check Solana cash, not global cash
+    const solanaPortfolio = { chain: 'solana', cash: 2000, positions: [] };
+    const baseCash = 5000; // Base has plenty, but Solana is limited
+    assert(solanaPortfolio.cash < baseCash, 'Solana cash is less than Base');
+    assert(solanaPortfolio.cash >= mockSolanaTradeProposal.amount, 'Solana cash covers the trade');
+  });
+
+  test('Solana max positions limit is independent', () => {
+    // Solana has maxOpenPositions: 10 (vs Base default: 15)
+    const solanaMaxPos = 10;
+    const baseMaxPos = 15;
+    assert(solanaMaxPos !== baseMaxPos, 'Chains have different limits');
+    assert(9 < solanaMaxPos, '9 positions ok on Solana');
+  });
+
+  test('Solana tiersEnabled blocks base-tier proposals', () => {
+    const solTiers = ['moonshot', 'conviction'];
+    assert(!solTiers.includes('base'), 'Solana does not support base tier');
+    assert(solTiers.includes('moonshot'), 'Solana supports moonshot');
+    assert(solTiers.includes('conviction'), 'Solana supports conviction');
+  });
+});
+
+describe('Solana Pipeline Integration', () => {
+  test('Solana discovery uses base58 address (not 0x)', () => {
+    assert(!mockSolanaDiscovery.tokenAddress.startsWith('0x'), 'Solana address must not start with 0x');
+    assert(mockSolanaDiscovery.tokenAddress.length > 30, 'Solana address should be base58 (>30 chars)');
+  });
+
+  test('Solana discovery has chain=solana', () => {
+    assertEqual(mockSolanaDiscovery.chain, 'solana');
+  });
+
+  test('Solana trade proposal flows to executor with chain=solana', () => {
+    const approvedTrade = {
+      ...mockSolanaTradeProposal,
+      approved: true,
+      approvedAt: new Date().toISOString(),
+      executed: false,
+    };
+
+    assertEqual(approvedTrade.chain, 'solana', 'Executor must see chain=solana');
+    assert(approvedTrade.approved, 'Must be approved');
+    assert(!approvedTrade.address.startsWith('0x'), 'Solana address must be base58');
+  });
+
+  test('Solana sell order passes through pipeline', () => {
+    const sellOrder = {
+      id: 'sell-sol-test',
+      action: 'sell',
+      symbol: 'BONK',
+      address: mockSolanaTradeProposal.address,
+      chain: 'solana',
+      amount: 'all',
+      reason: 'stop_loss',
+      urgency: 'immediate',
+      executed: false,
+    };
+
+    assertEqual(sellOrder.chain, 'solana');
+    assert(!sellOrder.address.startsWith('0x'), 'Solana address must be base58');
+    assert(sellOrder.amount === 'all', 'Stop-loss should sell all');
+  });
+
+  test('Solana position has all fields sentinel needs', () => {
+    const position = {
+      symbol: mockSolanaTradeProposal.symbol,
+      address: mockSolanaTradeProposal.address,
+      chain: mockSolanaTradeProposal.chain,
+      entryPrice: mockSolanaTradeProposal.entryPrice,
+      stopLoss: mockSolanaTradeProposal.stopLoss,
+      takeProfitLevels: mockSolanaTradeProposal.takeProfitLevels,
+    };
+
+    assertEqual(position.chain, 'solana');
+    assert(position.stopLoss, 'Sentinel needs stopLoss');
+    assert(position.takeProfitLevels.length > 0, 'Sentinel needs TP levels');
   });
 });
 

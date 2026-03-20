@@ -85,37 +85,24 @@ if (dbAvailable) {
   // ============================================================
   // Paper Trades
   // ============================================================
-  describe('Paper Mode — Trades', () => {
-    test('can insert a paper trade', () => {
+  describe('Paper Mode — Receipts', () => {
+    test('can insert a paper receipt', () => {
       db.prepare(`
-        INSERT INTO paper_trades (id, order_id, order_source, action, symbol, address, chain, tier, proposed_price, quantity, amount)
-        VALUES ('pt-test-1', 'ord-1', 'approved_trades', 'buy', 'PTEST', '0xptest', 'base', 'moonshot', 0.001, 10000, 500)
+        INSERT INTO paper_receipts (id, order_id, action, symbol, address, chain, tier, proposed_price, quantity, amount)
+        VALUES ('pt-test-1', 'ord-1', 'buy', 'PTEST', '0xptest', 'base', 'moonshot', 0.001, 10000, 500)
       `).run();
-      const row = db.prepare("SELECT * FROM paper_trades WHERE id = 'pt-test-1'").get();
-      assert(row, 'Paper trade must be insertable');
+      const row = db.prepare("SELECT * FROM paper_receipts WHERE id = 'pt-test-1'").get();
+      assert(row, 'Paper receipt must be insertable');
       assertEqual(row.action, 'buy', 'Action must match');
       assertEqual(row.proposed_price, 0.001, 'Proposed price must match');
-    });
-
-    test('order_source CHECK constraint works', () => {
-      let threw = false;
-      try {
-        db.prepare(`
-          INSERT INTO paper_trades (id, order_id, order_source, action, symbol, address, chain, proposed_price)
-          VALUES ('pt-bad', 'ord-bad', 'invalid_source', 'buy', 'BAD', '0xbad', 'base', 0.001)
-        `).run();
-      } catch (e) {
-        threw = true;
-      }
-      assert(threw, 'Invalid order_source should be rejected by CHECK constraint');
     });
 
     test('action CHECK constraint works', () => {
       let threw = false;
       try {
         db.prepare(`
-          INSERT INTO paper_trades (id, order_id, order_source, action, symbol, address, chain, proposed_price)
-          VALUES ('pt-bad2', 'ord-bad', 'approved_trades', 'hold', 'BAD', '0xbad', 'base', 0.001)
+          INSERT INTO paper_receipts (id, order_id, action, symbol, address, chain, proposed_price)
+          VALUES ('pt-bad2', 'ord-bad', 'hold', 'BAD', '0xbad', 'base', 0.001)
         `).run();
       } catch (e) {
         threw = true;
@@ -123,21 +110,21 @@ if (dbAvailable) {
       assert(threw, 'Invalid action should be rejected by CHECK constraint');
     });
 
-    test('can record P&L on paper trade', () => {
+    test('can record P&L on paper receipt', () => {
       db.prepare(`
-        INSERT INTO paper_trades (id, order_id, order_source, action, symbol, address, chain, tier, proposed_price, quantity, amount, pnl_percent, pnl_usd)
-        VALUES ('pt-test-2', 'ord-2', 'sell_orders', 'sell', 'PTEST', '0xptest', 'base', 'moonshot', 0.002, 10000, 500, 100, 500)
+        INSERT INTO paper_receipts (id, order_id, action, symbol, address, chain, tier, proposed_price, quantity, amount, pnl_percent, pnl_usd)
+        VALUES ('pt-test-2', 'ord-2', 'sell', 'PTEST', '0xptest', 'base', 'moonshot', 0.002, 10000, 500, 100, 500)
       `).run();
-      const row = db.prepare("SELECT * FROM paper_trades WHERE id = 'pt-test-2'").get();
+      const row = db.prepare("SELECT * FROM paper_receipts WHERE id = 'pt-test-2'").get();
       assertEqual(row.pnl_percent, 100, 'P&L percent must match');
       assertEqual(row.pnl_usd, 500, 'P&L USD must match');
     });
 
     // Cleanup
-    test('cleanup paper trades', () => {
-      db.prepare("DELETE FROM paper_trades WHERE id LIKE 'pt-test-%'").run();
-      const count = db.prepare("SELECT COUNT(*) as c FROM paper_trades WHERE id LIKE 'pt-test-%'").get();
-      assertEqual(count.c, 0, 'Test trades should be cleaned up');
+    test('cleanup paper receipts', () => {
+      db.prepare("DELETE FROM paper_receipts WHERE id LIKE 'pt-test-%'").run();
+      const count = db.prepare("SELECT COUNT(*) as c FROM paper_receipts WHERE id LIKE 'pt-test-%'").get();
+      assertEqual(count.c, 0, 'Test receipts should be cleaned up');
     });
   });
 
@@ -179,8 +166,8 @@ if (dbAvailable) {
 
       // Record paper buy trade
       db.prepare(`
-        INSERT INTO paper_trades (id, order_id, order_source, action, symbol, address, chain, tier, proposed_price, quantity, amount)
-        VALUES ('pt-lifecycle-buy', 'ord-life', 'approved_trades', 'buy', 'LIFE', '0xlife', 'base', 'moonshot', 0.001, 10000, 10)
+        INSERT INTO paper_receipts (id, order_id, action, symbol, address, chain, tier, proposed_price, quantity, amount)
+        VALUES ('pt-lifecycle-buy', 'ord-life', 'buy', 'LIFE', '0xlife', 'base', 'moonshot', 0.001, 10000, 10)
       `).run();
 
       // Reduce paper cash
@@ -198,8 +185,8 @@ if (dbAvailable) {
 
       // Record paper sell trade
       db.prepare(`
-        INSERT INTO paper_trades (id, order_id, order_source, action, symbol, address, chain, tier, proposed_price, quantity, amount, pnl_percent, pnl_usd)
-        VALUES ('pt-lifecycle-sell', 'sell-life', 'sell_orders', 'sell', 'LIFE', '0xlife', 'base', 'moonshot', 0.003, 10000, 30, 200, 20)
+        INSERT INTO paper_receipts (id, order_id, action, symbol, address, chain, tier, proposed_price, quantity, amount, pnl_percent, pnl_usd)
+        VALUES ('pt-lifecycle-sell', 'sell-life', 'sell', 'LIFE', '0xlife', 'base', 'moonshot', 0.003, 10000, 30, 200, 20)
       `).run();
 
       // Return cash
@@ -210,7 +197,7 @@ if (dbAvailable) {
       assertEqual(pos.status, 'closed', 'Position should be closed');
       assertEqual(pos.pnl_usd, 20, 'P&L should be $20');
 
-      const trades = db.prepare("SELECT * FROM paper_trades WHERE order_id IN ('ord-life', 'sell-life') ORDER BY created_at").all();
+      const trades = db.prepare("SELECT * FROM paper_receipts WHERE order_id IN ('ord-life', 'sell-life') ORDER BY created_at").all();
       assertEqual(trades.length, 2, 'Should have buy and sell trades');
 
       const cash = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash'").get();
@@ -218,8 +205,83 @@ if (dbAvailable) {
 
       // Cleanup
       db.prepare("DELETE FROM paper_positions WHERE id = 'pp-lifecycle'").run();
-      db.prepare("DELETE FROM paper_trades WHERE id LIKE 'pt-lifecycle-%'").run();
+      db.prepare("DELETE FROM paper_receipts WHERE id LIKE 'pt-lifecycle-%'").run();
       db.prepare("UPDATE portfolio_meta SET value = '10000' WHERE key = 'paper_cash'").run();
+    });
+  });
+
+  // ============================================================
+  // Per-Chain Paper Cash
+  // ============================================================
+  describe('Paper Mode — Per-Chain Cash', () => {
+    test('paper_cash_base key exists after migration', () => {
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_base'").get();
+      assert(row, 'paper_cash_base must exist');
+    });
+
+    test('paper_cash_solana key exists after migration', () => {
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_solana'").get();
+      assert(row, 'paper_cash_solana must exist');
+    });
+
+    test('add-paper-position for base deducts from paper_cash_base', () => {
+      const origBase = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_base'").get()?.value;
+      const origSolana = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_solana'").get()?.value;
+
+      // Set known starting values
+      db.prepare("UPDATE portfolio_meta SET value = '5000' WHERE key = 'paper_cash_base'").run();
+      db.prepare("UPDATE portfolio_meta SET value = '3000' WHERE key = 'paper_cash_solana'").run();
+
+      // Insert a base position using transaction (simulates add-paper-position logic)
+      const txn = db.transaction(() => {
+        db.prepare(`
+          INSERT INTO paper_positions (id, symbol, address, chain, tier, entry_price, quantity, stop_loss, take_profit_levels, status)
+          VALUES ('pp-chain-base', 'BTEST', '0xbtest', 'base', 'moonshot', 1.0, 500, 0.5, '[]', 'open')
+        `).run();
+        db.prepare("UPDATE portfolio_meta SET value = '4500' WHERE key = 'paper_cash_base'").run();
+      });
+      txn();
+
+      const baseCash = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_base'").get();
+      assertEqual(baseCash.value, '4500', 'Base cash should be deducted');
+      const solCash = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_solana'").get();
+      assertEqual(solCash.value, '3000', 'Solana cash should be unchanged');
+
+      // Cleanup
+      db.prepare("DELETE FROM paper_positions WHERE id = 'pp-chain-base'").run();
+      db.prepare("UPDATE portfolio_meta SET value = ? WHERE key = 'paper_cash_base'").run(origBase || '10000');
+      db.prepare("UPDATE portfolio_meta SET value = ? WHERE key = 'paper_cash_solana'").run(origSolana || '0');
+    });
+
+    test('close-paper-position for solana adds to paper_cash_solana', () => {
+      const origBase = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_base'").get()?.value;
+      const origSolana = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_solana'").get()?.value;
+
+      // Setup
+      db.prepare("UPDATE portfolio_meta SET value = '5000' WHERE key = 'paper_cash_base'").run();
+      db.prepare("UPDATE portfolio_meta SET value = '3000' WHERE key = 'paper_cash_solana'").run();
+      db.prepare(`
+        INSERT INTO paper_positions (id, symbol, address, chain, tier, entry_price, quantity, stop_loss, take_profit_levels, status)
+        VALUES ('pp-chain-sol', 'STEST', 'SolAddr123', 'solana', 'moonshot', 1.0, 100, 0.5, '[]', 'open')
+      `).run();
+
+      // Close position — simulates close-paper-position adding proceeds to solana cash
+      const saleProceeds = 1.5 * 100; // exit_price * quantity
+      const txn = db.transaction(() => {
+        db.prepare("UPDATE paper_positions SET status = 'closed', exit_price = 1.5, pnl_percent = 50, pnl_usd = 50 WHERE id = 'pp-chain-sol'").run();
+        db.prepare("UPDATE portfolio_meta SET value = ? WHERE key = 'paper_cash_solana'").run(String(3000 + saleProceeds));
+      });
+      txn();
+
+      const baseCash = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_base'").get();
+      assertEqual(baseCash.value, '5000', 'Base cash unchanged');
+      const solCash = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_solana'").get();
+      assertEqual(solCash.value, '3150', 'Solana cash should include proceeds');
+
+      // Cleanup
+      db.prepare("DELETE FROM paper_positions WHERE id = 'pp-chain-sol'").run();
+      db.prepare("UPDATE portfolio_meta SET value = ? WHERE key = 'paper_cash_base'").run(origBase || '10000');
+      db.prepare("UPDATE portfolio_meta SET value = ? WHERE key = 'paper_cash_solana'").run(origSolana || '0');
     });
   });
 

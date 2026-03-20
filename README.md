@@ -28,7 +28,7 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
    +------+----------+       |       +-------+---------+
           |                  |               |
           v                  v               v
-   approved_trades table     |      sell_orders table
+              orders table   |      orders table
           |                  |               |
           +------------------+---------------+
                              v
@@ -50,6 +50,129 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
               (policies & co-signers)
 ```
 
+## System Overview
+
+### Full Pipeline
+
+```mermaid
+flowchart TD
+    subgraph Research["RESEARCH AGENT · 30m heartbeat"]
+        D["1. DISCOVER\nscan-tokens.js\nDEXScreener trending/new/established"]
+        DD["2. DEDUP\ncheck-token-status\nSkip: open positions, pending orders,\nwatchlist, cached analysis (24h TTL)"]
+        A["3. ANALYZE\ntoken-metrics.js + check-contract.js\nholder-distribution.js + narrative-check.js\n→ Spawn Sonnet sub-agent\n→ Score 0–100 across 6 dimensions"]
+        R["4. RISK\ncheck-contract.js --deep\n→ Spawn Sonnet sub-agent\n→ Auto-reject critical flags\n→ Market regime modifier\n→ Portfolio concentration checks"]
+        P["5. PROPOSE\nPosition sizing + stops + TPs\n→ Write orders\n→ Human approval / auto-approve (paper)"]
+        D --> DD --> A --> R --> P
+    end
+
+    subgraph Sentinel["SENTINEL AGENT · 10m heartbeat"]
+        M["6. MONITOR\ncheck-positions.js\ncheck-liquidity.js\ncheck-wallets.js\n→ Stop-loss / take-profit / rug detection\n→ Write orders + sentinel_alerts"]
+    end
+
+    subgraph Executor["EXECUTOR AGENT · 1m heartbeat"]
+        E["7. EXECUTE\nRead orders\nValidate independently\nBuild Safe/Squads tx → sign → submit\nWrite receipts → update positions"]
+    end
+
+    P -- "orders" --> E
+    M -- "orders" --> E
+    E -- "receipts" --> Research
+    M -- "sentinel_alerts" --> Research
+
+    style Research fill:#1a1a2e,stroke:#e94560,color:#fff
+    style Sentinel fill:#1a1a2e,stroke:#f5a623,color:#fff
+    style Executor fill:#1a1a2e,stroke:#0f3460,color:#fff
+```
+
+### Agent Responsibility Matrix
+
+| | Research | Sentinel | Executor |
+|---|---|---|---|
+| **Model** | Claude Haiku 4.5 + Sonnet sub-agents | GPT-5.4-mini | GPT-5.4-mini |
+| **Heartbeat** | 30 min | 10 min | 1 min |
+| **Reads** | positions, receipts, portfolio_meta, analysis_cache, tracked_wallets | positions/paper_positions, liquidity_snapshots, tracked_wallets | orders |
+| **Writes** | orders, trades, watchlist, tracked_wallets, analysis_cache, sentinel_alerts | orders, sentinel_alerts, liquidity_snapshots, sentinel_log | receipts, positions/paper_positions, executor_log, portfolio_meta |
+| **Checks** | Token safety, holder distribution, narrative strength, market regime, portfolio concentration | Price vs stops/TPs, LP changes, tracked wallet activity | Order staleness, price drift, slippage limits, balance sufficiency |
+| **Enforces** | Position limits, cash reserve, dedup, auto-reject rules, regime adjustments | Stop-loss, take-profit, rug detection | Independent validation, slippage caps, stale order rejection |
+| **Scripts** | scan-tokens, token-metrics, check-contract, holder-distribution, narrative-check, market-overview, market-regime, portfolio-summary, score-wallet, portfolio-load-* | check-positions, check-liquidity, check-wallets | execute-trade, execute-trade-solana, check-safe-status, check-squads-status |
+
+### Scenario Coverage
+
+| Scenario | Handler | How |
+|---|---|---|
+| New trending token appears | Research | scan-tokens.js → dedup → Sonnet analysis → risk → propose |
+| Token already analyzed (avoid) | Research | check-token-status hits analysis_cache → skip (no Sonnet spawn) |
+| Token is honeypot | Research | check-contract.js detects → auto-reject, cache result |
+| Top holder >30% | Research | holder-distribution.js detects → auto-reject |
+| Liquidity <$5k | Research | token-metrics.js detects → auto-reject |
+| Pausable contract | Research | check-contract.js detects → auto-reject |
+| Known scam deployer | Research | check-contract.js detects → auto-reject |
+| Market turns bearish | Research | market-regime.js classifies → tighten limits (2 readings, anti-whipsaw) |
+| Market crisis | Research | market-regime.js → 40% cash reserve, no new moonshots, min score 80 |
+| Position hits stop-loss | Sentinel → Executor | check-positions.js → orders → execute within 1m |
+| Position hits take-profit | Sentinel → Executor | check-positions.js → orders → execute within 1m |
+| LP rug pull detected | Sentinel → Executor | check-liquidity.js → orders → emergency sell |
+| Smart wallet dumps token | Sentinel | check-wallets.js → sentinel_alert → Research awareness |
+| Price drifted >10% since proposal | Executor | Stale order check → reject, write receipt with reason |
+| Slippage exceeds limit | Executor | Pre-execution validation → reject order |
+| Multiple funds, same strategy | Infra | Different SAFE_ID → separate SQLite DBs, shared agent memory |
+| Paper trading (no real funds) | All | PAPER_MODE=true → auto-approve buys, simulated execution, paper_* tables |
+| Agent memory survives redeploy | Infra | MEMORY.md + daily logs preserved, private git backup every 15m |
+| Wallet data survives redeploy | Infra | SQLite DB preserved + auto-migrated on restart |
+| Too many positions in one narrative | Research | Portfolio check → max 3 same-narrative positions |
+| Portfolio over-concentrated | Research | Position limits (5% moonshot, 10% conviction, 50% base) |
+
+### Data Flow
+
+```mermaid
+flowchart LR
+    subgraph DB["SQLite · data/SAFE_ID.db"]
+        ORD[orders]
+        TR[receipts]
+        POS[positions]
+        SA[sentinel_alerts]
+        AC[analysis_cache]
+        TW[tracked_wallets]
+        PM[portfolio_meta]
+    end
+
+    R((Research)) -- "write buys" --> ORD
+    ORD -- "read pending" --> X((Executor))
+    S((Sentinel)) -- "write sells" --> ORD
+    X -- "write results" --> TR
+    X -- "update" --> POS
+    TR -- "read for learning" --> R
+    S -- "write alerts" --> SA
+    SA -- "read for awareness" --> R
+    R -- "write/read" --> AC
+    R -- "write" --> TW
+    TW -- "read" --> S
+    R -- "read/write" --> PM
+    S -- "read/write" --> PM
+    X -- "read/write" --> PM
+
+    style R fill:#e94560,stroke:#e94560,color:#fff
+    style S fill:#f5a623,stroke:#f5a623,color:#000
+    style X fill:#0f3460,stroke:#0f3460,color:#fff
+    style DB fill:#16213e,stroke:#533483,color:#fff
+```
+
+### Multi-Chain Support
+
+| Capability | Base (EVM) | Solana |
+|---|---|---|
+| **Wallet type** | Safe multisig | Squads Protocol V4 |
+| **DEX aggregator** | 1inch | Jupiter |
+| **Execution script** | execute-trade.js | execute-trade-solana.js |
+| **Status check** | check-safe-status.js | check-squads-status.js |
+| **Portfolio sync** | portfolio-load-evm.js (DeBank) | portfolio-load-solana.js (Helius) |
+| **Token scanning** | DEXScreener | DEXScreener |
+| **Contract safety** | GoPlus Security | GoPlus Security |
+| **Wallet tracking** | Etherscan API | Solscan API |
+| **Smart money scoring** | Zerion PnL | Birdeye PnL |
+| **Cash token** | USDC / ETH | USDC / SOL |
+| **RPC config** | RPC_BASE env var | RPC_SOL env var |
+| **Signer config** | SAFE_SIGNER_KEY | SQUADS_SIGNER_KEY |
+
 ## Key Design Decisions
 
 **Three agents, clear separation.** Research thinks deeply (Claude Haiku 4.5, spawns Sonnet sub-agents for analysis/risk, 30m heartbeat). Sentinel reacts fast (GPT-5.4-mini, 10m). Executor handles wallet operations (GPT-5.4-mini, 1m).
@@ -70,23 +193,6 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
 
 **Database as message bus.** All agent-to-agent communication goes through SQLite tables via `db-query.js`. No JSON files, no direct file passing.
 
-## Pipeline
-
-```
-1. Discovery ── scan-tokens.js ──▶ filter ──▶ dedup (check-token-status)
-2. Analysis ─── token-metrics.js, check-contract.js, holder-distribution.js
-                → spawn Sonnet sub-agent → score 0-100 across 6 dimensions
-                → avoid? cache result, skip (saves future sub-agent spawns)
-3. Risk ─────── check-contract.js --deep → spawn Sonnet sub-agent
-                → auto-reject on critical flags → market regime risk modifier
-                → portfolio-level checks → reject? cache result, skip
-4. Proposal ─── position sizing, stops, take-profit levels
-                → human approval (real) or auto-approve (paper)
-5. Execution ── Executor validates → Safe wallet tx → receipt → position update
-```
-
----
-
 ## Deployment Guide
 
 ### Prerequisites
@@ -95,8 +201,8 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
 - Node.js 22+ (manual path only)
 - Anthropic API key (Haiku for Research agent, Sonnet for sub-agents)
 - OpenAI API key (GPT-5.4-mini for Sentinel/Executor agents)
-- A deployed Safe wallet on your target chain(s) (Ethereum, Base, etc.)
-- RPC endpoints for each chain (Alchemy, Infura, etc.)
+- A deployed Safe wallet on your target EVM chain(s) and/or Squads multisig on Solana
+- RPC endpoints for each chain (Alchemy, Infura, Helius, etc.)
 
 ### Step 1: Clone and Configure
 
@@ -117,18 +223,26 @@ SAFE_ID=fund-alpha
 ANTHROPIC_API_KEY=sk-ant-...         # Research agent (Haiku) + sub-agents (Sonnet)
 OPENAI_API_KEY=sk-...                # Sentinel/Executor agents (GPT-5.4-mini)
 
-# Safe wallet
-SAFE_ADDRESS_ETH=0x...               # Your Safe address on Ethereum
+# Safe wallet (EVM)
 SAFE_ADDRESS_BASE=0x...              # Your Safe address on Base
 SAFE_SIGNER_KEY=0x...                # Private key for one Safe signer (NEVER commit this)
 
+# Squads multisig (Solana) — set vault address OR multisig PDA
+SQUADS_VAULT_ADDRESS=...             # Your Squads vault address (base58)
+SQUADS_MULTISIG_ADDRESS=...          # Or multisig PDA — vault derived from this
+SQUADS_SIGNER_KEY=...                # Signer private key (base58, NEVER commit this)
+
+# Active chains (default: base)
+ACTIVE_CHAINS=base,solana
+
 # RPC endpoints
-RPC_ETH=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
 RPC_BASE=https://base-mainnet.g.alchemy.com/v2/YOUR_KEY
+RPC_SOL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
 
 # Data APIs (optional but recommended)
 GOPLUS_API_KEY=                       # Contract safety checks
-ETHERSCAN_API_KEY=                    # Wallet tracking
+ETHERSCAN_API_KEY=                    # EVM wallet tracking
+HELIUS_API_KEY=                       # Solana portfolio sync + token data
 ```
 
 ### Step 2: Deploy
@@ -174,7 +288,7 @@ In paper mode:
 - BUY proposals that pass all safety checks are auto-approved (`approved_by: 'paper_mode'`)
 - No human approval needed — fully autonomous
 - All safety rules remain enforced
-- Trades recorded in `paper_trades` and `paper_positions` tables
+- Trades recorded in `paper_receipts` and `paper_positions` tables
 - Use `get-paper-portfolio`, `get-paper-stats`, etc. for paper-specific queries
 
 ### Model Configuration
@@ -225,7 +339,7 @@ SAFE_ID=fund-alpha ./setup.sh --memory-backup
 # Run tests (offline — no API calls)
 cd tests && node run-all.js --offline
 
-# Check all 7 suites pass (262+ tests)
+# Check all 9 suites pass (391 tests)
 ```
 
 ---
@@ -281,12 +395,12 @@ SAFE_ID=fund-alpha ./setup.sh
 # Docker
 docker compose logs -f                        # Live logs
 docker compose exec crypto-claw \
-  node scripts/db-query.js get-portfolio       # Portfolio state
+  node scripts/db-query.js get-portfolio --chain base  # Portfolio state
 docker compose exec crypto-claw \
   node scripts/db-query.js get-heartbeat --agent research  # When agent last ran
 
 # Manual
-SAFE_ID=fund-alpha node scripts/db-query.js get-portfolio
+SAFE_ID=fund-alpha node scripts/db-query.js get-portfolio --chain base
 SAFE_ID=fund-alpha node scripts/db-query.js get-heartbeat --agent research
 ```
 
@@ -296,11 +410,11 @@ SAFE_ID=fund-alpha node scripts/db-query.js get-heartbeat --agent research
 # Open positions
 node scripts/db-query.js get-positions --status open
 
-# Pending trades waiting for your approval
-node scripts/db-query.js get-approved-trades --pending
+# Pending buy orders waiting for your approval
+node scripts/db-query.js get-orders --pending --action buy
 
 # Pending sell orders
-node scripts/db-query.js get-sell-orders --pending
+node scripts/db-query.js get-orders --pending --action sell
 
 # Recent execution receipts
 node scripts/db-query.js get-receipts --limit 10
@@ -327,10 +441,10 @@ node scripts/db-query.js migrate
 ### Paper Mode Queries
 
 ```bash
-node scripts/db-query.js get-paper-portfolio       # Cash, P&L, positions
-node scripts/db-query.js get-paper-positions        # Open paper positions
-node scripts/db-query.js get-paper-stats            # Win rate, returns
-node scripts/db-query.js get-paper-trades --limit 10
+node scripts/db-query.js get-paper-portfolio --chain base  # Cash, P&L, positions
+node scripts/db-query.js get-paper-positions               # Open paper positions
+node scripts/db-query.js get-paper-stats --chain base      # Win rate, returns
+node scripts/db-query.js get-paper-receipts --limit 10
 ```
 
 ### Depositing Funds
@@ -338,8 +452,8 @@ node scripts/db-query.js get-paper-trades --limit 10
 After depositing ETH/USDC to your Safe wallet, update the cash balance:
 
 ```bash
-node scripts/db-query.js set-cash --amount 10000
-node scripts/db-query.js set-meta --key total_deposited --value 10000
+node scripts/db-query.js set-cash --chain base --amount 10000
+node scripts/db-query.js set-meta --key total_deposited_base --value 10000
 ```
 
 ### Backing Up Wallet Data
@@ -400,9 +514,8 @@ Per-fund data in `data/<SAFE_ID>.db`. 17 tables, auto-migrating schema. Accessed
 | Table | Written By | Read By | Purpose |
 |-------|-----------|---------|---------|
 | `positions` | Executor | All | Current positions with stops and TPs |
-| `approved_trades` | Research | Executor | Human-approved buy queue |
-| `sell_orders` | Sentinel | Executor | Auto-sell queue |
-| `trade_receipts` | Executor | All | Execution results with tx hashes |
+| `orders` | Research, Sentinel | Executor | Buy/sell order queue |
+| `receipts` | Executor | All | Execution results with tx hashes |
 | `sentinel_alerts` | Sentinel | Research | Monitoring alerts |
 | `watchlist` | Research | Research | Tokens waiting for entry |
 | `trades` | Research, Executor | Research | Trade history with stats |
@@ -413,7 +526,7 @@ Per-fund data in `data/<SAFE_ID>.db`. 17 tables, auto-migrating schema. Accessed
 | `sentinel_log` | Sentinel | All | Monitoring check history |
 | `executor_log` | Executor | Executor | Processing history |
 | `portfolio_meta` | All | All | Cash balance, safe_id, market regime |
-| `paper_trades` | Executor | All | Simulated trade records (paper mode) |
+| `paper_receipts` | Executor | All | Simulated trade records (paper mode) |
 | `paper_positions` | Executor | All | Simulated positions (paper mode) |
 
 ---
@@ -471,19 +584,28 @@ crypto-claw/
 |   +-- market-regime.js             # Market regime classification + adjustments
 |   +-- heartbeat-check.js           # Pre-check for background loops
 |   +-- portfolio-summary.js         # Allocation + P&L
+|   +-- portfolio-load-evm.js        # On-chain portfolio sync (EVM via DeBank)
+|   +-- portfolio-load-solana.js     # On-chain portfolio sync (Solana via Helius)
+|   +-- chains.js                    # Centralized chain config (single source of truth)
+|   +-- execute-trade.js             # Safe wallet swap execution (EVM)
+|   +-- execute-trade-solana.js      # Squads/Jupiter swap execution (Solana)
+|   +-- check-safe-status.js         # Safe wallet status check (EVM)
+|   +-- check-squads-status.js       # Squads multisig status check (Solana)
 |   +-- narrative-check.js           # Narrative momentum
 |   +-- holder-distribution.js       # Top holder analysis
 |   +-- memory-backup.sh             # Git auto-commit for agent memory
 |
-+-- tests/                           # 7 TEST SUITES
++-- tests/                           # 9 TEST SUITES
 |   +-- run-all.js                   # Test runner
 |   +-- test-helpers.js              # Minimal test framework
 |   +-- test-memory.js               # Agent memory + SQLite schema + CRUD
 |   +-- test-safety.js               # Safety rules + regime adjustments
-|   +-- test-pipeline.js             # Pipeline integration + dedup logic
-|   +-- test-executor.js             # Executor validation + receipts
-|   +-- test-paper-mode.js           # Paper trading lifecycle + P&L
+|   +-- test-pipeline.js             # Pipeline integration + dedup + Solana
+|   +-- test-executor.js             # Executor validation + cross-chain cash
+|   +-- test-paper-mode.js           # Paper trading lifecycle + per-chain cash
+|   +-- test-e2e-paper.js            # End-to-end paper trading + multi-chain
 |   +-- test-regime.js               # Market regime classification + anti-whipsaw
+|   +-- test-chains.js               # Chain config + portfolio sync
 |   +-- test-scripts.js              # Script output validation (needs network)
 |
 +-- entrypoint.sh                    # Docker runtime init + background loops
@@ -540,13 +662,15 @@ cd tests && node run-all.js --offline
 cd tests && node run-all.js
 
 # Run individual suites
-node tests/test-memory.js      # Agent memory + SQLite schema + CRUD (56 tests)
-node tests/test-safety.js      # Safety rules + regime limits (35 tests)
-node tests/test-pipeline.js    # Pipeline + dedup logic (44 tests)
-node tests/test-executor.js    # Validation, slippage, receipts (25 tests)
-node tests/test-paper-mode.js  # Paper trading lifecycle (14 tests)
+node tests/test-memory.js      # Agent memory + SQLite schema + CRUD (62 tests)
+node tests/test-safety.js      # Safety rules + regime limits (46 tests)
+node tests/test-pipeline.js    # Pipeline + dedup + Solana (52 tests)
+node tests/test-executor.js    # Validation, slippage, receipts, cross-chain (37 tests)
+node tests/test-paper-mode.js  # Paper trading lifecycle + per-chain cash (18 tests)
+node tests/test-e2e-paper.js   # End-to-end paper trading + multi-chain (49 tests)
 node tests/test-regime.js      # Regime classification + anti-whipsaw (47 tests)
-node tests/test-scripts.js     # Script output format (needs network)
+node tests/test-chains.js      # Chain config + portfolio sync (42 tests)
+node tests/test-scripts.js     # Script output format (needs network, 38 tests)
 ```
 
 ## Cost Optimization

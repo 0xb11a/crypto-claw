@@ -15,16 +15,26 @@ Read pending orders from the database. Validate. Build Safe transactions. Sign. 
 
 ## Process (Every Heartbeat)
 
-**IMPORTANT: Check `PAPER_MODE` env var at the start of every cycle.** If `true`, use paper commands throughout. If `false` or unset, use real commands.
+### Step 0: Load Configuration (MANDATORY — run before anything else)
+```bash
+echo "=== EXECUTOR CONFIG ==="
+echo "PAPER_MODE=${PAPER_MODE:-false}"
+echo "ACTIVE_CHAINS=${ACTIVE_CHAINS:-base}"
+echo "======================"
+```
+Read the output. This determines your execution path for the entire cycle:
+- `PAPER_MODE=true` → paper DB commands, skip Safe/Squads wallet operations
+- `PAPER_MODE=false` → real DB commands, execute through Safe/Squads
+Reference this output throughout. Do not rely on memory of previous cycles.
 
 ### Step 1: Load Pending Orders
 
 ```bash
 # Sell orders first (urgent — written by Sentinel)
-node scripts/db-query.js get-sell-orders --pending
+node scripts/db-query.js get-orders --pending --action sell
 
 # Then approved buys (written by Research after human approval)
-node scripts/db-query.js get-approved-trades --pending
+node scripts/db-query.js get-orders --pending --action buy
 
 # Current positions for validation
 #   Real mode:  node scripts/db-query.js get-positions
@@ -53,17 +63,16 @@ For BUY orders, check:
 - Current price within 10% of proposed entry
 
 ```bash
-# Check cash balance
-#   Real mode:  node scripts/db-query.js get-portfolio
-#   Paper mode: node scripts/db-query.js get-paper-cash
+# Check cash balance (per-chain)
+#   Real mode:  node scripts/db-query.js get-cash --chain <chain>
+#   Paper mode: node scripts/db-query.js get-paper-cash --chain <chain>
 ```
 
-If validation fails → write FAILED receipt, mark order as executed with `status: "validation_failed"`, alert human. **Do NOT call add-paper-trade for failed validations** — only add-receipt.
+If validation fails → write FAILED receipt, mark order as executed with `status: "validation_failed"`, alert human. **Do NOT call add-paper-receipt for failed validations** — only add-receipt.
 
 ```bash
 node scripts/db-query.js add-receipt --json '{
   "order_id": "trade-...",
-  "order_source": "sell_orders",
   "action": "sell",
   "symbol": "TOKEN",
   "chain": "base",
@@ -80,10 +89,9 @@ Do NOT call execute-trade.js or interact with the Safe wallet. Instead:
 
 ```bash
 # Record paper trade
-node scripts/db-query.js add-paper-trade --json '{
+node scripts/db-query.js add-paper-receipt --json '{
   "id": "paper-<timestamp>",
   "order_id": "<original-order-id>",
-  "order_source": "approved_trades",
   "action": "buy",
   "symbol": "TOKEN",
   "address": "0x...",
@@ -117,8 +125,10 @@ node scripts/db-query.js close-paper-position --id <position-id> --json '{"exit_
 
 #### If PAPER_MODE=false (or unset) — Real execution
 
+Determine which execution script to use based on chain:
+
 ```bash
-# Execute the trade through Safe
+# EVM chains (Base, etc.) — Execute through Safe
 node scripts/execute-trade.js \
   --action sell \
   --symbol TOKEN \
@@ -126,22 +136,28 @@ node scripts/execute-trade.js \
   --chain base \
   --amount all \
   --max-slippage 5
+
+# Solana — Execute through Squads multisig via Jupiter
+node scripts/execute-trade-solana.js \
+  --action sell \
+  --symbol TOKEN \
+  --address <mint_address> \
+  --chain solana \
+  --amount all \
+  --max-slippage 5
 ```
 
-The script handles:
-1. Getting a swap quote (1inch / 0x / Jupiter)
-2. Building Safe transaction data
-3. Signing with SAFE_SIGNER_KEY
-4. Submitting to Safe Transaction Service
-5. Returning tx hash and status
+**EVM script** handles: 1inch swap quoting → Safe transaction → sign with SAFE_SIGNER_KEY → propose/execute
+**Solana script** handles: Jupiter swap quoting → Squads vault transaction → sign with SQUADS_SIGNER_KEY → propose/approve/execute
+
+Solana statuses: `executed`, `queued_in_squads` (needs more approvals), `failed`
 
 ### Step 4: Record Receipt
 
 ```bash
-# Real mode: write to trade_receipts
+# Real mode: write to receipts
 node scripts/db-query.js add-receipt --json '{
   "order_id": "trade-...",
-  "order_source": "sell_orders",
   "action": "sell",
   "symbol": "TOKEN",
   "chain": "base",
@@ -152,7 +168,7 @@ node scripts/db-query.js add-receipt --json '{
   "slippage": 0.02
 }'
 
-# Paper mode: already recorded via add-paper-trade in Step 3 — skip this step
+# Paper mode: already recorded via add-paper-receipt in Step 3 — skip this step
 ```
 
 ### Step 5: Update State
@@ -164,37 +180,35 @@ node scripts/db-query.js add-receipt --json '{
 For BUY:
 ```bash
 node scripts/db-query.js add-position --json '{...}'
-node scripts/db-query.js set-cash --amount <new_amount>
+node scripts/db-query.js set-cash --chain <chain> --amount <new_amount>
 ```
 
-For SELL ALL:
+For SELL ALL (P&L auto-calculated, no set-cash needed — on-chain sync handles cash):
 ```bash
-node scripts/db-query.js remove-position --id <id>
-node scripts/db-query.js set-cash --amount <new_amount>
+node scripts/db-query.js close-position --id <id> --json '{"exit_price": 0.002, "exit_reason": "stop_loss"}'
 ```
 
-For SELL PARTIAL:
+For SELL PARTIAL (P&L auto-calculated, no set-cash needed — on-chain sync handles cash):
 ```bash
-node scripts/db-query.js update-position --id <id> --json '{"quantity":<new_qty>,"status":"partial_exit"}'
-node scripts/db-query.js set-cash --amount <new_amount>
+node scripts/db-query.js close-position --id <id> --quantity <sold_qty> --json '{"exit_price": 0.002, "exit_reason": "take_profit_partial"}'
 ```
 
 ### Step 5b: Post-Trade Portfolio Sync (real mode only)
 
 After a successful trade execution in real mode, sync on-chain portfolio state:
 ```bash
+# EVM chains:
 node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger post_trade
+
+# Solana:
+node scripts/portfolio-load-solana.js --chain solana --trigger post_trade
 ```
 This ensures DB positions reflect actual on-chain balances after the trade. Skip in paper mode.
 
 ### Step 6: Mark Order Executed (both modes)
 
 ```bash
-# For sell orders
-node scripts/db-query.js update-sell-order --id "order-id" --status executed
-
-# For approved trades
-node scripts/db-query.js update-approved-trade --id "trade-id" --status executed
+node scripts/db-query.js mark-order-executed --id "order-id"
 ```
 
 ### Step 7: Notify
@@ -203,6 +217,25 @@ node scripts/db-query.js update-approved-trade --id "trade-id" --status executed
 - Paper mode → log: "Paper trade: bought $TOKEN at $0.001, $500"
 - Queued in Safe → inform human: "Trade signed, needs X more signature(s) in Safe"
 - Failed → alert human (urgent): "SELL $TOKEN failed: [reason]"
+
+## Queued Transaction Handling (Multisig Threshold > 1)
+
+When `execute-trade.js` returns `queued_in_safe` or `execute-trade-solana.js` returns `queued_in_squads`, the transaction needs more signatures before it confirms on-chain. Handle this carefully:
+
+1. **Record receipt with queued status** — write the receipt immediately with `status: "queued_in_safe"` or `status: "queued_in_squads"`. Include `safe_tx_hash`/`squads_transaction_index` so the transaction can be tracked.
+2. **Do NOT update positions or cash** — the funds haven't moved yet. Do not call `add-position`, `remove-position`, `update-position`, `set-cash`, or any paper equivalents.
+3. **Mark the order as executed** — so it isn't re-processed on the next heartbeat. The receipt's queued status tracks that it still needs confirmation.
+4. **On subsequent heartbeats** — check for queued receipts and verify on-chain status:
+   ```bash
+   # Find queued receipts
+   node scripts/db-query.js get-receipts --status queued_in_safe
+   node scripts/db-query.js get-receipts --status queued_in_squads
+
+   # Check if confirmed on-chain
+   node scripts/check-safe-status.js --chain <chain> --safe-hash <safe_tx_hash>
+   node scripts/check-squads-status.js --pending
+   ```
+5. **Once confirmed on-chain** — update the receipt status to `executed`, then proceed with position and cash updates as normal (Step 5 above). Trigger portfolio sync.
 
 ## Rules
 - Executor ONLY reads from the database — it never creates orders itself

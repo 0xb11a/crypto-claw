@@ -8,7 +8,7 @@
  */
 
 import 'dotenv/config';
-import { getChain } from './chains.js';
+import { getChain, getCashToken } from './chains.js';
 import { createPublicClient, http, formatUnits, parseAbi } from 'viem';
 import SafeApiKitModule from '@safe-global/api-kit';
 const SafeApiKit = SafeApiKitModule.default || SafeApiKitModule;
@@ -20,12 +20,7 @@ const SAFE_TX_SERVICE_URLS = {
   '10': 'https://safe-transaction-optimism.safe.global',
 };
 
-const USDC_ADDRESSES = {
-  '8453': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-  '1': '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-  '42161': '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-  '10': '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
-};
+// USDC address resolved per-chain from chains.js
 
 const ERC20_ABI = parseAbi([
   'function balanceOf(address) view returns (uint256)',
@@ -68,7 +63,7 @@ function resolveConfig(chainName) {
     process.exit(1);
   }
 
-  return { safeAddress, rpcUrl, chainId: chain.chainId, txServiceUrl };
+  return { safeAddress, rpcUrl, chainId: chain.chainId, txServiceUrl, chainName };
 }
 
 async function retryOnRateLimit(fn, retries = 2, delay = 2000) {
@@ -158,7 +153,7 @@ async function getTransactionStatus(config) {
 }
 
 async function getUsdcBalance(client, config) {
-  const usdcAddr = USDC_ADDRESSES[config.chainId];
+  const usdcAddr = config.chainName ? getCashToken(config.chainName).address : null;
   if (!usdcAddr) return null;
 
   try {

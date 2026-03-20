@@ -96,12 +96,12 @@ When updating `MEMORY.md`, use this template:
 ### Wallet Data (Database — per-fund)
 Positions, trades, watchlist, alerts — everything tied to a specific Safe wallet. Access via scripts.
 
-**IMPORTANT: Check `PAPER_MODE` env var first.** If `PAPER_MODE=true`, use paper commands. If unset or `false`, use real commands.
+**Run `echo "PAPER_MODE=${PAPER_MODE:-false}"` at the start of every heartbeat cycle.** Read the output: if `true`, use paper commands; if `false`/unset, use real commands. Reference this throughout — do not rely on memory of previous cycles.
 
 ```bash
 # Read current portfolio
-#   Real mode:  node scripts/db-query.js get-portfolio
-#   Paper mode: node scripts/db-query.js get-paper-portfolio
+#   Real mode:  node scripts/db-query.js get-portfolio --chain <chain>
+#   Paper mode: node scripts/db-query.js get-paper-portfolio --chain <chain>
 # Read positions
 #   Real mode:  node scripts/db-query.js get-positions --status open
 #   Paper mode: node scripts/db-query.js get-paper-positions --status open
@@ -109,7 +109,7 @@ Positions, trades, watchlist, alerts — everything tied to a specific Safe wall
 node scripts/db-query.js get-alerts --unprocessed
 # Check trade execution results
 #   Real mode:  node scripts/db-query.js get-receipts --limit 10
-#   Paper mode: node scripts/db-query.js get-paper-trades --limit 10
+#   Paper mode: node scripts/db-query.js get-paper-receipts --limit 10
 # Get trade stats
 #   Real mode:  node scripts/db-query.js get-trade-stats
 #   Paper mode: node scripts/db-query.js get-paper-stats
@@ -173,27 +173,40 @@ node scripts/db-query.js get-alerts --unprocessed
 - Calculate position size, entry, stops, take-profit
 - **If `PAPER_MODE=true` → auto-approve: write to DB with `approved: true, approved_by: "paper_mode"`**
 - **If real mode → send BUY proposal to human for approval. WAIT.**
-- **When approved → write to database: `node scripts/db-query.js add-approved-trade --json '...'`**
+- **When approved → write to database: `node scripts/db-query.js add-order --json '...'`**
 - **The Executor agent will pick it up and execute via Safe wallet**
 - **SELL proposals → Sentinel writes sell order to DB, Executor executes**
 - Log proposal + outcome to daily memory
 - After Executor confirms execution (query receipts), update analytics in daily log
 
-## Portfolio Rules (HARD LIMITS — Never Violate)
+## Portfolio Rules (Per-Chain — Never Violate)
 
-| Rule | Limit |
-|------|-------|
-| Max single moonshot position | 5% of portfolio |
-| Max single conviction position | 10% of portfolio |
-| Max single base position | 50% of portfolio |
-| Max total moonshot allocation | 20% of portfolio |
-| Min cash/stablecoin reserve | 10% of portfolio |
-| Max positions in same narrative | 3 |
-| Max total open positions | 15 |
+Portfolio limits are enforced **per-chain**. Each chain is an independent capital pool — you cannot use Solana cash for Base trades. Read chain-specific rules from `chains.js` via `getPortfolioRules(chain)`.
+
+| Rule | Default | Override |
+|------|---------|----------|
+| Max single moonshot position | 5% of **chain** portfolio | Solana: 7% |
+| Max single conviction position | 10% of **chain** portfolio | — |
+| Max single base position | 50% of **chain** portfolio | — |
+| Max total moonshot allocation | 20% of **chain** portfolio | Solana: 30% |
+| Min cash/stablecoin reserve | 10% of **chain** portfolio | — |
+| Max positions in same narrative | 3 per chain | — |
+| Max total open positions | 15 per chain | Solana: 10 |
+| Tiers enabled | moonshot, conviction, base | Solana: moonshot, conviction only |
+
+All portfolio queries must include `--chain`:
+- `node scripts/db-query.js get-portfolio --chain <chain>`
+- `node scripts/db-query.js get-cash --chain <chain>`
+- `node scripts/db-query.js set-cash --chain <chain> --amount <amount>`
+
+Paper mode commands follow the same pattern:
+- `node scripts/db-query.js get-paper-portfolio --chain <chain>`
+- `node scripts/db-query.js get-paper-cash --chain <chain>`
+- `node scripts/db-query.js set-paper-cash --chain <chain> --amount <amount>`
 
 ### Market Regime Adjustments (Can Only Tighten — Never Relax Hard Limits)
 
-Read the current regime before sizing any position: `node scripts/db-query.js get-meta --key market_regime`
+Read the current regime before sizing any position. Regime adjustments apply on top of per-chain rules using `min(chainRule, regimeLimit)` for maximums, `max(chainRule, regimeLimit)` for minimums — regime can only make per-chain rules stricter: `node scripts/db-query.js get-meta --key market_regime`
 
 | Parameter | Bullish/Neutral | Bearish | Crisis |
 |-----------|----------------|---------|--------|
@@ -226,15 +239,24 @@ All stop-losses auto-execute via Sentinel → Executor — no approval needed.
 ### Sentinel Agent
 - Sentinel monitors positions (reads portfolio from DB)
 - Sentinel writes alerts to DB (`sentinel_alerts` table)
-- Sentinel writes sell orders to DB (`sell_orders` table)
+- Sentinel writes sell orders to DB (`orders` table)
 - On each heartbeat, check unprocessed alerts: `node scripts/db-query.js get-alerts --unprocessed`
 
 ### Executor Agent
-- Executor reads `approved_trades` and `sell_orders` from DB
+- Executor reads `orders` from DB
 - Executor builds, signs, and submits Safe wallet transactions (or simulates in paper mode)
-- Executor writes results to `trade_receipts` (real) or `paper_trades` (paper) table
+- Executor writes results to `receipts` (real) or `paper_receipts` (paper) table
 - Executor updates `positions` or `paper_positions` table after execution
-- Check receipts: real mode → `get-receipts --limit 5`, paper mode → `get-paper-trades --limit 5`
+- Check receipts: real mode → `get-receipts --limit 5`, paper mode → `get-paper-receipts --limit 5`
+
+## Chain-Specific Notes
+
+### Solana
+- Token addresses are **mint addresses** in base58 format (e.g., `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`), not `0x` hex addresses
+- SOL is the native token (like ETH on Base)
+- When proposing Solana trades, chain must be `'solana'`
+- Contract safety checks may flag `freeze_authority` and `close_authority` — these are Solana-specific risks (SPL token authorities)
+- Execution uses Jupiter DEX via Squads multisig (not 1inch/Safe)
 
 ## Security Rules
 - NEVER expose API keys, wallet keys, or seed phrases
@@ -252,14 +274,11 @@ When `PAPER_MODE=true` is set in the environment, the system simulates trades wi
 
 | Action | Real Mode | Paper Mode |
 |--------|-----------|------------|
-| Get portfolio | `get-portfolio` | `get-paper-portfolio` |
+| Get portfolio | `get-portfolio --chain <chain>` | `get-paper-portfolio --chain <chain>` |
 | Get positions | `get-positions` | `get-paper-positions` |
-| Get cash | `get-portfolio` (cash field) | `get-paper-cash` |
-| Get trades | `get-receipts` | `get-paper-trades` |
+| Get cash | `get-cash --chain <chain>` | `get-paper-cash --chain <chain>` |
+| Get trades | `get-receipts` | `get-paper-receipts` |
 | Get stats | `get-trade-stats` | `get-paper-stats` |
-| Add position | `add-position` | `add-paper-position` |
-| Update position | `update-position` | `update-paper-position` |
-| Close position | `close-position` | `close-paper-position` |
 
 ### What Changes
 - BUY proposals that pass ALL safety checks are **auto-approved** (`approved: 1, approved_by: 'paper_mode'`)
@@ -272,13 +291,14 @@ When `PAPER_MODE=true` is set in the environment, the system simulates trades wi
 - Auto-reject conditions (honeypot, high holder concentration, low liquidity, etc.) still apply
 - Memory system works identically (MEMORY.md, daily logs)
 - Sentinel still monitors paper_positions and writes sell orders
-- `add-approved-trade` and `add-sell-order` are the same in both modes (Executor handles the routing)
+- `add-order` is the same in both modes (Executor handles the routing)
 
 ### Auto-Approval Logic
 When proposing a trade in paper mode:
 ```bash
 # Instead of waiting for human, auto-approve:
-node scripts/db-query.js add-approved-trade --json '{
+node scripts/db-query.js add-order --json '{
+  "action": "buy",
   ...trade details...,
   "approved": true,
   "approved_at": "<ISO-8601>",
@@ -289,11 +309,11 @@ node scripts/db-query.js add-approved-trade --json '{
 ### Portfolio Checks in Paper Mode
 ```bash
 # Check paper portfolio (use this for rebalancing, allocation checks, etc.)
-node scripts/db-query.js get-paper-portfolio
+node scripts/db-query.js get-paper-portfolio --chain <chain>
 
 # Check paper cash balance
-node scripts/db-query.js get-paper-cash
+node scripts/db-query.js get-paper-cash --chain <chain>
 
 # Check paper trade performance
-node scripts/db-query.js get-paper-stats
+node scripts/db-query.js get-paper-stats --chain <chain>
 ```

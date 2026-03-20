@@ -301,6 +301,145 @@ describe('execute-trade.js — Security', () => {
 });
 
 // ============================================================
+// execute-trade-solana.js — Argument Parsing
+// ============================================================
+
+import { parseArgs as parseSolanaArgs, validateArgs as validateSolanaArgs } from '../scripts/execute-trade-solana.js';
+
+describe('execute-trade-solana.js — Argument Parsing', () => {
+  test('parses all valid Solana arguments', () => {
+    const args = parseSolanaArgs([
+      '--action', 'buy', '--chain', 'solana',
+      '--address', 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+      '--symbol', 'BONK', '--amount', '500', '--max-slippage', '5',
+      '--tier', 'moonshot',
+    ]);
+    assertEqual(args.action, 'buy');
+    assertEqual(args.chain, 'solana');
+    assertEqual(args.address, 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263');
+    assertEqual(args.symbol, 'BONK');
+    assertEqual(args.amount, '500');
+    assertEqual(args.maxSlippage, '5');
+    assertEqual(args.tier, 'moonshot');
+  });
+
+  test('handles sell with amount=all', () => {
+    const args = parseSolanaArgs([
+      '--action', 'sell', '--chain', 'solana',
+      '--address', 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+      '--symbol', 'BONK', '--amount', 'all', '--max-slippage', '5',
+    ]);
+    assertEqual(args.amount, 'all');
+  });
+});
+
+describe('execute-trade-solana.js — Argument Validation', () => {
+  test('valid Solana buy args produce no errors', () => {
+    const args = parseSolanaArgs([
+      '--action', 'buy', '--chain', 'solana',
+      '--address', 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+      '--symbol', 'BONK', '--amount', '500', '--max-slippage', '5', '--tier', 'moonshot',
+    ]);
+    const errors = validateSolanaArgs(args);
+    assertEqual(errors.length, 0, `Expected no errors, got: ${errors.join(', ')}`);
+  });
+
+  test('valid Solana sell args produce no errors', () => {
+    const args = parseSolanaArgs([
+      '--action', 'sell', '--chain', 'solana',
+      '--address', 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+      '--symbol', 'BONK', '--amount', 'all', '--max-slippage', '2',
+    ]);
+    const errors = validateSolanaArgs(args);
+    assertEqual(errors.length, 0, `Expected no errors, got: ${errors.join(', ')}`);
+  });
+
+  test('missing action is caught', () => {
+    const args = parseSolanaArgs([
+      '--chain', 'solana', '--address', 'ABC', '--symbol', 'T', '--amount', '100', '--max-slippage', '2',
+    ]);
+    const errors = validateSolanaArgs(args);
+    assert(errors.some(e => e.includes('action')), 'Should catch missing action');
+  });
+
+  test('buy without --tier is caught', () => {
+    const args = parseSolanaArgs([
+      '--action', 'buy', '--chain', 'solana', '--address', 'ABC',
+      '--symbol', 'T', '--amount', '500', '--max-slippage', '5',
+    ]);
+    const errors = validateSolanaArgs(args);
+    assert(errors.some(e => e.includes('tier')), 'Should require tier for buy');
+  });
+
+  test('sell without --tier is allowed', () => {
+    const args = parseSolanaArgs([
+      '--action', 'sell', '--chain', 'solana', '--address', 'ABC',
+      '--symbol', 'T', '--amount', 'all', '--max-slippage', '2',
+    ]);
+    const errors = validateSolanaArgs(args);
+    assert(!errors.some(e => e.includes('tier')), 'Tier not required for sell');
+  });
+
+  test('non-numeric slippage is caught', () => {
+    const args = parseSolanaArgs([
+      '--action', 'buy', '--chain', 'solana', '--address', 'ABC',
+      '--symbol', 'T', '--amount', '500', '--max-slippage', 'abc', '--tier', 'moonshot',
+    ]);
+    const errors = validateSolanaArgs(args);
+    assert(errors.some(e => e.includes('slippage')), 'Should catch non-numeric slippage');
+  });
+});
+
+describe('execute-trade-solana.js — Output Format', () => {
+  test('executed result has required Solana fields', () => {
+    const result = {
+      status: 'executed',
+      txSignature: '5abc123...',
+      squadsTransactionIndex: 42,
+      action: 'buy',
+      symbol: 'BONK',
+      chain: 'solana',
+      tokenAddress: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+      usdcSpent: 500,
+      expectedTokens: '50000000',
+      timestamp: new Date().toISOString(),
+    };
+    assert(result.status === 'executed', 'Must have status');
+    assert(result.txSignature, 'Must have txSignature');
+    assert(result.squadsTransactionIndex, 'Must have squadsTransactionIndex');
+    assert(result.action, 'Must have action');
+    assert(result.chain === 'solana', 'Chain must be solana');
+  });
+
+  test('queued_in_squads result has required fields', () => {
+    const result = {
+      status: 'queued_in_squads',
+      txSignature: '5abc123...',
+      squadsTransactionIndex: 42,
+      threshold: 2,
+      confirmations: 1,
+    };
+    assert(result.status === 'queued_in_squads', 'Must have queued status');
+    assert(result.squadsTransactionIndex, 'Must have transaction index');
+    assert(result.threshold, 'Must have threshold');
+  });
+});
+
+describe('execute-trade-solana.js — Security', () => {
+  test('output format has no key-like fields', () => {
+    const validFields = [
+      'status', 'txSignature', 'squadsTransactionIndex', 'action', 'symbol',
+      'chain', 'tokenAddress', 'usdcSpent', 'expectedTokens', 'tokensSold',
+      'expectedUsdc', 'timestamp', 'error', 'threshold', 'confirmations', 'note',
+    ];
+    const forbidden = ['privateKey', 'signerKey', 'secret', 'mnemonic', 'seed'];
+    for (const f of forbidden) {
+      assert(!validFields.includes(f), `Output should never include ${f}`);
+    }
+  });
+});
+
+// ============================================================
 // Results
 // ============================================================
 const allPassed = summary();

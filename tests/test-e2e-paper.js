@@ -5,10 +5,10 @@
  * Simulates the full paper trading lifecycle through db-query.js CLI commands
  * — exactly as the agents call them. Tests the complete flow:
  *
- *   1. Research: auto-approve trade → add-approved-trade
- *   2. Executor: read pending → add-paper-trade → add-paper-position (auto-deducts cash) → mark executed
- *   3. Sentinel: get-paper-positions → detect stop-loss → add-sell-order
- *   4. Executor: read sell order → close-paper-position (auto-updates cash) → add-paper-trade (sell) → mark executed
+ *   1. Research: auto-approve trade → add-order (action=buy)
+ *   2. Executor: read pending → add-paper-receipt → add-paper-position (auto-deducts cash) → mark executed
+ *   3. Sentinel: get-paper-positions → detect stop-loss → add-order (action=sell)
+ *   4. Executor: read sell order → close-paper-position (auto-updates cash) → add-paper-receipt (sell) → mark executed
  *   5. Verify final state
  *   6. Happy path: buy → TP1 partial sell
  *
@@ -48,13 +48,13 @@ describe('E2E Setup', () => {
     assert(result.ok, 'Migration must return ok: true');
   });
 
-  test('seed paper cash to $10,000', () => {
-    const result = dbq('set-paper-cash --amount 10000');
+  test('seed paper cash to $10,000 on base', () => {
+    const result = dbq('set-paper-cash --chain base --amount 10000');
     assert(result.ok, 'set-paper-cash must return ok');
   });
 
-  test('verify starting paper cash', () => {
-    const result = dbq('get-paper-cash');
+  test('verify starting paper cash on base', () => {
+    const result = dbq('get-paper-cash --chain base');
     assertEqual(result.cash, 10000, 'Starting cash should be $10,000');
   });
 
@@ -92,12 +92,12 @@ describe('E2E Step 1: Research → Auto-Approve Trade', () => {
       approved_at: new Date().toISOString(),
       approved_by: 'paper_mode',
     };
-    const result = dbq(`add-approved-trade --json '${JSON.stringify(trade)}'`);
-    assert(result.ok, 'add-approved-trade must succeed');
+    const result = dbq(`add-order --json '${JSON.stringify(trade)}'`);
+    assert(result.ok, 'add-order must succeed');
   });
 
   test('trade appears as pending', () => {
-    const trades = dbq('get-approved-trades --pending');
+    const trades = dbq('get-orders --action buy --pending');
     const trade = trades.find(t => t.id === 'e2e-trade-001');
     assert(trade, 'Trade must appear in pending list');
     assertEqual(trade.approved, 1, 'Must be approved');
@@ -111,21 +111,20 @@ describe('E2E Step 1: Research → Auto-Approve Trade', () => {
 // ============================================================
 describe('E2E Step 2: Executor → Paper Buy', () => {
   test('executor reads pending trade', () => {
-    const trades = dbq('get-approved-trades --pending');
+    const trades = dbq('get-orders --action buy --pending');
     const trade = trades.find(t => t.id === 'e2e-trade-001');
     assert(trade, 'Must find pending trade');
   });
 
   test('executor validates paper cash is sufficient', () => {
-    const result = dbq('get-paper-cash');
+    const result = dbq('get-paper-cash --chain base');
     assert(result.cash >= 500, `Cash ${result.cash} must cover $500 trade`);
   });
 
   test('executor records paper trade', () => {
-    const result = dbq(`add-paper-trade --json '${JSON.stringify({
+    const result = dbq(`add-paper-receipt --json '${JSON.stringify({
       id: 'e2e-ptrade-buy-001',
       order_id: 'e2e-trade-001',
-      order_source: 'approved_trades',
       action: 'buy',
       symbol: 'E2ETEST',
       address: '0xe2etest123',
@@ -135,7 +134,7 @@ describe('E2E Step 2: Executor → Paper Buy', () => {
       quantity: 500000,
       amount: 500,
     })}'`);
-    assert(result.ok, 'add-paper-trade must succeed');
+    assert(result.ok, 'add-paper-receipt must succeed');
   });
 
   test('executor creates paper position', () => {
@@ -160,23 +159,23 @@ describe('E2E Step 2: Executor → Paper Buy', () => {
   });
 
   test('executor verifies cash auto-deducted by add-paper-position', () => {
-    const result = dbq('get-paper-cash');
+    const result = dbq('get-paper-cash --chain base');
     assertEqual(result.cash, 9500, 'Cash auto-deducted: $10,000 - $500 = $9,500');
   });
 
   test('executor marks trade as executed', () => {
-    const result = dbq('mark-trade-executed --id e2e-trade-001');
-    assert(result.ok, 'mark-trade-executed must succeed');
+    const result = dbq('mark-order-executed --id e2e-trade-001');
+    assert(result.ok, 'mark-order-executed must succeed');
   });
 
   test('trade no longer pending', () => {
-    const trades = dbq('get-approved-trades --pending');
+    const trades = dbq('get-orders --action buy --pending');
     const trade = trades.find(t => t.id === 'e2e-trade-001');
     assert(!trade, 'Executed trade must not be pending');
   });
 
   test('paper portfolio reflects the buy', () => {
-    const cash = dbq('get-paper-cash');
+    const cash = dbq('get-paper-cash --chain base');
     assertEqual(cash.cash, 9500, 'Cash should be $9,500');
 
     const positions = dbq('get-paper-positions --status open');
@@ -205,8 +204,9 @@ describe('E2E Step 3: Sentinel → Stop-Loss → Sell Order', () => {
   });
 
   test('sentinel writes sell order', () => {
-    const result = dbq(`add-sell-order --json '${JSON.stringify({
+    const result = dbq(`add-order --json '${JSON.stringify({
       id: 'e2e-sell-001',
+      action: 'sell',
       symbol: 'E2ETEST',
       address: '0xe2etest123',
       chain: 'base',
@@ -214,7 +214,7 @@ describe('E2E Step 3: Sentinel → Stop-Loss → Sell Order', () => {
       reason: 'stop_loss',
       urgency: 'immediate',
     })}'`);
-    assert(result.ok, 'add-sell-order must succeed');
+    assert(result.ok, 'add-order must succeed');
   });
 
   test('sentinel writes alert', () => {
@@ -233,7 +233,7 @@ describe('E2E Step 3: Sentinel → Stop-Loss → Sell Order', () => {
   });
 
   test('sell order appears as pending', () => {
-    const orders = dbq('get-sell-orders --pending');
+    const orders = dbq('get-orders --action sell --pending');
     const order = orders.find(o => o.id === 'e2e-sell-001');
     assert(order, 'Sell order must be pending');
     assertEqual(order.reason, 'stop_loss', 'Reason must be stop_loss');
@@ -245,7 +245,7 @@ describe('E2E Step 3: Sentinel → Stop-Loss → Sell Order', () => {
 // ============================================================
 describe('E2E Step 4: Executor → Paper Sell', () => {
   test('executor reads pending sell order', () => {
-    const orders = dbq('get-sell-orders --pending');
+    const orders = dbq('get-orders --action sell --pending');
     const order = orders.find(o => o.id === 'e2e-sell-001');
     assert(order, 'Must find pending sell order');
   });
@@ -258,10 +258,9 @@ describe('E2E Step 4: Executor → Paper Sell', () => {
 
   test('executor records paper sell trade with P&L', () => {
     const sellProceeds = 500000 * 0.0004; // $200
-    const result = dbq(`add-paper-trade --json '${JSON.stringify({
+    const result = dbq(`add-paper-receipt --json '${JSON.stringify({
       id: 'e2e-ptrade-sell-001',
       order_id: 'e2e-sell-001',
-      order_source: 'sell_orders',
       action: 'sell',
       symbol: 'E2ETEST',
       address: '0xe2etest123',
@@ -273,7 +272,7 @@ describe('E2E Step 4: Executor → Paper Sell', () => {
       pnl_percent: -60,
       pnl_usd: sellProceeds - 500,
     })}'`);
-    assert(result.ok, 'add-paper-trade (sell) must succeed');
+    assert(result.ok, 'add-paper-receipt (sell) must succeed');
   });
 
   test('executor closes paper position', () => {
@@ -286,17 +285,17 @@ describe('E2E Step 4: Executor → Paper Sell', () => {
 
   test('executor verifies cash auto-updated by close-paper-position', () => {
     // Had $9,500 + $200 proceeds = $9,700
-    const result = dbq('get-paper-cash');
+    const result = dbq('get-paper-cash --chain base');
     assertEqual(result.cash, 9700, 'Cash auto-updated: $9,500 + $200 proceeds = $9,700');
   });
 
   test('executor marks sell order as executed', () => {
-    const result = dbq('mark-sell-executed --id e2e-sell-001');
-    assert(result.ok, 'mark-sell-executed must succeed');
+    const result = dbq('mark-order-executed --id e2e-sell-001');
+    assert(result.ok, 'mark-order-executed must succeed');
   });
 
   test('sell order no longer pending', () => {
-    const orders = dbq('get-sell-orders --pending');
+    const orders = dbq('get-orders --action sell --pending');
     const order = orders.find(o => o.id === 'e2e-sell-001');
     assert(!order, 'Executed sell must not be pending');
   });
@@ -320,12 +319,12 @@ describe('E2E Step 5: Final State Verification', () => {
   });
 
   test('paper cash reflects the loss', () => {
-    const result = dbq('get-paper-cash');
+    const result = dbq('get-paper-cash --chain base');
     assertEqual(result.cash, 9700, 'Cash: $10k - $500 buy + $200 sale = $9,700');
   });
 
   test('paper trades show buy and sell', () => {
-    const trades = dbq('get-paper-trades --limit 50');
+    const trades = dbq('get-paper-receipts --limit 50');
     const buy = trades.find(t => t.id === 'e2e-ptrade-buy-001');
     const sell = trades.find(t => t.id === 'e2e-ptrade-sell-001');
     assert(buy, 'Buy trade must exist');
@@ -336,13 +335,13 @@ describe('E2E Step 5: Final State Verification', () => {
   });
 
   test('approved trade marked executed', () => {
-    const trades = dbq('get-approved-trades --pending');
+    const trades = dbq('get-orders --action buy --pending');
     const trade = trades.find(t => t.id === 'e2e-trade-001');
     assert(!trade, 'Must not be pending');
   });
 
   test('sell order marked executed', () => {
-    const orders = dbq('get-sell-orders --pending');
+    const orders = dbq('get-orders --action sell --pending');
     const order = orders.find(o => o.id === 'e2e-sell-001');
     assert(!order, 'Must not be pending');
   });
@@ -371,7 +370,7 @@ describe('E2E Step 5: Final State Verification', () => {
 // ============================================================
 describe('E2E Step 6: Happy Path — TP1 Partial Sell', () => {
   test('research auto-approves second trade', () => {
-    const result = dbq(`add-approved-trade --json '${JSON.stringify({
+    const result = dbq(`add-order --json '${JSON.stringify({
       id: 'e2e-trade-002',
       symbol: 'E2EWIN',
       address: '0xe2ewin456',
@@ -394,10 +393,9 @@ describe('E2E Step 6: Happy Path — TP1 Partial Sell', () => {
   });
 
   test('executor buys paper position', () => {
-    dbq(`add-paper-trade --json '${JSON.stringify({
+    dbq(`add-paper-receipt --json '${JSON.stringify({
       id: 'e2e-ptrade-buy-002',
       order_id: 'e2e-trade-002',
-      order_source: 'approved_trades',
       action: 'buy',
       symbol: 'E2EWIN',
       address: '0xe2ewin456',
@@ -424,7 +422,7 @@ describe('E2E Step 6: Happy Path — TP1 Partial Sell', () => {
     })}'`);
 
     // Cash auto-deducted by add-paper-position: $9,700 - $400 = $9,300
-    dbq('mark-trade-executed --id e2e-trade-002');
+    dbq('mark-order-executed --id e2e-trade-002');
 
     const positions = dbq('get-paper-positions --status open');
     assertEqual(positions.length, 1, 'Should have 1 open position');
@@ -432,8 +430,9 @@ describe('E2E Step 6: Happy Path — TP1 Partial Sell', () => {
   });
 
   test('sentinel detects TP1, writes partial sell order', () => {
-    const result = dbq(`add-sell-order --json '${JSON.stringify({
+    const result = dbq(`add-order --json '${JSON.stringify({
       id: 'e2e-sell-002',
+      action: 'sell',
       symbol: 'E2EWIN',
       address: '0xe2ewin456',
       chain: 'base',
@@ -448,10 +447,9 @@ describe('E2E Step 6: Happy Path — TP1 Partial Sell', () => {
     const sellQty = 20000;
     const sellProceeds = sellQty * 0.021; // $420
 
-    dbq(`add-paper-trade --json '${JSON.stringify({
+    dbq(`add-paper-receipt --json '${JSON.stringify({
       id: 'e2e-ptrade-sell-002',
       order_id: 'e2e-sell-002',
-      order_source: 'sell_orders',
       action: 'sell',
       symbol: 'E2EWIN',
       address: '0xe2ewin456',
@@ -469,10 +467,10 @@ describe('E2E Step 6: Happy Path — TP1 Partial Sell', () => {
       current_price: 0.021,
     })}'`);
 
-    dbq(`set-paper-cash --amount ${9300 + sellProceeds}`);
-    dbq('mark-sell-executed --id e2e-sell-002');
+    dbq(`set-paper-cash --chain base --amount ${9300 + sellProceeds}`);
+    dbq('mark-order-executed --id e2e-sell-002');
 
-    const cash = dbq('get-paper-cash');
+    const cash = dbq('get-paper-cash --chain base');
     assertEqual(cash.cash, 9720, 'Cash: $9,300 + $420 = $9,720');
   });
 
@@ -486,6 +484,109 @@ describe('E2E Step 6: Happy Path — TP1 Partial Sell', () => {
     const portfolio = dbq('get-paper-portfolio');
     assert(portfolio.cash >= 9700, 'Cash reflects partial sell profit');
     assertEqual(portfolio.positions.length, 1, 'Still holding moonbag');
+  });
+});
+
+// ============================================================
+// Step 7: Multi-Chain — Solana buy with independent cash
+// ============================================================
+describe('E2E Step 7: Multi-Chain Cash Isolation', () => {
+  test('seed Solana paper cash', () => {
+    const result = dbq('set-paper-cash --chain solana --amount 3000');
+    assert(result.ok, 'set-paper-cash solana must return ok');
+  });
+
+  test('Solana cash is independent from Base', () => {
+    const baseCash = dbq('get-paper-cash --chain base');
+    const solCash = dbq('get-paper-cash --chain solana');
+    assert(baseCash.cash >= 9700, 'Base cash should be from prior trades');
+    assertEqual(solCash.cash, 3000, 'Solana cash should be freshly seeded');
+  });
+
+  test('buy on Solana deducts from Solana cash only', () => {
+    const baseBefore = dbq('get-paper-cash --chain base').cash;
+
+    dbq(`add-paper-receipt --json '${JSON.stringify({
+      id: 'e2e-ptrade-sol-001',
+      order_id: 'e2e-trade-sol',
+      action: 'buy',
+      symbol: 'SOLTEST',
+      address: 'SoLtEsT1111111111111111111111111111111111111',
+      chain: 'solana',
+      tier: 'moonshot',
+      proposed_price: 0.5,
+      quantity: 1000,
+      amount: 500,
+    })}'`);
+
+    dbq(`add-paper-position --json '${JSON.stringify({
+      id: 'e2e-pos-sol-001',
+      symbol: 'SOLTEST',
+      address: 'SoLtEsT1111111111111111111111111111111111111',
+      chain: 'solana',
+      tier: 'moonshot',
+      entry_price: 0.5,
+      current_price: 0.5,
+      quantity: 1000,
+      amount_usd: 500,
+      stop_loss: 0.25,
+      take_profit_levels: JSON.stringify([{ level: 1, price: 1.0, sellPercent: 50 }]),
+      status: 'open',
+    })}'`);
+
+    const solCash = dbq('get-paper-cash --chain solana');
+    assertEqual(solCash.cash, 2500, 'Solana: $3000 - $500 = $2500');
+
+    const baseAfter = dbq('get-paper-cash --chain base').cash;
+    assertEqual(baseAfter, baseBefore, 'Base cash unchanged');
+  });
+
+  test('close Solana position updates Solana cash only', () => {
+    const baseBefore = dbq('get-paper-cash --chain base').cash;
+
+    dbq(`close-paper-position --id e2e-pos-sol-001 --json '${JSON.stringify({
+      exit_price: 0.75,
+      exit_reason: 'tp1_hit',
+    })}'`);
+
+    const solCash = dbq('get-paper-cash --chain solana');
+    // $2500 + (0.75 * 1000) = $2500 + $750 = $3250
+    assertEqual(solCash.cash, 3250, 'Solana: $2500 + $750 proceeds = $3250');
+
+    const baseAfter = dbq('get-paper-cash --chain base').cash;
+    assertEqual(baseAfter, baseBefore, 'Base cash still unchanged');
+  });
+
+  test('get-paper-portfolio --chain solana shows only Solana data', () => {
+    const portfolio = dbq('get-paper-portfolio --chain solana');
+    assertEqual(portfolio.chain, 'solana', 'Should be filtered to solana');
+    assertEqual(portfolio.positions.length, 0, 'No open Solana positions');
+    assertEqual(portfolio.cash, 3250, 'Cash should be Solana-only');
+  });
+});
+
+// ============================================================
+// Step 8: Error handling — missing --chain on required commands
+// ============================================================
+describe('E2E Step 8: Missing --chain Errors', () => {
+  test('set-cash without --chain returns error', () => {
+    let threw = false;
+    try { dbq('set-cash --amount 5000'); } catch { threw = true; }
+    assert(threw, 'set-cash must require --chain');
+  });
+
+  test('set-paper-cash without --chain returns error', () => {
+    let threw = false;
+    try { dbq('set-paper-cash --amount 5000'); } catch { threw = true; }
+    assert(threw, 'set-paper-cash must require --chain');
+  });
+
+  test('get-portfolio without --chain returns per-chain breakdown', () => {
+    const result = dbq('get-portfolio');
+    assert(result.chains, 'Must have chains key');
+    assert(result.chains.base, 'Must have base chain');
+    assert(result.chains.solana, 'Must have solana chain');
+    assert(result.total_value !== undefined, 'Must have total_value');
   });
 });
 

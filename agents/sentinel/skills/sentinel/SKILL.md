@@ -15,7 +15,17 @@ triggers:
 ## Purpose
 Guardian of the portfolio. Watch every open position for danger. React faster than any human.
 
-**IMPORTANT: Check `PAPER_MODE` env var at the start of every cycle.** If `true`, use `get-paper-positions` for ALL position queries. If `false` or unset, use `get-positions`. Getting this wrong means monitoring nothing.
+### Step 0: Load Configuration (MANDATORY — run at the start of every cycle)
+```bash
+echo "=== SENTINEL CONFIG ==="
+echo "PAPER_MODE=${PAPER_MODE:-false}"
+echo "ACTIVE_CHAINS=${ACTIVE_CHAINS:-base}"
+echo "======================"
+```
+Read the output. This determines your entire cycle:
+- `PAPER_MODE=true` → use `get-paper-positions` for ALL position queries
+- `PAPER_MODE=false` → use `get-positions`
+Getting this wrong means monitoring nothing. Reference this output for every command.
 
 ## When to Use
 - During heartbeat checks (highest priority)
@@ -58,21 +68,28 @@ node scripts/check-wallets.js --positions
 | Condition | Severity | Action |
 |-----------|----------|--------|
 | Dev wallet selling ANY amount | HIGH | Write sell order + alert Research |
-| Whale selling >3% of supply | HIGH | Alert Research, assess impact |
+| Whale selling >3% of supply | HIGH | Write sell-50% order + alert Research |
 | Multiple early buyers exiting | MEDIUM | Alert Research |
 | Smart money accumulating | INFO | Log as positive signal |
 
 ### Contract Monitoring
 ```bash
-node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN> --changes
+# Scan all open positions for contract changes (heartbeat usage)
+node scripts/check-contract.js --changes
+
+# Scan a specific token
+node scripts/check-contract.js --changes --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
-| Proxy implementation changed | CRITICAL | Write sell_all order to DB + alert Research |
-| Fee parameters changed | HIGH | Alert Research, log to DB |
+| Became honeypot | CRITICAL | Write sell_all order to DB + alert Research |
+| Proxy status changed | CRITICAL | Write sell_all order to DB + alert Research |
+| Became pausable | CRITICAL | Write sell_all order to DB + alert Research |
+| Blacklist added | CRITICAL | Write sell_all order to DB + alert Research |
 | Ownership transferred | HIGH | Alert Research, log to DB |
-| Blacklist function called | CRITICAL | Write sell_all order to DB + alert Research |
+| Buy/sell tax increased >5% | HIGH | Alert Research, log to DB |
+| Became mintable | HIGH | Alert Research, log to DB |
 
 ## Alert Format
 
@@ -99,51 +116,31 @@ For non-critical alerts, batch them and send as a summary.
 When a CRITICAL or HIGH condition triggers a sell, write the order to the database so the Executor agent picks it up automatically:
 
 ```bash
-node scripts/db-query.js add-sell-order --json '{
+node scripts/db-query.js add-order --json '{
+  "action": "sell",
   "symbol": "TOKEN",
-  "address": "0x...",
-  "chain": "base",
-  "action": "sell_all",
+  "address": "<token_address>",
+  "chain": "<chain>",
+  "amount": "all",
   "reason": "stop_loss_hit",
-  "trigger_price": 0.00045,
-  "current_price": 0.00042,
-  "severity": "critical",
-  "source": "sentinel"
+  "urgency": "immediate"
 }'
 ```
 
 For partial sells (e.g., take-profit levels):
 ```bash
-node scripts/db-query.js add-sell-order --json '{
+node scripts/db-query.js add-order --json '{
+  "action": "sell",
   "symbol": "TOKEN",
-  "address": "0x...",
-  "chain": "base",
-  "action": "sell_partial",
-  "sell_percent": 50,
+  "address": "<token_address>",
+  "chain": "<chain>",
+  "amount": "50%",
   "reason": "tp1_hit",
-  "trigger_price": 0.002,
-  "current_price": 0.0021,
-  "severity": "high",
-  "source": "sentinel"
+  "urgency": "normal"
 }'
 ```
 
 The Executor agent polls for pending sell orders every heartbeat and executes them through the Safe wallet.
-
-### Periodic Portfolio Sync (Real Mode Only)
-When `PAPER_MODE` is not `true`, check if on-chain portfolio sync is due:
-```bash
-node scripts/db-query.js get-meta --key last_sync_base
-```
-If the last sync was more than 6 hours ago (or never), trigger a refresh:
-```bash
-node scripts/portfolio-load-evm.js --chain base --trigger periodic
-```
-Also check for `pending_analysis` positions — these were auto-discovered on-chain and need Research to analyze them:
-```bash
-node scripts/db-query.js get-positions --status pending_analysis
-```
-If found, create an alert for Research to investigate.
 
 ## Rules
 - CRITICAL alerts go to human IMMEDIATELY — never wait for next heartbeat
@@ -163,5 +160,5 @@ When `PAPER_MODE=true`, the entire workflow above applies but position queries u
 
 Everything else is identical:
 - Monitoring scripts (check-positions.js, check-liquidity.js, check-wallets.js) run the same
-- Sell orders are written to `sell_orders` table (Executor handles paper routing)
+- Sell orders are written to `orders` table (Executor handles paper routing)
 - Alerts are written to `sentinel_alerts` table (unchanged)

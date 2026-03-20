@@ -1,18 +1,430 @@
 #!/usr/bin/env node
 /**
- * portfolio-load-solana.js — Placeholder for Solana on-chain portfolio sync
+ * portfolio-load-solana.js — Load on-chain portfolio from Squads vault
  *
- * Solana portfolio aggregator not yet integrated.
- * This stub exists so the chain config pipeline is complete.
+ * Reads all SPL token holdings from the Squads vault address,
+ * enriches with prices, and reconciles with DB positions.
  *
  * Usage:
  *   node scripts/portfolio-load-solana.js --chain solana
+ *   node scripts/portfolio-load-solana.js --chain solana --trigger post_trade
+ *
+ * Requires: SQUADS_MULTISIG_ADDRESS, RPC_SOL
+ * Optional: HELIUS_API_KEY (better token metadata via DAS API)
  */
 
-console.log(JSON.stringify({
-  status: 'error',
-  error: 'Solana portfolio sync not yet implemented. Need to integrate a Solana portfolio aggregator (e.g., Helius DAS API or Birdeye portfolio endpoint).',
-  chain: 'solana',
-  timestamp: new Date().toISOString(),
-}));
-process.exit(1);
+import 'dotenv/config';
+import { getDb, close } from './db.js';
+import { getChain, isSolana, getCashToken } from './chains.js';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import * as multisig from '@sqds/multisig';
+
+const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
+const USDC_MINT = getCashToken('solana').address;
+const STABLECOIN_MINTS = new Set([
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+]);
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const config = { chain: '', trigger: 'periodic' };
+  for (let i = 0; i < args.length; i++) {
+    switch (args[i]) {
+      case '--chain': config.chain = args[++i]; break;
+      case '--trigger': config.trigger = args[++i]; break;
+    }
+  }
+  if (!config.chain) {
+    console.error('Error: --chain is required');
+    process.exit(1);
+  }
+  return config;
+}
+
+function resolveVaultAddress(chainCfg) {
+  if (!chainCfg.squads) throw new Error('Chain config missing squads section');
+
+  const rpcUrl = process.env[chainCfg.squads.rpcEnv];
+  if (!rpcUrl) throw new Error(`${chainCfg.squads.rpcEnv} not set`);
+
+  // Direct vault address takes priority — no derivation needed
+  const directVault = process.env[chainCfg.squads.vaultEnv];
+  if (directVault) {
+    return { connection: new Connection(rpcUrl, 'confirmed'), vaultPda: new PublicKey(directVault) };
+  }
+
+  // Fall back to deriving vault from multisig PDA
+  const multisigAddress = process.env[chainCfg.squads.multisigEnv];
+  if (!multisigAddress) throw new Error(`${chainCfg.squads.vaultEnv} or ${chainCfg.squads.multisigEnv} must be set`);
+
+  const multisigPda = new PublicKey(multisigAddress);
+  const [vaultPda] = multisig.getVaultPda({
+    multisigPda,
+    index: chainCfg.squads.vaultIndex,
+  });
+
+  return { connection: new Connection(rpcUrl, 'confirmed'), vaultPda };
+}
+
+async function fetchTokenPrice(address) {
+  if (STABLECOIN_MINTS.has(address)) return 1.0;
+  try {
+    const res = await fetch(`${DEXSCREENER_BASE}/tokens/${address}`, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const pairs = data.pairs ?? [];
+    if (pairs.length === 0) return null;
+    const mainPair = pairs.sort((a, b) =>
+      parseFloat(b.liquidity?.usd ?? 0) - parseFloat(a.liquidity?.usd ?? 0)
+    )[0];
+    const price = parseFloat(mainPair.priceUsd ?? 0);
+    return price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}
+
+// Primary: Helius DAS API — getAssetsByOwner
+async function fetchHeliusAssets(vaultAddress, apiKey) {
+  const url = `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'crypto-claw',
+      method: 'getAssetsByOwner',
+      params: {
+        ownerAddress: vaultAddress,
+        displayOptions: { showFungible: true, showNativeBalance: true },
+      },
+    }),
+  });
+
+  if (!res.ok) throw new Error(`Helius API error: ${res.status}`);
+  const data = await res.json();
+  if (data.error) throw new Error(`Helius RPC error: ${data.error.message}`);
+
+  const onchainMap = new Map();
+  let cashBalance = 0;
+
+  for (const asset of data.result?.items ?? []) {
+    if (asset.interface !== 'FungibleToken' && asset.interface !== 'FungibleAsset') continue;
+
+    const mintAddress = asset.id;
+    const balance = asset.token_info?.balance ?? 0;
+    const decimals = asset.token_info?.decimals ?? 0;
+    const humanBalance = balance / 10 ** decimals;
+
+    if (humanBalance <= 0) continue;
+
+    const symbol = asset.token_info?.symbol ?? asset.content?.metadata?.symbol ?? 'UNKNOWN';
+
+    // Stablecoins → cash
+    if (STABLECOIN_MINTS.has(mintAddress)) {
+      cashBalance += humanBalance;
+      continue;
+    }
+
+    onchainMap.set(mintAddress, {
+      address: mintAddress,
+      symbol,
+      name: asset.content?.metadata?.name ?? symbol,
+      balance: humanBalance,
+      price: 0,
+      value_usd: 0,
+    });
+  }
+
+  // Handle native SOL balance
+  const nativeBalance = data.result?.nativeBalance?.lamports ?? 0;
+  if (nativeBalance > 0) {
+    const solBalance = nativeBalance / 1e9;
+    onchainMap.set('native', {
+      address: 'native',
+      symbol: 'SOL',
+      name: 'Solana',
+      balance: solBalance,
+      price: 0,
+      value_usd: 0,
+      is_native: true,
+    });
+  }
+
+  return { onchainMap, cashBalance };
+}
+
+// Fallback: Raw RPC — getTokenAccountsByOwner
+async function fetchRpcTokenAccounts(connection, vaultPda) {
+  const accounts = await connection.getTokenAccountsByOwner(vaultPda, {
+    programId: TOKEN_PROGRAM_ID,
+  });
+
+  const onchainMap = new Map();
+  let cashBalance = 0;
+
+  for (const { account } of accounts.value) {
+    const data = account.data;
+    // Parse SPL token account data (165 bytes)
+    const mint = new PublicKey(data.slice(0, 32));
+    const amountBuf = data.slice(64, 72);
+    const amount = amountBuf.readBigUInt64LE(0);
+
+    if (amount === 0n) continue;
+
+    const mintStr = mint.toString();
+
+    // Stablecoins → cash (assume 6 decimals for USDC/USDT)
+    if (STABLECOIN_MINTS.has(mintStr)) {
+      cashBalance += Number(amount) / 1e6;
+      continue;
+    }
+
+    // Without Helius, we don't have metadata — use mint address as placeholder
+    onchainMap.set(mintStr, {
+      address: mintStr,
+      symbol: mintStr.slice(0, 6) + '...',
+      name: 'Unknown Token',
+      balance: Number(amount), // raw amount — decimals unknown without metadata
+      price: 0,
+      value_usd: 0,
+    });
+  }
+
+  // Get native SOL balance
+  const solBalance = await connection.getBalance(vaultPda);
+  if (solBalance > 0) {
+    onchainMap.set('native', {
+      address: 'native',
+      symbol: 'SOL',
+      name: 'Solana',
+      balance: solBalance / 1e9,
+      price: 0,
+      value_usd: 0,
+      is_native: true,
+    });
+  }
+
+  return { onchainMap, cashBalance };
+}
+
+function generateId() {
+  return `pos-sync-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function main() {
+  const config = parseArgs();
+  const { chain, trigger } = config;
+
+  // Paper mode check
+  if (process.env.PAPER_MODE === 'true') {
+    console.log(JSON.stringify({
+      status: 'skipped',
+      reason: 'paper_mode',
+      message: 'Portfolio sync skipped in paper mode — DB is sole source of truth',
+    }, null, 2));
+    return;
+  }
+
+  let chainCfg;
+  try {
+    chainCfg = getChain(chain);
+  } catch (err) {
+    console.log(JSON.stringify({ status: 'error', error: err.message }));
+    process.exit(1);
+  }
+
+  if (!isSolana(chain)) {
+    console.log(JSON.stringify({
+      status: 'error',
+      error: `Chain '${chain}' is not Solana. Use portfolio-load-evm.js for EVM chains.`,
+    }));
+    process.exit(1);
+  }
+
+  let vaultEnv;
+  try {
+    vaultEnv = resolveVaultAddress(chainCfg);
+  } catch (err) {
+    console.log(JSON.stringify({
+      status: 'error',
+      error: err.message,
+      timestamp: new Date().toISOString(),
+    }, null, 2));
+    process.exit(1);
+  }
+
+  let db;
+  try {
+    db = getDb();
+  } catch (err) {
+    console.log(JSON.stringify({ status: 'error', error: `DB init failed: ${err.message}` }));
+    process.exit(1);
+  }
+
+  let syncResult = { positions_synced: 0, positions_closed: 0, positions_discovered: 0, cash_synced: 0 };
+  let provider = 'rpc';
+
+  try {
+    // 1. Fetch on-chain tokens — Helius primary, RPC fallback
+    let onchainMap;
+    let cashBalance = 0;
+
+    const heliusKey = process.env[chainCfg.portfolio?.apiKeyEnv];
+    if (heliusKey) {
+      try {
+        const result = await fetchHeliusAssets(vaultEnv.vaultPda.toString(), heliusKey);
+        onchainMap = result.onchainMap;
+        cashBalance = result.cashBalance;
+        provider = 'helius';
+      } catch (heliusErr) {
+        process.stderr.write(`Helius API failed (${heliusErr.message}), falling back to RPC\n`);
+        onchainMap = null;
+      }
+    }
+
+    if (!onchainMap) {
+      const result = await fetchRpcTokenAccounts(vaultEnv.connection, vaultEnv.vaultPda);
+      onchainMap = result.onchainMap;
+      cashBalance = result.cashBalance;
+      provider = 'rpc';
+    }
+
+    // 2. Enrich with DEXScreener prices
+    for (const [, token] of onchainMap) {
+      if (token.is_native) {
+        // SOL price via DEXScreener (use wrapped SOL)
+        const price = await fetchTokenPrice('So11111111111111111111111111111111111111112');
+        if (price !== null) {
+          token.price = price;
+          token.value_usd = token.balance * price;
+        }
+      } else {
+        const price = await fetchTokenPrice(token.address);
+        if (price !== null) {
+          token.price = price;
+          token.value_usd = token.balance * price;
+        }
+      }
+      await sleep(200);
+    }
+
+    // 3. Load current DB positions for this chain
+    const dbPositions = db.prepare(
+      "SELECT * FROM positions WHERE chain = ? AND status IN ('open', 'partial_exit', 'pending_analysis')"
+    ).all(chain);
+
+    const now = new Date().toISOString();
+
+    // 4. Reconcile
+    const reconcile = db.transaction(() => {
+      const matchedAddresses = new Set();
+
+      for (const pos of dbPositions) {
+        const addrKey = pos.address;
+        const onchain = onchainMap.get(addrKey);
+
+        if (onchain && onchain.balance > 0) {
+          matchedAddresses.add(addrKey);
+          db.prepare(`
+            UPDATE positions SET
+              quantity = ?, value_usd = ?, onchain_balance = ?,
+              current_price = ?, last_synced_at = ?, updated_at = datetime('now')
+            WHERE id = ?
+          `).run(onchain.balance, onchain.value_usd, onchain.balance, onchain.price, now, pos.id);
+          syncResult.positions_synced++;
+        } else {
+          matchedAddresses.add(addrKey);
+          db.prepare(`
+            UPDATE positions SET
+              status = 'closed', onchain_balance = 0, last_synced_at = ?,
+              exit_reason = 'onchain_sync_zero_balance', exit_date = date('now'),
+              notes = COALESCE(notes || ' | ', '') || 'Closed by on-chain sync: balance_zero_onchain',
+              updated_at = datetime('now')
+            WHERE id = ?
+          `).run(now, pos.id);
+          syncResult.positions_closed++;
+        }
+      }
+
+      // 5. Discover on-chain tokens not in DB
+      for (const [addrKey, token] of onchainMap) {
+        if (matchedAddresses.has(addrKey)) continue;
+        if (token.value_usd < 1) continue;
+
+        const stopLoss = token.price > 0 ? token.price * 0.5 : 0;
+        const id = generateId();
+        db.prepare(`
+          INSERT INTO positions (id, symbol, name, address, chain, tier, entry_price, current_price,
+            quantity, value_usd, stop_loss, take_profit_levels, status, onchain_balance, last_synced_at, notes)
+          VALUES (?, ?, ?, ?, ?, 'moonshot', ?, ?, ?, ?, ?, '[]', 'pending_analysis', ?, ?, ?)
+        `).run(
+          id, token.symbol, token.name, token.address, chain,
+          token.price, token.price, token.balance, token.value_usd,
+          stopLoss, token.balance, now,
+          'Auto-discovered on-chain — awaiting analysis'
+        );
+        syncResult.positions_discovered++;
+      }
+
+      // 6. Sync stablecoin balance → per-chain cash
+      if (cashBalance > 0) {
+        const chainCashKey = `cash_${chain}`;
+        db.prepare(`
+          INSERT INTO portfolio_meta (key, value) VALUES (?, ?)
+          ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')
+        `).run(chainCashKey, cashBalance.toString(), cashBalance.toString());
+        syncResult.cash_synced = cashBalance;
+      }
+
+      // 7. Record sync
+      db.prepare(`
+        INSERT INTO portfolio_sync (chain, provider, trigger, status, positions_synced, positions_closed, positions_discovered)
+        VALUES (?, ?, ?, 'success', ?, ?, ?)
+      `).run(chain, provider, trigger, syncResult.positions_synced, syncResult.positions_closed, syncResult.positions_discovered);
+
+      db.prepare(`
+        INSERT INTO portfolio_meta (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')
+      `).run(`last_sync_${chain}`, now, now);
+    });
+
+    reconcile();
+
+    console.log(JSON.stringify({
+      status: 'ok',
+      chain,
+      trigger,
+      provider,
+      wallet: vaultEnv.vaultPda.toString(),
+      onchain_tokens: onchainMap.size,
+      ...syncResult,
+      synced_at: now,
+      timestamp: new Date().toISOString(),
+    }, null, 2));
+
+  } catch (err) {
+    try {
+      db.prepare(`
+        INSERT INTO portfolio_sync (chain, provider, trigger, status, error)
+        VALUES (?, ?, ?, 'error', ?)
+      `).run(chain, provider, trigger, err.message);
+    } catch { /* best effort */ }
+
+    console.log(JSON.stringify({
+      status: 'error',
+      chain,
+      error: err.message,
+      timestamp: new Date().toISOString(),
+    }));
+    process.exit(1);
+  } finally {
+    close();
+  }
+}
+
+main();

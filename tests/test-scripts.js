@@ -139,6 +139,21 @@ describe('check-contract.js', () => {
 });
 
 // ============================================================
+// check-contract.js --changes
+// ============================================================
+describe('check-contract.js --changes', () => {
+  testAsync('returns ok when no open positions', async () => {
+    const result = runScript('check-contract.js', '--changes');
+    assert(result.parsed !== null, 'Output must be valid JSON');
+    assertEqual(result.parsed.status, 'ok', 'Status should be ok');
+    assertEqual(result.parsed.tracked, 0, 'tracked should be 0 with no positions');
+    assertEqual(result.parsed.alertCount, 0, 'alertCount should be 0');
+    assert(Array.isArray(result.parsed.alerts), 'alerts must be array');
+    assertType(result.parsed.positions, 'object', 'positions must be object');
+  });
+});
+
+// ============================================================
 // check-positions.js
 // ============================================================
 describe('check-positions.js', () => {
@@ -154,8 +169,17 @@ describe('check-positions.js', () => {
 // check-liquidity.js
 // ============================================================
 describe('check-liquidity.js', () => {
-  testAsync('returns ok when no tokens tracked', async () => {
+  testAsync('returns ok when no open positions', async () => {
     const result = runScript('check-liquidity.js');
+    assert(result.parsed !== null, 'Output must be valid JSON');
+    assertEqual(result.parsed.status, 'ok', 'Status should be ok');
+    assertEqual(result.parsed.tracked, 0, 'tracked should be 0 with no positions');
+    assertEqual(result.parsed.alertCount, 0, 'alertCount should be 0');
+    assert(Array.isArray(result.parsed.alerts), 'alerts must be array');
+  });
+
+  testAsync('accepts --chain flag without error', async () => {
+    const result = runScript('check-liquidity.js', '--chain base');
     assert(result.parsed !== null, 'Output must be valid JSON');
     assertEqual(result.parsed.status, 'ok', 'Status should be ok');
   });
@@ -308,8 +332,8 @@ describe('heartbeat-check.js', () => {
 
   testAsync('executor detects pending sell order', async () => {
     // Add a pending sell order, then check
-    const addResult = runScript('db-query.js', `add-sell-order --json '${JSON.stringify({
-      id: 'test-sell-hb', symbol: 'TEST', address: '0xtest', chain: 'base',
+    const addResult = runScript('db-query.js', `add-order --json '${JSON.stringify({
+      id: 'test-sell-hb', action: 'sell', symbol: 'TEST', address: '0xtest', chain: 'base',
       amount: 'all', reason: 'stop_loss', urgency: 'immediate'
     })}'`);
     assert(addResult.parsed?.ok, 'Should add sell order');
@@ -321,7 +345,7 @@ describe('heartbeat-check.js', () => {
     assert(result.parsed.pending_sells > 0, 'Should report pending sells');
 
     // Clean up: mark as executed
-    runScript('db-query.js', 'mark-sell-executed --id test-sell-hb');
+    runScript('db-query.js', 'mark-order-executed --id test-sell-hb');
   });
 
   testAsync('sentinel detects open paper position', async () => {
@@ -356,6 +380,64 @@ describe('heartbeat-check.js', () => {
   testAsync('rejects invalid agent name', async () => {
     const result = runScript('heartbeat-check.js', '--agent invalid');
     assert(!result.success, 'Should fail with invalid agent name');
+  });
+});
+
+// ============================================================
+// scan-tokens.js — Solana chain
+// ============================================================
+describe('scan-tokens.js — Solana', () => {
+  testAsync('returns valid JSON for Solana trending tokens', async () => {
+    const result = runScript('scan-tokens.js', '--chain solana --sort trending --limit 5');
+    assert(result.parsed !== null, 'Output must be valid JSON');
+    assertType(result.parsed.status, 'string', 'Must have status field');
+    assert(result.parsed.timestamp, 'Must have timestamp');
+    if (result.parsed.status === 'ok') {
+      assert(Array.isArray(result.parsed.tokens), 'tokens must be array');
+    }
+  });
+});
+
+// ============================================================
+// check-contract.js — Solana
+// ============================================================
+describe('check-contract.js — Solana', () => {
+  testAsync('returns parsed safety data for Solana token', async () => {
+    // BONK — well-known Solana token
+    const bonk = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+    const result = runScript('check-contract.js', `--address ${bonk} --chain solana`);
+    assert(result.parsed !== null, 'Output must be valid JSON');
+    if (result.parsed?.status === 'ok') {
+      assert(result.parsed.safety, 'Must have safety object (not raw GoPlus)');
+      assert(Array.isArray(result.parsed.flags), 'flags must be array');
+      assertType(result.parsed.riskScore, 'number', 'riskScore must be number');
+      assert(result.parsed.riskScore >= 0 && result.parsed.riskScore <= 100, 'riskScore must be 0-100');
+      assert(result.parsed.verdict, 'Must have verdict');
+      assertEqual(result.parsed.chain, 'solana', 'chain should be solana');
+    }
+  });
+});
+
+// ============================================================
+// portfolio-load-solana.js
+// ============================================================
+describe('portfolio-load-solana.js', () => {
+  testAsync('returns proper error JSON without env vars', async () => {
+    const result = runScript('portfolio-load-solana.js', '--chain solana');
+    assert(result.parsed !== null, 'Must return JSON (not crash)');
+    // Without SQUADS_VAULT_ADDRESS or SQUADS_MULTISIG_ADDRESS, should return error
+    assertEqual(result.parsed?.status, 'error', 'Should return error without env vars');
+  });
+});
+
+// ============================================================
+// check-squads-status.js
+// ============================================================
+describe('check-squads-status.js', () => {
+  testAsync('returns proper error JSON without env vars', async () => {
+    const result = runScript('check-squads-status.js');
+    assert(result.parsed !== null, 'Must return JSON (not crash)');
+    assertEqual(result.parsed?.status, 'error', 'Should return error without env vars');
   });
 });
 

@@ -32,12 +32,18 @@ try {
   const paperMode = (process.env.PAPER_MODE || 'false') === 'true';
 
   if (agent === 'executor') {
-    const pendingSells = db.prepare('SELECT COUNT(*) as count FROM sell_orders WHERE executed = 0').get().count;
-    const pendingBuys = db.prepare('SELECT COUNT(*) as count FROM approved_trades WHERE executed = 0').get().count;
+    const counts = db.prepare(`
+      SELECT
+        SUM(CASE WHEN action='sell' THEN 1 ELSE 0 END) as sell_count,
+        SUM(CASE WHEN action='buy' THEN 1 ELSE 0 END) as buy_count
+      FROM orders WHERE executed = 0
+    `).get();
+    const pendingSells = counts.sell_count || 0;
+    const pendingBuys = counts.buy_count || 0;
 
     let pendingSafe = 0;
     if (!paperMode) {
-      pendingSafe = db.prepare("SELECT COUNT(*) as count FROM trade_receipts WHERE status = 'queued_in_safe'").get().count;
+      pendingSafe = db.prepare("SELECT COUNT(*) as count FROM receipts WHERE status IN ('queued_in_safe', 'queued_in_squads')").get().count;
     }
 
     if (pendingSells === 0 && pendingBuys === 0 && pendingSafe === 0) {

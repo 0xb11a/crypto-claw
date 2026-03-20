@@ -12,12 +12,20 @@ All wallet data (positions, trades, orders, alerts, receipts) lives in a SQLite 
 
 ### Portfolio & Cash
 ```bash
-# Get full portfolio summary (cash + positions + value)
+# Get full portfolio summary (all chains)
 node scripts/db-query.js get-portfolio
 
-# Get/set cash balance
+# Get per-chain portfolio (chain-specific cash + positions + value)
+node scripts/db-query.js get-portfolio --chain base
+node scripts/db-query.js get-portfolio --chain solana
+
+# Get cash balance (all chains breakdown)
 node scripts/db-query.js get-cash
-node scripts/db-query.js set-cash --amount 5000
+# Get per-chain cash
+node scripts/db-query.js get-cash --chain base
+
+# Set cash balance (requires --chain)
+node scripts/db-query.js set-cash --chain base --amount 5000
 
 # Get/set arbitrary metadata
 node scripts/db-query.js get-meta --key my_key
@@ -26,9 +34,10 @@ node scripts/db-query.js set-meta --key my_key --value my_value
 
 ### Positions
 ```bash
-# List positions (optionally filter by status)
+# List positions (optionally filter by status and/or symbol)
 node scripts/db-query.js get-positions
 node scripts/db-query.js get-positions --status open
+node scripts/db-query.js get-positions --symbol TOKEN
 
 # Add a new position
 node scripts/db-query.js add-position --json '{
@@ -44,21 +53,36 @@ node scripts/db-query.js add-position --json '{
 }'
 
 # Update position fields
-node scripts/db-query.js update-position --id pos-001 --json '{"status":"closed","exit_price":0.002}'
+node scripts/db-query.js update-position --id pos-001 --json '{"current_price": 0.0015}'
+
+# Close position — full exit (auto-calculates P&L)
+node scripts/db-query.js close-position --id pos-001 --json '{"exit_price": 0.002, "exit_reason": "stop_loss"}'
+
+# Close position — partial exit (reduces quantity, tracks cumulative P&L)
+node scripts/db-query.js close-position --id pos-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "take_profit_partial"}'
 ```
 
-### Approved Trades (Research → Executor)
+### Orders (Research/Sentinel → Executor)
 ```bash
-# Get pending approved trades
-node scripts/db-query.js get-approved-trades
+# Get all orders (newest first)
+node scripts/db-query.js get-orders
 
-# Write an approved trade (after human says yes)
-node scripts/db-query.js add-approved-trade --json '{
+# Get pending orders (executor queue — oldest first)
+node scripts/db-query.js get-orders --pending
+
+# Get pending buy orders only
+node scripts/db-query.js get-orders --pending --action buy
+
+# Get pending sell orders only
+node scripts/db-query.js get-orders --pending --action sell
+
+# Write a buy order (after human approval or paper auto-approve)
+node scripts/db-query.js add-order --json '{
   "id": "trade-001",
+  "action": "buy",
   "symbol": "TOKEN",
   "address": "0x...",
   "chain": "base",
-  "action": "buy",
   "amount": 500,
   "tier": "moonshot",
   "entry_price": 0.001,
@@ -68,18 +92,10 @@ node scripts/db-query.js add-approved-trade --json '{
   "reasoning": "Strong AI narrative play"
 }'
 
-# Mark as executed by Executor
-node scripts/db-query.js mark-trade-executed --id trade-001
-```
-
-### Sell Orders (Sentinel → Executor)
-```bash
-# Get pending sell orders
-node scripts/db-query.js get-sell-orders
-
-# Write a sell order
-node scripts/db-query.js add-sell-order --json '{
+# Write a sell order (auto-approved by sentinel)
+node scripts/db-query.js add-order --json '{
   "id": "sell-001",
+  "action": "sell",
   "symbol": "TOKEN",
   "address": "0x...",
   "chain": "base",
@@ -88,11 +104,11 @@ node scripts/db-query.js add-sell-order --json '{
   "urgency": "immediate"
 }'
 
-# Mark as executed
-node scripts/db-query.js mark-sell-executed --id sell-001
+# Mark order as executed by Executor
+node scripts/db-query.js mark-order-executed --id trade-001
 ```
 
-### Trade Receipts (Executor → All)
+### Receipts (Executor → All)
 ```bash
 # Get recent receipts
 node scripts/db-query.js get-receipts --limit 10
@@ -101,7 +117,6 @@ node scripts/db-query.js get-receipts --limit 10
 node scripts/db-query.js add-receipt --json '{
   "id": "rcpt-001",
   "order_id": "trade-001",
-  "order_source": "approved_trades",
   "action": "buy",
   "symbol": "TOKEN",
   "address": "0x...",
@@ -155,6 +170,16 @@ node scripts/db-query.js get-liquidity --address 0x... --chain base
 
 # Save new snapshot
 node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain base --liquidity 50000
+```
+
+### Contract Snapshots
+```bash
+# Get latest contract safety snapshots for an address
+node scripts/db-query.js get-contract-snapshots --address 0x... --chain base
+node scripts/db-query.js get-contract-snapshots --address 0x... --chain base --limit 10
+
+# Save new contract safety snapshot
+node scripts/db-query.js add-contract-snapshot --address 0x... --chain base --json '<safety_data_json>'
 ```
 
 ### Wallet Tracking
@@ -216,7 +241,7 @@ The `source` column tracks how a wallet was discovered: `agent` (manually propos
 ### Heartbeat & Logs
 ```bash
 # Check when agents last ran
-node scripts/db-query.js get-heartbeat
+node scripts/db-query.js get-heartbeat --agent <agent_name>
 
 # Update heartbeat timestamp
 node scripts/db-query.js update-heartbeat --agent research --check token_scan
@@ -234,14 +259,19 @@ node scripts/db-query.js get-trade-stats
 # Get paper portfolio (cash, P&L, open positions, closed history, recent trades)
 node scripts/db-query.js get-paper-portfolio
 
-# Get/set paper cash balance
+# Get paper cash balance (all chains breakdown)
 node scripts/db-query.js get-paper-cash
-node scripts/db-query.js set-paper-cash --amount 10000
+# Get per-chain paper cash
+node scripts/db-query.js get-paper-cash --chain base
+
+# Set paper cash balance (requires --chain)
+node scripts/db-query.js set-paper-cash --chain base --amount 10000
 
 # Paper positions
 node scripts/db-query.js get-paper-positions
 node scripts/db-query.js get-paper-positions --status open
 node scripts/db-query.js get-paper-positions --status closed
+node scripts/db-query.js get-paper-positions --symbol TOKEN
 
 # Add a paper position (auto-deducts value_usd from paper_cash, auto-calculates quantity)
 node scripts/db-query.js add-paper-position --json '{
@@ -262,11 +292,10 @@ node scripts/db-query.js update-paper-position --id pp-001 --json '{"current_pri
 # Close paper position (auto-calculates P&L, auto-adds sale proceeds to paper_cash)
 node scripts/db-query.js close-paper-position --id pp-001 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
 
-# Record a paper trade
-node scripts/db-query.js add-paper-trade --json '{
+# Record a paper receipt
+node scripts/db-query.js add-paper-receipt --json '{
   "id": "pt-001",
   "order_id": "trade-001",
-  "order_source": "approved_trades",
   "action": "buy",
   "symbol": "TOKEN",
   "address": "0x...",
@@ -277,9 +306,9 @@ node scripts/db-query.js add-paper-trade --json '{
   "amount": 500
 }'
 
-# Get paper trades
-node scripts/db-query.js get-paper-trades
-node scripts/db-query.js get-paper-trades --limit 10
+# Get paper receipts
+node scripts/db-query.js get-paper-receipts
+node scripts/db-query.js get-paper-receipts --limit 10
 
 # Get paper trading statistics (win rate, P&L, return)
 node scripts/db-query.js get-paper-stats
@@ -287,7 +316,7 @@ node scripts/db-query.js get-paper-stats
 
 ### Portfolio Sync (On-Chain — Real Mode Only)
 ```bash
-# Trigger on-chain portfolio sync for a chain (calls portfolio-load-evm.js)
+# Trigger on-chain portfolio sync for a chain (routes to correct loader based on chain type)
 node scripts/db-query.js sync-portfolio --chain base
 node scripts/db-query.js sync-portfolio --chain base --trigger post_trade
 
@@ -354,6 +383,12 @@ node scripts/token-metrics.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 
 # Check contract safety (uses GoPlus + TokenSniffer)
 node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN>
+
+# Check contract changes for all open positions (snapshot diff)
+node scripts/check-contract.js --changes
+
+# Check contract changes for a specific token
+node scripts/check-contract.js --changes --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```
 
 ### Portfolio Monitoring
@@ -361,16 +396,24 @@ node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 # Get current prices for all positions (reads from DB, respects PAPER_MODE)
 node scripts/check-positions.js
 
-# Check liquidity for all open positions
+# Check liquidity for all open positions (reads from DB, respects PAPER_MODE)
 node scripts/check-liquidity.js
+node scripts/check-liquidity.js --chain base
+node scripts/check-liquidity.js --chain solana
 
 # Get portfolio summary (value, allocation, P&L — reads from DB, respects PAPER_MODE)
 node scripts/portfolio-summary.js
+node scripts/portfolio-summary.js --chain base
+node scripts/portfolio-summary.js --chain solana
 
-# Sync on-chain portfolio (Safe TX Service primary, DeBank fallback; real mode only)
+# Sync on-chain portfolio — EVM (Safe TX Service primary, DeBank fallback; real mode only)
 node scripts/portfolio-load-evm.js --chain base
 node scripts/portfolio-load-evm.js --chain base --trigger post_trade
 node scripts/portfolio-load-evm.js --chain base --trigger manual
+
+# Sync on-chain portfolio — Solana (Helius DAS primary, RPC fallback; real mode only)
+node scripts/portfolio-load-solana.js --chain solana
+node scripts/portfolio-load-solana.js --chain solana --trigger post_trade
 ```
 
 ### Wallet Tracking
@@ -465,7 +508,29 @@ node scripts/execute-trade.js \
 
 The script handles: 1inch swap quoting, ERC-20 approvals, Safe multi-send transaction building, signing with `SAFE_SIGNER_KEY`, and proposing/executing via Safe Transaction Service.
 
-### Check Safe Wallet Status
+### Execute Trade via Squads Multisig (Solana)
+```bash
+# BUY: spend USDC to buy a token via Jupiter + Squads
+node scripts/execute-trade-solana.js \
+  --action buy --chain solana --address <MINT_ADDRESS> --symbol TOKEN \
+  --amount 500 --max-slippage 5 --tier moonshot
+
+# SELL: sell all tokens back to USDC via Jupiter + Squads
+node scripts/execute-trade-solana.js \
+  --action sell --chain solana --address <MINT_ADDRESS> --symbol TOKEN \
+  --amount all --max-slippage 5
+```
+
+**Output statuses:**
+- `executed` — transaction confirmed on-chain (includes `txSignature`)
+- `queued_in_squads` — proposed and approved, needs more squad member approvals (includes `squadsTransactionIndex`)
+- `failed` — with error message
+
+The script handles: Jupiter swap quoting, Squads vault transaction creation, proposal, approval, and execution (if threshold met). Signs with `SQUADS_SIGNER_KEY`.
+
+**Requires:** `SQUADS_VAULT_ADDRESS` (or `SQUADS_MULTISIG_ADDRESS`), `SQUADS_SIGNER_KEY`, `RPC_SOL` env vars.
+
+### Check Safe Wallet Status (EVM)
 ```bash
 # Get Safe info: nonce, threshold, owners, balances, pending txs
 node scripts/check-safe-status.js --chain base
@@ -475,6 +540,17 @@ node scripts/check-safe-status.js --chain base --safe-hash 0xABC123...
 ```
 
 **Requires:** `SAFE_ADDRESS_BASE`, `RPC_BASE` env vars.
+
+### Check Squads Multisig Status (Solana)
+```bash
+# Get Squads info: threshold, members, vault balances
+node scripts/check-squads-status.js
+
+# Include pending transaction details
+node scripts/check-squads-status.js --pending
+```
+
+**Requires:** `SQUADS_VAULT_ADDRESS` (or `SQUADS_MULTISIG_ADDRESS`), `RPC_SOL` env vars.
 
 ## Configuration
 

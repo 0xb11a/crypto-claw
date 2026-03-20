@@ -9,30 +9,31 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 |-------|---------|-------------|
 | Check sentinel alerts | every 30 min | 24/7 |
 | Market regime check | every 1 hour | 24/7 |
-| New token scan | every 2 hours | 08:00-00:00 |
-| Conviction token scan | every 6 hours | 08:00-22:00 |
-| Smart money wallet activity | every 1 hour | 08:00-00:00 |
-| Narrative trend check | every 4 hours | 08:00-22:00 |
-| Portfolio rebalance review | every 24 hours | 10:00 |
-| Base tier rebalance check | every 12 hours | 10:00, 22:00 |
-| Daily P&L summary | every 24 hours | 22:00 |
-| Watchlist entry check | every 1 hour | 08:00-00:00 |
+| New token scan | every 2 hours | 24/7 |
+| Conviction token scan | every 6 hours | 24/7 |
+| Smart money wallet activity | every 1 hour | 24/7 |
+| Narrative trend check | every 4 hours | 24/7 |
+| Portfolio rebalance review | every 12 hours | 24/7 |
+| Base tier rebalance check | every 12 hours | 24/7 |
+| Daily P&L summary | every 24 hours | 24/7 |
+| Watchlist entry check | every 1 hour | 24/7 |
+| Portfolio sync (on-chain) | every 6 hours | 24/7 |
 
 ## How to Run
 
-1. Read `memory/heartbeat-state.json` for last-run timestamps
-2. Determine which check is most overdue (respect active hours)
+1. Run `node scripts/db-query.js get-heartbeat --agent research` for last-run timestamps
+2. Determine which check is most overdue
 3. Run that check
-4. Update timestamp in `memory/heartbeat-state.json`
+4. Update timestamp: `node scripts/db-query.js update-heartbeat --agent research --check <check_type>`
 5. **If the check produces discoveries → run the FULL pipeline autonomously: discovery → analysis → risk → trade proposal.** Do not stop after scanning. You decide what to buy — that is your job.
 6. If nothing actionable → reply HEARTBEAT_OK
 
 ## Check Details
 
 **Check Sentinel Alerts** (always first priority)
-- Read `memory/sentinel-alerts.json`
+- Run `node scripts/db-query.js get-alerts --unprocessed`
 - If new alerts exist: process them, log to daily memory, notify human if needed
-- Clear processed alerts
+- Mark processed: `node scripts/db-query.js mark-alert-processed --id <alert_id>`
 
 **New Token Scan**
 - Run `node scripts/scan-tokens.js --chain all --sort trending --limit 30`
@@ -77,8 +78,8 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 
 **Rebalance Review**
 - Check `PAPER_MODE` env var first
-- If `PAPER_MODE=true`: run `node scripts/db-query.js get-paper-portfolio` and `node scripts/db-query.js get-paper-cash`
-- If real mode: run `node scripts/portfolio-summary.js`
+- If `PAPER_MODE=true`: run `node scripts/db-query.js get-paper-portfolio --chain <chain>` and `node scripts/db-query.js get-paper-cash --chain <chain>`
+- If real mode: run `node scripts/portfolio-summary.js --chain <chain>`
 - Check allocation vs targets, propose rebalance if needed
 
 **Cache Cleanup** (run during daily summary)
@@ -86,12 +87,21 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 
 **Daily Summary**
 - Check `PAPER_MODE` env var first
-- If `PAPER_MODE=true`: use `get-paper-portfolio`, `get-paper-stats`, `get-paper-trades --limit 20`
-- If real mode: use `get-portfolio`, `get-trade-stats`, `get-receipts --limit 20`
+- If `PAPER_MODE=true`: use `get-paper-portfolio --chain <chain>`, `get-paper-stats --chain <chain>`, `get-paper-receipts --limit 20`
+- If real mode: use `get-portfolio --chain <chain>`, `get-trade-stats`, `get-receipts --limit 20`
 - Compile: total value, daily P&L, trades executed, alerts
 - Send to human, log to daily memory
 
 **Watchlist Entry Check**
-- Read `memory/watchlist.json`
+- Run `node scripts/db-query.js get-watchlist --active`
 - For each watchlisted token, check if target entry price hit
 - If hit → run through analysis → risk → propose trade
+
+**Portfolio Sync (On-Chain)**
+- Real mode only — skip entirely if `PAPER_MODE=true`
+- Read active chains from `ACTIVE_CHAINS` env var (default: `base`). For EACH active chain, run the appropriate loader based on chain type:
+  - EVM chains: `node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger periodic`
+  - Solana chains: `node scripts/portfolio-load-solana.js --chain <CHAIN> --trigger periodic`
+- After sync, check for auto-discovered tokens: `node scripts/db-query.js get-positions --status pending_analysis`
+- If found: run full pipeline on each (analysis → risk → categorize/propose)
+- Log sync results to daily memory with `[SYNC]` tag

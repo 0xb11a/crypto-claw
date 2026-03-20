@@ -18,7 +18,17 @@ triggers:
 ## Purpose
 Convert risk-assessed opportunities into concrete trade proposals. Manage sizing, entries, exits, and rebalancing.
 
-**IMPORTANT: Check `PAPER_MODE` env var.** If `true`, use paper DB commands (`get-paper-portfolio`, `get-paper-cash`, `get-paper-positions`, `get-paper-stats`) and auto-approve trades. If `false` or unset, use real commands and require human approval.
+### Step 0: Load Configuration (MANDATORY — run before any portfolio action)
+```bash
+echo "=== PORTFOLIO CONFIG ==="
+echo "PAPER_MODE=${PAPER_MODE:-false}"
+echo "ACTIVE_CHAINS=${ACTIVE_CHAINS:-base}"
+echo "======================"
+```
+Read the output. This determines your entire cycle:
+- `PAPER_MODE=true` → use paper commands (`get-paper-portfolio`, `get-paper-cash`, `get-paper-positions`, `get-paper-stats`), auto-approve trades
+- `PAPER_MODE=false` → use real commands, require human approval
+Always include `--chain <chain>` on portfolio and cash commands. Reference this output throughout.
 
 ## When to Use
 - After risk skill approves a token
@@ -34,6 +44,8 @@ Convert risk-assessed opportunities into concrete trade proposals. Manage sizing
 | Conviction | 25% | 20-30% | Established alts with fundamentals |
 | Moonshot | 15% | 10-20% | New high-risk plays |
 | Cash | 10% | 10-20% | USDC, USDT |
+
+All allocation percentages are per-chain. Read chain rules with `getPortfolioRules(chain)` before sizing. If `tiersEnabled` for the chain doesn't include the proposed tier, reject the trade.
 
 ## Entry Strategy — Scale In, Never Ape
 
@@ -108,8 +120,8 @@ Reply APPROVE or REJECT
 
 ### How to Rebalance
 1. Check `PAPER_MODE` env var
-2. If paper mode: run `node scripts/db-query.js get-paper-portfolio` and `node scripts/db-query.js get-paper-cash`
-3. If real mode: run `node scripts/portfolio-summary.js`
+2. If paper mode: run `node scripts/db-query.js get-paper-portfolio --chain <chain>` and `node scripts/db-query.js get-paper-cash --chain <chain>`
+3. If real mode: run `node scripts/portfolio-summary.js --chain <chain>`
 4. Calculate current vs target allocation
 5. Identify overweight/underweight tiers
 6. Propose specific sells (weakest positions in overweight tier)
@@ -132,7 +144,7 @@ Reply APPROVE or REJECT
 When the human replies APPROVE, write the trade to the database for the Executor agent to pick up:
 
 ```bash
-node scripts/db-query.js add-approved-trade --json '{
+node scripts/db-query.js add-order --json '{
   "id": "trade-<timestamp>",
   "symbol": "TOKEN",
   "address": "0x...",
@@ -157,7 +169,7 @@ The Executor agent polls for pending approved trades every minute, validates ind
 Check execution results later via:
 ```bash
 # Real mode:  node scripts/db-query.js get-receipts --limit 5
-# Paper mode: node scripts/db-query.js get-paper-trades --limit 5
+# Paper mode: node scripts/db-query.js get-paper-receipts --limit 5
 ```
 
 ## Market Regime Awareness

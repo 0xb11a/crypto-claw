@@ -58,6 +58,8 @@ services:
       # Paper mode — simulate trades without real execution
       - PAPER_MODE=${PAPER_MODE:-false}
       - PAPER_STARTING_BALANCE=${PAPER_STARTING_BALANCE:-10000}
+      - PAPER_STARTING_BALANCE_BASE=${PAPER_STARTING_BALANCE_BASE:-}
+      - PAPER_STARTING_BALANCE_SOLANA=${PAPER_STARTING_BALANCE_SOLANA:-}
       - ACTIVE_CHAINS=${ACTIVE_CHAINS:-base}
       - DEBANK_API_KEY=${DEBANK_API_KEY:-}
 
@@ -72,12 +74,18 @@ services:
       - SOLSCAN_API_KEY=${SOLSCAN_API_KEY:-}
       - HELIUS_API_KEY=${HELIUS_API_KEY:-}
 
-      # Safe wallet (Executor Agent)
+      # Safe wallet (Executor Agent — EVM)
       - SAFE_ADDRESS_ETH=${SAFE_ADDRESS_ETH:-}
       - SAFE_ADDRESS_BASE=${SAFE_ADDRESS_BASE:-}
       - SAFE_SIGNER_KEY=${SAFE_SIGNER_KEY:-}
       - RPC_ETH=${RPC_ETH:-}
       - RPC_BASE=${RPC_BASE:-}
+      - RPC_SOL=${RPC_SOL:-https://api.mainnet-beta.solana.com}
+
+      # Squads multisig (Executor Agent — Solana)
+      - SQUADS_VAULT_ADDRESS=${SQUADS_VAULT_ADDRESS:-}
+      - SQUADS_MULTISIG_ADDRESS=${SQUADS_MULTISIG_ADDRESS:-}
+      - SQUADS_SIGNER_KEY=${SQUADS_SIGNER_KEY:-}
 
       # Agent memory backup (optional — git remote for pushing memory)
       - MEMORY_GIT_REMOTE=${MEMORY_GIT_REMOTE:-}

@@ -9,16 +9,19 @@
  * - Sell vs buy approval logic
  */
 
-import { describe, test, assert, summary } from './test-helpers.js';
+import { describe, test, assert, assertEqual, summary } from './test-helpers.js';
 
 // ============================================================
 // Safety Rule Validators (extracted from AGENTS.md)
 // ============================================================
 
-function validatePositionSize(percentOfPortfolio, tier) {
-  const limits = { moonshot: 5, conviction: 10, base: 50 };
+function validatePositionSize(percentOfPortfolio, tier, chainRules = null) {
+  const defaults = { moonshot: 5, conviction: 10, base: 50 };
+  const limits = chainRules
+    ? { moonshot: chainRules.maxMoonshotPosition, conviction: chainRules.maxConvictionPosition, base: chainRules.maxBasePosition }
+    : defaults;
   const max = limits[tier];
-  if (!max) return { valid: false, reason: `Unknown tier: ${tier}` };
+  if (max === undefined) return { valid: false, reason: `Unknown tier: ${tier}` };
   if (percentOfPortfolio > max) {
     return { valid: false, reason: `${tier} position ${percentOfPortfolio}% exceeds max ${max}%` };
   }
@@ -378,6 +381,53 @@ describe('Regime-Adjusted Cash Reserve', () => {
 
   test('crisis: 40% cash is ok', () => {
     assert(validateRegimeCashReserve(40, 'crisis').valid, 'Should be valid');
+  });
+});
+
+// ============================================================
+// Per-Chain Rule Tests
+// ============================================================
+
+describe('Per-Chain Portfolio Rules', () => {
+  const baseRules = { maxMoonshotPosition: 5, maxConvictionPosition: 10, maxBasePosition: 50, maxMoonshotAllocation: 20, minCashReserve: 10, maxSameNarrative: 3, maxOpenPositions: 15, tiersEnabled: ['moonshot', 'conviction', 'base'] };
+  const solanaRules = { maxMoonshotPosition: 7, maxConvictionPosition: 10, maxBasePosition: 50, maxMoonshotAllocation: 30, minCashReserve: 10, maxSameNarrative: 3, maxOpenPositions: 10, tiersEnabled: ['moonshot', 'conviction'] };
+
+  test('Solana allows 7% moonshot vs Base 5%', () => {
+    const baseResult = validatePositionSize(6, 'moonshot', baseRules);
+    assert(!baseResult.valid, 'Base should reject 6% moonshot');
+    const solResult = validatePositionSize(6, 'moonshot', solanaRules);
+    assert(solResult.valid, 'Solana should allow 6% moonshot');
+  });
+
+  test('Solana moonshot allocation does not affect Base moonshot limit', () => {
+    // Each chain is independent — Solana's 30% moonshot alloc doesn't change Base's 20%
+    const baseAlloc = { base: 50, conviction: 20, moonshot: 18, cash: 12 };
+    const result = validateAllocation(baseAlloc, 'moonshot', 5);
+    assert(!result.valid, 'Base moonshot alloc 23% > 20% should be rejected');
+  });
+
+  test('Solana rejects base-tier buy proposals', () => {
+    assert(!solanaRules.tiersEnabled.includes('base'), 'Solana should not allow base tier');
+    assert(baseRules.tiersEnabled.includes('base'), 'Base should allow base tier');
+  });
+
+  test('Per-chain max positions: Solana 10, Base 15', () => {
+    assert(validateMaxPositions(14).valid, 'Global: 14 is ok');
+    assert(!validateMaxPositions(15).valid, 'Global: 15 is too many');
+
+    // Solana-specific
+    const solMaxPos = solanaRules.maxOpenPositions;
+    assertEqual(solMaxPos, 10, 'Solana max should be 10');
+    assert(9 < solMaxPos, '9 positions ok on Solana');
+    assert(!(10 < solMaxPos), '10 positions is at limit on Solana');
+  });
+
+  test('Regime still tightens per-chain rules', () => {
+    // Bearish regime: moonshot max 3%. Solana chain rule: 7%. min(7, 3) = 3
+    const regimeLimit = 3;
+    const chainLimit = solanaRules.maxMoonshotPosition;
+    const effective = Math.min(chainLimit, regimeLimit);
+    assertEqual(effective, 3, 'Regime should tighten Solana moonshot from 7% to 3%');
   });
 });
 

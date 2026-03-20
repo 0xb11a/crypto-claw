@@ -90,6 +90,52 @@ async function runTests() {
       assertEqual(cfg.solana.helius.apiKeyEnv, 'HELIUS_API_KEY');
     });
 
+    test('solana config has squads section', () => {
+      const cfg = chains.getChain('solana');
+      assert(cfg.squads, 'Solana must have squads config');
+      assertEqual(cfg.squads.multisigEnv, 'SQUADS_MULTISIG_ADDRESS');
+      assertEqual(cfg.squads.vaultEnv, 'SQUADS_VAULT_ADDRESS');
+      assertEqual(cfg.squads.signerKeyEnv, 'SQUADS_SIGNER_KEY');
+      assertEqual(cfg.squads.rpcEnv, 'RPC_SOL');
+      assertEqual(cfg.squads.vaultIndex, 0);
+    });
+
+    test('solana config has jupiter section', () => {
+      const cfg = chains.getChain('solana');
+      assert(cfg.jupiter, 'Solana must have jupiter config');
+      assertEqual(cfg.jupiter.apiUrl, 'https://lite-api.jup.ag/swap/v1');
+    });
+
+    test('solana config has cashToken', () => {
+      const cfg = chains.getChain('solana');
+      assert(cfg.cashToken, 'Must have cashToken');
+      assertEqual(cfg.cashToken.symbol, 'USDC');
+      assertEqual(cfg.cashToken.address, 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+      assertEqual(cfg.cashToken.decimals, 6);
+    });
+
+    test('base config has cashToken', () => {
+      const cfg = chains.getChain('base');
+      assert(cfg.cashToken, 'Must have cashToken');
+      assertEqual(cfg.cashToken.symbol, 'USDC');
+      assertEqual(cfg.cashToken.address, '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913');
+      assertEqual(cfg.cashToken.decimals, 6);
+    });
+
+    test('getCashToken returns correct config', () => {
+      const baseToken = chains.getCashToken('base');
+      assertEqual(baseToken.symbol, 'USDC');
+      assertEqual(baseToken.address, '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913');
+      const solToken = chains.getCashToken('solana');
+      assertEqual(solToken.address, 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+    });
+
+    test('solana portfolio provider is helius', () => {
+      const cfg = chains.getChain('solana');
+      assertEqual(cfg.portfolio.provider, 'helius');
+      assertEqual(cfg.portfolio.apiKeyEnv, 'HELIUS_API_KEY');
+    });
+
     test('getChain throws for unknown chain', () => {
       let threw = false;
       try { chains.getChain('ethereum'); } catch { threw = true; }
@@ -127,6 +173,108 @@ async function runTests() {
       assert(all.includes('base'), 'Should include base');
       assert(all.includes('solana'), 'Should include solana');
       assertEqual(all.length, 2);
+    });
+  });
+
+  // ============================================================
+  // Portfolio Rules Tests
+  // ============================================================
+
+  describe('Portfolio Rules', () => {
+    test('getPortfolioRules returns full defaults for base', () => {
+      const rules = chains.getPortfolioRules('base');
+      assertEqual(rules.maxMoonshotPosition, 5);
+      assertEqual(rules.maxConvictionPosition, 10);
+      assertEqual(rules.maxBasePosition, 50);
+      assertEqual(rules.maxMoonshotAllocation, 20);
+      assertEqual(rules.minCashReserve, 10);
+      assertEqual(rules.maxSameNarrative, 3);
+      assertEqual(rules.maxOpenPositions, 15);
+      assert(rules.tiersEnabled.includes('moonshot'), 'Base should enable moonshot');
+      assert(rules.tiersEnabled.includes('conviction'), 'Base should enable conviction');
+      assert(rules.tiersEnabled.includes('base'), 'Base should enable base tier');
+    });
+
+    test('getPortfolioRules returns overrides merged with defaults for solana', () => {
+      const rules = chains.getPortfolioRules('solana');
+      assertEqual(rules.maxMoonshotPosition, 7, 'Solana overrides moonshot to 7%');
+      assertEqual(rules.maxMoonshotAllocation, 30, 'Solana overrides moonshot alloc to 30%');
+      assertEqual(rules.maxConvictionPosition, 10, 'Conviction falls through to default');
+      assertEqual(rules.maxOpenPositions, 10, 'Solana overrides max positions to 10');
+      assertEqual(rules.minCashReserve, 10, 'Cash reserve falls through to default');
+      assertEqual(rules.maxSameNarrative, 3, 'Narrative limit falls through to default');
+    });
+
+    test('solana tiersEnabled does NOT include base', () => {
+      const rules = chains.getPortfolioRules('solana');
+      assert(!rules.tiersEnabled.includes('base'), 'Solana should not enable base tier');
+      assert(rules.tiersEnabled.includes('moonshot'), 'Solana should enable moonshot');
+      assert(rules.tiersEnabled.includes('conviction'), 'Solana should enable conviction');
+    });
+
+    test('unspecified fields fall through to global defaults', () => {
+      const rules = chains.getPortfolioRules('solana');
+      assertEqual(rules.maxBasePosition, 50, 'maxBasePosition not overridden');
+    });
+
+    test('PORTFOLIO_RULES global defaults are exported', () => {
+      const { PORTFOLIO_RULES } = chains;
+      assert(PORTFOLIO_RULES, 'PORTFOLIO_RULES must be exported');
+      assertEqual(PORTFOLIO_RULES.maxMoonshotPosition, 5);
+    });
+  });
+
+  // ============================================================
+  // Per-Chain Cash Keys Tests
+  // ============================================================
+
+  describe('Per-Chain Cash Keys', () => {
+    test('cash_base key exists after migration', () => {
+      const db = dbMod.getDb();
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'cash_base'").get();
+      assert(row, 'cash_base key must exist');
+    });
+
+    test('cash_solana key exists after migration', () => {
+      const db = dbMod.getDb();
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'cash_solana'").get();
+      assert(row, 'cash_solana key must exist');
+    });
+
+    test('paper_cash_base key exists after migration', () => {
+      const db = dbMod.getDb();
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_base'").get();
+      assert(row, 'paper_cash_base key must exist');
+    });
+
+    test('paper_cash_solana key exists after migration', () => {
+      const db = dbMod.getDb();
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_solana'").get();
+      assert(row, 'paper_cash_solana key must exist');
+    });
+
+    test('old cash key still exists (backward compat)', () => {
+      const db = dbMod.getDb();
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'cash'").get();
+      assert(row, 'Old cash key must still exist');
+    });
+
+    test('old paper_cash key still exists (backward compat)', () => {
+      const db = dbMod.getDb();
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash'").get();
+      assert(row, 'Old paper_cash key must still exist');
+    });
+
+    test('total_deposited_base key exists', () => {
+      const db = dbMod.getDb();
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'total_deposited_base'").get();
+      assert(row, 'total_deposited_base key must exist');
+    });
+
+    test('paper_initial_balance_base key exists', () => {
+      const db = dbMod.getDb();
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_initial_balance_base'").get();
+      assert(row, 'paper_initial_balance_base key must exist');
     });
   });
 

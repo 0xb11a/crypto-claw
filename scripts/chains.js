@@ -10,6 +10,18 @@
  *   console.log(chain.goplus.chainId); // '8453'
  */
 
+// Global default portfolio rules (applied to any chain that doesn't override)
+const PORTFOLIO_RULES = {
+  maxMoonshotPosition: 5,      // % of chain portfolio
+  maxConvictionPosition: 10,
+  maxBasePosition: 50,
+  maxMoonshotAllocation: 20,
+  minCashReserve: 10,
+  maxSameNarrative: 3,
+  maxOpenPositions: 15,
+  tiersEnabled: ['moonshot', 'conviction', 'base'],
+};
+
 const CHAINS = {
   base: {
     name: 'base',
@@ -21,7 +33,9 @@ const CHAINS = {
     birdeye: 'base',
     safe: { addressEnv: 'SAFE_ADDRESS_BASE', rpcEnv: 'RPC_BASE', txServiceUrl: 'https://safe-transaction-base.safe.global' },
     dex: '1inch',
+    cashToken: { symbol: 'USDC', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6 },
     portfolio: { provider: 'debank', apiKeyEnv: 'DEBANK_API_KEY' },
+    rules: {},  // Base uses all global defaults
   },
   solana: {
     name: 'solana',
@@ -35,9 +49,24 @@ const CHAINS = {
       helius: { apiKeyEnv: 'HELIUS_API_KEY' },
     },
     birdeye: 'solana',
-    safe: { addressEnv: 'SAFE_ADDRESS_SOL', rpcEnv: 'RPC_SOL' },
+    squads: {
+      multisigEnv: 'SQUADS_MULTISIG_ADDRESS',
+      vaultEnv: 'SQUADS_VAULT_ADDRESS',
+      signerKeyEnv: 'SQUADS_SIGNER_KEY',
+      rpcEnv: 'RPC_SOL',
+      vaultIndex: 0,
+    },
     dex: 'jupiter',
-    portfolio: { provider: null },
+    jupiter: { apiUrl: 'https://lite-api.jup.ag/swap/v1' },
+    cashToken: { symbol: 'USDC', address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
+    portfolio: { provider: 'helius', apiKeyEnv: 'HELIUS_API_KEY' },
+    rules: {
+      maxMoonshotPosition: 7,
+      maxMoonshotAllocation: 30,
+      maxConvictionPosition: 10,
+      tiersEnabled: ['moonshot', 'conviction'],
+      maxOpenPositions: 10,
+    },
   },
 };
 
@@ -90,4 +119,21 @@ export function getAllChains() {
   return Object.keys(CHAINS);
 }
 
+/**
+ * Get the cash token config for a chain.
+ */
+export function getCashToken(chainName) {
+  return getChain(chainName).cashToken;
+}
+
+/**
+ * Get merged portfolio rules for a chain.
+ * Chain-specific overrides win, global defaults fill gaps.
+ */
+export function getPortfolioRules(chainName) {
+  const chain = getChain(chainName);
+  return { ...PORTFOLIO_RULES, ...(chain.rules || {}) };
+}
+
+export { PORTFOLIO_RULES };
 export default CHAINS;

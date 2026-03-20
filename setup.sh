@@ -167,16 +167,16 @@ cp "$SCRIPT_DIR/scripts/"*.js "$RESEARCH_DIR/workspace/scripts/"
 cp "$SCRIPT_DIR/scripts/package.json" "$RESEARCH_DIR/workspace/scripts/"
 
 # Sentinel gets monitoring scripts + db access
-for script in db.js db-query.js check-positions.js check-liquidity.js check-wallets.js; do
+for script in db.js db-query.js chains.js check-positions.js check-liquidity.js check-wallets.js check-contract.js portfolio-load-evm.js portfolio-load-solana.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$SENTINEL_DIR/workspace/scripts/"
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$SENTINEL_DIR/workspace/scripts/"
 
 # Executor gets execution scripts + db access + price checking
-for script in db.js db-query.js token-metrics.js; do
+for script in db.js db-query.js chains.js token-metrics.js portfolio-load-evm.js portfolio-load-solana.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$EXECUTOR_DIR/workspace/scripts/"
 done
-for script in execute-trade.js check-safe-status.js; do
+for script in chains.js execute-trade.js check-safe-status.js execute-trade-solana.js check-squads-status.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$EXECUTOR_DIR/workspace/scripts/"
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$EXECUTOR_DIR/workspace/scripts/"

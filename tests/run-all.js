@@ -23,6 +23,7 @@ const suites = [
   { name: 'Executor Agent', file: 'test-executor.js', requiresNetwork: false },
   { name: 'Paper Mode', file: 'test-paper-mode.js', requiresNetwork: false },
   { name: 'E2E Paper Mode', file: 'test-e2e-paper.js', requiresNetwork: false },
+  { name: 'E2E Real Mode', file: 'test-e2e-real.js', requiresNetwork: false },
   { name: 'Market Regime', file: 'test-regime.js', requiresNetwork: false },
   { name: 'Chain Config & Sync', file: 'test-chains.js', requiresNetwork: false },
   { name: 'Execution Scripts', file: 'test-execution.js', requiresNetwork: false },

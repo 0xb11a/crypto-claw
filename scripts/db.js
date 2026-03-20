@@ -514,6 +514,146 @@ const migrations = [
       INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('sentinel', 'portfolio_sync');
     `,
   },
+  {
+    name: '009_per_chain_cash',
+    sql: `
+      -- Migrate existing global cash → per-chain
+      INSERT OR IGNORE INTO portfolio_meta (key, value)
+        VALUES ('cash_base', COALESCE((SELECT value FROM portfolio_meta WHERE key = 'cash'), '0'));
+      INSERT OR IGNORE INTO portfolio_meta (key, value)
+        VALUES ('cash_solana', '0');
+
+      -- Paper mode per-chain
+      INSERT OR IGNORE INTO portfolio_meta (key, value)
+        VALUES ('paper_cash_base', COALESCE((SELECT value FROM portfolio_meta WHERE key = 'paper_cash'), '10000'));
+      INSERT OR IGNORE INTO portfolio_meta (key, value)
+        VALUES ('paper_cash_solana', '0');
+
+      -- Per-chain initial balance
+      INSERT OR IGNORE INTO portfolio_meta (key, value)
+        VALUES ('paper_initial_balance_base', COALESCE((SELECT value FROM portfolio_meta WHERE key = 'paper_initial_balance'), '10000'));
+      INSERT OR IGNORE INTO portfolio_meta (key, value)
+        VALUES ('paper_initial_balance_solana', '0');
+
+      -- Per-chain total deposited
+      INSERT OR IGNORE INTO portfolio_meta (key, value)
+        VALUES ('total_deposited_base', COALESCE((SELECT value FROM portfolio_meta WHERE key = 'total_deposited'), '0'));
+      INSERT OR IGNORE INTO portfolio_meta (key, value)
+        VALUES ('total_deposited_solana', '0');
+    `,
+  },
+  {
+    name: '010_heartbeat_seeds_research',
+    sql: `
+      INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('research', 'conviction_scan');
+      INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('research', 'base_rebalance');
+      INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('research', 'portfolio_sync');
+    `,
+  },
+  {
+    name: '011_position_exit_columns',
+    sql: `
+      -- Add exit accounting columns to positions (mirroring paper_positions)
+      ALTER TABLE positions ADD COLUMN exit_price REAL;
+      ALTER TABLE positions ADD COLUMN exit_date TEXT;
+      ALTER TABLE positions ADD COLUMN pnl_percent REAL;
+      ALTER TABLE positions ADD COLUMN pnl_usd REAL;
+      ALTER TABLE positions ADD COLUMN exit_reason TEXT;
+    `,
+  },
+  {
+    name: '012_unified_orders',
+    sql: `
+      -- Unified orders table (replaces approved_trades + sell_orders)
+      CREATE TABLE orders (
+        id TEXT PRIMARY KEY,
+        action TEXT NOT NULL CHECK (action IN ('buy', 'sell')),
+        symbol TEXT NOT NULL,
+        name TEXT,
+        address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        amount TEXT NOT NULL,
+        percent_of_portfolio REAL,
+        tier TEXT,
+        entry_price REAL,
+        stop_loss REAL,
+        take_profit_levels TEXT,
+        analysis_score INTEGER,
+        risk_score INTEGER,
+        reasoning TEXT,
+        reason TEXT,
+        urgency TEXT,
+        approved INTEGER NOT NULL DEFAULT 0,
+        approved_at TEXT,
+        approved_by TEXT,
+        executed INTEGER NOT NULL DEFAULT 0,
+        executed_at TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+
+      -- Receipts table (replaces trade_receipts, no order_source)
+      CREATE TABLE receipts (
+        id TEXT PRIMARY KEY,
+        order_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (action IN ('buy', 'sell')),
+        symbol TEXT NOT NULL,
+        address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        amount REAL,
+        quantity REAL,
+        expected_price REAL,
+        executed_price REAL,
+        slippage REAL,
+        status TEXT NOT NULL CHECK (status IN ('executed', 'queued_in_safe', 'queued_in_squads', 'validation_failed', 'tx_failed', 'reverted')),
+        safe_tx_hash TEXT,
+        onchain_tx_hash TEXT,
+        safe_nonce INTEGER,
+        signatures_collected INTEGER,
+        signatures_required INTEGER,
+        gas_used TEXT,
+        error TEXT,
+        notes TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+
+      -- Paper receipts table (replaces paper_trades, no order_source)
+      CREATE TABLE paper_receipts (
+        id TEXT PRIMARY KEY,
+        order_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (action IN ('buy', 'sell')),
+        symbol TEXT NOT NULL,
+        address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        tier TEXT,
+        proposed_price REAL NOT NULL,
+        quantity REAL,
+        amount REAL,
+        stop_loss REAL,
+        take_profit_levels TEXT,
+        reasoning TEXT,
+        pnl_percent REAL,
+        pnl_usd REAL,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+    `,
+  },
+  {
+    name: '013_contract_snapshots',
+    sql: `
+      -- Contract safety snapshots for change detection
+      CREATE TABLE contract_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        safety_data TEXT NOT NULL,
+        checked_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_contract_snapshots ON contract_snapshots(address, chain);
+
+      -- Seed heartbeat state for contract monitoring
+      INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('sentinel', 'contract_check');
+    `,
+  },
 ];
 
 export default { getDb, close };

@@ -277,6 +277,7 @@ async function main() {
           db.prepare(`
             UPDATE positions SET
               status = 'closed', onchain_balance = 0, last_synced_at = ?,
+              exit_reason = 'onchain_sync_zero_balance', exit_date = date('now'),
               notes = COALESCE(notes || ' | ', '') || 'Closed by on-chain sync: balance_zero_onchain',
               updated_at = datetime('now')
             WHERE id = ?
@@ -306,12 +307,13 @@ async function main() {
         syncResult.positions_discovered++;
       }
 
-      // 5. Sync stablecoin balance → cash
+      // 5. Sync stablecoin balance → per-chain cash
       if (cashBalance > 0) {
+        const chainCashKey = `cash_${chain}`;
         db.prepare(`
-          INSERT INTO portfolio_meta (key, value) VALUES ('cash', ?)
+          INSERT INTO portfolio_meta (key, value) VALUES (?, ?)
           ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')
-        `).run(cashBalance.toString(), cashBalance.toString());
+        `).run(chainCashKey, cashBalance.toString(), cashBalance.toString());
         syncResult.cash_synced = cashBalance;
       }
 

@@ -111,12 +111,15 @@ Add the modifier to the overall risk score calculated in Step 2. This makes it h
 In `crisis` regime: if tier is `moonshot`, auto-reject (max position = 0%).
 
 ### Step 4: Portfolio-Level Checks
-Check `PAPER_MODE` env var. Use `get-paper-portfolio` / `get-paper-positions` if paper mode, otherwise `get-portfolio` / `get-positions`.
-- Would this push moonshot allocation above 20%?
-- Would this push conviction allocation above 30%?
-- Are there already 3 positions in the same narrative?
-- Would total positions exceed 15?
-- Is portfolio already overexposed to this chain?
+Check `PAPER_MODE` env var. Use `get-paper-portfolio --chain <chain>` / `get-paper-positions` if paper mode, otherwise `get-portfolio --chain <chain>` / `get-positions`.
+
+Read the **target chain's** portfolio rules: `getPortfolioRules(chain)` from `chains.js`. All checks below use the chain-specific limits, not global defaults.
+
+- Would this push moonshot allocation above the chain's `maxMoonshotAllocation`?
+- Would this push conviction allocation above the chain's `maxConvictionPosition` * position count?
+- Are there already `maxSameNarrative` positions in the same narrative on this chain?
+- Would total positions on this chain exceed `maxOpenPositions`?
+- Is the proposed tier in the chain's `tiersEnabled`? If not, reject.
 - **For base tier:** Simplified risk check — established assets skip contract/social/narrative risk scoring. Focus on portfolio allocation limits and entry timing (reject if price >20% above 7-day average).
 
 ### Step 5: Verdict & Position Sizing

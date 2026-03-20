@@ -72,11 +72,11 @@ try {
 if (dbAvailable) {
   describe('Wallet Database — Schema', () => {
     const expectedTables = [
-      'positions', 'trades', 'approved_trades', 'sell_orders',
-      'trade_receipts', 'sentinel_alerts', 'watchlist',
+      'positions', 'trades', 'orders',
+      'receipts', 'sentinel_alerts', 'watchlist',
       'liquidity_snapshots', 'tracked_wallets', 'heartbeat_state',
       'sentinel_log', 'executor_log', 'portfolio_meta', '_migrations',
-      'paper_trades', 'paper_positions', 'analysis_cache',
+      'paper_receipts', 'paper_positions', 'analysis_cache', 'contract_snapshots',
     ];
 
     for (const table of expectedTables) {
@@ -116,6 +116,27 @@ if (dbAvailable) {
       const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_initial_balance'").get();
       assert(row, 'paper_initial_balance key must exist');
     });
+
+    // Per-chain keys (migration 009)
+    test('cash_base key exists after migration', () => {
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'cash_base'").get();
+      assert(row, 'cash_base key must exist after migration 009');
+    });
+
+    test('cash_solana key exists after migration', () => {
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'cash_solana'").get();
+      assert(row, 'cash_solana key must exist after migration 009');
+    });
+
+    test('paper_cash_base key exists after migration', () => {
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_base'").get();
+      assert(row, 'paper_cash_base key must exist');
+    });
+
+    test('paper_cash_solana key exists after migration', () => {
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_solana'").get();
+      assert(row, 'paper_cash_solana key must exist');
+    });
   });
 
   describe('Wallet Database — Heartbeat State', () => {
@@ -130,7 +151,7 @@ if (dbAvailable) {
     test('sentinel agent has all check types', () => {
       const rows = db.prepare("SELECT check_type FROM heartbeat_state WHERE agent = 'sentinel'").all();
       const checks = rows.map(r => r.check_type);
-      for (const check of ['price_check', 'liquidity_check', 'wallet_check']) {
+      for (const check of ['price_check', 'liquidity_check', 'wallet_check', 'contract_check']) {
         assert(checks.includes(check), `sentinel must have ${check}`);
       }
     });
@@ -159,26 +180,26 @@ if (dbAvailable) {
 
     test('can insert and mark sell order executed', () => {
       db.prepare(`
-        INSERT INTO sell_orders (id, symbol, address, chain, amount, reason, urgency)
-        VALUES ('test-sell-1', 'TEST', '0xtest', 'base', 'all', 'stop_loss', 'immediate')
+        INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, approved, approved_by)
+        VALUES ('test-sell-1', 'sell', 'TEST', '0xtest', 'base', 'all', 'stop_loss', 'immediate', 1, 'sentinel')
       `).run();
-      const row = db.prepare("SELECT * FROM sell_orders WHERE id = 'test-sell-1'").get();
+      const row = db.prepare("SELECT * FROM orders WHERE id = 'test-sell-1'").get();
       assertEqual(row.executed, 0, 'Should default to not executed');
-      db.prepare("UPDATE sell_orders SET executed = 1 WHERE id = 'test-sell-1'").run();
-      const updated = db.prepare("SELECT executed FROM sell_orders WHERE id = 'test-sell-1'").get();
+      db.prepare("UPDATE orders SET executed = 1 WHERE id = 'test-sell-1'").run();
+      const updated = db.prepare("SELECT executed FROM orders WHERE id = 'test-sell-1'").get();
       assertEqual(updated.executed, 1, 'Should be marked executed');
-      db.prepare("DELETE FROM sell_orders WHERE id = 'test-sell-1'").run();
+      db.prepare("DELETE FROM orders WHERE id = 'test-sell-1'").run();
     });
 
     test('can insert trade receipt', () => {
       db.prepare(`
-        INSERT INTO trade_receipts (id, order_id, order_source, action, symbol, address, chain, status)
-        VALUES ('test-rcpt-1', 'ord-1', 'sell_orders', 'sell', 'TEST', '0xtest', 'base', 'executed')
+        INSERT INTO receipts (id, order_id, action, symbol, address, chain, status)
+        VALUES ('test-rcpt-1', 'ord-1', 'sell', 'TEST', '0xtest', 'base', 'executed')
       `).run();
-      const row = db.prepare("SELECT * FROM trade_receipts WHERE id = 'test-rcpt-1'").get();
+      const row = db.prepare("SELECT * FROM receipts WHERE id = 'test-rcpt-1'").get();
       assert(row, 'Receipt must be insertable');
       assertEqual(row.status, 'executed', 'Status must match');
-      db.prepare("DELETE FROM trade_receipts WHERE id = 'test-rcpt-1'").run();
+      db.prepare("DELETE FROM receipts WHERE id = 'test-rcpt-1'").run();
     });
 
     test('can insert and process alert', () => {
@@ -198,6 +219,43 @@ if (dbAvailable) {
       db.prepare("DELETE FROM portfolio_meta WHERE key = '_test'").run();
     });
 
+    test('get-positions --symbol filters correctly', () => {
+      db.prepare(`
+        INSERT INTO positions (id, symbol, address, chain, tier, entry_price, quantity, stop_loss, take_profit_levels, status)
+        VALUES ('test-sym-1', 'ALPHA', '0xalpha', 'base', 'moonshot', 0.01, 1000, 0.005, '[]', 'open')
+      `).run();
+      db.prepare(`
+        INSERT INTO positions (id, symbol, address, chain, tier, entry_price, quantity, stop_loss, take_profit_levels, status)
+        VALUES ('test-sym-2', 'BETA', '0xbeta', 'base', 'conviction', 1.5, 200, 1.0, '[]', 'open')
+      `).run();
+      // Filter by symbol
+      const alpha = db.prepare("SELECT * FROM positions WHERE status = 'open' AND symbol = ?").all('ALPHA');
+      assertEqual(alpha.length, 1, 'Should return exactly 1 ALPHA position');
+      assertEqual(alpha[0].id, 'test-sym-1', 'Should be the ALPHA position');
+      // All status + symbol
+      const beta = db.prepare("SELECT * FROM positions WHERE symbol = ?").all('BETA');
+      assertEqual(beta.length, 1, 'Should return exactly 1 BETA position');
+      // Non-existent symbol
+      const none = db.prepare("SELECT * FROM positions WHERE status = 'open' AND symbol = ?").all('NONEXISTENT');
+      assertEqual(none.length, 0, 'Non-existent symbol should return empty');
+      db.prepare("DELETE FROM positions WHERE id IN ('test-sym-1', 'test-sym-2')").run();
+    });
+
+    test('paper_positions --symbol filters correctly', () => {
+      db.prepare(`
+        INSERT INTO paper_positions (id, symbol, address, chain, tier, entry_price, quantity, stop_loss, take_profit_levels, status, value_usd)
+        VALUES ('test-pp-sym-1', 'ALPHA', '0xalpha', 'base', 'moonshot', 0.01, 1000, 0.005, '[]', 'open', 10)
+      `).run();
+      db.prepare(`
+        INSERT INTO paper_positions (id, symbol, address, chain, tier, entry_price, quantity, stop_loss, take_profit_levels, status, value_usd)
+        VALUES ('test-pp-sym-2', 'BETA', '0xbeta', 'base', 'conviction', 1.5, 200, 1.0, '[]', 'open', 300)
+      `).run();
+      const alpha = db.prepare("SELECT * FROM paper_positions WHERE status = 'open' AND symbol = ?").all('ALPHA');
+      assertEqual(alpha.length, 1, 'Should return exactly 1 ALPHA paper position');
+      assertEqual(alpha[0].id, 'test-pp-sym-1', 'Should be the ALPHA paper position');
+      db.prepare("DELETE FROM paper_positions WHERE id IN ('test-pp-sym-1', 'test-pp-sym-2')").run();
+    });
+
     test('tier CHECK constraint works', () => {
       let threw = false;
       try {
@@ -209,6 +267,15 @@ if (dbAvailable) {
         threw = true;
       }
       assert(threw, 'Invalid tier should be rejected by CHECK constraint');
+    });
+  });
+
+  describe('Wallet Database — Position Exit Columns', () => {
+    test('positions table has exit accounting columns', () => {
+      const cols = db.prepare("PRAGMA table_info(positions)").all().map(c => c.name);
+      for (const col of ['exit_price', 'exit_date', 'pnl_percent', 'pnl_usd', 'exit_reason']) {
+        assert(cols.includes(col), `positions must have column '${col}'`);
+      }
     });
   });
 
@@ -336,6 +403,47 @@ if (dbAvailable) {
     // Cleanup
     test('cleanup test data', () => {
       db.prepare("DELETE FROM tracked_wallets WHERE address LIKE '0xtest_%'").run();
+      assert(true, 'Cleanup ok');
+    });
+  });
+
+  describe('Wallet Database — Contract Snapshots', () => {
+    test('contract_snapshots has expected columns', () => {
+      const cols = db.prepare("PRAGMA table_info(contract_snapshots)").all().map(c => c.name);
+      for (const col of ['id', 'address', 'chain', 'safety_data', 'checked_at']) {
+        assert(cols.includes(col), `contract_snapshots must have column '${col}'`);
+      }
+    });
+
+    test('can insert and query contract snapshot', () => {
+      const safetyData = JSON.stringify({ is_honeypot: '0', is_proxy: '0', owner_address: '0xowner1' });
+      db.prepare(
+        'INSERT INTO contract_snapshots (address, chain, safety_data) VALUES (?, ?, ?)'
+      ).run('0xtest_cs1', 'base', safetyData);
+      const row = db.prepare(
+        'SELECT * FROM contract_snapshots WHERE address = ? AND chain = ? ORDER BY checked_at DESC LIMIT 1'
+      ).get('0xtest_cs1', 'base');
+      assert(row, 'Snapshot must be insertable and queryable');
+      const parsed = JSON.parse(row.safety_data);
+      assertEqual(parsed.is_honeypot, '0', 'Safety data must be preserved');
+      assertEqual(parsed.owner_address, '0xowner1', 'Owner address must be preserved');
+    });
+
+    test('multiple snapshots per address ordered by id', () => {
+      const data2 = JSON.stringify({ is_honeypot: '0', is_proxy: '1', owner_address: '0xowner2' });
+      db.prepare(
+        'INSERT INTO contract_snapshots (address, chain, safety_data) VALUES (?, ?, ?)'
+      ).run('0xtest_cs1', 'base', data2);
+      const rows = db.prepare(
+        'SELECT * FROM contract_snapshots WHERE address = ? AND chain = ? ORDER BY id DESC'
+      ).all('0xtest_cs1', 'base');
+      assert(rows.length >= 2, 'Should have multiple snapshots');
+      const latest = JSON.parse(rows[0].safety_data);
+      assertEqual(latest.is_proxy, '1', 'Latest snapshot should be most recent');
+    });
+
+    test('cleanup contract snapshot test data', () => {
+      db.prepare("DELETE FROM contract_snapshots WHERE address LIKE '0xtest_%'").run();
       assert(true, 'Cleanup ok');
     });
   });
