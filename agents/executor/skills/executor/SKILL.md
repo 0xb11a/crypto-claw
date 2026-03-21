@@ -34,7 +34,7 @@ Reference this output throughout. Do not rely on memory of previous cycles.
 node scripts/db-query.js get-orders --pending --action sell
 
 # Then approved buys (written by Research after human approval)
-node scripts/db-query.js get-orders --pending --action buy
+node scripts/db-query.js get-orders --pending --action buy --approved
 
 # Current positions for validation
 #   Real mode:  node scripts/db-query.js get-positions
@@ -57,7 +57,7 @@ For SELL orders, check:
 ```
 
 For BUY orders, check:
-- `approved: 1` is set in the database
+- `approved: 1` is set in the database. If a BUY order has `approved: 0`, skip it with explanation: "Skipping [ORDER-ID]: awaiting human approval". Do NOT write a validation_failed receipt — the order is not failed, just pending.
 - Position size within tier limits
 - Cash balance sufficient
 - Current price within 10% of proposed entry
@@ -125,7 +125,7 @@ node scripts/db-query.js close-paper-position --id <position-id> --json '{"exit_
 
 #### If PAPER_MODE=false (or unset) — Real execution
 
-Determine which execution script to use based on chain:
+**Run the execution script** for the order's chain. This single command handles swap quoting, transaction building, signing, and submission — you do NOT perform these steps manually:
 
 ```bash
 # EVM chains (Base, etc.) — Execute through Safe
@@ -147,10 +147,16 @@ node scripts/execute-trade-solana.js \
   --max-slippage 5
 ```
 
-**EVM script** handles: 1inch swap quoting → Safe transaction → sign with SAFE_SIGNER_KEY → propose/execute
-**Solana script** handles: Jupiter swap quoting → Squads vault transaction → sign with SQUADS_SIGNER_KEY → propose/approve/execute
+Both scripts print JSON to stdout. **You MUST capture and parse this output** — it contains the execution result. The script always prints JSON to stdout, even on failure (exit code 1). Capture stdout regardless of exit code.
 
-Solana statuses: `executed`, `queued_in_squads` (needs more approvals), `failed`
+**EVM output fields:** `status`, `safeHash`, `txHash`, `action`, `symbol`, `chain`, `tokenAddress`, `usdcSpent`, `expectedTokens`, `tokensSold`, `expectedUsdc`, `error`, `timestamp`
+**Solana output fields:** `status`, `txSignature`, `squadsTransactionIndex`, plus same trade fields (`action`, `symbol`, `chain`, `tokenAddress`, `usdcSpent`, `expectedTokens`, `tokensSold`, `expectedUsdc`, `error`, `timestamp`)
+
+**Branch on the `status` field:**
+
+- `status: "executed"` → proceed to Step 4 (receipt with full data from output) → Step 5 (update positions/cash) → Step 6 (mark order executed) → Step 7 (notify human)
+- `status: "queued_in_safe"` or `status: "queued_in_squads"` → Step 4 (receipt with queued status, include `safeHash`/`squadsTransactionIndex`) → Step 6 (mark order executed to prevent reprocessing) → Step 7 (notify human that more signatures are needed). Do NOT update positions or cash — funds haven't moved yet.
+- `status: "failed"` → Step 4 (receipt with `status: "tx_failed"`, include `error` field from output in `failure_reason`) → Step 6 (mark order executed) → Step 7 (alert human)
 
 ### Step 4: Record Receipt
 
@@ -243,6 +249,7 @@ When `execute-trade.js` returns `queued_in_safe` or `execute-trade-solana.js` re
 - If a trade fails, record the failure and alert — never retry automatically
 - All state lives in the database — never write to JSON files
 - Keep execution fast — the Executor agent runs on a 1-minute heartbeat
+- **No silent completion:** Every order fetched MUST result in one of: (a) successful execution with receipt, (b) queued status with receipt and human notification, (c) failed status with receipt and human alert, (d) validation failure with receipt and explanation, or (e) explicit skip with reason logged. Never silently move past an order.
 
 ## Paper Mode Summary
 

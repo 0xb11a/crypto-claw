@@ -285,6 +285,67 @@ describe('Executor Integration', () => {
 });
 
 // ============================================================
+// Executor Order Filtering (--approved flag)
+// ============================================================
+
+describe('Executor Order Filtering — --approved flag', () => {
+  // Simulate the filtering logic that get-orders --approved applies
+  const mockOrders = [
+    { id: 'buy-1', action: 'buy', approved: 1, approved_by: 'human', executed: 0 },
+    { id: 'buy-2', action: 'buy', approved: 0, approved_by: null, executed: 0 },
+    { id: 'sell-1', action: 'sell', approved: 1, approved_by: 'sentinel', executed: 0 },
+    { id: 'buy-3', action: 'buy', approved: 1, approved_by: 'paper_mode', executed: 0 },
+    { id: 'buy-4', action: 'buy', approved: 1, approved_by: 'human', executed: 1 },
+  ];
+
+  function filterOrders({ pending, action, approved }) {
+    return mockOrders.filter((o) => {
+      if (pending && o.executed !== 0) return false;
+      if (action && o.action !== action) return false;
+      if (approved && o.approved !== 1) return false;
+      return true;
+    });
+  }
+
+  test('--pending --action buy --approved returns only approved pending buys', () => {
+    const result = filterOrders({ pending: true, action: 'buy', approved: true });
+    assertEqual(result.length, 2, 'Should return 2 approved pending buys');
+    assert(
+      result.every((o) => o.approved === 1),
+      'All must be approved',
+    );
+    assert(
+      result.every((o) => o.executed === 0),
+      'All must be pending',
+    );
+    assert(
+      result.every((o) => o.action === 'buy'),
+      'All must be buys',
+    );
+  });
+
+  test('--pending --action buy without --approved returns all pending buys (backward compat)', () => {
+    const result = filterOrders({ pending: true, action: 'buy', approved: false });
+    assertEqual(result.length, 3, 'Should return 3 pending buys (including unapproved)');
+    assert(
+      result.some((o) => o.approved === 0),
+      'Should include unapproved order',
+    );
+  });
+
+  test('sell orders with --approved still returned (sells are always pre-approved)', () => {
+    const result = filterOrders({ pending: true, action: 'sell', approved: true });
+    assertEqual(result.length, 1, 'Should return 1 approved pending sell');
+    assertEqual(result[0].id, 'sell-1');
+  });
+
+  test('executed orders excluded by --pending regardless of --approved', () => {
+    const result = filterOrders({ pending: true, action: 'buy', approved: true });
+    assert(!result.some((o) => o.id === 'buy-4'), 'Executed order must not appear');
+  });
+});
+
+// ============================================================
 // Market Regime in Pipeline
 // ============================================================
 

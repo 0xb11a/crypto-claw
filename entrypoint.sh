@@ -23,6 +23,9 @@ GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
 RESEARCH_MODEL="${RESEARCH_MODEL:-}"
 SENTINEL_MODEL="${SENTINEL_MODEL:-}"
 EXECUTOR_MODEL="${EXECUTOR_MODEL:-}"
+SENTINEL_MODEL_FALLBACK="${SENTINEL_MODEL_FALLBACK:-}"
+EXECUTOR_MODEL_FALLBACK="${EXECUTOR_MODEL_FALLBACK:-}"
+EMERGENCY_AFTER="${EMERGENCY_AFTER:-3}"
 PAPER_MODE="${PAPER_MODE:-false}"
 PAPER_STARTING_BALANCE="${PAPER_STARTING_BALANCE:-10000}"
 
@@ -485,8 +488,7 @@ run_wallet_scoring_loop() {
 # ============================================================
 # 5f. Executor background loop
 #     Pre-checks DB for pending orders before invoking the agent.
-#     Replaces the executor-poll cron job to avoid wasting API
-#     tokens on "nothing to do" responses and file-reading cascades.
+#     Includes model fallback and emergency mode on repeated failures.
 # ============================================================
 
 # Build executor inline message (on-demand heartbeat — reads HEARTBEAT.md for details)
@@ -494,6 +496,8 @@ EXECUTOR_MSG="Read HEARTBEAT.md. Process all pending orders now. Check heartbeat
 
 run_executor_loop() {
   sleep 30  # wait for gateway + agent registration
+  local failures=0
+
   while true; do
     SKIP=$(SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
       node "$RESEARCH_WS/scripts/heartbeat-check.js" --agent executor 2>/dev/null \
@@ -502,6 +506,48 @@ run_executor_loop() {
       echo "[executor-loop] Work found, triggering executor agent"
       openclaw agent --agent executor --session-id "executor-$(date +%s)" --message "$EXECUTOR_MSG" \
         2>&1 | sed 's/^/[executor] /'
+      local exit_code=${PIPESTATUS[0]}
+
+      if [ $exit_code -ne 0 ]; then
+        failures=$((failures + 1))
+        echo "[executor-loop] Agent failed (consecutive failures: $failures)"
+        SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+          node "$RESEARCH_WS/scripts/send-alert.js" --type model_failure --agent executor \
+          --message "Executor agent failed (attempt $failures)" 2>/dev/null || true
+
+        # Try fallback model if configured
+        if [ -n "$EXECUTOR_MODEL_FALLBACK" ]; then
+          echo "[executor-loop] Trying fallback model: $EXECUTOR_MODEL_FALLBACK"
+          openclaw config set "agents.list[3].model" "$EXECUTOR_MODEL_FALLBACK" 2>/dev/null || true
+          openclaw agent --agent executor --session-id "executor-fallback-$(date +%s)" --message "$EXECUTOR_MSG" \
+            2>&1 | sed 's/^/[executor-fallback] /'
+          exit_code=${PIPESTATUS[0]}
+          # Restore original model
+          openclaw config set "agents.list[3].model" "$EXECUTOR_MODEL" 2>/dev/null || true
+
+          if [ $exit_code -eq 0 ]; then
+            failures=0
+          fi
+        fi
+
+        # Emergency mode after EMERGENCY_AFTER consecutive failures
+        if [ $failures -ge "$EMERGENCY_AFTER" ]; then
+          echo "[executor-loop] EMERGENCY MODE — all models failed ($failures consecutive)"
+          SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+            node "$RESEARCH_WS/scripts/emergency-executor.js" 2>&1 | sed 's/^/[emergency-executor] /'
+          SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+            node "$RESEARCH_WS/scripts/send-alert.js" --type emergency_mode --agent executor \
+            --message "Executor in emergency mode. Script-only sell execution active." 2>/dev/null || true
+        fi
+      else
+        if [ $failures -gt 0 ]; then
+          echo "[executor-loop] Recovered after $failures failures"
+          SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+            node "$RESEARCH_WS/scripts/send-alert.js" --type recovered --agent executor \
+            --message "Executor recovered after $failures consecutive failures" 2>/dev/null || true
+        fi
+        failures=0
+      fi
     fi
     sleep 60
   done
@@ -510,7 +556,8 @@ run_executor_loop() {
 # ============================================================
 # 5g. Sentinel background loop
 #     Pre-checks DB for open positions before invoking the agent.
-#     Replaces the sentinel-watch cron job.
+#     Includes model fallback and emergency mode on first failure.
+#     Sentinel activates emergency after 1 failure (positions can't wait).
 # ============================================================
 
 # Build sentinel inline message (on-demand heartbeat — reads HEARTBEAT.md for details)
@@ -518,6 +565,8 @@ SENTINEL_MSG="Read HEARTBEAT.md. Run all monitoring checks on open positions now
 
 run_sentinel_loop() {
   sleep 60  # wait for gateway + agent registration
+  local failures=0
+
   while true; do
     SKIP=$(SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
       node "$RESEARCH_WS/scripts/heartbeat-check.js" --agent sentinel 2>/dev/null \
@@ -526,6 +575,48 @@ run_sentinel_loop() {
       echo "[sentinel-loop] Work found, triggering sentinel agent"
       openclaw agent --agent sentinel --session-id "sentinel-$(date +%s)" --message "$SENTINEL_MSG" \
         2>&1 | sed 's/^/[sentinel] /'
+      local exit_code=${PIPESTATUS[0]}
+
+      if [ $exit_code -ne 0 ]; then
+        failures=$((failures + 1))
+        echo "[sentinel-loop] Agent failed (consecutive failures: $failures)"
+        SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+          node "$RESEARCH_WS/scripts/send-alert.js" --type model_failure --agent sentinel \
+          --message "Sentinel agent failed (attempt $failures)" 2>/dev/null || true
+
+        # Immediately try fallback model (if configured)
+        if [ -n "$SENTINEL_MODEL_FALLBACK" ]; then
+          echo "[sentinel-loop] Trying fallback model: $SENTINEL_MODEL_FALLBACK"
+          openclaw config set "agents.list[2].model" "$SENTINEL_MODEL_FALLBACK" 2>/dev/null || true
+          openclaw agent --agent sentinel --session-id "sentinel-fallback-$(date +%s)" --message "$SENTINEL_MSG" \
+            2>&1 | sed 's/^/[sentinel-fallback] /'
+          exit_code=${PIPESTATUS[0]}
+          # Restore original model for next cycle
+          openclaw config set "agents.list[2].model" "$SENTINEL_MODEL" 2>/dev/null || true
+
+          if [ $exit_code -eq 0 ]; then
+            failures=0
+          fi
+        fi
+
+        # If fallback also failed (or not configured) → emergency mode immediately
+        if [ $exit_code -ne 0 ]; then
+          echo "[sentinel-loop] EMERGENCY MODE — all models failed"
+          SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+            node "$RESEARCH_WS/scripts/emergency-sentinel.js" 2>&1 | sed 's/^/[emergency-sentinel] /'
+          SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+            node "$RESEARCH_WS/scripts/send-alert.js" --type emergency_mode --agent sentinel \
+            --message "Sentinel in emergency mode. Script-only position protection active." 2>/dev/null || true
+        fi
+      else
+        if [ $failures -gt 0 ]; then
+          echo "[sentinel-loop] Recovered after $failures failures"
+          SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+            node "$RESEARCH_WS/scripts/send-alert.js" --type recovered --agent sentinel \
+            --message "Sentinel recovered after $failures consecutive failures" 2>/dev/null || true
+        fi
+        failures=0
+      fi
     fi
     sleep 600  # 10 minutes
   done

@@ -27,6 +27,7 @@ const suites = [
   { name: 'Market Regime', file: 'test-regime.js', requiresNetwork: false },
   { name: 'Chain Config & Sync', file: 'test-chains.js', requiresNetwork: false },
   { name: 'Execution Scripts', file: 'test-execution.js', requiresNetwork: false },
+  { name: 'Emergency Resilience', file: 'test-emergency.js', requiresNetwork: false },
 ];
 
 // Scripts tests require network — run separately

@@ -41,8 +41,8 @@ cp "$SRC/agents/sentinel/SOUL.md"       "$AGENT_TPL/sentinel/SOUL.md"
 cp "$SRC/agents/sentinel/HEARTBEAT.md"  "$AGENT_TPL/sentinel/HEARTBEAT.md"
 cp "$SRC/agents/sentinel/skills/sentinel/SKILL.md" "$AGENT_TPL/sentinel/skills/sentinel/SKILL.md"
 
-# Sentinel scripts: monitoring + db access + chain config + portfolio sync
-for script in db.js db-query.js chains.js check-positions.js check-liquidity.js check-wallets.js check-contract.js portfolio-load-evm.js portfolio-load-solana.js; do
+# Sentinel scripts: monitoring + db access + chain config + portfolio sync + emergency
+for script in db.js db-query.js chains.js check-positions.js check-liquidity.js check-wallets.js check-contract.js portfolio-load-evm.js portfolio-load-solana.js emergency-sentinel.js send-alert.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/sentinel/scripts/"
 done
 cp "$SCRIPTS_DIR/package.json" "$AGENT_TPL/sentinel/scripts/"
@@ -54,11 +54,11 @@ cp "$SRC/agents/executor/SOUL.md"       "$AGENT_TPL/executor/SOUL.md"
 cp "$SRC/agents/executor/HEARTBEAT.md"  "$AGENT_TPL/executor/HEARTBEAT.md"
 cp "$SRC/agents/executor/skills/executor/SKILL.md" "$AGENT_TPL/executor/skills/executor/SKILL.md"
 
-# Executor scripts: db access + execution + price checking + chain config + portfolio sync
+# Executor scripts: db access + execution + price checking + chain config + portfolio sync + emergency
 for script in db.js db-query.js chains.js token-metrics.js portfolio-load-evm.js portfolio-load-solana.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/executor/scripts/"
 done
-for script in execute-trade.js check-safe-status.js execute-trade-solana.js check-squads-status.js; do
+for script in execute-trade.js check-safe-status.js execute-trade-solana.js check-squads-status.js emergency-executor.js send-alert.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/executor/scripts/"
 done
 cp "$SCRIPTS_DIR/package.json" "$AGENT_TPL/executor/scripts/"

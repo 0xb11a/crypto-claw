@@ -43,7 +43,7 @@ All position and alert data lives in SQLite. **Check `PAPER_MODE` env var first*
 node scripts/db-query.js get-liquidity --address 0x... --chain base --limit 2
 
 # Write sell order (Executor picks it up)
-node scripts/db-query.js add-order --json '{"id":"...","action":"sell","symbol":"TOKEN","address":"0x...","chain":"base","amount":"all","reason":"stop_loss","urgency":"immediate"}'
+node scripts/db-query.js add-order --json '{"id":"...","action":"sell","symbol":"TOKEN","address":"0x...","chain":"base","amount":"all","reason":"stop_loss_hit","urgency":"immediate"}'
 
 # Write alert
 node scripts/db-query.js add-alert --json '{"id":"...","symbol":"TOKEN","chain":"base","alert_type":"stop_loss","severity":"critical",...}'

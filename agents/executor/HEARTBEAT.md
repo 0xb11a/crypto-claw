@@ -6,7 +6,7 @@ Keep processing fast and mechanical.
 
 ## Every Heartbeat — Run ALL:
 
-**Run `echo "PAPER_MODE=${PAPER_MODE:-false}"` at the start.** Read the output. If `true`, use paper commands and skip Safe wallet steps. Reference this throughout — do not rely on memory from previous heartbeats. See executor SKILL.md for full paper mode branching.
+**Run `echo "PAPER_MODE=${PAPER_MODE:-false}"` at the start.** Read the output. If `true`, use paper commands and skip Safe wallet steps. Reference this throughout — do not rely on memory from previous heartbeats. See executor SKILL.md for full execution flow (paper mode branching AND real mode script calls).
 
 ### 1. Process Sell Orders (PRIORITY — always first)
 ```bash
@@ -15,20 +15,20 @@ node scripts/db-query.js get-orders --pending --action sell
 For each pending order:
 1. Validate: position exists in DB (use `get-paper-positions` if paper mode), address matches, amount valid
 2. **If paper mode:** simulate at current price → `add-paper-receipt` → `close-paper-position` (auto-updates cash) → mark order executed
-3. **If real mode:** get swap quote → check slippage → build Safe tx → sign → submit
+3. **If real mode:** run `node scripts/execute-trade.js` (EVM) or `node scripts/execute-trade-solana.js` (Solana) with order params → capture JSON output → branch on `status` field. See SKILL.md Step 3 for exact flags, output format, and branching rules.
 4. Write receipt: `add-receipt` (real) or already recorded via `add-paper-receipt` (paper)
 5. If executed: update position/cash, mark order executed
-6. If queued in Safe (real mode only): write receipt with `queued_in_safe`, notify human
+6. If queued in Safe/Squads (real mode only): write receipt with queued status, mark order executed, notify human. Do NOT update positions/cash.
 7. If failed: write receipt with error, alert human
 
 ### 2. Process Approved Trades
 ```bash
-node scripts/db-query.js get-orders --pending --action buy
+node scripts/db-query.js get-orders --pending --action buy --approved
 ```
 For each pending trade:
 1. Validate: `approved=1`, within tier limits, cash sufficient (use `get-paper-cash` if paper mode), price within 10%
 2. **If paper mode:** simulate → `add-paper-receipt` → `add-paper-position` (auto-deducts cash) → mark executed
-3. **If real mode:** get swap quote → check slippage → build Safe tx → sign → submit
+3. **If real mode:** run `node scripts/execute-trade.js` (EVM) or `node scripts/execute-trade-solana.js` (Solana) with order params → capture JSON output → branch on `status` field. See SKILL.md Step 3 for exact flags, output format, and branching rules.
 4. Write receipt/update state as appropriate
 
 ### 3. Check Pending Transactions (real mode only)

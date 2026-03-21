@@ -413,19 +413,18 @@ function handle(db, cmd) {
     case 'get-orders': {
       const pending = hasFlag('pending');
       const action = getArg('action');
-      let sql,
-        params = [];
-      if (pending && action) {
-        sql = 'SELECT * FROM orders WHERE executed = 0 AND action = ? ORDER BY created_at ASC';
-        params = [action];
-      } else if (pending) {
-        sql = 'SELECT * FROM orders WHERE executed = 0 ORDER BY created_at ASC';
-      } else if (action) {
-        sql = 'SELECT * FROM orders WHERE action = ? ORDER BY created_at DESC';
-        params = [action];
-      } else {
-        sql = 'SELECT * FROM orders ORDER BY created_at DESC';
+      const approved = hasFlag('approved');
+      const conditions = [];
+      const params = [];
+      if (pending) conditions.push('executed = 0');
+      if (action) {
+        conditions.push('action = ?');
+        params.push(action);
       }
+      if (approved) conditions.push('approved = 1');
+      const where = conditions.length ? ' WHERE ' + conditions.join(' AND ') : '';
+      const order = pending ? ' ORDER BY created_at ASC' : ' ORDER BY created_at DESC';
+      const sql = `SELECT * FROM orders${where}${order}`;
       const rows = db.prepare(sql).all(...params);
       output(
         rows.map((r) => (r.take_profit_levels ? { ...r, take_profit_levels: JSON.parse(r.take_profit_levels) } : r)),

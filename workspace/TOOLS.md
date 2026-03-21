@@ -76,6 +76,9 @@ node scripts/db-query.js get-orders --pending --action buy
 # Get pending sell orders only
 node scripts/db-query.js get-orders --pending --action sell
 
+# Get pending approved buy orders (executor use — filters out unapproved)
+node scripts/db-query.js get-orders --pending --action buy --approved
+
 # Write a buy order (after human approval or paper auto-approve)
 node scripts/db-query.js add-order --json '{
   "id": "trade-001",
@@ -100,7 +103,7 @@ node scripts/db-query.js add-order --json '{
   "address": "0x...",
   "chain": "base",
   "amount": "all",
-  "reason": "stop_loss",
+  "reason": "stop_loss_hit",
   "urgency": "immediate"
 }'
 
@@ -551,6 +554,35 @@ node scripts/check-squads-status.js --pending
 ```
 
 **Requires:** `SQUADS_VAULT_ADDRESS` (or `SQUADS_MULTISIG_ADDRESS`), `RPC_SOL` env vars.
+
+## Emergency Scripts (No LLM Required)
+
+These scripts run automatically when all model providers fail. They provide deterministic position protection without needing any LLM.
+
+### Emergency Sentinel
+```bash
+# Script-only position monitor — runs when sentinel agent can't reach any model
+# Checks: stop-loss, take-profit, severe loss (>30%), liquidity drain (>50% drop), low liquidity (<$5k)
+# Writes sell orders to the orders table, logs to sentinel_log
+node scripts/emergency-sentinel.js
+```
+
+### Emergency Executor
+```bash
+# Script-only sell executor — runs when executor agent can't reach any model
+# Processes SELL orders only (never buys). Calls execute-trade.js / execute-trade-solana.js
+# In paper mode: simulates execution, writes to paper tables
+node scripts/emergency-executor.js
+```
+
+### Send Alert
+```bash
+# Send alerts via Telegram Bot API (requires TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID)
+# Types: model_failure, emergency_mode, recovered
+node scripts/send-alert.js --type model_failure --agent sentinel --message "Agent failed"
+node scripts/send-alert.js --type emergency_mode --agent executor --message "Emergency mode active"
+node scripts/send-alert.js --type recovered --agent sentinel --message "Back to normal"
+```
 
 ## Configuration
 
