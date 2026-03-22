@@ -320,7 +320,6 @@ const migrations = [
       INSERT INTO heartbeat_state (agent, check_type) VALUES ('sentinel', 'liquidity_check');
       INSERT INTO heartbeat_state (agent, check_type) VALUES ('sentinel', 'wallet_check');
       INSERT INTO heartbeat_state (agent, check_type) VALUES ('executor', 'process_orders');
-      INSERT INTO heartbeat_state (agent, check_type) VALUES ('executor', 'check_pending');
     `,
   },
   {

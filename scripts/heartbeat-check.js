@@ -37,7 +37,7 @@ try {
         `
       SELECT
         SUM(CASE WHEN action='sell' THEN 1 ELSE 0 END) as sell_count,
-        SUM(CASE WHEN action='buy' THEN 1 ELSE 0 END) as buy_count
+        SUM(CASE WHEN action='buy' AND approved = 1 THEN 1 ELSE 0 END) as buy_count
       FROM orders WHERE executed = 0
     `,
       )

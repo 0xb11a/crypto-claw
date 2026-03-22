@@ -177,7 +177,7 @@ if (dbAvailable) {
     test('executor agent has all check types', () => {
       const rows = db.prepare("SELECT check_type FROM heartbeat_state WHERE agent = 'executor'").all();
       const checks = rows.map((r) => r.check_type);
-      for (const check of ['process_orders', 'check_pending']) {
+      for (const check of ['process_orders']) {
         assert(checks.includes(check), `executor must have ${check}`);
       }
     });

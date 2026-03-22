@@ -292,8 +292,11 @@ node scripts/db-query.js add-paper-position --json '{
 # Update paper position
 node scripts/db-query.js update-paper-position --id pp-001 --json '{"current_price": 0.0015, "value_usd": 15}'
 
-# Close paper position (auto-calculates P&L, auto-adds sale proceeds to paper_cash)
+# Close paper position — full exit (auto-calculates P&L, auto-adds sale proceeds to paper_cash)
 node scripts/db-query.js close-paper-position --id pp-001 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
+
+# Close paper position — partial exit (sells portion, adjusts cash for partial proceeds only, accumulates P&L)
+node scripts/db-query.js close-paper-position --id pp-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
 
 # Record a paper receipt
 node scripts/db-query.js add-paper-receipt --json '{

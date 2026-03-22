@@ -1,56 +1,138 @@
 # HEARTBEAT.md — Executor Agent
 
 ## Schedule
-Executor heartbeat runs every 1 minute. ALL checks run every heartbeat.
-Keep processing fast and mechanical.
+Executor heartbeat runs every 1 minute. Keep processing fast and mechanical.
 
-## Every Heartbeat — Run ALL:
+## Procedure
 
-**Run `echo "PAPER_MODE=${PAPER_MODE:-false}"` at the start.** Read the output. If `true`, use paper commands and skip Safe wallet steps. Reference this throughout — do not rely on memory from previous heartbeats. See executor SKILL.md for full execution flow (paper mode branching AND real mode script calls).
+### Step 0: Detect mode
+```bash
+echo "PAPER_MODE=${PAPER_MODE:-false}"
+```
+If `PAPER_MODE=false` AND no `SAFE_SIGNER_KEY` env var → alert human, reply HEARTBEAT_OK.
 
-### 1. Process Sell Orders (PRIORITY — always first)
+### Step 1: Load pending orders (sells first)
 ```bash
 node scripts/db-query.js get-orders --pending --action sell
-```
-For each pending order:
-1. Validate: position exists in DB (use `get-paper-positions` if paper mode), address matches, amount valid
-2. **If paper mode:** simulate at current price → `add-paper-receipt` → `close-paper-position` (auto-updates cash) → mark order executed
-3. **If real mode:** run `node scripts/execute-trade.js` (EVM) or `node scripts/execute-trade-solana.js` (Solana) with order params → capture JSON output → branch on `status` field. See SKILL.md Step 3 for exact flags, output format, and branching rules.
-4. Write receipt: `add-receipt` (real) or already recorded via `add-paper-receipt` (paper)
-5. If executed: update position/cash, mark order executed
-6. If queued in Safe/Squads (real mode only): write receipt with queued status, mark order executed, notify human. Do NOT update positions/cash.
-7. If failed: write receipt with error, alert human
-
-### 2. Process Approved Trades
-```bash
 node scripts/db-query.js get-orders --pending --action buy --approved
 ```
-For each pending trade:
-1. Validate: `approved=1`, within tier limits, cash sufficient (use `get-paper-cash` if paper mode), price within 10%
-2. **If paper mode:** simulate → `add-paper-receipt` → `add-paper-position` (auto-deducts cash) → mark executed
-3. **If real mode:** run `node scripts/execute-trade.js` (EVM) or `node scripts/execute-trade-solana.js` (Solana) with order params → capture JSON output → branch on `status` field. See SKILL.md Step 3 for exact flags, output format, and branching rules.
-4. Write receipt/update state as appropriate
+If both empty → reply HEARTBEAT_OK.
 
-### 3. Check Pending Transactions (real mode only)
+### Step 2: Process each SELL order
+
+**2a. Validate** (see AGENTS.md validation rules):
 ```bash
-# Skip this step entirely if PAPER_MODE=true
-node scripts/db-query.js get-receipts --status queued_in_safe
+# Real mode:
+node scripts/db-query.js get-positions --symbol TOKEN
+# Paper mode:
+node scripts/db-query.js get-paper-positions --symbol TOKEN
 ```
-For receipts with `queued_in_safe`:
-1. Check Safe Transaction Service for status update
-2. If now executed → update receipt, update portfolio state
-3. If expired/cancelled → update receipt, alert human
 
-### 4. Log Results
+**2b. Validation fails →**
 ```bash
-node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":0,"buy_orders_processed":0,"success_count":0,"status":"ok"}'
+node scripts/db-query.js add-receipt --json '{"order_id":"...","action":"sell","symbol":"TOKEN","chain":"...","status":"validation_failed","error":"..."}'
+node scripts/db-query.js mark-order-executed --id ORDER_ID
+```
+
+**2c. Determine sell quantity from order's `amount` field:**
+- `"all"` → full sell (entire position)
+- `"50%"` or any `N%` → partial sell: `sell_qty = position.quantity * N / 100`
+
+**2d. PAPER_MODE=true →**
+
+Full sell (`amount` is `"all"`):
+```bash
+node scripts/db-query.js add-paper-receipt --json '{"id":"paper-<ts>","order_id":"...","action":"sell","symbol":"TOKEN","address":"0x...","chain":"base","proposed_price":0.001,"quantity":10000,"amount":500}'
+node scripts/db-query.js close-paper-position --id POS_ID --json '{"exit_price":0.001,"exit_reason":"stop_loss"}'
+node scripts/db-query.js mark-order-executed --id ORDER_ID
+```
+
+Partial sell (`amount` is `"50%"` etc.):
+```bash
+node scripts/db-query.js add-paper-receipt --json '{"id":"paper-<ts>","order_id":"...","action":"sell","symbol":"TOKEN","address":"0x...","chain":"base","proposed_price":0.001,"quantity":SELL_QTY,"amount":PARTIAL_USD}'
+node scripts/db-query.js close-paper-position --id POS_ID --quantity SELL_QTY --json '{"exit_price":0.001,"exit_reason":"tp1_hit"}'
+node scripts/db-query.js mark-order-executed --id ORDER_ID
+```
+Where `SELL_QTY = position.quantity * percent / 100` and `PARTIAL_USD = SELL_QTY * exit_price`.
+
+**2e. PAPER_MODE=false →**
+
+Determine `--amount` flag from order:
+- `"all"` → `--amount all`
+- `"50%"` → calculate `sell_qty = position.quantity * 50 / 100`, pass `--amount <sell_qty>`
+
+```bash
+# EVM:
+node scripts/execute-trade.js --action sell --symbol TOKEN --address 0x... --chain base --amount <AMOUNT> --max-slippage 5
+# Solana:
+node scripts/execute-trade-solana.js --action sell --symbol TOKEN --address MINT --chain solana --amount <AMOUNT> --max-slippage 5
+```
+Parse JSON stdout. Branch on `status`:
+- `"executed"`:
+  - Full sell → `add-receipt` → `close-position --id X --json '{"exit_price":...,"exit_reason":"..."}'` → `mark-order-executed` → `portfolio-load-evm.js --chain X --trigger post_trade` (or `portfolio-load-solana.js` for Solana)
+  - Partial sell → `add-receipt` → `close-position --id X --quantity SOLD_QTY --json '{"exit_price":...,"exit_reason":"..."}'` → `mark-order-executed` → portfolio sync
+- `"queued_in_safe"` or `"queued_in_squads"` → `add-receipt` with queued status (include `safe_tx_hash`/`squads_transaction_index`) → `mark-order-executed` → notify human. Do NOT update positions/cash.
+- `"failed"` → `add-receipt` with `status: "tx_failed"`, include error details in the `"error"` field → `mark-order-executed` → alert human
+
+### Step 3: Process each BUY order
+
+**3a. Validate:** `approved=1`, cash sufficient, price within 10% of proposal.
+```bash
+# Cash check:
+# Real mode:
+node scripts/db-query.js get-cash --chain CHAIN
+# Paper mode:
+node scripts/db-query.js get-paper-cash --chain CHAIN
+
+# Price check (stale order protection):
+node scripts/token-metrics.js --address TOKEN_ADDRESS --chain CHAIN
+```
+Parse `token-metrics.js` output → extract current price. If price has drifted >10% from the order's `entry_price` → validation fails (stale order). Use the fetched price as `current_price` when recording the position.
+
+**3b. Validation fails →** same as 2b.
+
+**3c. PAPER_MODE=true →**
+Use the current price fetched in 3a (not the proposed price) as `entry_price` and `current_price` for the paper position. The receipt keeps `proposed_price` for audit trail. Recalculate `quantity` as `amount / current_price`.
+```bash
+node scripts/db-query.js add-paper-receipt --json '{"id":"paper-<ts>","order_id":"...","action":"buy","symbol":"TOKEN","address":"0x...","chain":"base","tier":"moonshot","proposed_price":0.001,"quantity":10000,"amount":500}'
+node scripts/db-query.js add-paper-position --json '{"id":"pos-<ts>","symbol":"TOKEN","address":"0x...","chain":"base","tier":"moonshot","entry_price":CURRENT_PRICE,"current_price":CURRENT_PRICE,"quantity":AMOUNT/CURRENT_PRICE,"value_usd":500,"stop_loss":0.0005,"take_profit_levels":"[{\"level\":1,\"price\":0.002,\"sellPercent\":50}]","status":"open"}'
+node scripts/db-query.js mark-order-executed --id ORDER_ID
+```
+
+**3d. PAPER_MODE=false →**
+```bash
+# EVM:
+node scripts/execute-trade.js --action buy --symbol TOKEN --address 0x... --chain base --amount 500 --max-slippage 5
+# Solana:
+node scripts/execute-trade-solana.js --action buy --symbol TOKEN --address MINT --chain solana --amount 500 --max-slippage 5
+```
+Parse JSON stdout. Branch on `status`:
+- `"executed"` → `add-receipt` → `add-position --json '{...}'` → `set-cash --chain X --amount NEW` → `mark-order-executed` → `portfolio-load-evm.js --chain X --trigger post_trade` (or `portfolio-load-solana.js`)
+- `"queued_in_safe"` or `"queued_in_squads"` → `add-receipt` with queued status → `mark-order-executed` → notify human. Do NOT update positions/cash.
+- `"failed"` → `add-receipt` with `status: "tx_failed"` → `mark-order-executed` → alert human
+
+### Step 4: Check queued transactions (real mode only — skip if paper)
+```bash
+node scripts/db-query.js get-receipts --status queued_in_safe
+node scripts/db-query.js get-receipts --status queued_in_squads
+```
+For each queued receipt:
+```bash
+# EVM:
+node scripts/check-safe-status.js --chain CHAIN --safe-hash HASH
+# Solana:
+node scripts/check-squads-status.js --pending
+```
+If confirmed on-chain → update receipt to `executed`, update positions/cash, trigger portfolio sync.
+
+### Step 5: Log + done
+```bash
+node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":N,"buy_orders_processed":N,"success_count":N,"status":"ok"}'
 node scripts/db-query.js update-heartbeat --agent executor --check process_orders
 ```
 
 ## Rules
-- Process sell orders BEFORE buy orders — every single heartbeat
+- Process sell orders BEFORE buy orders — every heartbeat
 - **Only use `node scripts/db-query.js` for database access. Never use `sqlite3` or any other database tool.**
-- If `SAFE_SIGNER_KEY` env var is missing AND `PAPER_MODE` is not `true` → log error, skip all execution, alert human
-- If RPC endpoint is down → log error, retry next heartbeat, alert human after 3 consecutive failures
-- If no pending orders → reply HEARTBEAT_OK immediately
-- Keep total response under 300 tokens when nothing to process
+- Every order MUST result in: receipt + mark-order-executed. Never silently skip an order.
+- If a trade fails, record the failure and alert — never retry automatically

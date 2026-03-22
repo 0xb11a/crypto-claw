@@ -1047,42 +1047,86 @@ function handle(db, cmd) {
       const position = db.prepare('SELECT * FROM paper_positions WHERE id = ?').get(id);
       if (!position) error(`Paper position not found: ${id}`);
       const exitPrice = updates.exit_price;
-      const pnlPercent = ((exitPrice - position.entry_price) / position.entry_price) * 100;
-      const pnlUsd = (exitPrice - position.entry_price) * position.quantity;
-      const saleProceeds = exitPrice * position.quantity;
+      if (exitPrice === undefined || exitPrice === null) error('Missing exit_price in --json');
       const posChain = position.chain || 'base';
       const pcKey = cashKey(posChain, true);
       const currentCash = parseFloat(
         db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(pcKey)?.value || '0',
       );
-      const newCash = Math.round((currentCash + saleProceeds) * 100) / 100;
-      const txn = db.transaction(() => {
-        db.prepare(
-          `
-          UPDATE paper_positions SET status = 'closed', exit_price = ?, exit_date = date('now'),
-            pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
-          WHERE id = ?
-        `,
-        ).run(
-          exitPrice,
-          Math.round(pnlPercent * 100) / 100,
-          Math.round(pnlUsd * 100) / 100,
-          updates.exit_reason || null,
+      const soldQty = getArg('quantity');
+      if (soldQty !== null) {
+        // Partial exit
+        const qty = parseFloat(soldQty);
+        if (isNaN(qty) || qty <= 0) error('Invalid --quantity');
+        if (qty > position.quantity) error(`Sold quantity ${qty} exceeds position quantity ${position.quantity}`);
+        const pnlPercent = ((exitPrice - position.entry_price) / position.entry_price) * 100;
+        const pnlUsd = (exitPrice - position.entry_price) * qty;
+        const prevPnl = position.pnl_usd || 0;
+        const newQty = position.quantity - qty;
+        const saleProceeds = exitPrice * qty;
+        const newCash = Math.round((currentCash + saleProceeds) * 100) / 100;
+        const txn = db.transaction(() => {
+          db.prepare(
+            `
+            UPDATE paper_positions SET quantity = ?, status = 'partial_exit',
+              pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
+            WHERE id = ?
+          `,
+          ).run(
+            newQty,
+            Math.round(pnlPercent * 100) / 100,
+            Math.round((prevPnl + pnlUsd) * 100) / 100,
+            updates.exit_reason || null,
+            id,
+          );
+          db.prepare(
+            "INSERT INTO portfolio_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')",
+          ).run(pcKey, String(newCash), String(newCash));
+        });
+        txn();
+        output({
+          ok: true,
           id,
-        );
-        db.prepare(
-          "INSERT INTO portfolio_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')",
-        ).run(pcKey, String(newCash), String(newCash));
-      });
-      txn();
-      output({
-        ok: true,
-        id,
-        chain: posChain,
-        pnl_percent: Math.round(pnlPercent * 100) / 100,
-        pnl_usd: Math.round(pnlUsd * 100) / 100,
-        cash: newCash,
-      });
+          chain: posChain,
+          pnl_percent: Math.round(pnlPercent * 100) / 100,
+          pnl_usd: Math.round(pnlUsd * 100) / 100,
+          remaining_quantity: newQty,
+          cash: newCash,
+        });
+      } else {
+        // Full exit
+        const pnlPercent = ((exitPrice - position.entry_price) / position.entry_price) * 100;
+        const pnlUsd = (exitPrice - position.entry_price) * position.quantity;
+        const saleProceeds = exitPrice * position.quantity;
+        const newCash = Math.round((currentCash + saleProceeds) * 100) / 100;
+        const txn = db.transaction(() => {
+          db.prepare(
+            `
+            UPDATE paper_positions SET status = 'closed', exit_price = ?, exit_date = date('now'),
+              pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
+            WHERE id = ?
+          `,
+          ).run(
+            exitPrice,
+            Math.round(pnlPercent * 100) / 100,
+            Math.round(pnlUsd * 100) / 100,
+            updates.exit_reason || null,
+            id,
+          );
+          db.prepare(
+            "INSERT INTO portfolio_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')",
+          ).run(pcKey, String(newCash), String(newCash));
+        });
+        txn();
+        output({
+          ok: true,
+          id,
+          chain: posChain,
+          pnl_percent: Math.round(pnlPercent * 100) / 100,
+          pnl_usd: Math.round(pnlUsd * 100) / 100,
+          cash: newCash,
+        });
+      }
       break;
     }
     case 'get-paper-portfolio': {

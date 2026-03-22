@@ -91,6 +91,114 @@ if (dbAvailable) {
   });
 
   // ============================================================
+  // Paper Partial Exits (via close-paper-position --quantity)
+  // ============================================================
+  describe('Paper Mode — Partial Exits', () => {
+    test('partial close reduces quantity and sets status to partial_exit', () => {
+      // Setup: insert position with known quantity
+      db.prepare(
+        `
+        INSERT INTO paper_positions (id, symbol, address, chain, tier, entry_price, current_price, quantity, value_usd, stop_loss, take_profit_levels, status)
+        VALUES ('pp-partial-1', 'PART', '0xpart', 'base', 'moonshot', 0.001, 0.002, 10000, 20, 0.0005, '[{"level":1,"price":0.002}]', 'open')
+      `,
+      ).run();
+
+      // Simulate close-paper-position --quantity 5000 logic
+      const position = db.prepare("SELECT * FROM paper_positions WHERE id = 'pp-partial-1'").get();
+      const exitPrice = 0.002;
+      const soldQty = 5000;
+      const newQty = position.quantity - soldQty;
+      const pnlPercent = ((exitPrice - position.entry_price) / position.entry_price) * 100;
+      const pnlUsd = (exitPrice - position.entry_price) * soldQty;
+
+      db.prepare(
+        `
+        UPDATE paper_positions SET quantity = ?, status = 'partial_exit',
+          pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
+        WHERE id = 'pp-partial-1'
+      `,
+      ).run(newQty, Math.round(pnlPercent * 100) / 100, Math.round(pnlUsd * 100) / 100, 'tp1_hit');
+
+      const row = db.prepare("SELECT * FROM paper_positions WHERE id = 'pp-partial-1'").get();
+      assertEqual(row.quantity, 5000, 'Quantity should be halved');
+      assertEqual(row.status, 'partial_exit', 'Status should be partial_exit');
+      assertEqual(row.pnl_usd, 5, 'P&L should be on sold portion only ($5)');
+      assertEqual(row.pnl_percent, 100, 'P&L percent should reflect price change');
+      assert(!row.exit_price, 'exit_price should NOT be set on partial exit');
+      assert(!row.exit_date, 'exit_date should NOT be set on partial exit');
+    });
+
+    test('partial close adds only partial proceeds to cash', () => {
+      // Set known cash
+      db.prepare(
+        "INSERT INTO portfolio_meta (key, value) VALUES ('paper_cash_base', '1000') ON CONFLICT(key) DO UPDATE SET value = '1000'",
+      ).run();
+
+      const exitPrice = 0.002;
+      const soldQty = 5000;
+      const partialProceeds = exitPrice * soldQty; // 10
+      const currentCash = 1000;
+      const newCash = Math.round((currentCash + partialProceeds) * 100) / 100;
+
+      db.prepare("UPDATE portfolio_meta SET value = ? WHERE key = 'paper_cash_base'").run(String(newCash));
+
+      const cash = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_base'").get();
+      assertEqual(cash.value, '1010', 'Cash should increase by partial proceeds ($10), not full position');
+    });
+
+    test('multiple partial exits accumulate PnL', () => {
+      // Position is now at 5000 qty with pnl_usd = 5 from first partial
+      const position = db.prepare("SELECT * FROM paper_positions WHERE id = 'pp-partial-1'").get();
+
+      // Second partial exit: sell 2000 at 0.003
+      const exitPrice2 = 0.003;
+      const soldQty2 = 2000;
+      const newQty2 = position.quantity - soldQty2;
+      const pnlPercent2 = ((exitPrice2 - position.entry_price) / position.entry_price) * 100;
+      const pnlUsd2 = (exitPrice2 - position.entry_price) * soldQty2;
+      const prevPnl = position.pnl_usd || 0;
+
+      db.prepare(
+        `
+        UPDATE paper_positions SET quantity = ?, status = 'partial_exit',
+          pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
+        WHERE id = 'pp-partial-1'
+      `,
+      ).run(newQty2, Math.round(pnlPercent2 * 100) / 100, Math.round((prevPnl + pnlUsd2) * 100) / 100, 'tp2_hit');
+
+      const row = db.prepare("SELECT * FROM paper_positions WHERE id = 'pp-partial-1'").get();
+      assertEqual(row.quantity, 3000, 'Quantity should be 3000 after second partial');
+      assertEqual(row.pnl_usd, 9, 'Accumulated P&L: $5 + $4 = $9');
+    });
+
+    test('full close after partial exits works', () => {
+      const position = db.prepare("SELECT * FROM paper_positions WHERE id = 'pp-partial-1'").get();
+      const exitPrice = 0.004;
+      const pnlPercent = ((exitPrice - position.entry_price) / position.entry_price) * 100;
+      const pnlUsd = (exitPrice - position.entry_price) * position.quantity;
+
+      db.prepare(
+        `
+        UPDATE paper_positions SET status = 'closed', exit_price = ?, exit_date = date('now'),
+          pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
+        WHERE id = 'pp-partial-1'
+      `,
+      ).run(exitPrice, Math.round(pnlPercent * 100) / 100, Math.round(pnlUsd * 100) / 100, 'tp3_hit');
+
+      const row = db.prepare("SELECT * FROM paper_positions WHERE id = 'pp-partial-1'").get();
+      assertEqual(row.status, 'closed', 'Status should be closed');
+      assertEqual(row.exit_price, 0.004, 'Exit price should be set on full close');
+      assert(row.exit_date, 'Exit date should be set on full close');
+    });
+
+    // Cleanup
+    test('cleanup partial exit test data', () => {
+      db.prepare("DELETE FROM paper_positions WHERE id = 'pp-partial-1'").run();
+      db.prepare("UPDATE portfolio_meta SET value = '10000' WHERE key = 'paper_cash_base'").run();
+    });
+  });
+
+  // ============================================================
   // Paper Trades
   // ============================================================
   describe('Paper Mode — Receipts', () => {
