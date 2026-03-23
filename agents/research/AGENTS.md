@@ -171,11 +171,13 @@ node scripts/db-query.js get-alerts --unprocessed
 
 ### 4. Trade Proposal → use `portfolio` skill
 - Calculate position size, entry, stops, take-profit
-- **If `PAPER_MODE=true` → auto-approve: write to DB with `approved: true, approved_by: "paper_mode"`**
-- **If real mode → send BUY proposal to human for approval. WAIT.**
-- **When approved → write to database: `node scripts/db-query.js add-order --json '...'`**
-- **The Executor agent will pick it up and execute via Safe wallet**
-- **SELL proposals → Sentinel writes sell order to DB, Executor executes**
+- **Write order to DB: `node scripts/db-query.js add-order --json '...'`**
+  - Paper mode: auto-approved (`status: 'approved'`, `approved_by: 'paper_mode'`)
+  - Real mode: pending human approval (`status: 'pending'`)
+- **After writing a pending order, notify human: `node scripts/send-alert.js --type trade_proposal --agent research --message "..."`**
+- **Human approves/rejects via chat (orders skill) or CLI**
+- **The Executor agent picks up approved orders and executes via Safe wallet**
+- **SELL proposals → Sentinel writes sell order to DB (auto-approved), Executor executes**
 - Log proposal + outcome to daily memory
 - After Executor confirms execution (query receipts), update analytics in daily log
 
@@ -281,7 +283,7 @@ When `PAPER_MODE=true` is set in the environment, the system simulates trades wi
 | Get stats | `get-trade-stats` | `get-paper-stats` |
 
 ### What Changes
-- BUY proposals that pass ALL safety checks are **auto-approved** (`approved: 1, approved_by: 'paper_mode'`)
+- BUY proposals that pass ALL safety checks are **auto-approved** (`status: 'approved'`, `approved_by: 'paper_mode'`) — `add-order` handles this automatically when `PAPER_MODE=true`
 - No human approval is needed — the system runs fully autonomously
 - All portfolio queries use paper commands (see table above)
 - Pipeline stages (discovery, analysis, risk, proposal) run unchanged
@@ -294,15 +296,11 @@ When `PAPER_MODE=true` is set in the environment, the system simulates trades wi
 - `add-order` is the same in both modes (Executor handles the routing)
 
 ### Auto-Approval Logic
-When proposing a trade in paper mode:
+In paper mode, `add-order` automatically sets `status: 'approved'` and `approved_by: 'paper_mode'`. No special fields needed — just write the order normally:
 ```bash
-# Instead of waiting for human, auto-approve:
 node scripts/db-query.js add-order --json '{
   "action": "buy",
-  ...trade details...,
-  "approved": true,
-  "approved_at": "<ISO-8601>",
-  "approved_by": "paper_mode"
+  ...trade details...
 }'
 ```
 

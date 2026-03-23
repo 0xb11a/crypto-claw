@@ -101,13 +101,13 @@ function seedSellOrder(db, overrides = {}) {
     amount: 'all',
     reason: 'stop_loss',
     urgency: 'immediate',
-    approved: 1,
+    status: 'approved',
     approved_by: 'emergency_sentinel',
     ...overrides,
   };
 
   db.prepare(
-    `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, approved, approved_by)
+    `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, status, approved_by)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     order.id,
@@ -118,7 +118,7 @@ function seedSellOrder(db, overrides = {}) {
     order.amount,
     order.reason,
     order.urgency,
-    order.approved,
+    order.status,
     order.approved_by,
   );
 
@@ -151,14 +151,14 @@ describe('Emergency Sentinel — Order Writing Logic', () => {
     assert(currentPrice <= pos.stop_loss, 'Price should trigger stop-loss');
 
     db.prepare(
-      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, approved, approved_by, created_at)
-       VALUES (?, 'sell', ?, ?, ?, 'all', 'stop_loss', 'immediate', 1, 'emergency_sentinel', datetime('now'))`,
+      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, status, approved_by, created_at)
+       VALUES (?, 'sell', ?, ?, ?, 'all', 'stop_loss', 'immediate', 'approved', 'emergency_sentinel', datetime('now'))`,
     ).run('emg-test-sl', pos.symbol, pos.address, pos.chain);
 
     const orders = getOrders(db);
     assertEqual(orders.length, 1);
     assertEqual(orders[0].reason, 'stop_loss');
-    assertEqual(orders[0].approved, 1);
+    assertEqual(orders[0].status, 'approved');
     assertEqual(orders[0].approved_by, 'emergency_sentinel');
     assertEqual(orders[0].urgency, 'immediate');
   });
@@ -178,8 +178,8 @@ describe('Emergency Sentinel — Order Writing Logic', () => {
     assert(currentPrice >= maxTp, 'Price should trigger take-profit');
 
     db.prepare(
-      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, approved, approved_by, created_at)
-       VALUES (?, 'sell', ?, ?, ?, 'all', 'take_profit', 'normal', 1, 'emergency_sentinel', datetime('now'))`,
+      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, status, approved_by, created_at)
+       VALUES (?, 'sell', ?, ?, ?, 'all', 'take_profit', 'normal', 'approved', 'emergency_sentinel', datetime('now'))`,
     ).run('emg-test-tp', pos.symbol, pos.address, pos.chain);
 
     const orders = getOrders(db);
@@ -197,8 +197,8 @@ describe('Emergency Sentinel — Order Writing Logic', () => {
     assert(pnlPercent < -30, 'PnL should be below -30%');
 
     db.prepare(
-      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, approved, approved_by, created_at)
-       VALUES (?, 'sell', ?, ?, ?, 'all', 'emergency_severe_loss', 'immediate', 1, 'emergency_sentinel', datetime('now'))`,
+      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, status, approved_by, created_at)
+       VALUES (?, 'sell', ?, ?, ?, 'all', 'emergency_severe_loss', 'immediate', 'approved', 'emergency_sentinel', datetime('now'))`,
     ).run('emg-test-loss', pos.symbol, pos.address, pos.chain);
 
     const orders = getOrders(db);
@@ -217,8 +217,8 @@ describe('Emergency Sentinel — Order Writing Logic', () => {
     assert(dropPercent < -50, 'Drop should be over 50%');
 
     db.prepare(
-      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, approved, approved_by, created_at)
-       VALUES (?, 'sell', ?, ?, ?, 'all', 'emergency_liquidity_drain', 'immediate', 1, 'emergency_sentinel', datetime('now'))`,
+      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, status, approved_by, created_at)
+       VALUES (?, 'sell', ?, ?, ?, 'all', 'emergency_liquidity_drain', 'immediate', 'approved', 'emergency_sentinel', datetime('now'))`,
     ).run('emg-test-drain', pos.symbol, pos.address, pos.chain);
 
     const orders = getOrders(db);
@@ -234,8 +234,8 @@ describe('Emergency Sentinel — Order Writing Logic', () => {
     assert(currentLiquidity < 5000, 'Liquidity should be below $5k');
 
     db.prepare(
-      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, approved, approved_by, created_at)
-       VALUES (?, 'sell', ?, ?, ?, 'all', 'emergency_low_liquidity', 'immediate', 1, 'emergency_sentinel', datetime('now'))`,
+      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, status, approved_by, created_at)
+       VALUES (?, 'sell', ?, ?, ?, 'all', 'emergency_low_liquidity', 'immediate', 'approved', 'emergency_sentinel', datetime('now'))`,
     ).run('emg-test-lowliq', pos.symbol, pos.address, pos.chain);
 
     const orders = getOrders(db);
@@ -290,12 +290,12 @@ describe('Emergency Executor — Sell Processing Logic', () => {
     seedSellOrder(db, { id: 'sell-2' });
     // Add a buy order — should be excluded
     db.prepare(
-      `INSERT INTO orders (id, action, symbol, address, chain, amount, approved)
-       VALUES ('buy-1', 'buy', 'TEST', '0xTEST', 'base', '500', 1)`,
+      `INSERT INTO orders (id, action, symbol, address, chain, amount, status)
+       VALUES ('buy-1', 'buy', 'TEST', '0xTEST', 'base', '500', 'approved')`,
     ).run();
 
     const sells = db
-      .prepare(`SELECT * FROM orders WHERE action = 'sell' AND approved = 1 AND executed = 0 ORDER BY created_at ASC`)
+      .prepare(`SELECT * FROM orders WHERE action = 'sell' AND status = 'approved' ORDER BY created_at ASC`)
       .all();
 
     assertEqual(sells.length, 2, 'Should find exactly 2 pending sells');
@@ -308,10 +308,10 @@ describe('Emergency Executor — Sell Processing Logic', () => {
   test('excludes already-executed orders', () => {
     const db = clearTables();
     seedSellOrder(db, { id: 'sell-done' });
-    db.prepare(`UPDATE orders SET executed = 1 WHERE id = 'sell-done'`).run();
+    db.prepare(`UPDATE orders SET status = 'executed' WHERE id = 'sell-done'`).run();
     seedSellOrder(db, { id: 'sell-pending' });
 
-    const sells = db.prepare(`SELECT * FROM orders WHERE action = 'sell' AND approved = 1 AND executed = 0`).all();
+    const sells = db.prepare(`SELECT * FROM orders WHERE action = 'sell' AND status = 'approved'`).all();
 
     assertEqual(sells.length, 1);
     assertEqual(sells[0].id, 'sell-pending');
@@ -321,11 +321,13 @@ describe('Emergency Executor — Sell Processing Logic', () => {
     const db = clearTables();
     seedSellOrder(db, { id: 'sell-mark' });
 
-    db.prepare(`UPDATE orders SET executed = 1, executed_at = datetime('now') WHERE id = ?`).run('sell-mark');
+    db.prepare(`UPDATE orders SET status = 'executed', status_changed_at = datetime('now') WHERE id = ?`).run(
+      'sell-mark',
+    );
 
     const order = db.prepare(`SELECT * FROM orders WHERE id = 'sell-mark'`).get();
-    assertEqual(order.executed, 1);
-    assert(order.executed_at !== null, 'executed_at should be set');
+    assertEqual(order.status, 'executed');
+    assert(order.status_changed_at !== null, 'status_changed_at should be set');
   });
 
   test('logs emergency activity to executor_log', () => {
@@ -347,12 +349,12 @@ describe('Emergency Executor — Sell Processing Logic', () => {
     const db = clearTables();
     // Insert only a buy order — no sell orders
     db.prepare(
-      `INSERT INTO orders (id, action, symbol, address, chain, amount, approved)
-       VALUES ('buy-danger', 'buy', 'SCAM', '0xSCAM', 'base', '10000', 1)`,
+      `INSERT INTO orders (id, action, symbol, address, chain, amount, status)
+       VALUES ('buy-danger', 'buy', 'SCAM', '0xSCAM', 'base', '10000', 'approved')`,
     ).run();
 
     // Emergency executor query — should not find buy orders
-    const sells = db.prepare(`SELECT * FROM orders WHERE action = 'sell' AND approved = 1 AND executed = 0`).all();
+    const sells = db.prepare(`SELECT * FROM orders WHERE action = 'sell' AND status = 'approved'`).all();
 
     assertEqual(sells.length, 0, 'Emergency executor must never see buy orders');
   });
@@ -445,13 +447,13 @@ describe('Emergency Pipeline — Sentinel to Executor', () => {
 
     // Sentinel writes an emergency sell order
     db.prepare(
-      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, approved, approved_by, created_at)
-       VALUES ('emg-pipe-1', 'sell', ?, ?, ?, 'all', 'stop_loss', 'immediate', 1, 'emergency_sentinel', datetime('now'))`,
+      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, status, approved_by, created_at)
+       VALUES ('emg-pipe-1', 'sell', ?, ?, ?, 'all', 'stop_loss', 'immediate', 'approved', 'emergency_sentinel', datetime('now'))`,
     ).run(pos.symbol, pos.address, pos.chain);
 
     // Executor query picks it up
     const pendingSells = db
-      .prepare(`SELECT * FROM orders WHERE action = 'sell' AND approved = 1 AND executed = 0 ORDER BY created_at ASC`)
+      .prepare(`SELECT * FROM orders WHERE action = 'sell' AND status = 'approved' ORDER BY created_at ASC`)
       .all();
 
     assertEqual(pendingSells.length, 1);
@@ -476,12 +478,12 @@ describe('Emergency Pipeline — Sentinel to Executor', () => {
 
     for (const r of reasons) {
       db.prepare(
-        `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, approved, approved_by)
-         VALUES (?, 'sell', ?, ?, 'base', 'all', ?, 'immediate', 1, 'emergency_sentinel')`,
+        `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, status, approved_by)
+         VALUES (?, 'sell', ?, ?, 'base', 'all', ?, 'immediate', 'approved', 'emergency_sentinel')`,
       ).run(r.id, r.symbol, r.address, r.reason);
     }
 
-    const sells = db.prepare(`SELECT * FROM orders WHERE action = 'sell' AND approved = 1 AND executed = 0`).all();
+    const sells = db.prepare(`SELECT * FROM orders WHERE action = 'sell' AND status = 'approved'`).all();
     assertEqual(sells.length, 3, 'Should have 3 pending sell orders');
   });
 
@@ -491,13 +493,15 @@ describe('Emergency Pipeline — Sentinel to Executor', () => {
 
     // Write one order
     db.prepare(
-      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, approved, approved_by)
-       VALUES ('emg-dup-1', 'sell', 'DUP', '0xDUP', 'base', 'all', 'stop_loss', 1, 'emergency_sentinel')`,
+      `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, status, approved_by)
+       VALUES ('emg-dup-1', 'sell', 'DUP', '0xDUP', 'base', 'all', 'stop_loss', 'approved', 'emergency_sentinel')`,
     ).run();
 
     // Check for existing pending sell before writing another
     const existing = db
-      .prepare(`SELECT id FROM orders WHERE action = 'sell' AND address = '0xDUP' AND chain = 'base' AND executed = 0`)
+      .prepare(
+        `SELECT id FROM orders WHERE action = 'sell' AND address = '0xDUP' AND chain = 'base' AND status = 'approved'`,
+      )
       .get();
 
     assert(existing !== undefined, 'Should find existing order');

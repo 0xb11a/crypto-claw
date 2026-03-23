@@ -656,6 +656,170 @@ const migrations = [
       INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('sentinel', 'contract_check');
     `,
   },
+  {
+    name: '014_order_status',
+    sql: `
+      -- Recreate orders table: replace approved/executed flags with status state machine
+      -- State machine: pending → approved → executed
+      --                pending → rejected
+      --                approved → cancelled
+      --                approved → failed → approved (retry sell) / cancelled
+      --                pending → expired
+      CREATE TABLE orders_new (
+        id TEXT PRIMARY KEY,
+        action TEXT NOT NULL CHECK (action IN ('buy', 'sell')),
+        symbol TEXT NOT NULL,
+        name TEXT,
+        address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        amount TEXT NOT NULL,
+        percent_of_portfolio REAL,
+        tier TEXT,
+        entry_price REAL,
+        stop_loss REAL,
+        take_profit_levels TEXT,
+        analysis_score INTEGER,
+        risk_score INTEGER,
+        reasoning TEXT,
+        reason TEXT,
+        urgency TEXT,
+        -- Audit trail (set once on approval)
+        approved_at TEXT,
+        approved_by TEXT,
+        -- Status state machine
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled', 'executed', 'failed', 'expired')),
+        status_reason TEXT,
+        status_changed_at TEXT,
+        status_changed_by TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+
+      -- Migrate existing data with status mapping
+      INSERT INTO orders_new
+        SELECT id, action, symbol, name, address, chain, amount,
+          percent_of_portfolio, tier, entry_price, stop_loss, take_profit_levels,
+          analysis_score, risk_score, reasoning, reason, urgency,
+          approved_at, approved_by,
+          CASE
+            WHEN executed = 1 THEN 'executed'
+            WHEN approved = 1 AND executed = 0 THEN 'approved'
+            ELSE 'pending'
+          END,
+          NULL,
+          COALESCE(executed_at, approved_at),
+          CASE
+            WHEN executed = 1 THEN 'executor'
+            WHEN approved = 1 THEN approved_by
+            ELSE NULL
+          END,
+          created_at
+        FROM orders;
+
+      DROP TABLE orders;
+      ALTER TABLE orders_new RENAME TO orders;
+    `,
+  },
+  {
+    name: '015_multisig_tracking',
+    sql: `
+      -- Add position_id to receipts (links receipt → position it created/affected)
+      ALTER TABLE receipts ADD COLUMN position_id TEXT;
+
+      -- Extend positions status to include 'draft' and 'pending_exit'
+      -- draft: BUY queued in multisig, position created but not yet confirmed on-chain
+      -- pending_exit: SELL queued in multisig, awaiting on-chain confirmation
+      CREATE TABLE positions_new (
+        id TEXT PRIMARY KEY,
+        symbol TEXT NOT NULL,
+        name TEXT,
+        address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        tier TEXT NOT NULL CHECK (tier IN ('base', 'conviction', 'moonshot')),
+        entry_price REAL NOT NULL,
+        current_price REAL,
+        quantity REAL NOT NULL,
+        value_usd REAL,
+        percent_of_portfolio REAL,
+        entry_date TEXT NOT NULL DEFAULT (date('now')),
+        stop_loss REAL NOT NULL,
+        take_profit_levels TEXT NOT NULL,
+        narrative TEXT,
+        status TEXT NOT NULL DEFAULT 'open'
+          CHECK (status IN ('open', 'partial_exit', 'closed', 'pending_analysis', 'draft', 'pending_exit')),
+        notes TEXT,
+        onchain_balance REAL,
+        last_synced_at TEXT,
+        exit_price REAL,
+        exit_date TEXT,
+        pnl_percent REAL,
+        pnl_usd REAL,
+        exit_reason TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      INSERT INTO positions_new SELECT id, symbol, name, address, chain, tier, entry_price, current_price,
+        quantity, value_usd, percent_of_portfolio, entry_date, stop_loss, take_profit_levels, narrative,
+        status, notes, onchain_balance, last_synced_at, exit_price, exit_date, pnl_percent, pnl_usd,
+        exit_reason, created_at, updated_at FROM positions;
+      DROP TABLE positions;
+      ALTER TABLE positions_new RENAME TO positions;
+    `,
+  },
+  {
+    name: '016_db_improvements',
+    sql: `
+      -- ============================================================
+      -- Indexes for frequently queried columns
+      -- ============================================================
+      CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status);
+      CREATE INDEX IF NOT EXISTS idx_positions_chain ON positions(chain);
+      CREATE INDEX IF NOT EXISTS idx_positions_address_chain ON positions(address, chain);
+
+      CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+      CREATE INDEX IF NOT EXISTS idx_orders_action ON orders(action);
+      CREATE INDEX IF NOT EXISTS idx_orders_address_chain ON orders(address, chain);
+
+      CREATE INDEX IF NOT EXISTS idx_receipts_order_id ON receipts(order_id);
+      CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
+
+      CREATE INDEX IF NOT EXISTS idx_sentinel_alerts_processed ON sentinel_alerts(processed);
+
+      CREATE INDEX IF NOT EXISTS idx_watchlist_status ON watchlist(status);
+      CREATE INDEX IF NOT EXISTS idx_watchlist_address_chain ON watchlist(address, chain);
+
+      CREATE INDEX IF NOT EXISTS idx_paper_positions_status ON paper_positions(status);
+      CREATE INDEX IF NOT EXISTS idx_paper_positions_address_chain ON paper_positions(address, chain);
+
+      CREATE INDEX IF NOT EXISTS idx_paper_receipts_order_id ON paper_receipts(order_id);
+
+      CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades(created_at);
+
+      -- ============================================================
+      -- Duplicate position guard (one active position per token)
+      -- ============================================================
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_positions_active_token
+        ON positions(address, chain)
+        WHERE status IN ('open', 'partial_exit', 'draft', 'pending_exit');
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_positions_active_token
+        ON paper_positions(address, chain)
+        WHERE status IN ('open', 'partial_exit');
+
+      -- ============================================================
+      -- Drop legacy tables replaced by unified orders/receipts (migration 012)
+      -- ============================================================
+      DROP TABLE IF EXISTS approved_trades;
+      DROP TABLE IF EXISTS sell_orders;
+      DROP TABLE IF EXISTS trade_receipts;
+      DROP TABLE IF EXISTS paper_trades;
+
+      -- ============================================================
+      -- Add updated_at to orders table (NULL for existing rows, set on new inserts by app code)
+      -- ============================================================
+      ALTER TABLE orders ADD COLUMN updated_at TEXT;
+    `,
+  },
 ];
 
 export default { getDb, close };

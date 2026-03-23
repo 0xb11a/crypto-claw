@@ -29,7 +29,7 @@ function dbq(command) {
   const output = execSync(`node ${DB_QUERY} ${command}`, {
     encoding: 'utf-8',
     cwd: PROJECT_ROOT,
-    env: { ...process.env, SAFE_ID },
+    env: { ...process.env, SAFE_ID, PAPER_MODE: 'true' },
     timeout: 10_000,
   }).trim();
   // db-query.js may print migration logs to stdout before JSON — take last JSON block
@@ -88,9 +88,6 @@ describe('E2E Step 1: Research → Auto-Approve Trade', () => {
       analysis_score: 76,
       risk_score: 20,
       reasoning: 'E2E test trade',
-      approved: 1,
-      approved_at: new Date().toISOString(),
-      approved_by: 'paper_mode',
     };
     const result = dbq(`add-order --json '${JSON.stringify(trade)}'`);
     assert(result.ok, 'add-order must succeed');
@@ -100,9 +97,8 @@ describe('E2E Step 1: Research → Auto-Approve Trade', () => {
     const trades = dbq('get-orders --action buy --pending');
     const trade = trades.find((t) => t.id === 'e2e-trade-001');
     assert(trade, 'Trade must appear in pending list');
-    assertEqual(trade.approved, 1, 'Must be approved');
+    assertEqual(trade.status, 'approved', 'Must be approved');
     assertEqual(trade.approved_by, 'paper_mode', 'Must be auto-approved');
-    assertEqual(trade.executed, 0, 'Must not be executed yet');
   });
 });
 
@@ -398,9 +394,6 @@ describe('E2E Step 6: Happy Path — TP1 Partial Sell', () => {
         analysis_score: 82,
         risk_score: 15,
         reasoning: 'E2E happy path',
-        approved: 1,
-        approved_at: new Date().toISOString(),
-        approved_by: 'paper_mode',
       })}'`,
     );
     assert(result.ok, 'Trade approved');

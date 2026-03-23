@@ -17,17 +17,13 @@
 
 import 'dotenv/config';
 import { getDb, close } from './db.js';
-import { getChain, isEVM } from './chains.js';
+import { getChain, isEVM, getStablecoins } from './chains.js';
 import { formatUnits } from 'viem';
 
 const DEBANK_BASE = 'https://pro-openapi.debank.com/v1';
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
-const STABLECOINS = new Set(['USDC', 'USDT', 'DAI', 'BUSD', 'TUSD', 'FRAX', 'LUSD', 'USDP', 'GUSD', 'PYUSD']);
 
-async function fetchTokenPrice(address, symbol) {
-  // Stablecoin shortcut — skip API call
-  if (symbol && STABLECOINS.has(symbol.toUpperCase())) return 1.0;
-
+async function fetchTokenPrice(address) {
   try {
     const res = await fetch(`${DEXSCREENER_BASE}/tokens/${address}`, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) return null;
@@ -78,7 +74,7 @@ async function fetchDebankTokenList(walletAddress, chainId, apiKey) {
   return res.json();
 }
 
-async function fetchSafeBalances(walletAddress, txServiceUrl) {
+async function fetchSafeBalances(walletAddress, txServiceUrl, chainCfg, stablecoinAddresses) {
   const url = `${txServiceUrl}/api/v1/safes/${walletAddress}/balances/?trusted=false&exclude_spam=true`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) {
@@ -88,23 +84,18 @@ async function fetchSafeBalances(walletAddress, txServiceUrl) {
 
   const onchainMap = new Map();
   let cashBalance = 0;
+  let gasBalance = null;
+
+  const nativeCfg = chainCfg.nativeToken;
 
   for (const entry of data) {
     if (entry.balance === '0') continue;
 
-    // Native token (ETH/MATIC/etc) — tokenAddress is null
+    // Native token (ETH/MATIC/etc) — tokenAddress is null → gas only, not a position
     if (!entry.tokenAddress) {
-      const humanBalance = parseFloat(formatUnits(BigInt(entry.balance), 18));
+      const humanBalance = parseFloat(formatUnits(BigInt(entry.balance), nativeCfg.decimals));
       if (humanBalance > 0) {
-        onchainMap.set('native', {
-          address: 'native',
-          symbol: 'ETH',
-          name: 'Ether',
-          balance: humanBalance,
-          price: 0,
-          value_usd: 0,
-          is_native: true,
-        });
+        gasBalance = { symbol: nativeCfg.symbol, balance: humanBalance, price: 0, value_usd: 0 };
       }
       continue;
     }
@@ -113,13 +104,13 @@ async function fetchSafeBalances(walletAddress, txServiceUrl) {
     const humanBalance = parseFloat(formatUnits(BigInt(entry.balance), decimals));
     if (humanBalance <= 0) continue;
 
-    const symbol = entry.token?.symbol ?? 'UNKNOWN';
-
     // Stablecoins → cash balance, not a position
-    if (STABLECOINS.has(symbol.toUpperCase())) {
+    if (stablecoinAddresses.has(entry.tokenAddress.toLowerCase())) {
       cashBalance += humanBalance;
       continue;
     }
+
+    const symbol = entry.token?.symbol ?? 'UNKNOWN';
 
     onchainMap.set(entry.tokenAddress.toLowerCase(), {
       address: entry.tokenAddress,
@@ -131,26 +122,26 @@ async function fetchSafeBalances(walletAddress, txServiceUrl) {
     });
   }
 
-  // Enrich non-stablecoin tokens with DEXScreener prices
+  // Enrich tokens with DEXScreener prices
   for (const [, token] of onchainMap) {
-    if (token.is_native) {
-      // Use DEXScreener for native token price (WETH address)
-      const price = await fetchTokenPrice('0x4200000000000000000000000000000000000006', 'WETH');
-      if (price !== null) {
-        token.price = price;
-        token.value_usd = token.balance * price;
-      }
-    } else {
-      const price = await fetchTokenPrice(token.address, token.symbol);
-      if (price !== null) {
-        token.price = price;
-        token.value_usd = token.balance * price;
-      }
+    const price = await fetchTokenPrice(token.address);
+    if (price !== null) {
+      token.price = price;
+      token.value_usd = token.balance * price;
     }
     await sleep(200); // Rate limit (same as check-positions.js)
   }
 
-  return { onchainMap, cashBalance };
+  // Price gas balance via wrapped native token
+  if (gasBalance) {
+    const price = await fetchTokenPrice(chainCfg.wrappedNativeToken.address);
+    if (price !== null) {
+      gasBalance.price = price;
+      gasBalance.value_usd = gasBalance.balance * price;
+    }
+  }
+
+  return { onchainMap, cashBalance, gasBalance };
 }
 
 function generateId() {
@@ -216,19 +207,21 @@ async function main() {
 
   const syncResult = { positions_synced: 0, positions_closed: 0, positions_discovered: 0, cash_synced: 0 };
   let provider;
+  const stablecoinAddresses = getStablecoins(chain);
 
   try {
     // 1. Fetch on-chain tokens — Safe TX Service primary, DeBank fallback
     let onchainMap;
-
     let cashBalance = 0;
+    let gasBalance = null;
 
     const txServiceUrl = chainCfg.safe?.txServiceUrl;
     if (txServiceUrl) {
       try {
-        const result = await fetchSafeBalances(walletAddress, txServiceUrl);
+        const result = await fetchSafeBalances(walletAddress, txServiceUrl, chainCfg, stablecoinAddresses);
         onchainMap = result.onchainMap;
         cashBalance = result.cashBalance;
+        gasBalance = result.gasBalance;
         if (onchainMap.size === 0 && cashBalance === 0) throw new Error('Safe API returned 0 tokens');
         provider = 'safe';
       } catch (safeErr) {
@@ -248,8 +241,27 @@ async function main() {
       }
       const onchainTokens = await fetchDebankTokenList(walletAddress, chainCfg.dexScreenerId, apiKey);
       onchainMap = new Map();
+      const nativeSymbol = chainCfg.nativeToken.symbol;
       for (const token of onchainTokens) {
-        if (!token.id || token.amount <= 0) continue;
+        if (token.amount <= 0) continue;
+
+        // Native token — gas only, not a position
+        if (!token.id || token.is_native_token) {
+          gasBalance = {
+            symbol: nativeSymbol,
+            balance: token.amount,
+            price: token.price ?? 0,
+            value_usd: (token.amount ?? 0) * (token.price ?? 0),
+          };
+          continue;
+        }
+
+        // Stablecoins → cash balance
+        if (stablecoinAddresses.has(token.id.toLowerCase())) {
+          cashBalance += token.amount;
+          continue;
+        }
+
         onchainMap.set(token.id.toLowerCase(), {
           address: token.id,
           symbol: token.symbol ?? 'UNKNOWN',
@@ -350,6 +362,18 @@ async function main() {
         syncResult.cash_synced = cashBalance;
       }
 
+      // 5b. Sync native gas balance → per-chain gas metadata
+      if (gasBalance) {
+        const gasKey = `gas_${chain}`;
+        const gasJson = JSON.stringify(gasBalance);
+        db.prepare(
+          `
+          INSERT INTO portfolio_meta (key, value) VALUES (?, ?)
+          ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')
+        `,
+        ).run(gasKey, gasJson, gasJson);
+      }
+
       // 6. Record sync result
       db.prepare(
         `
@@ -386,6 +410,7 @@ async function main() {
           wallet: walletAddress,
           onchain_tokens: onchainMap.size,
           ...syncResult,
+          gas_balance: gasBalance,
           synced_at: now,
           timestamp: new Date().toISOString(),
         },

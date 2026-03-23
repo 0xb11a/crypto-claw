@@ -5,7 +5,7 @@
  * Usage:
  *   node scripts/send-alert.js --type <type> --agent <agent> --message "<text>"
  *
- * Types: model_failure, emergency_mode, recovered
+ * Types: model_failure, emergency_mode, recovered, trade_proposal, trade_executed, trade_failed, sell_triggered
  *
  * Env vars:
  *   TELEGRAM_BOT_TOKEN  — Bot token from @BotFather
@@ -65,7 +65,16 @@ async function main() {
     return;
   }
 
-  const emoji = type === 'recovered' ? '\u2705' : '\u26A0\uFE0F';
+  const emojiMap = {
+    recovered: '\u2705',
+    trade_proposal: '\uD83D\uDCCA',
+    trade_executed: '\u2705',
+    trade_failed: '\u274C',
+    sell_triggered: '\uD83D\uDEA8',
+    model_failure: '\u26A0\uFE0F',
+    emergency_mode: '\u26A0\uFE0F',
+  };
+  const emoji = emojiMap[type] || '\u26A0\uFE0F';
   const escapedSafeId = escapeMarkdownV2(safeId);
   const escapedAgent = escapeMarkdownV2(agent);
   const escapedType = escapeMarkdownV2(type);

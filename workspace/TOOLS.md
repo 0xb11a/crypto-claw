@@ -27,6 +27,10 @@ node scripts/db-query.js get-cash --chain base
 # Set cash balance (requires --chain)
 node scripts/db-query.js set-cash --chain base --amount 5000
 
+# Get native gas balance (ETH/SOL — gas only, not a position)
+node scripts/db-query.js get-gas
+node scripts/db-query.js get-gas --chain base
+
 # Get/set arbitrary metadata
 node scripts/db-query.js get-meta --key my_key
 node scripts/db-query.js set-meta --key my_key --value my_value
@@ -62,24 +66,36 @@ node scripts/db-query.js close-position --id pos-001 --json '{"exit_price": 0.00
 node scripts/db-query.js close-position --id pos-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "take_profit_partial"}'
 ```
 
+### Order Execution (Executor)
+```bash
+# Process a single order atomically (validate → execute → receipt → position → cash → mark done → alert)
+node scripts/process-order.js --order-id trade-001
+# Output: JSON with { ok, order_id, action, status, receipt_id, position_id, executed_price, ... }
+```
+
 ### Orders (Research/Sentinel → Executor)
+
+Orders use a status state machine: `pending → approved → executed` (or `rejected`/`cancelled`/`failed`).
+
 ```bash
 # Get all orders (newest first)
 node scripts/db-query.js get-orders
 
-# Get pending orders (executor queue — oldest first)
+# Get pending orders — not yet executed (oldest first)
 node scripts/db-query.js get-orders --pending
 
-# Get pending buy orders only
-node scripts/db-query.js get-orders --pending --action buy
+# Get approved orders ready for execution
+node scripts/db-query.js get-orders --status approved --action buy
+node scripts/db-query.js get-orders --status approved --action sell
 
-# Get pending sell orders only
-node scripts/db-query.js get-orders --pending --action sell
+# Get single order detail
+node scripts/db-query.js get-order --id trade-001
 
-# Get pending approved buy orders (executor use — filters out unapproved)
-node scripts/db-query.js get-orders --pending --action buy --approved
+# Order history (all statuses, newest first)
+node scripts/db-query.js get-order-history --limit 20
+node scripts/db-query.js get-order-history --status rejected
 
-# Write a buy order (after human approval or paper auto-approve)
+# Write a buy order (status auto-set: pending in real mode, approved in paper mode)
 node scripts/db-query.js add-order --json '{
   "id": "trade-001",
   "action": "buy",
@@ -91,7 +107,6 @@ node scripts/db-query.js add-order --json '{
   "entry_price": 0.001,
   "stop_loss": 0.0005,
   "take_profit_levels": "[{\"level\":1,\"price\":0.002,\"sellPercent\":50}]",
-  "approved": true,
   "reasoning": "Strong AI narrative play"
 }'
 
@@ -107,8 +122,23 @@ node scripts/db-query.js add-order --json '{
   "urgency": "immediate"
 }'
 
-# Mark order as executed by Executor
+# Approve a pending order (human via chat or CLI)
+node scripts/db-query.js approve-order --id trade-001 --by human
+
+# Reject a pending order (never approved — bad idea)
+node scripts/db-query.js reject-order --id trade-001 --reason "low liquidity" --by human
+
+# Cancel an approved or failed order (changed mind)
+node scripts/db-query.js cancel-order --id trade-001 --reason "market changed" --by human
+
+# Retry a failed sell order (re-queue for execution; buys cannot be retried)
+node scripts/db-query.js retry-order --id sell-001 --by human
+
+# Mark order as executed (Executor use)
 node scripts/db-query.js mark-order-executed --id trade-001
+
+# Mark order as failed (Executor use — human can retry sells or cancel)
+node scripts/db-query.js mark-order-executed --id trade-001 --status failed --reason "tx_failed"
 ```
 
 ### Receipts (Executor → All)
@@ -413,11 +443,14 @@ node scripts/portfolio-summary.js --chain base
 node scripts/portfolio-summary.js --chain solana
 
 # Sync on-chain portfolio — EVM (Safe TX Service primary, DeBank fallback; real mode only)
+# Native ETH is stored as gas metadata (not a position). Stablecoins accumulate as cash.
+# Output includes gas_balance field with native token balance, price, and value.
 node scripts/portfolio-load-evm.js --chain base
 node scripts/portfolio-load-evm.js --chain base --trigger post_trade
 node scripts/portfolio-load-evm.js --chain base --trigger manual
 
 # Sync on-chain portfolio — Solana (Helius DAS primary, RPC fallback; real mode only)
+# Native SOL is stored as gas metadata (not a position). Stablecoins accumulate as cash.
 node scripts/portfolio-load-solana.js --chain solana
 node scripts/portfolio-load-solana.js --chain solana --trigger post_trade
 ```
@@ -486,6 +519,27 @@ node scripts/heartbeat-check.js --agent sentinel
 # → {"agent":"sentinel","skip":true,"reason":"no open positions"}
 # → {"agent":"sentinel","skip":false,"open_positions":3}
 ```
+
+### Multisig Transaction Tracker (Background — No LLM)
+```bash
+# Monitors queued Safe/Squads transactions — runs every 5 min in real mode
+node scripts/track-multisig.js
+# → {"checked":2,"confirmed":1,"pending":1,"failed":0}
+```
+Tracks draft positions (BUY queued in multisig) and pending_exit positions (SELL queued in multisig).
+When a transaction is confirmed on-chain: receipt updated to `executed`, position activated (`draft` → `open`) or closed (`pending_exit` → `closed`), portfolio synced.
+When rejected: receipt set to `reverted`, draft positions deleted (cash refunded), pending_exit reverted to `open`.
+Sends reminder alerts every 30 minutes for pending transactions.
+
+#### Position Statuses
+| Status | Meaning |
+|--------|---------|
+| `open` | Active, monitored by Sentinel |
+| `draft` | BUY queued in multisig — committed but not yet confirmed on-chain |
+| `pending_exit` | SELL queued in multisig — awaiting confirmation |
+| `partial_exit` | Partial sell executed |
+| `closed` | Fully exited |
+| `pending_analysis` | Discovered on-chain, awaiting analysis |
 
 ## Trade Execution (Real Mode Only)
 

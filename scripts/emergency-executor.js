@@ -36,7 +36,7 @@ function getPendingSells(db) {
   return db
     .prepare(
       `SELECT * FROM orders
-       WHERE action = 'sell' AND approved = 1 AND executed = 0
+       WHERE action = 'sell' AND status = 'approved'
        ORDER BY created_at ASC`,
     )
     .all();
@@ -141,7 +141,9 @@ function simulatePaperSell(db, order, position, currentPrice) {
 }
 
 function markOrderExecuted(db, orderId) {
-  db.prepare(`UPDATE orders SET executed = 1, executed_at = datetime('now') WHERE id = ?`).run(orderId);
+  db.prepare(
+    `UPDATE orders SET status = 'executed', status_changed_at = datetime('now'), status_changed_by = 'executor' WHERE id = ?`,
+  ).run(orderId);
 }
 
 function writeReceipt(db, order, tradeResult) {

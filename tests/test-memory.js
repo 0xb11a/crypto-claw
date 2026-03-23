@@ -198,18 +198,20 @@ if (dbAvailable) {
       db.prepare("DELETE FROM positions WHERE id = 'test-pos-1'").run();
     });
 
-    test('can insert and mark sell order executed', () => {
+    test('can insert and update order status', () => {
       db.prepare(
         `
-        INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, approved, approved_by)
-        VALUES ('test-sell-1', 'sell', 'TEST', '0xtest', 'base', 'all', 'stop_loss', 'immediate', 1, 'sentinel')
+        INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, status, approved_by)
+        VALUES ('test-sell-1', 'sell', 'TEST', '0xtest', 'base', 'all', 'stop_loss', 'immediate', 'approved', 'sentinel')
       `,
       ).run();
       const row = db.prepare("SELECT * FROM orders WHERE id = 'test-sell-1'").get();
-      assertEqual(row.executed, 0, 'Should default to not executed');
-      db.prepare("UPDATE orders SET executed = 1 WHERE id = 'test-sell-1'").run();
-      const updated = db.prepare("SELECT executed FROM orders WHERE id = 'test-sell-1'").get();
-      assertEqual(updated.executed, 1, 'Should be marked executed');
+      assertEqual(row.status, 'approved', 'Sell should be auto-approved');
+      db.prepare(
+        "UPDATE orders SET status = 'executed', status_changed_at = datetime('now') WHERE id = 'test-sell-1'",
+      ).run();
+      const updated = db.prepare("SELECT status FROM orders WHERE id = 'test-sell-1'").get();
+      assertEqual(updated.status, 'executed', 'Should be marked executed');
       db.prepare("DELETE FROM orders WHERE id = 'test-sell-1'").run();
     });
 
@@ -635,6 +637,124 @@ if (dbAvailable) {
     test('cleanup analysis cache test data', () => {
       db.prepare("DELETE FROM analysis_cache WHERE address LIKE '0xtest_%'").run();
       assert(true, 'Cleanup ok');
+    });
+  });
+
+  describe('Wallet Database — Order Status State Machine', () => {
+    test('orders table has status columns', () => {
+      const cols = db
+        .prepare('PRAGMA table_info(orders)')
+        .all()
+        .map((c) => c.name);
+      for (const col of [
+        'status',
+        'status_reason',
+        'status_changed_at',
+        'status_changed_by',
+        'approved_at',
+        'approved_by',
+      ]) {
+        assert(cols.includes(col), `orders must have column '${col}'`);
+      }
+      // These old columns should NOT exist
+      for (const col of ['approved', 'executed', 'executed_at']) {
+        assert(!cols.includes(col), `orders must NOT have old column '${col}'`);
+      }
+    });
+
+    test('status CHECK constraint accepts valid values', () => {
+      for (const status of ['pending', 'approved', 'rejected', 'cancelled', 'executed', 'failed', 'expired']) {
+        db.prepare(
+          `INSERT INTO orders (id, action, symbol, address, chain, amount, status)
+           VALUES ('test-status-${status}', 'buy', 'TEST', '0xtest', 'base', '100', ?)`,
+        ).run(status);
+      }
+      const count = db.prepare("SELECT COUNT(*) as cnt FROM orders WHERE id LIKE 'test-status-%'").get();
+      assertEqual(count.cnt, 7, 'All 7 valid statuses must be accepted');
+      db.prepare("DELETE FROM orders WHERE id LIKE 'test-status-%'").run();
+    });
+
+    test('status CHECK constraint rejects invalid values', () => {
+      let threw = false;
+      try {
+        db.prepare(
+          `INSERT INTO orders (id, action, symbol, address, chain, amount, status)
+           VALUES ('test-bad-status', 'buy', 'TEST', '0xtest', 'base', '100', 'invalid')`,
+        ).run();
+      } catch {
+        threw = true;
+      }
+      assert(threw, 'Invalid status must be rejected by CHECK constraint');
+    });
+
+    test('status defaults to pending', () => {
+      db.prepare(
+        `INSERT INTO orders (id, action, symbol, address, chain, amount)
+         VALUES ('test-default-status', 'buy', 'TEST', '0xtest', 'base', '100')`,
+      ).run();
+      const row = db.prepare("SELECT status FROM orders WHERE id = 'test-default-status'").get();
+      assertEqual(row.status, 'pending', 'Default status must be pending');
+      db.prepare("DELETE FROM orders WHERE id = 'test-default-status'").run();
+    });
+
+    test('pending → approved transition works', () => {
+      db.prepare(
+        `INSERT INTO orders (id, action, symbol, address, chain, amount, status)
+         VALUES ('test-approve', 'buy', 'TEST', '0xtest', 'base', '500', 'pending')`,
+      ).run();
+      db.prepare(
+        `UPDATE orders SET status = 'approved', approved_at = datetime('now'), approved_by = 'human',
+         status_changed_at = datetime('now'), status_changed_by = 'human' WHERE id = 'test-approve'`,
+      ).run();
+      const row = db.prepare("SELECT * FROM orders WHERE id = 'test-approve'").get();
+      assertEqual(row.status, 'approved', 'Status must be approved');
+      assertEqual(row.approved_by, 'human', 'approved_by must be human');
+      assert(row.approved_at, 'approved_at must be set');
+      db.prepare("DELETE FROM orders WHERE id = 'test-approve'").run();
+    });
+
+    test('pending → rejected transition works', () => {
+      db.prepare(
+        `INSERT INTO orders (id, action, symbol, address, chain, amount, status)
+         VALUES ('test-reject', 'buy', 'TEST', '0xtest', 'base', '500', 'pending')`,
+      ).run();
+      db.prepare(
+        `UPDATE orders SET status = 'rejected', status_reason = 'low liquidity',
+         status_changed_at = datetime('now'), status_changed_by = 'human' WHERE id = 'test-reject'`,
+      ).run();
+      const row = db.prepare("SELECT * FROM orders WHERE id = 'test-reject'").get();
+      assertEqual(row.status, 'rejected', 'Status must be rejected');
+      assertEqual(row.status_reason, 'low liquidity', 'Reason must be preserved');
+      db.prepare("DELETE FROM orders WHERE id = 'test-reject'").run();
+    });
+
+    test('approved → failed transition works', () => {
+      db.prepare(
+        `INSERT INTO orders (id, action, symbol, address, chain, amount, status, approved_by)
+         VALUES ('test-fail', 'sell', 'TEST', '0xtest', 'base', 'all', 'approved', 'sentinel')`,
+      ).run();
+      db.prepare(
+        `UPDATE orders SET status = 'failed', status_reason = 'tx_failed',
+         status_changed_at = datetime('now'), status_changed_by = 'executor' WHERE id = 'test-fail'`,
+      ).run();
+      const row = db.prepare("SELECT * FROM orders WHERE id = 'test-fail'").get();
+      assertEqual(row.status, 'failed', 'Status must be failed');
+      assertEqual(row.status_reason, 'tx_failed', 'Reason must be tx_failed');
+      db.prepare("DELETE FROM orders WHERE id = 'test-fail'").run();
+    });
+
+    test('approved → cancelled transition works', () => {
+      db.prepare(
+        `INSERT INTO orders (id, action, symbol, address, chain, amount, status)
+         VALUES ('test-cancel', 'buy', 'TEST', '0xtest', 'base', '500', 'approved')`,
+      ).run();
+      db.prepare(
+        `UPDATE orders SET status = 'cancelled', status_reason = 'changed mind',
+         status_changed_at = datetime('now'), status_changed_by = 'human' WHERE id = 'test-cancel'`,
+      ).run();
+      const row = db.prepare("SELECT * FROM orders WHERE id = 'test-cancel'").get();
+      assertEqual(row.status, 'cancelled', 'Status must be cancelled');
+      db.prepare("DELETE FROM orders WHERE id = 'test-cancel'").run();
     });
   });
 

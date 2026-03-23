@@ -25,9 +25,15 @@
  *   set-meta --key <key> --value <value>
  *
  *   # Orders (unified: buys + sells)
- *   get-orders [--pending] [--action buy|sell]
+ *   get-orders [--pending] [--action buy|sell] [--status <status>]
+ *   get-order --id <id>
+ *   get-order-history [--limit 20] [--status <status>]
  *   add-order --json '<json>'
- *   mark-order-executed --id <id>
+ *   approve-order --id <id> [--by <name>]
+ *   reject-order --id <id> [--reason <reason>] [--by <name>]
+ *   cancel-order --id <id> [--reason <reason>] [--by <name>]
+ *   retry-order --id <id> [--by <name>]
+ *   mark-order-executed --id <id> [--status executed|failed] [--reason <reason>]
  *
  *   # Receipts
  *   add-receipt --json '<json>'
@@ -96,13 +102,14 @@
  *
  *   # Admin
  *   migrate                                # Run pending DB migrations
+ *   prune [--days 90]                      # Delete old logs, alerts, snapshots
  *
  * All output is JSON to stdout. Errors go to stderr with exit code 1.
  */
 
 import { getDb, close } from './db.js';
 import { execSync } from 'child_process';
-import { getAllChains, isSolana } from './chains.js';
+import { getAllChains, getActiveChains, isSolana } from './chains.js';
 
 function cashKey(chain, paper = false) {
   return `${paper ? 'paper_cash' : 'cash'}_${chain}`;
@@ -234,8 +241,34 @@ function handle(db, cmd) {
       const id = getArg('id');
       const updates = parseJson();
       if (!id) error('Missing --id');
-      const fields = Object.keys(updates);
-      const setClauses = fields.map((f) => (f === 'take_profit_levels' ? `${f} = ?` : `${f} = ?`)).join(', ');
+      const allowed = new Set([
+        'symbol',
+        'name',
+        'address',
+        'chain',
+        'tier',
+        'entry_price',
+        'current_price',
+        'quantity',
+        'value_usd',
+        'percent_of_portfolio',
+        'entry_date',
+        'stop_loss',
+        'take_profit_levels',
+        'narrative',
+        'status',
+        'notes',
+        'onchain_balance',
+        'last_synced_at',
+        'exit_price',
+        'exit_date',
+        'pnl_percent',
+        'pnl_usd',
+        'exit_reason',
+      ]);
+      const fields = Object.keys(updates).filter((f) => allowed.has(f));
+      if (fields.length === 0) error('No valid fields to update');
+      const setClauses = fields.map((f) => `${f} = ?`).join(', ');
       const values = fields.map((f) => (f === 'take_profit_levels' ? JSON.stringify(updates[f]) : updates[f]));
       db.prepare(`UPDATE positions SET ${setClauses}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
       output({ ok: true, id });
@@ -252,63 +285,67 @@ function handle(db, cmd) {
       const id = getArg('id');
       if (!id) error('Missing --id');
       const updates = parseJson();
-      const position = db.prepare('SELECT * FROM positions WHERE id = ?').get(id);
-      if (!position) error(`Position not found: ${id}`);
       const exitPrice = updates.exit_price;
       if (exitPrice === undefined || exitPrice === null) error('Missing exit_price in --json');
       const soldQty = getArg('quantity');
-      if (soldQty !== null) {
-        // Partial exit
-        const qty = parseFloat(soldQty);
-        if (isNaN(qty) || qty <= 0) error('Invalid --quantity');
-        if (qty > position.quantity) error(`Sold quantity ${qty} exceeds position quantity ${position.quantity}`);
-        const pnlPercent = ((exitPrice - position.entry_price) / position.entry_price) * 100;
-        const pnlUsd = (exitPrice - position.entry_price) * qty;
-        const prevPnl = position.pnl_usd || 0;
-        const newQty = position.quantity - qty;
-        db.prepare(
-          `
-          UPDATE positions SET quantity = ?, status = 'partial_exit',
-            pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
-          WHERE id = ?
-        `,
-        ).run(
-          newQty,
-          Math.round(pnlPercent * 100) / 100,
-          Math.round((prevPnl + pnlUsd) * 100) / 100,
-          updates.exit_reason || null,
-          id,
-        );
-        output({
-          ok: true,
-          id,
-          pnl_percent: Math.round(pnlPercent * 100) / 100,
-          pnl_usd: Math.round(pnlUsd * 100) / 100,
-        });
-      } else {
-        // Full exit
-        const pnlPercent = ((exitPrice - position.entry_price) / position.entry_price) * 100;
-        const pnlUsd = (exitPrice - position.entry_price) * position.quantity;
-        db.prepare(
-          `
-          UPDATE positions SET status = 'closed', exit_price = ?, exit_date = date('now'),
-            pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
-          WHERE id = ?
-        `,
-        ).run(
-          exitPrice,
-          Math.round(pnlPercent * 100) / 100,
-          Math.round(pnlUsd * 100) / 100,
-          updates.exit_reason || null,
-          id,
-        );
-        output({
-          ok: true,
-          id,
-          pnl_percent: Math.round(pnlPercent * 100) / 100,
-          pnl_usd: Math.round(pnlUsd * 100) / 100,
-        });
-      }
+      const txn = db.transaction(() => {
+        const position = db.prepare('SELECT * FROM positions WHERE id = ?').get(id);
+        if (!position) throw new Error(`Position not found: ${id}`);
+        if (soldQty !== null) {
+          // Partial exit
+          const qty = parseFloat(soldQty);
+          if (isNaN(qty) || qty <= 0) throw new Error('Invalid --quantity');
+          if (qty > position.quantity)
+            throw new Error(`Sold quantity ${qty} exceeds position quantity ${position.quantity}`);
+          const pnlPercent = ((exitPrice - position.entry_price) / position.entry_price) * 100;
+          const pnlUsd = (exitPrice - position.entry_price) * qty;
+          const prevPnl = position.pnl_usd || 0;
+          const newQty = position.quantity - qty;
+          db.prepare(
+            `
+            UPDATE positions SET quantity = ?, status = 'partial_exit',
+              pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
+            WHERE id = ?
+          `,
+          ).run(
+            newQty,
+            Math.round(pnlPercent * 100) / 100,
+            Math.round((prevPnl + pnlUsd) * 100) / 100,
+            updates.exit_reason || null,
+            id,
+          );
+          return {
+            ok: true,
+            id,
+            pnl_percent: Math.round(pnlPercent * 100) / 100,
+            pnl_usd: Math.round(pnlUsd * 100) / 100,
+          };
+        } else {
+          // Full exit
+          const pnlPercent = ((exitPrice - position.entry_price) / position.entry_price) * 100;
+          const pnlUsd = (exitPrice - position.entry_price) * position.quantity;
+          db.prepare(
+            `
+            UPDATE positions SET status = 'closed', exit_price = ?, exit_date = date('now'),
+              pnl_percent = ?, pnl_usd = ?, exit_reason = ?, updated_at = datetime('now')
+            WHERE id = ?
+          `,
+          ).run(
+            exitPrice,
+            Math.round(pnlPercent * 100) / 100,
+            Math.round(pnlUsd * 100) / 100,
+            updates.exit_reason || null,
+            id,
+          );
+          return {
+            ok: true,
+            id,
+            pnl_percent: Math.round(pnlPercent * 100) / 100,
+            pnl_usd: Math.round(pnlUsd * 100) / 100,
+          };
+        }
+      });
+      output(txn());
       break;
     }
 
@@ -379,11 +416,32 @@ function handle(db, cmd) {
       const chain = getArg('chain');
       if (amount === null) error('Missing --amount');
       if (!chain) error('Missing --chain (required for set-cash)');
+      const num = parseFloat(amount);
+      if (isNaN(num)) error('Invalid --amount: must be a number');
       const key = cashKey(chain);
       db.prepare(
         "INSERT INTO portfolio_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')",
-      ).run(key, String(amount), String(amount));
-      output({ ok: true, chain, cash: parseFloat(amount) });
+      ).run(key, String(num), String(num));
+      output({ ok: true, chain, cash: num });
+      break;
+    }
+    case 'get-gas': {
+      const chain = getArg('chain');
+      if (chain) {
+        const raw = db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(`gas_${chain}`)?.value;
+        if (!raw) {
+          output({ chain, symbol: null, balance: 0, price: 0, value_usd: 0 });
+        } else {
+          output({ chain, ...JSON.parse(raw) });
+        }
+      } else {
+        const result = {};
+        for (const c of getActiveChains()) {
+          const raw = db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(`gas_${c}`)?.value;
+          result[c] = raw ? JSON.parse(raw) : { symbol: null, balance: 0, price: 0, value_usd: 0 };
+        }
+        output(result);
+      }
       break;
     }
     case 'get-meta': {
@@ -414,14 +472,19 @@ function handle(db, cmd) {
       const pending = hasFlag('pending');
       const action = getArg('action');
       const approved = hasFlag('approved');
+      const statusFilter = getArg('status');
       const conditions = [];
       const params = [];
-      if (pending) conditions.push('executed = 0');
+      if (pending) conditions.push("status IN ('pending', 'approved')");
       if (action) {
         conditions.push('action = ?');
         params.push(action);
       }
-      if (approved) conditions.push('approved = 1');
+      if (approved) conditions.push("status = 'approved'");
+      if (statusFilter) {
+        conditions.push('status = ?');
+        params.push(statusFilter);
+      }
       const where = conditions.length ? ' WHERE ' + conditions.join(' AND ') : '';
       const order = pending ? ' ORDER BY created_at ASC' : ' ORDER BY created_at DESC';
       const sql = `SELECT * FROM orders${where}${order}`;
@@ -451,13 +514,19 @@ function handle(db, cmd) {
           error('Sell order requires: symbol, address, chain, amount, reason');
       }
       const isSell = t.action === 'sell';
+      const isPaper = process.env.PAPER_MODE === 'true';
+      // Status: sells auto-approved by sentinel, paper buys auto-approved, real buys pending
+      const status = isSell || (t.action === 'buy' && isPaper) ? 'approved' : 'pending';
+      const approvedBy = isSell ? 'sentinel' : isPaper ? 'paper_mode' : null;
+      const now = new Date().toISOString();
       db.prepare(
         `
         INSERT INTO orders (id, action, symbol, name, address, chain, amount,
           percent_of_portfolio, tier, entry_price, stop_loss, take_profit_levels,
           analysis_score, risk_score, reasoning, reason, urgency,
-          approved, approved_at, approved_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          approved_at, approved_by,
+          status, status_changed_at, status_changed_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       ).run(
         t.id,
@@ -477,18 +546,123 @@ function handle(db, cmd) {
         t.reasoning || null,
         t.reason || null,
         t.urgency || (isSell ? 'immediate' : null),
-        isSell ? 1 : t.approved ? 1 : 0,
-        isSell ? new Date().toISOString() : t.approved_at || null,
-        isSell ? 'sentinel' : t.approved_by || 'human',
+        status === 'approved' ? now : null,
+        approvedBy,
+        status,
+        now,
+        approvedBy || null,
       );
-      output({ ok: true, id: t.id });
+      output({ ok: true, id: t.id, status });
       break;
     }
     case 'mark-order-executed': {
       const id = getArg('id');
       if (!id) error('Missing --id');
-      db.prepare("UPDATE orders SET executed = 1, executed_at = datetime('now') WHERE id = ?").run(id);
-      output({ ok: true, id });
+      const execStatus = getArg('status') || 'executed';
+      if (!['executed', 'failed'].includes(execStatus)) error('--status must be "executed" or "failed"');
+      const reason = getArg('reason');
+      const now = new Date().toISOString();
+      if (execStatus === 'failed') {
+        db.prepare(
+          "UPDATE orders SET status = 'failed', status_reason = ?, status_changed_at = ?, status_changed_by = 'executor' WHERE id = ?",
+        ).run(reason || null, now, id);
+      } else {
+        db.prepare(
+          "UPDATE orders SET status = 'executed', status_changed_at = ?, status_changed_by = 'executor' WHERE id = ?",
+        ).run(now, id);
+      }
+      output({ ok: true, id, status: execStatus });
+      break;
+    }
+    case 'approve-order': {
+      const id = getArg('id');
+      if (!id) error('Missing --id');
+      const by = getArg('by') || 'human';
+      const row = db.prepare('SELECT status, action FROM orders WHERE id = ?').get(id);
+      if (!row) error(`Order not found: ${id}`);
+      if (row.status !== 'pending')
+        error(`Cannot approve: order is ${row.status} (only pending orders can be approved)`);
+      const now = new Date().toISOString();
+      db.prepare(
+        "UPDATE orders SET status = 'approved', approved_at = ?, approved_by = ?, status_changed_at = ?, status_changed_by = ? WHERE id = ?",
+      ).run(now, by, now, by, id);
+      output({ ok: true, id, status: 'approved' });
+      break;
+    }
+    case 'reject-order': {
+      const id = getArg('id');
+      if (!id) error('Missing --id');
+      const by = getArg('by') || 'human';
+      const reason = getArg('reason');
+      const row = db.prepare('SELECT status FROM orders WHERE id = ?').get(id);
+      if (!row) error(`Order not found: ${id}`);
+      if (row.status !== 'pending') {
+        if (row.status === 'approved') error('Cannot reject an approved order — use cancel-order instead');
+        error(`Cannot reject: order is ${row.status} (only pending orders can be rejected)`);
+      }
+      const now = new Date().toISOString();
+      db.prepare(
+        "UPDATE orders SET status = 'rejected', status_reason = ?, status_changed_at = ?, status_changed_by = ? WHERE id = ?",
+      ).run(reason || null, now, by, id);
+      output({ ok: true, id, status: 'rejected' });
+      break;
+    }
+    case 'cancel-order': {
+      const id = getArg('id');
+      if (!id) error('Missing --id');
+      const by = getArg('by') || 'human';
+      const reason = getArg('reason');
+      const row = db.prepare('SELECT status FROM orders WHERE id = ?').get(id);
+      if (!row) error(`Order not found: ${id}`);
+      if (!['approved', 'failed'].includes(row.status)) {
+        if (row.status === 'pending') error('Cannot cancel a pending order — use reject-order instead');
+        error(`Cannot cancel: order is ${row.status}`);
+      }
+      const now = new Date().toISOString();
+      db.prepare(
+        "UPDATE orders SET status = 'cancelled', status_reason = ?, status_changed_at = ?, status_changed_by = ? WHERE id = ?",
+      ).run(reason || null, now, by, id);
+      output({ ok: true, id, status: 'cancelled' });
+      break;
+    }
+    case 'retry-order': {
+      const id = getArg('id');
+      if (!id) error('Missing --id');
+      const by = getArg('by') || 'human';
+      const row = db.prepare('SELECT status, action FROM orders WHERE id = ?').get(id);
+      if (!row) error(`Order not found: ${id}`);
+      if (row.status !== 'failed') error(`Cannot retry: order is ${row.status} (only failed orders can be retried)`);
+      if (row.action === 'buy') error('Buy orders cannot be retried — price data is stale. Create a new proposal.');
+      const now = new Date().toISOString();
+      db.prepare(
+        "UPDATE orders SET status = 'approved', status_reason = NULL, status_changed_at = ?, status_changed_by = ? WHERE id = ?",
+      ).run(now, by, id);
+      output({ ok: true, id, status: 'approved' });
+      break;
+    }
+    case 'get-order': {
+      const id = getArg('id');
+      if (!id) error('Missing --id');
+      const row = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
+      if (!row) error(`Order not found: ${id}`);
+      output(row.take_profit_levels ? { ...row, take_profit_levels: JSON.parse(row.take_profit_levels) } : row);
+      break;
+    }
+    case 'get-order-history': {
+      const limit = parseInt(getArg('limit') || '20', 10);
+      const statusFilter = getArg('status');
+      let sql, params;
+      if (statusFilter) {
+        sql = 'SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC LIMIT ?';
+        params = [statusFilter, limit];
+      } else {
+        sql = 'SELECT * FROM orders ORDER BY created_at DESC LIMIT ?';
+        params = [limit];
+      }
+      const rows = db.prepare(sql).all(...params);
+      output(
+        rows.map((r) => (r.take_profit_levels ? { ...r, take_profit_levels: JSON.parse(r.take_profit_levels) } : r)),
+      );
       break;
     }
 
@@ -497,6 +671,11 @@ function handle(db, cmd) {
     // ============================================================
     case 'add-receipt': {
       const r = parseJson();
+      // Validate referenced order exists (FK check)
+      if (r.order_id) {
+        const order = db.prepare('SELECT id FROM orders WHERE id = ?').get(r.order_id);
+        if (!order) error(`Referenced order not found: ${r.order_id}`);
+      }
       db.prepare(
         `
         INSERT INTO receipts (id, order_id, action, symbol, address, chain,
@@ -627,7 +806,21 @@ function handle(db, cmd) {
       const id = getArg('id');
       const updates = parseJson();
       if (!id) error('Missing --id');
-      const fields = Object.keys(updates);
+      const allowed = new Set([
+        'symbol',
+        'address',
+        'chain',
+        'target_entry',
+        'current_price',
+        'analysis_score',
+        'risk_score',
+        'narrative',
+        'reason',
+        'expires_at',
+        'status',
+      ]);
+      const fields = Object.keys(updates).filter((f) => allowed.has(f));
+      if (fields.length === 0) error('No valid fields to update');
       const setClauses = fields.map((f) => `${f} = ?`).join(', ');
       const values = fields.map((f) => updates[f]);
       db.prepare(`UPDATE watchlist SET ${setClauses}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
@@ -1030,7 +1223,27 @@ function handle(db, cmd) {
       const id = getArg('id');
       const updates = parseJson();
       if (!id) error('Missing --id');
-      const fields = Object.keys(updates);
+      const allowed = new Set([
+        'symbol',
+        'address',
+        'chain',
+        'tier',
+        'entry_price',
+        'current_price',
+        'quantity',
+        'value_usd',
+        'entry_date',
+        'stop_loss',
+        'take_profit_levels',
+        'status',
+        'exit_price',
+        'exit_date',
+        'pnl_percent',
+        'pnl_usd',
+        'exit_reason',
+      ]);
+      const fields = Object.keys(updates).filter((f) => allowed.has(f));
+      if (fields.length === 0) error('No valid fields to update');
       const setClauses = fields.map((f) => `${f} = ?`).join(', ');
       const values = fields.map((f) => (f === 'take_profit_levels' ? JSON.stringify(updates[f]) : updates[f]));
       db.prepare(`UPDATE paper_positions SET ${setClauses}, updated_at = datetime('now') WHERE id = ?`).run(
@@ -1221,11 +1434,13 @@ function handle(db, cmd) {
       const chain = getArg('chain');
       if (amount === null) error('Missing --amount');
       if (!chain) error('Missing --chain (required for set-paper-cash)');
+      const num = parseFloat(amount);
+      if (isNaN(num)) error('Invalid --amount: must be a number');
       const key = cashKey(chain, true);
       db.prepare(
         "INSERT INTO portfolio_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')",
-      ).run(key, String(amount), String(amount));
-      output({ ok: true, chain, cash: parseFloat(amount) });
+      ).run(key, String(num), String(num));
+      output({ ok: true, chain, cash: num });
       break;
     }
     case 'get-paper-stats': {
@@ -1310,7 +1525,9 @@ function handle(db, cmd) {
 
       // 2. Pending orders (buy or sell, not yet executed)
       const pendingOrder = db
-        .prepare('SELECT id, symbol, action FROM orders WHERE address = ? AND chain = ? AND executed = 0')
+        .prepare(
+          "SELECT id, symbol, action FROM orders WHERE address = ? AND chain = ? AND status IN ('pending', 'approved', 'failed')",
+        )
         .get(address, chain);
       if (pendingOrder) {
         const reason = pendingOrder.action === 'buy' ? 'pending_buy' : 'pending_sell';
@@ -1454,6 +1671,49 @@ function handle(db, cmd) {
       // getDb() already ran migrations — if we got here, they succeeded
       const applied = db.prepare('SELECT name, applied_at FROM _migrations ORDER BY id').all();
       output({ ok: true, safe_id: process.env.SAFE_ID || 'default', migrations: applied });
+      break;
+    }
+    case 'prune': {
+      const days = parseInt(getArg('days') || '90', 10);
+      const results = db.transaction(() => {
+        const r = {};
+        r.sentinel_log = db
+          .prepare("DELETE FROM sentinel_log WHERE created_at < datetime('now', '-' || ? || ' days')")
+          .run(days).changes;
+        r.executor_log = db
+          .prepare("DELETE FROM executor_log WHERE created_at < datetime('now', '-' || ? || ' days')")
+          .run(days).changes;
+        r.sentinel_alerts = db
+          .prepare(
+            "DELETE FROM sentinel_alerts WHERE processed = 1 AND created_at < datetime('now', '-' || ? || ' days')",
+          )
+          .run(days).changes;
+        r.analysis_cache = db.prepare("DELETE FROM analysis_cache WHERE expires_at <= datetime('now')").run().changes;
+        // Keep last 20 liquidity snapshots per address+chain
+        r.liquidity_snapshots = db
+          .prepare(
+            `DELETE FROM liquidity_snapshots WHERE id NOT IN (
+            SELECT id FROM (
+              SELECT id, ROW_NUMBER() OVER (PARTITION BY address, chain ORDER BY checked_at DESC) as rn
+              FROM liquidity_snapshots
+            ) WHERE rn <= 20
+          )`,
+          )
+          .run().changes;
+        // Keep last 10 contract snapshots per address+chain
+        r.contract_snapshots = db
+          .prepare(
+            `DELETE FROM contract_snapshots WHERE id NOT IN (
+            SELECT id FROM (
+              SELECT id, ROW_NUMBER() OVER (PARTITION BY address, chain ORDER BY checked_at DESC) as rn
+              FROM contract_snapshots
+            ) WHERE rn <= 10
+          )`,
+          )
+          .run().changes;
+        return r;
+      })();
+      output({ ok: true, days, deleted: results });
       break;
     }
 

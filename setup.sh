@@ -59,6 +59,7 @@ mkdir -p "$RESEARCH_DIR/workspace/skills/discovery"
 mkdir -p "$RESEARCH_DIR/workspace/skills/analyst"
 mkdir -p "$RESEARCH_DIR/workspace/skills/risk"
 mkdir -p "$RESEARCH_DIR/workspace/skills/portfolio"
+mkdir -p "$RESEARCH_DIR/workspace/skills/orders"
 mkdir -p "$RESEARCH_DIR/agent"
 mkdir -p "$RESEARCH_DIR/data"
 
@@ -87,6 +88,7 @@ cp "$SCRIPT_DIR/agents/research/skills/discovery/SKILL.md"  "$RESEARCH_DIR/works
 cp "$SCRIPT_DIR/agents/research/skills/analyst/SKILL.md"    "$RESEARCH_DIR/workspace/skills/analyst/SKILL.md"
 cp "$SCRIPT_DIR/agents/research/skills/risk/SKILL.md"       "$RESEARCH_DIR/workspace/skills/risk/SKILL.md"
 cp "$SCRIPT_DIR/agents/research/skills/portfolio/SKILL.md"  "$RESEARCH_DIR/workspace/skills/portfolio/SKILL.md"
+cp "$SCRIPT_DIR/agents/research/skills/orders/SKILL.md"    "$RESEARCH_DIR/workspace/skills/orders/SKILL.md"
 
 # Shared workspace files — code-owned (always update)
 cp "$SCRIPT_DIR/workspace/IDENTITY.md"   "$RESEARCH_DIR/workspace/IDENTITY.md"
@@ -166,8 +168,8 @@ mkdir -p "$EXECUTOR_DIR/workspace/scripts"
 cp "$SCRIPT_DIR/scripts/"*.js "$RESEARCH_DIR/workspace/scripts/"
 cp "$SCRIPT_DIR/scripts/package.json" "$RESEARCH_DIR/workspace/scripts/"
 
-# Sentinel gets monitoring scripts + db access
-for script in db.js db-query.js chains.js check-positions.js check-liquidity.js check-wallets.js check-contract.js portfolio-load-evm.js portfolio-load-solana.js; do
+# Sentinel gets monitoring scripts + db access + alerts
+for script in db.js db-query.js chains.js check-positions.js check-liquidity.js check-wallets.js check-contract.js portfolio-load-evm.js portfolio-load-solana.js send-alert.js emergency-sentinel.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$SENTINEL_DIR/workspace/scripts/"
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$SENTINEL_DIR/workspace/scripts/"
@@ -176,7 +178,7 @@ cp "$SCRIPT_DIR/scripts/package.json" "$SENTINEL_DIR/workspace/scripts/"
 for script in db.js db-query.js chains.js token-metrics.js portfolio-load-evm.js portfolio-load-solana.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$EXECUTOR_DIR/workspace/scripts/"
 done
-for script in chains.js execute-trade.js check-safe-status.js execute-trade-solana.js check-squads-status.js; do
+for script in execute-trade.js check-safe-status.js execute-trade-solana.js check-squads-status.js send-alert.js process-order.js track-multisig.js emergency-executor.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$EXECUTOR_DIR/workspace/scripts/"
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$EXECUTOR_DIR/workspace/scripts/"

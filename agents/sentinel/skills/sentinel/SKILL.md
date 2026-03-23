@@ -140,7 +140,12 @@ node scripts/db-query.js add-order --json '{
 }'
 ```
 
-The Executor agent polls for pending sell orders every heartbeat and executes them through the Safe wallet.
+After writing a sell order, notify the human:
+```bash
+node scripts/send-alert.js --type sell_triggered --agent sentinel --message "SELL $TOKEN on <chain> — <amount> — reason: <reason>"
+```
+
+The Executor agent polls for approved orders every heartbeat and executes them through the Safe wallet.
 
 ## Rules
 - CRITICAL alerts go to human IMMEDIATELY — never wait for next heartbeat

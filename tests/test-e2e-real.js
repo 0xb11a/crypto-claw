@@ -107,21 +107,29 @@ describe('E2E Real Step 2: Research → Approve Trade', () => {
       analysis_score: 82,
       risk_score: 18,
       reasoning: 'E2E real mode test',
-      approved: 1,
-      approved_at: new Date().toISOString(),
-      approved_by: 'human',
     };
     const result = dbq(`add-order --json '${JSON.stringify(trade)}'`);
     assert(result.ok, 'add-order must succeed');
   });
 
-  test('trade appears as pending', () => {
+  test('trade starts as pending in real mode', () => {
+    const trades = dbq('get-orders --status pending');
+    const trade = trades.find((t) => t.id === 'real-trade-001');
+    assert(trade, 'Trade must appear in pending list');
+    assertEqual(trade.status, 'pending', 'Real mode buys start as pending');
+  });
+
+  test('approve trade for executor pickup', () => {
+    const result = dbq('approve-order --id real-trade-001 --by human');
+    assert(result.ok, 'approve-order must succeed');
+  });
+
+  test('trade appears as approved', () => {
     const trades = dbq('get-orders --action buy --pending');
     const trade = trades.find((t) => t.id === 'real-trade-001');
     assert(trade, 'Trade must appear in pending list');
-    assertEqual(trade.approved, 1, 'Must be approved');
+    assertEqual(trade.status, 'approved', 'Must be approved');
     assertEqual(trade.approved_by, 'human', 'Must be human-approved');
-    assertEqual(trade.executed, 0, 'Must not be executed yet');
   });
 });
 
@@ -408,12 +416,14 @@ describe('E2E Real Step 7: Solana Cross-Chain Isolation', () => {
         analysis_score: 75,
         risk_score: 22,
         reasoning: 'Solana cross-chain test',
-        approved: 1,
-        approved_at: new Date().toISOString(),
-        approved_by: 'human',
       })}'`,
     );
-    assert(result.ok, 'Solana trade approved');
+    assert(result.ok, 'Solana trade created');
+  });
+
+  test('approve Solana trade', () => {
+    const result = dbq('approve-order --id real-trade-sol-001 --by human');
+    assert(result.ok, 'approve-order must succeed');
   });
 
   test('executor buys on Solana', () => {
@@ -546,11 +556,10 @@ describe('E2E Real Step 8: Happy Path — TP1 Partial Sell', () => {
         analysis_score: 85,
         risk_score: 12,
         reasoning: 'Happy path test',
-        approved: 1,
-        approved_at: new Date().toISOString(),
-        approved_by: 'human',
       })}'`,
     );
+
+    dbq('approve-order --id real-trade-002 --by human');
 
     dbq(
       `add-receipt --json '${JSON.stringify({

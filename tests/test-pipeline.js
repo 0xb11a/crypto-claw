@@ -234,19 +234,18 @@ describe('Executor Integration', () => {
   test('approved trade has all fields executor needs', () => {
     const approvedTrade = {
       ...mockTradeProposal,
-      approved: true,
+      status: 'approved',
       approvedAt: new Date().toISOString(),
-      executed: false,
     };
 
-    assert(approvedTrade.approved === true, 'Must be approved');
+    assert(approvedTrade.status === 'approved', 'Must be approved');
     assert(approvedTrade.address, 'Executor needs address');
     assert(approvedTrade.chain, 'Executor needs chain');
     assert(approvedTrade.amount, 'Executor needs amount');
     assert(approvedTrade.tier, 'Executor needs tier for slippage limits');
     assert(approvedTrade.stopLoss, 'Executor needs stopLoss for position creation');
     assert(approvedTrade.takeProfitLevels.length > 0, 'Executor needs TP levels for position creation');
-    assert(approvedTrade.executed === false, 'Must not be already executed');
+    assert(approvedTrade.status !== 'executed', 'Must not be already executed');
   });
 
   test('sell order has all fields executor needs', () => {
@@ -259,13 +258,13 @@ describe('Executor Integration', () => {
       amount: 'all',
       reason: 'stop_loss',
       urgency: 'immediate',
-      executed: false,
+      status: 'approved',
     };
 
     assert(sellOrder.address, 'Executor needs address');
     assert(sellOrder.chain, 'Executor needs chain');
     assert(sellOrder.amount, 'Executor needs amount');
-    assert(sellOrder.executed === false, 'Must not be already executed');
+    assert(sellOrder.status !== 'executed', 'Must not be already executed');
   });
 
   test('receipt feeds back to research for learning', () => {
@@ -285,24 +284,26 @@ describe('Executor Integration', () => {
 });
 
 // ============================================================
-// Executor Order Filtering (--approved flag)
+// Executor Order Filtering (status-based)
 // ============================================================
 
-describe('Executor Order Filtering — --approved flag', () => {
-  // Simulate the filtering logic that get-orders --approved applies
+describe('Executor Order Filtering — status-based', () => {
+  // Simulate the filtering logic that get-orders applies with the status column
   const mockOrders = [
-    { id: 'buy-1', action: 'buy', approved: 1, approved_by: 'human', executed: 0 },
-    { id: 'buy-2', action: 'buy', approved: 0, approved_by: null, executed: 0 },
-    { id: 'sell-1', action: 'sell', approved: 1, approved_by: 'sentinel', executed: 0 },
-    { id: 'buy-3', action: 'buy', approved: 1, approved_by: 'paper_mode', executed: 0 },
-    { id: 'buy-4', action: 'buy', approved: 1, approved_by: 'human', executed: 1 },
+    { id: 'buy-1', action: 'buy', status: 'approved', approved_by: 'human' },
+    { id: 'buy-2', action: 'buy', status: 'pending', approved_by: null },
+    { id: 'sell-1', action: 'sell', status: 'approved', approved_by: 'sentinel' },
+    { id: 'buy-3', action: 'buy', status: 'approved', approved_by: 'paper_mode' },
+    { id: 'buy-4', action: 'buy', status: 'executed', approved_by: 'human' },
+    { id: 'buy-5', action: 'buy', status: 'rejected', approved_by: null },
   ];
 
-  function filterOrders({ pending, action, approved }) {
+  function filterOrders({ pending, action, approved, status }) {
     return mockOrders.filter((o) => {
-      if (pending && o.executed !== 0) return false;
+      if (pending && !['pending', 'approved'].includes(o.status)) return false;
       if (action && o.action !== action) return false;
-      if (approved && o.approved !== 1) return false;
+      if (approved && o.status !== 'approved') return false;
+      if (status && o.status !== status) return false;
       return true;
     });
   }
@@ -311,12 +312,8 @@ describe('Executor Order Filtering — --approved flag', () => {
     const result = filterOrders({ pending: true, action: 'buy', approved: true });
     assertEqual(result.length, 2, 'Should return 2 approved pending buys');
     assert(
-      result.every((o) => o.approved === 1),
+      result.every((o) => o.status === 'approved'),
       'All must be approved',
-    );
-    assert(
-      result.every((o) => o.executed === 0),
-      'All must be pending',
     );
     assert(
       result.every((o) => o.action === 'buy'),
@@ -324,12 +321,12 @@ describe('Executor Order Filtering — --approved flag', () => {
     );
   });
 
-  test('--pending --action buy without --approved returns all pending buys (backward compat)', () => {
+  test('--pending --action buy without --approved returns pending + approved buys', () => {
     const result = filterOrders({ pending: true, action: 'buy', approved: false });
-    assertEqual(result.length, 3, 'Should return 3 pending buys (including unapproved)');
+    assertEqual(result.length, 3, 'Should return 3 pending buys (pending + approved statuses)');
     assert(
-      result.some((o) => o.approved === 0),
-      'Should include unapproved order',
+      result.some((o) => o.status === 'pending'),
+      'Should include pending order',
     );
   });
 
@@ -342,6 +339,12 @@ describe('Executor Order Filtering — --approved flag', () => {
   test('executed orders excluded by --pending regardless of --approved', () => {
     const result = filterOrders({ pending: true, action: 'buy', approved: true });
     assert(!result.some((o) => o.id === 'buy-4'), 'Executed order must not appear');
+  });
+
+  test('--status filter returns only matching status', () => {
+    const result = filterOrders({ status: 'rejected' });
+    assertEqual(result.length, 1, 'Should return 1 rejected order');
+    assertEqual(result[0].id, 'buy-5');
   });
 });
 
@@ -426,20 +429,20 @@ describe('Token Dedup — Position Blocking', () => {
 
 describe('Token Dedup — Pending Orders', () => {
   test('pending approved trade blocks re-analysis', () => {
-    const trade = { executed: 0, address: '0xtoken', chain: 'base' };
-    const shouldSkip = trade.executed === 0;
+    const trade = { status: 'approved', address: '0xtoken', chain: 'base' };
+    const shouldSkip = trade.status !== 'executed';
     assert(shouldSkip, 'Pending approved trade must block re-analysis');
   });
 
   test('executed trade allows re-analysis', () => {
-    const trade = { executed: 1, address: '0xtoken', chain: 'base' };
-    const shouldSkip = trade.executed === 0;
+    const trade = { status: 'executed', address: '0xtoken', chain: 'base' };
+    const shouldSkip = trade.status !== 'executed';
     assert(!shouldSkip, 'Executed trade must allow re-analysis');
   });
 
   test('pending sell order blocks re-analysis', () => {
-    const sellOrder = { executed: 0, address: '0xtoken', chain: 'base' };
-    const shouldSkip = sellOrder.executed === 0;
+    const sellOrder = { status: 'approved', address: '0xtoken', chain: 'base' };
+    const shouldSkip = sellOrder.status !== 'executed';
     assert(shouldSkip, 'Pending sell order must block re-analysis');
   });
 });
@@ -577,13 +580,12 @@ describe('Solana Pipeline Integration', () => {
   test('Solana trade proposal flows to executor with chain=solana', () => {
     const approvedTrade = {
       ...mockSolanaTradeProposal,
-      approved: true,
+      status: 'approved',
       approvedAt: new Date().toISOString(),
-      executed: false,
     };
 
     assertEqual(approvedTrade.chain, 'solana', 'Executor must see chain=solana');
-    assert(approvedTrade.approved, 'Must be approved');
+    assert(approvedTrade.status === 'approved', 'Must be approved');
     assert(!approvedTrade.address.startsWith('0x'), 'Solana address must be base58');
   });
 
@@ -597,7 +599,7 @@ describe('Solana Pipeline Integration', () => {
       amount: 'all',
       reason: 'stop_loss',
       urgency: 'immediate',
-      executed: false,
+      status: 'approved',
     };
 
     assertEqual(sellOrder.chain, 'solana');

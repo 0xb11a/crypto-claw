@@ -15,17 +15,12 @@
 
 import 'dotenv/config';
 import { getDb, close } from './db.js';
-import { getChain, isSolana, getCashToken } from './chains.js';
+import { getChain, isSolana, getStablecoins } from './chains.js';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import * as multisig from '@sqds/multisig';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
-const _USDC_MINT = getCashToken('solana').address;
-const STABLECOIN_MINTS = new Set([
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
-]);
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -77,7 +72,6 @@ function resolveVaultAddress(chainCfg) {
 }
 
 async function fetchTokenPrice(address) {
-  if (STABLECOIN_MINTS.has(address)) return 1.0;
   try {
     const res = await fetch(`${DEXSCREENER_BASE}/tokens/${address}`, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) return null;
@@ -93,7 +87,7 @@ async function fetchTokenPrice(address) {
 }
 
 // Primary: Helius DAS API — getAssetsByOwner
-async function fetchHeliusAssets(vaultAddress, apiKey) {
+async function fetchHeliusAssets(vaultAddress, apiKey, chainCfg, stablecoinAddresses) {
   const url = `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
   const res = await fetch(url, {
     method: 'POST',
@@ -115,6 +109,7 @@ async function fetchHeliusAssets(vaultAddress, apiKey) {
 
   const onchainMap = new Map();
   let cashBalance = 0;
+  let gasBalance = null;
 
   for (const asset of data.result?.items ?? []) {
     if (asset.interface !== 'FungibleToken' && asset.interface !== 'FungibleAsset') continue;
@@ -129,7 +124,7 @@ async function fetchHeliusAssets(vaultAddress, apiKey) {
     const symbol = asset.token_info?.symbol ?? asset.content?.metadata?.symbol ?? 'UNKNOWN';
 
     // Stablecoins → cash
-    if (STABLECOIN_MINTS.has(mintAddress)) {
+    if (stablecoinAddresses.has(mintAddress)) {
       cashBalance += humanBalance;
       continue;
     }
@@ -144,32 +139,25 @@ async function fetchHeliusAssets(vaultAddress, apiKey) {
     });
   }
 
-  // Handle native SOL balance
-  const nativeBalance = data.result?.nativeBalance?.lamports ?? 0;
-  if (nativeBalance > 0) {
-    const solBalance = nativeBalance / 1e9;
-    onchainMap.set('native', {
-      address: 'native',
-      symbol: 'SOL',
-      name: 'Solana',
-      balance: solBalance,
-      price: 0,
-      value_usd: 0,
-      is_native: true,
-    });
+  // Handle native SOL balance — gas only, not a position
+  const nativeLamports = data.result?.nativeBalance?.lamports ?? 0;
+  if (nativeLamports > 0) {
+    const solBalance = nativeLamports / 1e9;
+    gasBalance = { symbol: chainCfg.nativeToken.symbol, balance: solBalance, price: 0, value_usd: 0 };
   }
 
-  return { onchainMap, cashBalance };
+  return { onchainMap, cashBalance, gasBalance };
 }
 
 // Fallback: Raw RPC — getTokenAccountsByOwner
-async function fetchRpcTokenAccounts(connection, vaultPda) {
+async function fetchRpcTokenAccounts(connection, vaultPda, chainCfg, stablecoinAddresses) {
   const accounts = await connection.getTokenAccountsByOwner(vaultPda, {
     programId: TOKEN_PROGRAM_ID,
   });
 
   const onchainMap = new Map();
   let cashBalance = 0;
+  let gasBalance = null;
 
   for (const { account } of accounts.value) {
     const data = account.data;
@@ -183,7 +171,7 @@ async function fetchRpcTokenAccounts(connection, vaultPda) {
     const mintStr = mint.toString();
 
     // Stablecoins → cash (assume 6 decimals for USDC/USDT)
-    if (STABLECOIN_MINTS.has(mintStr)) {
+    if (stablecoinAddresses.has(mintStr)) {
       cashBalance += Number(amount) / 1e6;
       continue;
     }
@@ -199,21 +187,13 @@ async function fetchRpcTokenAccounts(connection, vaultPda) {
     });
   }
 
-  // Get native SOL balance
-  const solBalance = await connection.getBalance(vaultPda);
-  if (solBalance > 0) {
-    onchainMap.set('native', {
-      address: 'native',
-      symbol: 'SOL',
-      name: 'Solana',
-      balance: solBalance / 1e9,
-      price: 0,
-      value_usd: 0,
-      is_native: true,
-    });
+  // Get native SOL balance — gas only, not a position
+  const solLamports = await connection.getBalance(vaultPda);
+  if (solLamports > 0) {
+    gasBalance = { symbol: chainCfg.nativeToken.symbol, balance: solLamports / 1e9, price: 0, value_usd: 0 };
   }
 
-  return { onchainMap, cashBalance };
+  return { onchainMap, cashBalance, gasBalance };
 }
 
 function generateId() {
@@ -286,18 +266,21 @@ async function main() {
 
   const syncResult = { positions_synced: 0, positions_closed: 0, positions_discovered: 0, cash_synced: 0 };
   let provider = 'rpc';
+  const stablecoinAddresses = getStablecoins(chain);
 
   try {
     // 1. Fetch on-chain tokens — Helius primary, RPC fallback
     let onchainMap;
     let cashBalance = 0;
+    let gasBalance = null;
 
     const heliusKey = process.env[chainCfg.portfolio?.apiKeyEnv];
     if (heliusKey) {
       try {
-        const result = await fetchHeliusAssets(vaultEnv.vaultPda.toString(), heliusKey);
+        const result = await fetchHeliusAssets(vaultEnv.vaultPda.toString(), heliusKey, chainCfg, stablecoinAddresses);
         onchainMap = result.onchainMap;
         cashBalance = result.cashBalance;
+        gasBalance = result.gasBalance;
         provider = 'helius';
       } catch (heliusErr) {
         process.stderr.write(`Helius API failed (${heliusErr.message}), falling back to RPC\n`);
@@ -306,29 +289,30 @@ async function main() {
     }
 
     if (!onchainMap) {
-      const result = await fetchRpcTokenAccounts(vaultEnv.connection, vaultEnv.vaultPda);
+      const result = await fetchRpcTokenAccounts(vaultEnv.connection, vaultEnv.vaultPda, chainCfg, stablecoinAddresses);
       onchainMap = result.onchainMap;
       cashBalance = result.cashBalance;
+      gasBalance = result.gasBalance;
       provider = 'rpc';
     }
 
     // 2. Enrich with DEXScreener prices
     for (const [, token] of onchainMap) {
-      if (token.is_native) {
-        // SOL price via DEXScreener (use wrapped SOL)
-        const price = await fetchTokenPrice('So11111111111111111111111111111111111111112');
-        if (price !== null) {
-          token.price = price;
-          token.value_usd = token.balance * price;
-        }
-      } else {
-        const price = await fetchTokenPrice(token.address);
-        if (price !== null) {
-          token.price = price;
-          token.value_usd = token.balance * price;
-        }
+      const price = await fetchTokenPrice(token.address);
+      if (price !== null) {
+        token.price = price;
+        token.value_usd = token.balance * price;
       }
       await sleep(200);
+    }
+
+    // Price gas balance via wrapped native token
+    if (gasBalance) {
+      const price = await fetchTokenPrice(chainCfg.wrappedNativeToken.address);
+      if (price !== null) {
+        gasBalance.price = price;
+        gasBalance.value_usd = gasBalance.balance * price;
+      }
     }
 
     // 3. Load current DB positions for this chain
@@ -416,6 +400,18 @@ async function main() {
         syncResult.cash_synced = cashBalance;
       }
 
+      // 6b. Sync native gas balance → per-chain gas metadata
+      if (gasBalance) {
+        const gasKey = `gas_${chain}`;
+        const gasJson = JSON.stringify(gasBalance);
+        db.prepare(
+          `
+          INSERT INTO portfolio_meta (key, value) VALUES (?, ?)
+          ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')
+        `,
+        ).run(gasKey, gasJson, gasJson);
+      }
+
       // 7. Record sync
       db.prepare(
         `
@@ -451,6 +447,7 @@ async function main() {
           wallet: vaultEnv.vaultPda.toString(),
           onchain_tokens: onchainMap.size,
           ...syncResult,
+          gas_balance: gasBalance,
           synced_at: now,
           timestamp: new Date().toISOString(),
         },

@@ -58,7 +58,7 @@ cp "$SRC/agents/executor/skills/executor/SKILL.md" "$AGENT_TPL/executor/skills/e
 for script in db.js db-query.js chains.js token-metrics.js portfolio-load-evm.js portfolio-load-solana.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/executor/scripts/"
 done
-for script in execute-trade.js check-safe-status.js execute-trade-solana.js check-squads-status.js emergency-executor.js send-alert.js; do
+for script in execute-trade.js check-safe-status.js execute-trade-solana.js check-squads-status.js emergency-executor.js send-alert.js process-order.js track-multisig.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/executor/scripts/"
 done
 cp "$SCRIPTS_DIR/package.json" "$AGENT_TPL/executor/scripts/"

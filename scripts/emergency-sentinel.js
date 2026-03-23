@@ -60,8 +60,8 @@ function generateOrderId(prefix) {
 function writeSellOrder(db, position, reason, urgency) {
   const orderId = generateOrderId('emg-sell');
   db.prepare(
-    `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, approved, approved_by, created_at)
-     VALUES (?, 'sell', ?, ?, ?, 'all', ?, ?, 1, 'emergency_sentinel', datetime('now'))`,
+    `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, status, approved_at, approved_by, status_changed_at, status_changed_by, created_at)
+     VALUES (?, 'sell', ?, ?, ?, 'all', ?, ?, 'approved', datetime('now'), 'emergency_sentinel', datetime('now'), 'emergency_sentinel', datetime('now'))`,
   ).run(orderId, position.symbol, position.address, position.chain, reason, urgency || 'immediate');
   return orderId;
 }

@@ -60,7 +60,7 @@ services:
       - PAPER_STARTING_BALANCE=${PAPER_STARTING_BALANCE:-10000}
       - PAPER_STARTING_BALANCE_BASE=${PAPER_STARTING_BALANCE_BASE:-}
       - PAPER_STARTING_BALANCE_SOLANA=${PAPER_STARTING_BALANCE_SOLANA:-}
-      - ACTIVE_CHAINS=${ACTIVE_CHAINS:-base}
+      - ACTIVE_CHAINS=${ACTIVE_CHAINS:-base,solana}
       - DEBANK_API_KEY=${DEBANK_API_KEY:-}
 
       # Optional: API keys for data scripts
@@ -74,7 +74,8 @@ services:
       - SOLSCAN_API_KEY=${SOLSCAN_API_KEY:-}
       - HELIUS_API_KEY=${HELIUS_API_KEY:-}
 
-      # Alerting (Telegram — optional)
+      # Channels (Telegram — opt-in for human chat with agents)
+      - ENABLE_CHANNELS=${ENABLE_CHANNELS:-false}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
 

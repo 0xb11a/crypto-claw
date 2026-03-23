@@ -37,7 +37,15 @@ const CHAINS = {
       txServiceUrl: 'https://safe-transaction-base.safe.global',
     },
     dex: '1inch',
+    nativeToken: { symbol: 'ETH', decimals: 18 },
+    wrappedNativeToken: { symbol: 'WETH', address: '0x4200000000000000000000000000000000000006', decimals: 18 },
     cashToken: { symbol: 'USDC', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6 },
+    stablecoins: [
+      '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC
+      '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', // USDT
+      '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', // DAI
+      '0x4621b7A9c75199271F773Ebd9A499dbd165c3191', // DOLA
+    ],
     portfolio: { provider: 'debank', apiKeyEnv: 'DEBANK_API_KEY' },
     rules: {}, // Base uses all global defaults
   },
@@ -62,7 +70,14 @@ const CHAINS = {
     },
     dex: 'jupiter',
     jupiter: { apiUrl: 'https://lite-api.jup.ag/swap/v1' },
+    nativeToken: { symbol: 'SOL', decimals: 9 },
+    wrappedNativeToken: { symbol: 'WSOL', address: 'So11111111111111111111111111111111111111112', decimals: 9 },
     cashToken: { symbol: 'USDC', address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
+    stablecoins: [
+      'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+      'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+      'USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA', // USDS
+    ],
     portfolio: { provider: 'helius', apiKeyEnv: 'HELIUS_API_KEY' },
     rules: {
       maxMoonshotPosition: 7,
@@ -80,7 +95,7 @@ const CHAINS = {
  */
 export function getActiveChains() {
   const raw = process.env.ACTIVE_CHAINS;
-  if (!raw || raw.trim() === '') return ['base'];
+  if (!raw || raw.trim() === '') return ['base', 'solana'];
   return raw
     .split(',')
     .map((c) => c.trim())
@@ -131,6 +146,18 @@ export function getAllChains() {
  */
 export function getCashToken(chainName) {
   return getChain(chainName).cashToken;
+}
+
+/**
+ * Get stablecoin address Set for a chain (lowercased for EVM, exact for Solana).
+ */
+export function getStablecoins(chainName) {
+  const chain = getChain(chainName);
+  const addrs = chain.stablecoins ?? [];
+  if (chain.type === 'evm') {
+    return new Set(addrs.map((a) => a.toLowerCase()));
+  }
+  return new Set(addrs);
 }
 
 /**

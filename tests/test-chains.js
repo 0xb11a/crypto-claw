@@ -19,11 +19,12 @@ async function runTests() {
   // ============================================================
 
   describe('Chain Configuration', () => {
-    test('getActiveChains defaults to [base] when ACTIVE_CHAINS not set', () => {
+    test('getActiveChains defaults to [base, solana] when ACTIVE_CHAINS not set', () => {
       delete process.env.ACTIVE_CHAINS;
       const result = chains.getActiveChains();
-      assertEqual(result.length, 1);
-      assertEqual(result[0], 'base');
+      assertEqual(result.length, 2);
+      assert(result.includes('base'), 'Should include base');
+      assert(result.includes('solana'), 'Should include solana');
     });
 
     test('getActiveChains parses comma-separated env var', () => {
@@ -47,8 +48,9 @@ async function runTests() {
     test('getActiveChains handles empty string', () => {
       process.env.ACTIVE_CHAINS = '';
       const result = chains.getActiveChains();
-      assertEqual(result.length, 1);
-      assertEqual(result[0], 'base');
+      assertEqual(result.length, 2);
+      assert(result.includes('base'), 'Should include base');
+      assert(result.includes('solana'), 'Should include solana');
       delete process.env.ACTIVE_CHAINS;
     });
 
@@ -170,6 +172,58 @@ async function runTests() {
     test('Explorer configs match previously hardcoded values', () => {
       assertEqual(chains.getChain('base').explorer.baseUrl, 'https://api.basescan.org/api');
       assertEqual(chains.getChain('base').explorer.apiKeyEnv, 'BASESCAN_API_KEY');
+    });
+
+    test('base config has nativeToken and wrappedNativeToken', () => {
+      const cfg = chains.getChain('base');
+      assertEqual(cfg.nativeToken.symbol, 'ETH');
+      assertEqual(cfg.nativeToken.decimals, 18);
+      assertEqual(cfg.wrappedNativeToken.symbol, 'WETH');
+      assertEqual(cfg.wrappedNativeToken.address, '0x4200000000000000000000000000000000000006');
+      assertEqual(cfg.wrappedNativeToken.decimals, 18);
+    });
+
+    test('solana config has nativeToken and wrappedNativeToken', () => {
+      const cfg = chains.getChain('solana');
+      assertEqual(cfg.nativeToken.symbol, 'SOL');
+      assertEqual(cfg.nativeToken.decimals, 9);
+      assertEqual(cfg.wrappedNativeToken.symbol, 'WSOL');
+      assertEqual(cfg.wrappedNativeToken.address, 'So11111111111111111111111111111111111111112');
+      assertEqual(cfg.wrappedNativeToken.decimals, 9);
+    });
+
+    test('base config has stablecoins list including cashToken', () => {
+      const cfg = chains.getChain('base');
+      assert(Array.isArray(cfg.stablecoins), 'stablecoins must be an array');
+      assert(cfg.stablecoins.length >= 2, 'Should have at least USDC and one more');
+      assert(
+        cfg.stablecoins.map((a) => a.toLowerCase()).includes(cfg.cashToken.address.toLowerCase()),
+        'cashToken address must be in stablecoins list',
+      );
+    });
+
+    test('solana config has stablecoins list including cashToken', () => {
+      const cfg = chains.getChain('solana');
+      assert(Array.isArray(cfg.stablecoins), 'stablecoins must be an array');
+      assert(cfg.stablecoins.length >= 2, 'Should have at least USDC and USDT');
+      assert(cfg.stablecoins.includes(cfg.cashToken.address), 'cashToken address must be in stablecoins list');
+    });
+
+    test('getStablecoins returns Set with lowercased addresses for EVM', () => {
+      const stables = chains.getStablecoins('base');
+      assert(stables instanceof Set, 'Should return a Set');
+      assert(stables.size >= 2, 'Should have at least 2 stablecoins');
+      // All should be lowercased
+      for (const addr of stables) {
+        assertEqual(addr, addr.toLowerCase(), 'EVM stablecoin addresses must be lowercased');
+      }
+    });
+
+    test('getStablecoins returns Set with exact addresses for Solana', () => {
+      const stables = chains.getStablecoins('solana');
+      assert(stables instanceof Set, 'Should return a Set');
+      assert(stables.has('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'), 'Should have USDC mint');
+      assert(stables.has('Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB'), 'Should have USDT mint');
     });
 
     test('getAllChains returns base and solana', () => {
@@ -420,6 +474,30 @@ async function runTests() {
       // portfolio-load-evm.js checks PAPER_MODE at the top and exits early
       // db-query.js sync-portfolio also checks PAPER_MODE
       assert(true, 'Paper mode guard validated at script level');
+    });
+
+    test('gas balance stored in portfolio_meta as JSON', () => {
+      const db = dbMod.getDb();
+      const gasData = { symbol: 'ETH', balance: 0.05, price: 2400, value_usd: 120 };
+      const gasJson = JSON.stringify(gasData);
+      db.prepare(
+        `INSERT INTO portfolio_meta (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')`,
+      ).run('gas_base', gasJson, gasJson);
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'gas_base'").get();
+      assert(row, 'gas_base key must exist');
+      const parsed = JSON.parse(row.value);
+      assertEqual(parsed.symbol, 'ETH');
+      assertEqual(parsed.balance, 0.05);
+      assertEqual(parsed.price, 2400);
+      assertEqual(parsed.value_usd, 120);
+      db.prepare("DELETE FROM portfolio_meta WHERE key = 'gas_base'").run();
+    });
+
+    test('native token address never appears in positions table', () => {
+      const db = dbMod.getDb();
+      const rows = db.prepare("SELECT * FROM positions WHERE address = 'native'").all();
+      assertEqual(rows.length, 0, 'No position should have address=native');
     });
   });
 

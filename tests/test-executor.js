@@ -15,7 +15,7 @@ import { describe, test, assert, assertEqual, assertType as _assertType, summary
 function validateBuyOrder(order, portfolioState) {
   const errors = [];
 
-  if (!order.approved) {
+  if (order.status !== 'approved') {
     errors.push('Order not approved by human');
   }
 
@@ -137,8 +137,7 @@ const mockApprovedBuy = {
   tier: 'moonshot',
   entryPrice: 0.05,
   currentPrice: 0.052,
-  approved: true,
-  executed: false,
+  status: 'approved',
 };
 
 const mockSellOrder = {
@@ -150,7 +149,7 @@ const mockSellOrder = {
   amount: 'all',
   reason: 'stop_loss',
   urgency: 'immediate',
-  executed: false,
+  status: 'approved',
 };
 
 // ============================================================
@@ -163,7 +162,7 @@ describe('Executor — Buy Order Validation', () => {
   });
 
   test('unapproved buy is rejected', () => {
-    const order = { ...mockApprovedBuy, approved: false };
+    const order = { ...mockApprovedBuy, status: 'pending' };
     const result = validateBuyOrder(order, mockPortfolio);
     assert(!result.valid, 'Unapproved buy must be rejected');
     assert(
@@ -433,8 +432,7 @@ const mockSolanaBuy = {
   tier: 'moonshot',
   entryPrice: 1.5,
   currentPrice: 1.55,
-  approved: true,
-  executed: false,
+  status: 'approved',
 };
 
 const mockSolanaSell = {
@@ -446,7 +444,7 @@ const mockSolanaSell = {
   amount: 'all',
   reason: 'stop_loss',
   urgency: 'immediate',
-  executed: false,
+  status: 'approved',
 };
 
 describe('Executor — Solana Buy Order Validation', () => {
@@ -515,7 +513,7 @@ describe('Executor — Cross-Chain Cash Isolation', () => {
     const baseCash = 0; // No Base cash
     const _solanaCash = 5000; // Plenty on Solana
     const basePortfolio = { cash: baseCash, positions: [] };
-    const order = { ...mockApprovedBuy, chain: 'base', amount: 400, approved: true };
+    const order = { ...mockApprovedBuy, chain: 'base', amount: 400, status: 'approved' };
     const result = validateBuyOrder(order, basePortfolio);
     assert(!result.valid, 'Should reject — Base has no cash even though Solana does');
     assert(
@@ -533,7 +531,7 @@ describe('Executor — Cross-Chain Cash Isolation', () => {
   test('cash validation uses chain-specific amount', () => {
     const baseCash = 100;
     const basePortfolio = { cash: baseCash, positions: [] };
-    const order = { ...mockApprovedBuy, chain: 'base', amount: 500, approved: true };
+    const order = { ...mockApprovedBuy, chain: 'base', amount: 500, status: 'approved' };
     const result = validateBuyOrder(order, basePortfolio);
     assert(!result.valid, 'Should fail — Base cash too low');
   });

@@ -83,7 +83,7 @@ for file in USER.md MEMORY.md; do
 done
 
 # Research skills — always sync from image (may update between builds)
-for skill in discovery analyst risk portfolio; do
+for skill in discovery analyst risk portfolio orders; do
   skill_src="/home/openclaw/crypto-claw/agents/research/skills/$skill/SKILL.md"
   if [ -f "$skill_src" ]; then
     mkdir -p "$RESEARCH_WS/skills/$skill"
@@ -315,7 +315,12 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   openclaw config set 'agents.defaults.memorySearch' '{"enabled":true,"provider":"local","local":{"modelPath":"hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf"},"query":{"hybrid":{"enabled":true,"vectorWeight":0.7,"textWeight":0.3}},"cache":{"enabled":true}}' --strict-json
   openclaw config set 'agents.defaults.contextPruning' '{"mode":"cache-ttl","ttl":"5m"}' --strict-json
   openclaw config set 'agents.defaults.sandbox.mode' 'off'
-  openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"open"}' --strict-json
+  if [ "${ENABLE_CHANNELS:-false}" = "true" ] && [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+    openclaw config set 'channels.telegram' '{"enabled":true,"groupPolicy":"open"}' --strict-json
+    echo "[entrypoint]   Telegram channel enabled (ENABLE_CHANNELS=true)"
+  else
+    openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"open"}' --strict-json
+  fi
   echo "[entrypoint]   Memory: flush at compaction, hybrid search enabled, context pruning 5m TTL"
 
   echo "[entrypoint] First-run configuration complete"
@@ -486,7 +491,27 @@ run_wallet_scoring_loop() {
 }
 
 # ============================================================
-# 5f. Executor background loop
+# 5f. Multisig transaction tracker (real mode only)
+#     Monitors queued Safe/Squads transactions every 5 minutes.
+#     Confirms or reverts draft/pending_exit positions.
+#     No LLM needed — deterministic script.
+# ============================================================
+
+run_multisig_tracker_loop() {
+  if [ "${PAPER_MODE:-false}" = "true" ]; then
+    return  # paper mode has no multisig transactions
+  fi
+  sleep 120  # wait for startup
+  while true; do
+    SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" \
+      node "$EXECUTOR_WS/scripts/track-multisig.js" 2>&1 | \
+      sed 's/^/[multisig-tracker] /'
+    sleep 300  # 5 minutes
+  done
+}
+
+# ============================================================
+# 5g. Executor background loop
 #     Pre-checks DB for pending orders before invoking the agent.
 #     Includes model fallback and emergency mode on repeated failures.
 # ============================================================
@@ -631,6 +656,7 @@ run_sentinel_loop() {
 echo "[entrypoint] Starting OpenClaw gateway..."
 run_memory_backup_loop &
 run_wallet_scoring_loop &
+run_multisig_tracker_loop &
 run_executor_loop &
 run_sentinel_loop &
 ensure_cron_jobs &

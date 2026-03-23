@@ -139,9 +139,11 @@ Reply APPROVE or REJECT
    - **If moonshot tier is underweight:** Normal discovery pipeline handles this
 8. If paper mode: auto-approve. If real mode: send rebalance proposal to human
 
-## After Human Approval
+## Writing Orders to Database
 
-When the human replies APPROVE, write the trade to the database for the Executor agent to pick up:
+After formatting the trade proposal, write the order to the database. The `add-order` command automatically sets the correct status:
+- **Paper mode** (`PAPER_MODE=true`): auto-approved (`status: 'approved'`, `approved_by: 'paper_mode'`)
+- **Real mode**: pending human approval (`status: 'pending'`)
 
 ```bash
 node scripts/db-query.js add-order --json '{
@@ -158,13 +160,16 @@ node scripts/db-query.js add-order --json '{
   "take_profit_levels": "[{\"level\":1,\"price\":0.002,\"sellPercent\":50}]",
   "analysis_score": 76,
   "risk_score": 20,
-  "reasoning": "...",
-  "approved": 1,
-  "approved_at": "<ISO-8601>"
+  "reasoning": "..."
 }'
 ```
 
-The Executor agent polls for pending approved trades every minute, validates independently, builds the Safe wallet transaction, signs, and submits. You do NOT execute trades directly — the Executor handles all wallet operations.
+**After writing a pending order (real mode), notify the human:**
+```bash
+node scripts/send-alert.js --type trade_proposal --agent research --message "BUY $TOKEN on base — $500 (4% moonshot) — score: 76. Reply to approve or reject."
+```
+
+The human approves or rejects via chat (orders skill). The Executor agent polls for approved orders every minute, validates independently, builds the Safe wallet transaction, signs, and submits. You do NOT execute trades directly — the Executor handles all wallet operations.
 
 Check execution results later via:
 ```bash

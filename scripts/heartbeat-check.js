@@ -37,22 +37,17 @@ try {
         `
       SELECT
         SUM(CASE WHEN action='sell' THEN 1 ELSE 0 END) as sell_count,
-        SUM(CASE WHEN action='buy' AND approved = 1 THEN 1 ELSE 0 END) as buy_count
-      FROM orders WHERE executed = 0
+        SUM(CASE WHEN action='buy' AND status = 'approved' THEN 1 ELSE 0 END) as buy_count
+      FROM orders WHERE status IN ('pending', 'approved', 'failed')
     `,
       )
       .get();
     const pendingSells = counts.sell_count || 0;
     const pendingBuys = counts.buy_count || 0;
 
-    let pendingSafe = 0;
-    if (!paperMode) {
-      pendingSafe = db
-        .prepare("SELECT COUNT(*) as count FROM receipts WHERE status IN ('queued_in_safe', 'queued_in_squads')")
-        .get().count;
-    }
+    // Queued multisig transactions are tracked by track-multisig.js background job — not the executor agent
 
-    if (pendingSells === 0 && pendingBuys === 0 && pendingSafe === 0) {
+    if (pendingSells === 0 && pendingBuys === 0) {
       console.log(JSON.stringify({ agent: 'executor', skip: true, reason: 'no pending orders' }));
     } else {
       console.log(
@@ -61,7 +56,6 @@ try {
           skip: false,
           pending_sells: pendingSells,
           pending_buys: pendingBuys,
-          ...(pendingSafe > 0 ? { pending_safe: pendingSafe } : {}),
         }),
       );
     }
