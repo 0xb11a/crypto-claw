@@ -21,7 +21,6 @@ import { NARRATIVES, getAllIds } from './narrative-config.js';
 import { getActiveChains, getStablecoins } from './chains.js';
 
 const DEXSCREENER_SEARCH = 'https://api.dexscreener.com/latest/dex/search';
-const DEXSCREENER_TOKENS = 'https://api.dexscreener.com/tokens/v1';
 const API_DELAY = 300; // ms between API calls
 
 function parseArgs() {
