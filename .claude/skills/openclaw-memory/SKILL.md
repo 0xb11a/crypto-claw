@@ -17,7 +17,7 @@ When diagnosing memory issues, identify which layer failed:
 
 1. **Bootstrap files** (`SOUL.md`, `AGENTS.md`, `USER.md`, `MEMORY.md`, `TOOLS.md`, and optionally `IDENTITY.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`) — loaded from disk at session start, survive compaction because they're reloaded from disk each turn. Most durable layer.
 2. **Session transcript** — conversation saved as JSONL on disk, but gets compacted (summarized) when context fills. The model loses access to original messages after compaction. Sessions reset daily at 4:00 AM local time.
-3. **LLM context window** — the ~200K token container where system prompt, workspace files, conversation history, and tool results all compete for space. When full, compaction fires.
+3. **LLM context window** — the token container (size depends on model: 200K for Haiku, 400K for GPT-5.4 Mini, 500K for Sonnet, 1.05M for GPT-5.4) where system prompt, workspace files, conversation history, and tool results all compete for space. When full, compaction fires.
 4. **Retrieval index** — searchable layer beside memory files, queried via `memory_search` / `memory_get`. Only works if information was written to files first.
 
 ## Three Failure Modes
@@ -77,10 +77,10 @@ When helping users configure memory, use these recommended settings for `~/.open
 
 Configure in `agents.defaults.compaction` in `openclaw.json`. Key fields: `reserveTokensFloor` (headroom for flush + summary), `memoryFlush.enabled` (must be `true`), `memoryFlush.softThresholdTokens` (trigger distance before floor).
 
-Flush triggers at: `context_window - reserveTokensFloor - softThresholdTokens`. With 200K window and recommended settings: 200,000 - 40,000 - 4,000 = **156K tokens**.
+Flush triggers at: `context_window - reserveTokensFloor - softThresholdTokens`. The context window size comes from the model's `contextWindow` in the provider config. With CryptoClaw's recommended settings (80K reserve, 8K threshold): GPT-5.4 Mini (400K) flushes at **312K tokens**, GPT-5.4 (1.05M) at **962K tokens**.
 
 **Tuning guidance:**
-- `reserveTokensFloor: 40000` is a practical starting point (default of 20K is often insufficient). If the user rarely uses big tools, it can go lower. If they read large files or web snapshots regularly, go higher.
+- `reserveTokensFloor: 80000` is the CryptoClaw recommended value (safe for GPT-5.4 Mini's 400K window). For 200K-window models, 40000 is fine. Scale proportionally to the model's context window.
 - The exact number matters less than the principle: give the flush enough room to fire before overflow.
 - The automated flush is a safety net, not a guarantee. It can be bypassed by large single-turn token jumps.
 
@@ -256,7 +256,7 @@ Keep workspace files stable and `MEMORY.md` small for maximum cache efficiency.
 Whenever wrapping up a memory-related conversation, reinforce these five principles:
 
 1. **Files are memory.** Not on disk = doesn't exist.
-2. **Verify and tune the flush.** `reserveTokensFloor: 40000`.
+2. **Verify and tune the flush.** `reserveTokensFloor: 80000` (CryptoClaw default).
 3. **Compact proactively.** `/compact` mid-session, on your terms.
 4. **Search before acting.** Put this rule in `AGENTS.md`.
 5. **Pruning is your friend.** Compaction is what hurts.

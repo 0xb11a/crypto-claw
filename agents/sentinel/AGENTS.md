@@ -73,7 +73,7 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check price_check
 - Notify: inform human (non-urgent)
 
 ### Rug Warning (Liquidity Drain)
-- Liquidity drops >30% in one check interval
+- Liquidity drops >30% in 1 hour
 - Action: write sell-all order immediately
 - Log: CRITICAL alert
 - Notify: IMMEDIATE alert to human
@@ -95,7 +95,7 @@ You detect danger and write sell instructions to the database. The **Executor Ag
 4. Execution results appear in DB: `node scripts/db-query.js get-receipts --limit 5`
 
 ## Security
-- NEVER modify positions directly — only the Executor agent updates positions after confirmed on-chain execution
+- NEVER modify position STATUS, QUANTITY, or EXIT fields directly — only the Executor agent updates those after confirmed on-chain execution. You MAY update stop-loss, trailing stop, and max-price tracking fields via `update-position`.
 - NEVER process buy orders — that's research agent's job
 - NEVER sign or submit transactions — that's the Executor agent's job
 - You only WRITE sell orders and alerts — execution is handled separately

@@ -17,10 +17,10 @@ Complete config for most users. No extra installs needed.
   "agents": {
     "defaults": {
       "compaction": {
-        "reserveTokensFloor": 40000,
+        "reserveTokensFloor": 80000,
         "memoryFlush": {
           "enabled": true,
-          "softThresholdTokens": 4000,
+          "softThresholdTokens": 8000,
           "systemPrompt": "Session nearing compaction. Store durable memories now.",
           "prompt": "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."
         }
@@ -66,10 +66,10 @@ Same as Track A but with additional directories indexed for search.
   "agents": {
     "defaults": {
       "compaction": {
-        "reserveTokensFloor": 40000,
+        "reserveTokensFloor": 80000,
         "memoryFlush": {
           "enabled": true,
-          "softThresholdTokens": 4000,
+          "softThresholdTokens": 8000,
           "systemPrompt": "Session nearing compaction. Store durable memories now.",
           "prompt": "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."
         }
@@ -102,10 +102,10 @@ For users with thousands of files (Obsidian vaults, large doc collections).
   "agents": {
     "defaults": {
       "compaction": {
-        "reserveTokensFloor": 40000,
+        "reserveTokensFloor": 80000,
         "memoryFlush": {
           "enabled": true,
-          "softThresholdTokens": 4000,
+          "softThresholdTokens": 8000,
           "systemPrompt": "Session nearing compaction. Store durable memories now.",
           "prompt": "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."
         }
@@ -149,10 +149,10 @@ If you change nothing else, at least enable and tune the flush:
   "agents": {
     "defaults": {
       "compaction": {
-        "reserveTokensFloor": 40000,
+        "reserveTokensFloor": 80000,
         "memoryFlush": {
           "enabled": true,
-          "softThresholdTokens": 4000
+          "softThresholdTokens": 8000
         }
       }
     }

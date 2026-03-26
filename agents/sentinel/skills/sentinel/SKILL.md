@@ -19,7 +19,7 @@ Guardian of the portfolio. Watch every open position for danger. React faster th
 ```bash
 echo "=== SENTINEL CONFIG ==="
 echo "PAPER_MODE=${PAPER_MODE:-false}"
-echo "ACTIVE_CHAINS=${ACTIVE_CHAINS:-base}"
+echo "ACTIVE_CHAINS=${ACTIVE_CHAINS:-base,solana}"
 echo "======================"
 ```
 Read the output. This determines your entire cycle:
@@ -43,10 +43,20 @@ node scripts/check-positions.js
 | Condition | Severity | Action |
 |-----------|----------|--------|
 | Price hit stop-loss | CRITICAL | Write sell_all order to DB |
-| Price hit TP level | HIGH | Write partial sell order to DB |
+| Moonshot TP1 hit (2x) | HIGH | Write sell 50% order, reason: `tp1_hit` |
+| Moonshot TP2 hit (4x) | HIGH | Write sell 25% order, reason: `tp2_hit` |
+| Moonshot TP3 hit (8x) | HIGH | Write sell 15% order, reason: `tp3_hit` |
+| Conviction TP1 hit (1.5x) | HIGH | Write sell 35% order, reason: `tp1_hit` |
+| Conviction TP2 hit (2.5x) | HIGH | Write sell 35% order, reason: `tp2_hit` |
+| Conviction TP3 hit (4x) | HIGH | Write sell 20% order, reason: `tp3_hit` |
+| Trailing stop triggered | CRITICAL | Write sell_all order, reason: `trailing_stop_hit` |
 | Price dropped >20% in 1 check | HIGH | Alert Research, reassess |
 | Price dropped >40% since entry | CRITICAL | Write sell order to DB |
 | Price up >100% with no fundamentals change | MEDIUM | Alert Research, consider partial profit |
+
+**After TP1 hit**: Move SL to breakeven (entry price) by updating the position.
+**After TP2 hit**: Activate trailing stop (moonshot: 30%, conviction: 20%) below max price since entry.
+**Trailing stop check**: On every price check, if trailing active and `currentPrice < maxPrice * (1 - trailPct)` → write sell_all order.
 
 ### Liquidity Monitoring
 ```bash
@@ -117,6 +127,7 @@ When a CRITICAL or HIGH condition triggers a sell, write the order to the databa
 
 ```bash
 node scripts/db-query.js add-order --json '{
+  "id": "sell-<timestamp>",
   "action": "sell",
   "symbol": "TOKEN",
   "address": "<token_address>",
@@ -130,6 +141,7 @@ node scripts/db-query.js add-order --json '{
 For partial sells (e.g., take-profit levels):
 ```bash
 node scripts/db-query.js add-order --json '{
+  "id": "sell-<timestamp>",
   "action": "sell",
   "symbol": "TOKEN",
   "address": "<token_address>",

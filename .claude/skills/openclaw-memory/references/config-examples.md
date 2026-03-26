@@ -17,10 +17,10 @@ Complete config for most users. No extra installs needed.
   "agents": {
     "defaults": {
       "compaction": {
-        "reserveTokensFloor": 40000,
+        "reserveTokensFloor": 80000,
         "memoryFlush": {
           "enabled": true,
-          "softThresholdTokens": 4000,
+          "softThresholdTokens": 8000,
           "systemPrompt": "Session nearing compaction. Store durable memories now.",
           "prompt": "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."
         }
@@ -52,8 +52,10 @@ Complete config for most users. No extra installs needed.
 ```
 
 **Flush trigger point calculation:**
-- Context window (200,000) - reserveTokensFloor (40,000) - softThresholdTokens (4,000) = **156,000 tokens**
-- At 156K tokens used, the flush fires automatically
+- Formula: Context window - reserveTokensFloor (80,000) - softThresholdTokens (8,000)
+- GPT-5.4 Mini (400K): 400,000 - 80,000 - 8,000 = **312,000 tokens**
+- GPT-5.4 (1.05M): 1,050,000 - 80,000 - 8,000 = **962,000 tokens**
+- The context window size is set per model via `contextWindow` in the provider config
 
 ---
 
@@ -66,10 +68,10 @@ Same as Track A but with additional directories indexed for search.
   "agents": {
     "defaults": {
       "compaction": {
-        "reserveTokensFloor": 40000,
+        "reserveTokensFloor": 80000,
         "memoryFlush": {
           "enabled": true,
-          "softThresholdTokens": 4000,
+          "softThresholdTokens": 8000,
           "systemPrompt": "Session nearing compaction. Store durable memories now.",
           "prompt": "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."
         }
@@ -102,10 +104,10 @@ For users with thousands of files (Obsidian vaults, large doc collections).
   "agents": {
     "defaults": {
       "compaction": {
-        "reserveTokensFloor": 40000,
+        "reserveTokensFloor": 80000,
         "memoryFlush": {
           "enabled": true,
-          "softThresholdTokens": 4000,
+          "softThresholdTokens": 8000,
           "systemPrompt": "Session nearing compaction. Store durable memories now.",
           "prompt": "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."
         }
@@ -149,10 +151,10 @@ If you change nothing else, at least enable and tune the flush:
   "agents": {
     "defaults": {
       "compaction": {
-        "reserveTokensFloor": 40000,
+        "reserveTokensFloor": 80000,
         "memoryFlush": {
           "enabled": true,
-          "softThresholdTokens": 4000
+          "softThresholdTokens": 8000
         }
       }
     }

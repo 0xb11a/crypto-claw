@@ -16,7 +16,7 @@ import { describe, test, assert, assertEqual, summary } from './test-helpers.js'
 // ============================================================
 
 function validatePositionSize(percentOfPortfolio, tier, chainRules = null) {
-  const defaults = { moonshot: 5, conviction: 10, base: 50 };
+  const defaults = { moonshot: 5, conviction: 10, base: 30 };
   const limits = chainRules
     ? {
         moonshot: chainRules.maxMoonshotPosition,
@@ -36,7 +36,7 @@ function validateAllocation(currentAllocation, newPositionTier, newPositionPerce
   const after = { ...currentAllocation };
   after[newPositionTier] = (after[newPositionTier] || 0) + newPositionPercent;
 
-  if (after.moonshot > 20) return { valid: false, reason: `Moonshot allocation ${after.moonshot}% exceeds 20%` };
+  if (after.moonshot > 30) return { valid: false, reason: `Moonshot allocation ${after.moonshot}% exceeds 30%` };
   if (after.cash < 10) return { valid: false, reason: `Cash reserve ${after.cash}% below 10% minimum` };
   return { valid: true };
 }
@@ -90,13 +90,13 @@ describe('Position Size Limits', () => {
     assert(!result.valid, 'Should be rejected');
   });
 
-  test('base at 50% is allowed', () => {
-    const result = validatePositionSize(50, 'base');
+  test('base at 30% is allowed', () => {
+    const result = validatePositionSize(30, 'base');
     assert(result.valid, 'Should be valid');
   });
 
-  test('base at 51% is rejected', () => {
-    const result = validatePositionSize(51, 'base');
+  test('base at 31% is rejected', () => {
+    const result = validatePositionSize(31, 'base');
     assert(!result.valid, 'Should be rejected');
   });
 
@@ -111,15 +111,15 @@ describe('Position Size Limits', () => {
 // ============================================================
 describe('Portfolio Allocation Limits', () => {
   test('adding moonshot within limits is ok', () => {
-    const current = { base: 50, conviction: 25, moonshot: 10, cash: 15 };
+    const current = { base: 25, conviction: 30, moonshot: 20, cash: 25 };
     const result = validateAllocation(current, 'moonshot', 5);
     assert(result.valid, 'Should be valid');
   });
 
-  test('adding moonshot that exceeds 20% is rejected', () => {
-    const current = { base: 50, conviction: 25, moonshot: 18, cash: 7 };
+  test('adding moonshot that exceeds 30% is rejected', () => {
+    const current = { base: 25, conviction: 30, moonshot: 28, cash: 17 };
     const result = validateAllocation(current, 'moonshot', 5);
-    assert(!result.valid, 'Should be rejected — moonshot > 20%');
+    assert(!result.valid, 'Should be rejected — moonshot > 30%');
   });
 
   test('trade that drops cash below 10% is rejected', () => {
@@ -338,12 +338,12 @@ describe('Max Open Positions Limit', () => {
 
 function validateRegimePositionSize(percentOfPortfolio, tier, regime) {
   const regimeLimits = {
-    bullish: { moonshot: 5, conviction: 10, base: 50 },
-    neutral: { moonshot: 5, conviction: 10, base: 50 },
-    bearish: { moonshot: 3, conviction: 7, base: 50 },
-    crisis: { moonshot: 0, conviction: 5, base: 50 },
+    bullish: { moonshot: 5, conviction: 10, base: 30 },
+    neutral: { moonshot: 5, conviction: 10, base: 30 },
+    bearish: { moonshot: 3, conviction: 7, base: 30 },
+    crisis: { moonshot: 0, conviction: 5, base: 30 },
   };
-  const hardLimits = { moonshot: 5, conviction: 10, base: 50 };
+  const hardLimits = { moonshot: 5, conviction: 10, base: 30 };
   const rLimits = regimeLimits[regime] || hardLimits;
   const max = Math.min(rLimits[tier], hardLimits[tier]);
   if (!hardLimits[tier] && hardLimits[tier] !== 0) return { valid: false, reason: `Unknown tier: ${tier}` };
@@ -431,8 +431,8 @@ describe('Per-Chain Portfolio Rules', () => {
   const baseRules = {
     maxMoonshotPosition: 5,
     maxConvictionPosition: 10,
-    maxBasePosition: 50,
-    maxMoonshotAllocation: 20,
+    maxBasePosition: 30,
+    maxMoonshotAllocation: 30,
     minCashReserve: 10,
     maxSameNarrative: 3,
     maxOpenPositions: 15,
@@ -441,7 +441,7 @@ describe('Per-Chain Portfolio Rules', () => {
   const solanaRules = {
     maxMoonshotPosition: 7,
     maxConvictionPosition: 10,
-    maxBasePosition: 50,
+    maxBasePosition: 30,
     maxMoonshotAllocation: 30,
     minCashReserve: 10,
     maxSameNarrative: 3,
@@ -457,10 +457,10 @@ describe('Per-Chain Portfolio Rules', () => {
   });
 
   test('Solana moonshot allocation does not affect Base moonshot limit', () => {
-    // Each chain is independent — Solana's 30% moonshot alloc doesn't change Base's 20%
-    const baseAlloc = { base: 50, conviction: 20, moonshot: 18, cash: 12 };
+    // Each chain is independent — both now have 30% moonshot alloc limit
+    const baseAlloc = { base: 25, conviction: 25, moonshot: 28, cash: 22 };
     const result = validateAllocation(baseAlloc, 'moonshot', 5);
-    assert(!result.valid, 'Base moonshot alloc 23% > 20% should be rejected');
+    assert(!result.valid, 'Base moonshot alloc 33% > 30% should be rejected');
   });
 
   test('Solana rejects base-tier buy proposals', () => {

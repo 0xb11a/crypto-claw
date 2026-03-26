@@ -10,11 +10,11 @@ CryptoClaw is a three-agent crypto research and portfolio management system buil
 
 Three agents communicate through a shared SQLite database:
 
-- **Research Agent** (`agents/research/`) — Runs on GPT-5.4-mini, 30-minute heartbeat. Handles discovery, market checks, trade proposals. Spawns Sonnet sub-agents for deep analysis and risk assessment. Has 4 skills: discovery, analyst, risk, portfolio.
-- **Sentinel Agent** (`agents/sentinel/`) — Runs on GPT-5.4-mini, 10-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders to the unified orders table. Has 1 skill: sentinel.
-- **Executor Agent** (`agents/executor/`) — Runs on GPT-5.4-mini, 1-minute heartbeat. Reads orders (buy and sell), validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
+- **Research Agent** (`agents/research/`) — Runs on GPT-5.4 via Codex OAuth, 30-minute heartbeat. Handles discovery, market checks, trade proposals. Handles all skills directly (analysis, risk, portfolio). Has 4 skills: discovery, analyst, risk, portfolio.
+- **Sentinel Agent** (`agents/sentinel/`) — Runs on GPT-5.4 via Codex OAuth, 10-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders to the unified orders table. Has 1 skill: sentinel.
+- **Executor Agent** (`agents/executor/`) — Runs on GPT-5.4 via Codex OAuth, 1-minute heartbeat. Reads orders (buy and sell), validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
 - **Ollama Cloud** — Some agents might use Ollama Cloud's API (`https://ollama.com/api/chat`). No sidecar needed — OpenClaw's built-in Ollama provider sends `OLLAMA_API_KEY` as a Bearer token directly.
-- **Model Routing** — Research runs on Claude Haiku 4.5 by default; Sentinel and Executor run on GPT-5.4-mini (configured via `RESEARCH_MODEL`/`SENTINEL_MODEL`/`EXECUTOR_MODEL` env vars). For analyst and risk skills, Research spawns Sonnet sub-agents via `sessions_spawn --model`. Configured via `sessions_spawn --model` in AGENTS.md instructions (not OpenClaw config).
+- **Model Routing** — All agents default to OpenAI Codex OAuth provider (ChatGPT subscription, flat fee): all three agents on GPT-5.4. Configured via `RESEARCH_MODEL`/`SENTINEL_MODEL`/`EXECUTOR_MODEL` env vars with `openai-codex/` prefix. Falls back to OpenAI API (`openai/` prefix + `OPENAI_API_KEY`) if Codex OAuth not configured. Research handles all skills directly (no sub-agent spawning).
 
 ## Memory System — Two Layers
 
@@ -58,7 +58,7 @@ All agent-to-agent communication goes through the database via `db-query.js`.
 ## Project Structure
 
 ```
-agents/research/          # Research Agent config (AGENTS.md, SOUL.md, HEARTBEAT.md, skills/)
+agents/research/          # Research Agent config (AGENTS.md, SOUL.md, HEARTBEAT.md, TOOLS.md, skills/)
 agents/sentinel/          # Sentinel Agent config (same structure, fewer skills)
 agents/executor/          # Executor Agent config (same structure, 1 skill)
 workspace/                # Shared workspace (copied to all agents by setup.sh)
@@ -66,7 +66,7 @@ workspace/                # Shared workspace (copied to all agents by setup.sh)
   memory/                 # Daily log directory (agent memory)
   USER.md                 # Operator profile (editable)
   IDENTITY.md             # Agent identity
-  TOOLS.md                # Script + db-query.js usage guide
+  TOOLS.md                # Full tool reference (not deployed — per-agent versions in agents/{name}/TOOLS.md)
   BOOT.md                 # First-run setup
 scripts/                  # Node.js scripts
   db.js                   # SQLite data access layer (schema, migrations)
@@ -94,6 +94,7 @@ scripts/                  # Node.js scripts
   narrative-check.js      # Narrative momentum
   holder-distribution.js  # Top holder analysis
   memory-backup.sh        # Git auto-commit for agent memory
+  codex-login.sh          # One-time Codex OAuth login (ChatGPT subscription)
 tests/                    # 9 test suites + runner + helpers
 Dockerfile                # Based on ghcr.io/openclaw/openclaw:latest
 docker-compose.yml        # One-command deployment
@@ -112,7 +113,8 @@ setup.sh                  # Bare-metal installer (deploys agents into OpenClaw d
 | `scripts/db.js` | SQLite schema, migrations, connection management |
 | `scripts/db-query.js` | 35+ CLI commands for agents to interact with wallet data |
 | `scripts/chains.js` | Centralized chain config — Safe/Squads env vars, portfolio rules, cash tokens |
-| `workspace/TOOLS.md` | CLI usage for every script + db-query.js — check this before modifying |
+| `agents/{name}/TOOLS.md` | Per-agent CLI usage guide — each agent gets only the commands/scripts it uses |
+| `workspace/TOOLS.md` | Full tool reference (not deployed) — check this for the complete picture |
 | `setup.sh` | Understand this to know how files get deployed to OpenClaw |
 
 ## Commands
@@ -150,9 +152,6 @@ docker compose down             # Stop
 PAPER_MODE=true docker compose up -d
 PAPER_MODE=true PAPER_STARTING_BALANCE=5000 docker compose up -d
 
-# Override to run Research on Sonnet (full quality, higher cost)
-RESEARCH_MODEL=anthropic/claude-sonnet-4-6 docker compose up -d
-
 # Manual setup (without Docker)
 SAFE_ID=my-fund ./setup.sh                      # Deploy agents to OpenClaw
 SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup system cron
@@ -179,6 +178,7 @@ SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup sy
 - **SAFE_ID** env var determines which database file is used. One DB per fund/wallet.
 - **Solana wallet config:** `SQUADS_VAULT_ADDRESS` (direct vault) takes priority over `SQUADS_MULTISIG_ADDRESS` (vault derived from multisig PDA). Set at least one for Solana.
 - **OLLAMA_API_KEY** env var authenticates with Ollama Cloud model access.
+- **OpenAI auth** supports two methods (priority order): (1) OpenAI Codex OAuth via ChatGPT subscription (flat fee, `openai-codex/` prefix) — setup: `docker compose exec crypto-claw openclaw models auth login --provider openai-codex`, (2) `OPENAI_API_KEY` static API key (per-token billing, `openai/` prefix).
 
 ## Safety Rules (Do Not Weaken)
 
@@ -186,7 +186,8 @@ These limits are intentionally strict and must not be relaxed:
 
 - Max moonshot position: 5% of portfolio
 - Max conviction position: 10%
-- Max total moonshot allocation: 20%
+- Max base position: 30%
+- Max total moonshot allocation: 30%
 - Min cash reserve: 10%
 - Max same-narrative positions: 3
 - Auto-reject: honeypot, top holder >30%, liquidity <$5k, known scam deployers, pausable contracts
@@ -218,8 +219,8 @@ Paper mode (`PAPER_MODE=true`) runs the full system autonomously without touchin
 
 ## When Modifying
 
-- **Adding a new script:** Add it to `scripts/`, document it in `workspace/TOOLS.md`, add output validation to `tests/test-scripts.js`, add it to the appropriate agent's copy list in `setup.sh`, and add it to the agent's shell allowlist in `entrypoint.sh` (see per-agent `agents.list[N]` overrides).
-- **Adding a new DB table:** Add a migration in `scripts/db.js` (increment migration number), add CLI commands in `db-query.js`, add schema tests to `tests/test-memory.js`, document commands in `workspace/TOOLS.md`.
+- **Adding a new script:** Add it to `scripts/`, document it in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md` (per-agent reference), add output validation to `tests/test-scripts.js`, add it to the appropriate agent's copy list in `setup.sh` and `build-templates.sh`, and add it to the agent's shell allowlist in `entrypoint.sh` (see per-agent `agents.list[N]` overrides).
+- **Adding a new DB table:** Add a migration in `scripts/db.js` (increment migration number), add CLI commands in `db-query.js`, add schema tests to `tests/test-memory.js`, document commands in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md`.
 - **Changing safety rules:** Update `agents/research/AGENTS.md` AND `agents/executor/AGENTS.md` (if execution-related) AND `tests/test-safety.js` AND `tests/test-executor.js` — tests enforce the exact limits.
 - **Adding a fourth agent:** Follow the pattern in `agents/executor/` — create a directory with AGENTS.md, SOUL.md, HEARTBEAT.md, and skills/. Add per-agent config overrides on `agents.list[N]` in `entrypoint.sh` (tools, permissions, memory, compaction — follow least privilege). Add directory creation, file copy, and symlink logic to `setup.sh` and `build-templates.sh`. Add heartbeat_state seeds in the db.js migration. Update `docker-compose.yml` if it needs different resources.
 - **Changing agent tool/permission config:** OpenClaw global config applies to all agents — per-agent tool restriction is enforced by **script deployment** (which .js files each agent gets in its workspace) and **skills directories** (each agent only sees its own skills). Edit `entrypoint.sh` for global settings, `build-templates.sh`/`setup.sh` for per-agent script deployment.

@@ -74,8 +74,10 @@
  *   # Logs
  *   add-sentinel-log --json '<json>'
  *   add-executor-log --json '<json>'
+ *   add-research-log --json '<json>'
  *   get-sentinel-log [--limit 50]
  *   get-executor-log [--limit 50]
+ *   get-research-log [--limit 50]
  *
  *   # Trade history
  *   add-trade --json '<json>'
@@ -265,11 +267,17 @@ function handle(db, cmd) {
         'pnl_percent',
         'pnl_usd',
         'exit_reason',
+        'max_price_since_entry',
+        'trailing_stop_pct',
+        'trailing_stop_active',
+        'tp_levels_hit',
       ]);
       const fields = Object.keys(updates).filter((f) => allowed.has(f));
       if (fields.length === 0) error('No valid fields to update');
       const setClauses = fields.map((f) => `${f} = ?`).join(', ');
-      const values = fields.map((f) => (f === 'take_profit_levels' ? JSON.stringify(updates[f]) : updates[f]));
+      const values = fields.map((f) =>
+        f === 'take_profit_levels' || f === 'tp_levels_hit' ? JSON.stringify(updates[f]) : updates[f],
+      );
       db.prepare(`UPDATE positions SET ${setClauses}, updated_at = datetime('now') WHERE id = ?`).run(...values, id);
       output({ ok: true, id });
       break;
@@ -1055,6 +1063,30 @@ function handle(db, cmd) {
       output(db.prepare('SELECT * FROM executor_log ORDER BY created_at DESC LIMIT ?').all(limit));
       break;
     }
+    case 'add-research-log': {
+      const l = parseJson();
+      db.prepare(
+        `INSERT INTO research_log (check_type, tokens_scanned, tokens_analyzed, trades_proposed,
+          alerts_processed, watchlist_hits, summary, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        l.check_type,
+        l.tokens_scanned || 0,
+        l.tokens_analyzed || 0,
+        l.trades_proposed || 0,
+        l.alerts_processed || 0,
+        l.watchlist_hits || 0,
+        l.summary || null,
+        l.status || 'ok',
+      );
+      output({ ok: true });
+      break;
+    }
+    case 'get-research-log': {
+      const limit = parseInt(getArg('limit') || '50');
+      output(db.prepare('SELECT * FROM research_log ORDER BY created_at DESC LIMIT ?').all(limit));
+      break;
+    }
 
     // ============================================================
     // Trade history
@@ -1241,11 +1273,17 @@ function handle(db, cmd) {
         'pnl_percent',
         'pnl_usd',
         'exit_reason',
+        'max_price_since_entry',
+        'trailing_stop_pct',
+        'trailing_stop_active',
+        'tp_levels_hit',
       ]);
       const fields = Object.keys(updates).filter((f) => allowed.has(f));
       if (fields.length === 0) error('No valid fields to update');
       const setClauses = fields.map((f) => `${f} = ?`).join(', ');
-      const values = fields.map((f) => (f === 'take_profit_levels' ? JSON.stringify(updates[f]) : updates[f]));
+      const values = fields.map((f) =>
+        f === 'take_profit_levels' || f === 'tp_levels_hit' ? JSON.stringify(updates[f]) : updates[f],
+      );
       db.prepare(`UPDATE paper_positions SET ${setClauses}, updated_at = datetime('now') WHERE id = ?`).run(
         ...values,
         id,

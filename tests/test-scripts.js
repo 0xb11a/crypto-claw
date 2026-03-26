@@ -268,25 +268,86 @@ describe('portfolio-summary.js', () => {
 // narrative-check.js
 // ============================================================
 describe('narrative-check.js', () => {
-  testAsync('returns narrative data for all narratives', async () => {
+  testAsync('returns narrative data for all 26 narratives', async () => {
     const result = runScript('narrative-check.js');
     assert(result.parsed !== null, 'Output must be valid JSON');
     if (result.parsed?.status === 'ok') {
       assert(Array.isArray(result.parsed.narratives), 'narratives must be array');
-      assert(result.parsed.narratives.length > 0, 'Should have at least one narrative');
+      assert(result.parsed.narratives.length >= 26, 'Should have at least 26 narratives');
+      assertType(result.parsed.narrativeCount, 'number', 'narrativeCount must be number');
       const n = result.parsed.narratives[0];
-      assert(n.narrative, 'Narrative must have name');
+      assert(n.narrative, 'Narrative must have id');
+      assert(n.narrativeName, 'Narrative must have name');
+      assert(n.category, 'Narrative must have category');
+      assert(n.tierAffinity, 'Narrative must have tierAffinity');
       assert(n.momentum, 'Narrative must have momentum');
+      assert(Array.isArray(result.parsed.hottest), 'hottest must be array');
+      assert(Array.isArray(result.parsed.warming), 'warming must be array');
+      assert(Array.isArray(result.parsed.rotations), 'rotations must be array');
     }
   });
 
   testAsync('filters by specific narrative', async () => {
-    const result = runScript('narrative-check.js', '--narrative ai');
+    const result = runScript('narrative-check.js', '--narrative ai_infra');
     assert(result.parsed !== null, 'Output must be valid JSON');
     if (result.parsed?.status === 'ok') {
       assertEqual(result.parsed.narratives.length, 1, 'Should return exactly one narrative');
-      assertEqual(result.parsed.narratives[0].narrative, 'ai', 'Should be ai narrative');
+      assertEqual(result.parsed.narratives[0].narrative, 'ai_infra', 'Should be ai_infra narrative');
     }
+  });
+
+  testAsync('rejects unknown narrative', async () => {
+    const result = runScript('narrative-check.js', '--narrative nonexistent_xyz');
+    assert(!result.success, 'Should fail for unknown narrative');
+  });
+});
+
+// ============================================================
+// narrative-deep-scan.js
+// ============================================================
+describe('narrative-deep-scan.js', () => {
+  testAsync('errors without --narrative flag', async () => {
+    const result = runScript('narrative-deep-scan.js', '');
+    assert(!result.success, 'Should fail without --narrative');
+  });
+
+  testAsync('returns ranked tokens for single narrative (quick mode)', async () => {
+    const result = runScript('narrative-deep-scan.js', '--narrative defi --quick');
+    assert(result.parsed !== null, 'Output must be valid JSON');
+    if (result.parsed?.status === 'ok') {
+      assertEqual(result.parsed.narrative, 'defi', 'Should be defi narrative');
+      assertEqual(result.parsed.mode, 'quick', 'Mode should be quick');
+      assert(result.parsed.narrativeName, 'Must have narrativeName');
+      assert(result.parsed.category, 'Must have category');
+      assert(result.parsed.tierAffinity, 'Must have tierAffinity');
+      assert(result.parsed.momentum, 'Must have momentum');
+      assertType(result.parsed.candidatesFound, 'number', 'candidatesFound must be number');
+      assert(Array.isArray(result.parsed.tokens), 'tokens must be array');
+      assert(result.parsed.tokens.length <= 3, 'Quick mode should return max 3 tokens');
+      if (result.parsed.tokens.length > 0) {
+        const t = result.parsed.tokens[0];
+        assertEqual(t.rank, 1, 'First token rank should be 1');
+        assert(t.address, 'Token must have address');
+        assert(t.chain, 'Token must have chain');
+        assert(t.symbol, 'Token must have symbol');
+        assertType(t.score, 'number', 'score must be number');
+        assert(t.suggestedTier, 'Token must have suggestedTier');
+        assert(['moonshot', 'conviction'].includes(t.suggestedTier), 'suggestedTier must be moonshot or conviction');
+      }
+    }
+  });
+
+  testAsync('respects --limit flag', async () => {
+    const result = runScript('narrative-deep-scan.js', '--narrative memecoin --quick --limit 1');
+    assert(result.parsed !== null, 'Output must be valid JSON');
+    if (result.parsed?.status === 'ok') {
+      assert(result.parsed.tokens.length <= 1, 'Should not exceed limit of 1');
+    }
+  });
+
+  testAsync('rejects unknown narrative', async () => {
+    const result = runScript('narrative-deep-scan.js', '--narrative nonexistent_xyz');
+    assert(!result.success, 'Should fail for unknown narrative');
   });
 });
 

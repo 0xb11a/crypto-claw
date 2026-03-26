@@ -7,7 +7,12 @@
  */
 
 import { describe, test, assert, assertEqual, summary } from './test-helpers.js';
-import { classifyRegime, getRegimeAdjustments, shouldTransition } from '../scripts/market-regime.js';
+import {
+  classifyRegime,
+  getRegimeAdjustments,
+  getExitAdjustments,
+  shouldTransition,
+} from '../scripts/market-regime.js';
 
 // ============================================================
 // Hard limits from AGENTS.md — these must NEVER be relaxed
@@ -16,8 +21,8 @@ const HARD_LIMITS = {
   minCashReserve: 10,
   maxMoonshotPosition: 5,
   maxConvictionPosition: 10,
-  maxBasePosition: 50,
-  maxMoonshotAllocation: 20,
+  maxBasePosition: 30,
+  maxMoonshotAllocation: 30,
 };
 
 // ============================================================
@@ -80,8 +85,8 @@ describe('Regime Adjustments', () => {
     assertEqual(adj.baseBuyingEnabled, true);
     assertEqual(adj.maxMoonshotPosition, 5);
     assertEqual(adj.maxConvictionPosition, 10);
-    assertEqual(adj.maxBasePosition, 50);
-    assertEqual(adj.maxMoonshotAllocation, 20);
+    assertEqual(adj.maxBasePosition, 30);
+    assertEqual(adj.maxMoonshotAllocation, 30);
     assertEqual(adj.minBuyScore, 50);
   });
 
@@ -91,7 +96,7 @@ describe('Regime Adjustments', () => {
     assertEqual(adj.baseBuyingEnabled, true);
     assertEqual(adj.maxMoonshotPosition, 5);
     assertEqual(adj.maxConvictionPosition, 10);
-    assertEqual(adj.maxBasePosition, 50);
+    assertEqual(adj.maxBasePosition, 30);
   });
 
   test('bearish tightens limits', () => {
@@ -100,8 +105,8 @@ describe('Regime Adjustments', () => {
     assertEqual(adj.baseBuyingEnabled, false);
     assertEqual(adj.maxMoonshotPosition, 3);
     assertEqual(adj.maxConvictionPosition, 7);
-    assertEqual(adj.maxBasePosition, 50);
-    assertEqual(adj.maxMoonshotAllocation, 15);
+    assertEqual(adj.maxBasePosition, 30);
+    assertEqual(adj.maxMoonshotAllocation, 20);
     assertEqual(adj.minBuyScore, 65);
   });
 
@@ -111,7 +116,7 @@ describe('Regime Adjustments', () => {
     assertEqual(adj.baseBuyingEnabled, false);
     assertEqual(adj.maxMoonshotPosition, 0);
     assertEqual(adj.maxConvictionPosition, 5);
-    assertEqual(adj.maxBasePosition, 50);
+    assertEqual(adj.maxBasePosition, 30);
     assertEqual(adj.maxMoonshotAllocation, 10);
     assertEqual(adj.minBuyScore, 80);
   });
@@ -259,6 +264,92 @@ describe('Regime Strictness Ordering', () => {
   test('bullish and neutral enable base buying', () => {
     assert(getRegimeAdjustments('bullish').baseBuyingEnabled, 'bullish enables base buying');
     assert(getRegimeAdjustments('neutral').baseBuyingEnabled, 'neutral enables base buying');
+  });
+});
+
+// ============================================================
+// Exit Adjustment Tests
+// ============================================================
+describe('Regime Exit Adjustments', () => {
+  test('bullish widens TP targets', () => {
+    const adj = getExitAdjustments('bullish');
+    assertEqual(adj.regime, 'bullish');
+    assertEqual(adj.tpMultiplier, 1.2);
+    assertEqual(adj.slTightenPct, 0);
+    assertEqual(adj.sellPctAdjust, -10);
+    assertEqual(adj.timeStopDays, 2);
+  });
+
+  test('neutral is baseline (no changes)', () => {
+    const adj = getExitAdjustments('neutral');
+    assertEqual(adj.tpMultiplier, 1.0);
+    assertEqual(adj.slTightenPct, 0);
+    assertEqual(adj.sellPctAdjust, 0);
+    assertEqual(adj.timeStopDays, 0);
+  });
+
+  test('bearish tightens TP targets', () => {
+    const adj = getExitAdjustments('bearish');
+    assertEqual(adj.tpMultiplier, 0.8);
+    assertEqual(adj.slTightenPct, 10);
+    assertEqual(adj.sellPctAdjust, 5);
+    assertEqual(adj.timeStopDays, -1);
+  });
+
+  test('crisis takes profit most aggressively', () => {
+    const adj = getExitAdjustments('crisis');
+    assertEqual(adj.tpMultiplier, 0.6);
+    assertEqual(adj.slTightenPct, 20);
+    assertEqual(adj.sellPctAdjust, 10);
+    assertEqual(adj.timeStopDays, -2);
+  });
+
+  test('TP multiplier strictly decreases bullish > neutral > bearish > crisis', () => {
+    const b = getExitAdjustments('bullish');
+    const n = getExitAdjustments('neutral');
+    const be = getExitAdjustments('bearish');
+    const c = getExitAdjustments('crisis');
+    assert(b.tpMultiplier > n.tpMultiplier, 'bullish > neutral');
+    assert(n.tpMultiplier > be.tpMultiplier, 'neutral > bearish');
+    assert(be.tpMultiplier > c.tpMultiplier, 'bearish > crisis');
+  });
+
+  test('SL tighten % increases with severity', () => {
+    const b = getExitAdjustments('bullish');
+    const be = getExitAdjustments('bearish');
+    const c = getExitAdjustments('crisis');
+    assert(b.slTightenPct <= be.slTightenPct, 'bullish <= bearish');
+    assert(be.slTightenPct <= c.slTightenPct, 'bearish <= crisis');
+  });
+
+  test('sell % adjustment increases with severity', () => {
+    const b = getExitAdjustments('bullish');
+    const n = getExitAdjustments('neutral');
+    const be = getExitAdjustments('bearish');
+    const c = getExitAdjustments('crisis');
+    assert(b.sellPctAdjust < n.sellPctAdjust, 'bullish < neutral');
+    assert(n.sellPctAdjust < be.sellPctAdjust, 'neutral < bearish');
+    assert(be.sellPctAdjust < c.sellPctAdjust, 'bearish < crisis');
+  });
+
+  test('unknown regime falls back to neutral', () => {
+    const adj = getExitAdjustments('unknown');
+    assertEqual(adj.tpMultiplier, 1.0);
+  });
+
+  test('applied moonshot TP1: bullish=2.4x, crisis=1.2x', () => {
+    const baseTp1 = 2.0;
+    const bullish = baseTp1 * getExitAdjustments('bullish').tpMultiplier;
+    const crisis = baseTp1 * getExitAdjustments('crisis').tpMultiplier;
+    assertEqual(parseFloat(bullish.toFixed(1)), 2.4);
+    assertEqual(parseFloat(crisis.toFixed(1)), 1.2);
+  });
+
+  test('applied moonshot SL: bearish tightens -45% to -40.5%', () => {
+    const baseSl = -45;
+    const bearishAdj = getExitAdjustments('bearish');
+    const adjusted = baseSl * (1 - bearishAdj.slTightenPct / 100);
+    assertEqual(adjusted, -40.5);
   });
 });
 

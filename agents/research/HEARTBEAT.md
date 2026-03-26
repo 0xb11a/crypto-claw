@@ -13,12 +13,22 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 | Conviction token scan | every 6 hours | 24/7 |
 | Smart money wallet activity | every 1 hour | 24/7 |
 | Narrative trend check | every 4 hours | 24/7 |
+| Narrative deep scan | every 4 hours | 24/7 |
 | Portfolio rebalance review | every 12 hours | 24/7 |
 | Base tier rebalance check | every 12 hours | 24/7 |
 | Daily P&L summary | every 24 hours | 24/7 |
 | Watchlist entry check | every 1 hour | 24/7 |
 | Portfolio sync (on-chain) | every 6 hours | 24/7 |
 
+## Overlap Guard (run FIRST, before any work)
+
+1. Get the cron job ID: run `openclaw cron list --json`. The output may be a JSON array directly `[...]` or an object with a `jobs` key `{"jobs":[...]}`. Either way, find the entry with `"name": "research-cycle"` and extract its `id`.
+2. Run `openclaw cron runs --id <extracted-id> --json --limit 5`. The output may be a JSON array directly or an object with a `runs` key.
+3. The most recent run in the list is YOU — skip it
+4. If any OTHER run has status `running` or `active`: reply `HEARTBEAT_SKIP: previous run still active (run <id>)` and stop immediately
+5. If any command fails or the output format is unexpected, proceed normally (don't block on guard failure)
+6. If no other run is active → continue to the steps below
+§
 ## How to Run
 
 1. Run `node scripts/db-query.js get-heartbeat --agent research` for last-run timestamps
@@ -27,6 +37,13 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 4. Update timestamp: `node scripts/db-query.js update-heartbeat --agent research --check <check_type>`
 5. **If the check produces discoveries → run the FULL pipeline autonomously: discovery → analysis → risk → trade proposal.** Do not stop after scanning. You decide what to buy — that is your job.
 6. If nothing actionable → reply HEARTBEAT_OK
+7. **Log work summary** (always, even when nothing actionable):
+   ```bash
+   node scripts/db-query.js add-research-log --json '{"check_type":"<CHECK>","tokens_scanned":<N>,"tokens_analyzed":<N>,"trades_proposed":<N>,"alerts_processed":<N>,"watchlist_hits":<N>,"summary":"<one-line summary>","status":"ok"}'
+   ```
+   - `tokens_scanned`: tokens that passed initial filters. `tokens_analyzed`: those that went through the full pipeline.
+   - `summary`: one human-readable sentence, e.g., "Scanned 30 trending tokens, analyzed 2, proposed 1 BUY (AERO moonshot)" or "Market regime unchanged: neutral" or "No actionable alerts"
+   - Set `status` to `"error"` if the check failed partway through
 
 ## Check Details
 
@@ -74,7 +91,16 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 
 **Narrative Trends**
 - Run `node scripts/narrative-check.js`
+- Now checks 26 narratives (was 8) — AI infra, AI agents, DeFi, restaking, LST, yield, RWA, L2, ZK, modular, DePIN, memecoins, gaming, SocialFi, prediction markets, BTC ecosystem, privacy, Telegram/TON, and more
 - Log momentum shifts, update MEMORY.md if narrative changes
+- Check `rotations` array in output — log any narrative rotation events with `[NARRATIVE-ROTATION]` tag
+
+**Narrative Deep Scan**
+- Run AFTER narrative trend check (uses its momentum data)
+- Run `node scripts/narrative-deep-scan.js --narrative all --hot-only --quick`
+- Returns top 3 tokens per hot/warming narrative (lightweight agent mode)
+- For each token in results: run through dedup (Step 1.5 of discovery) then full pipeline (analysis → risk → trade proposal)
+- This is the primary mechanism for narrative-driven discovery — it finds the BEST tokens in each pumping narrative
 
 **Rebalance Review**
 - Check `PAPER_MODE` env var first
@@ -99,7 +125,7 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 
 **Portfolio Sync (On-Chain)**
 - Real mode only — skip entirely if `PAPER_MODE=true`
-- Read active chains from `ACTIVE_CHAINS` env var (default: `base`). For EACH active chain, run the appropriate loader based on chain type:
+- Read active chains from `ACTIVE_CHAINS` env var (default: `base,solana`). For EACH active chain, run the appropriate loader based on chain type:
   - EVM chains: `node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger periodic`
   - Solana chains: `node scripts/portfolio-load-solana.js --chain <CHAIN> --trigger periodic`
 - After sync, check for auto-discovered tokens: `node scripts/db-query.js get-positions --status pending_analysis`

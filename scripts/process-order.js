@@ -26,6 +26,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPaper = process.env.PAPER_MODE === 'true';
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 const STALE_PRICE_THRESHOLD = 0.1; // 10% drift = stale
+const MAX_RETRIES = 3;
+const TRANSIENT_ERRORS = ['Too Many Requests', '429', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'socket hang up'];
 
 // ============================================================
 // CLI
@@ -56,6 +58,31 @@ function loadOrder(db, orderId) {
     }
   }
   return { order };
+}
+
+function isTransientError(errorMsg) {
+  return TRANSIENT_ERRORS.some((pattern) => errorMsg.includes(pattern));
+}
+
+function getRetryCount(db, orderId) {
+  const row = db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(`retry_${orderId}`);
+  return row ? parseInt(row.value, 10) : 0;
+}
+
+function setRetryCount(db, orderId, count) {
+  db.prepare(
+    "INSERT INTO portfolio_meta (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')",
+  ).run(`retry_${orderId}`, String(count), String(count));
+}
+
+function clearRetryCount(db, orderId) {
+  db.prepare('DELETE FROM portfolio_meta WHERE key = ?').run(`retry_${orderId}`);
+}
+
+function markRetry(db, orderId, reason, retryNum) {
+  db.prepare(
+    "UPDATE orders SET status_reason = ?, status_changed_at = datetime('now'), status_changed_by = 'executor' WHERE id = ?",
+  ).run(`retry ${retryNum}/${MAX_RETRIES}: ${reason}`, orderId);
 }
 
 function getPosition(db, address, chain) {
@@ -132,6 +159,9 @@ function executeTrade(order, action) {
     '--max-slippage',
     order.tier === 'moonshot' ? '5' : '2',
   ];
+  if (action === 'buy' && order.tier) {
+    args.push('--tier', order.tier);
+  }
 
   try {
     const raw = execSync(`node ${scriptPath} ${args.join(' ')}`, {
@@ -316,7 +346,21 @@ async function processBuy(db, order) {
 
   // 5. Handle result
   if (tradeResult.status === 'failed') {
-    const reason = `tx_failed: ${tradeResult.error || 'unknown'}`;
+    const errorMsg = tradeResult.error || 'unknown';
+    const reason = `tx_failed: ${errorMsg}`;
+
+    // Transient errors: keep order approved for retry on next heartbeat
+    if (isTransientError(errorMsg)) {
+      const retries = getRetryCount(db, order.id);
+      if (retries < MAX_RETRIES) {
+        setRetryCount(db, order.id, retries + 1);
+        markRetry(db, order.id, errorMsg, retries + 1);
+        sendAlert('trade_retry', `BUY $${order.symbol}: ${errorMsg} — retry ${retries + 1}/${MAX_RETRIES}`);
+        return { ...result, status: 'retry', error: reason, retry: retries + 1, max_retries: MAX_RETRIES };
+      }
+      clearRetryCount(db, order.id);
+    }
+
     const receiptId = writeReceipt(db, order, { ...tradeResult, status: 'tx_failed' }, 'buy');
     markFailed(db, order.id, reason);
     sendAlert('trade_failed', `BUY $${order.symbol}: ${reason}`);
@@ -382,6 +426,7 @@ async function processBuy(db, order) {
   setCash(db, order.chain, newCash);
 
   markExecuted(db, order.id);
+  clearRetryCount(db, order.id);
   sendAlert('trade_executed', `BUY $${order.symbol} on ${order.chain} — $${amount} at $${finalPrice}`);
   syncPortfolio(order.chain);
 
@@ -449,7 +494,21 @@ async function processSell(db, order) {
 
   // 4. Handle result
   if (tradeResult.status === 'failed') {
-    const reason = `tx_failed: ${tradeResult.error || 'unknown'}`;
+    const errorMsg = tradeResult.error || 'unknown';
+    const reason = `tx_failed: ${errorMsg}`;
+
+    // Transient errors: keep order approved for retry on next heartbeat
+    if (isTransientError(errorMsg)) {
+      const retries = getRetryCount(db, order.id);
+      if (retries < MAX_RETRIES) {
+        setRetryCount(db, order.id, retries + 1);
+        markRetry(db, order.id, errorMsg, retries + 1);
+        sendAlert('trade_retry', `SELL $${order.symbol}: ${errorMsg} — retry ${retries + 1}/${MAX_RETRIES}`);
+        return { ...result, status: 'retry', error: reason, retry: retries + 1, max_retries: MAX_RETRIES };
+      }
+      clearRetryCount(db, order.id);
+    }
+
     const receiptId = writeReceipt(db, order, { ...tradeResult, status: 'tx_failed' }, 'sell');
     markFailed(db, order.id, reason);
     sendAlert('trade_failed', `SELL $${order.symbol}: ${reason}`);
@@ -477,6 +536,49 @@ async function processSell(db, order) {
     db.prepare(
       `UPDATE ${posTable} SET quantity = ?, status = 'partial_exit', updated_at = datetime('now') WHERE id = ?`,
     ).run(remainQty, position.id);
+
+    // Trailing stop activation after TP hits
+    const reason = order.reason || '';
+    if (reason === 'tp1_hit') {
+      // After TP1: move SL to breakeven (entry price), record TP1 hit
+      let tpHit = [];
+      try {
+        tpHit = position.tp_levels_hit ? JSON.parse(position.tp_levels_hit) : [];
+      } catch {
+        tpHit = [];
+      }
+      if (!tpHit.includes(1)) tpHit.push(1);
+      db.prepare(
+        `UPDATE ${posTable} SET stop_loss = ?, tp_levels_hit = ?, max_price_since_entry = COALESCE(max_price_since_entry, ?),
+         updated_at = datetime('now') WHERE id = ?`,
+      ).run(position.entry_price, JSON.stringify(tpHit), exitPrice, position.id);
+    } else if (reason === 'tp2_hit') {
+      // After TP2: activate trailing stop
+      const trailPct = position.tier === 'moonshot' ? 30 : 20;
+      let tpHit = [];
+      try {
+        tpHit = position.tp_levels_hit ? JSON.parse(position.tp_levels_hit) : [];
+      } catch {
+        tpHit = [];
+      }
+      if (!tpHit.includes(2)) tpHit.push(2);
+      db.prepare(
+        `UPDATE ${posTable} SET trailing_stop_pct = ?, trailing_stop_active = 1, tp_levels_hit = ?,
+         max_price_since_entry = COALESCE(max_price_since_entry, ?), updated_at = datetime('now') WHERE id = ?`,
+      ).run(trailPct, JSON.stringify(tpHit), exitPrice, position.id);
+    } else if (reason === 'tp3_hit') {
+      let tpHit = [];
+      try {
+        tpHit = position.tp_levels_hit ? JSON.parse(position.tp_levels_hit) : [];
+      } catch {
+        tpHit = [];
+      }
+      if (!tpHit.includes(3)) tpHit.push(3);
+      db.prepare(`UPDATE ${posTable} SET tp_levels_hit = ?, updated_at = datetime('now') WHERE id = ?`).run(
+        JSON.stringify(tpHit),
+        position.id,
+      );
+    }
   } else {
     // Full close
     const pnlUsd = tradeResult.pnlUsd || (exitPrice - position.entry_price) * position.quantity;
@@ -503,6 +605,7 @@ async function processSell(db, order) {
   }
 
   markExecuted(db, order.id);
+  clearRetryCount(db, order.id);
   sendAlert('trade_executed', `SELL $${order.symbol} on ${order.chain} — ${amountStr} at $${exitPrice}`);
   syncPortfolio(order.chain);
 

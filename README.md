@@ -21,9 +21,8 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
    | * Risk          |       |       | * Wallet track  |
    | * Portfolio     |       |       | * Auto-sells    |
    |                 |       |       |                 |
-   | Claude Haiku    |       |       | GPT-5.4-mini    |
-   |  + Sonnet       |       |       |   (10m)         |
-   |  sub-agents     |       |       |                 |
+   | GPT-5.4         |       |       | GPT-5.4         |
+   |                 |       |       |   (10m)         |
    |   (30m)         |       |       |                 |
    +------+----------+       |       +-------+---------+
           |                  |               |
@@ -41,7 +40,7 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
                    | * Sign         |
                    | * Submit       |
                    |                |
-                   | GPT-5.4-mini   |
+                   | GPT-5.4        |
                    |    (1m)        |
                    +------+---------+
                           |
@@ -59,8 +58,8 @@ flowchart TD
     subgraph Research["RESEARCH AGENT · 30m heartbeat"]
         D["1. DISCOVER\nscan-tokens.js\nDEXScreener trending/new/established"]
         DD["2. DEDUP\ncheck-token-status\nSkip: open positions, pending orders,\nwatchlist, cached analysis (24h TTL)"]
-        A["3. ANALYZE\ntoken-metrics.js + check-contract.js\nholder-distribution.js + narrative-check.js\n→ Spawn Sonnet sub-agent\n→ Score 0–100 across 6 dimensions"]
-        R["4. RISK\ncheck-contract.js --deep\n→ Spawn Sonnet sub-agent\n→ Auto-reject critical flags\n→ Market regime modifier\n→ Portfolio concentration checks"]
+        A["3. ANALYZE\ntoken-metrics.js + check-contract.js\nholder-distribution.js + narrative-check.js\n→ Score 0–100 across 6 dimensions"]
+        R["4. RISK\ncheck-contract.js --deep\n→ Auto-reject critical flags\n→ Market regime modifier\n→ Portfolio concentration checks"]
         P["5. PROPOSE\nPosition sizing + stops + TPs\n→ Write orders\n→ Human approval / auto-approve (paper)"]
         D --> DD --> A --> R --> P
     end
@@ -87,7 +86,7 @@ flowchart TD
 
 | | Research | Sentinel | Executor |
 |---|---|---|---|
-| **Model** | Claude Haiku 4.5 + Sonnet sub-agents | GPT-5.4-mini | GPT-5.4-mini |
+| **Model** | GPT-5.4 | GPT-5.4 | GPT-5.4 |
 | **Heartbeat** | 30 min | 10 min | 1 min |
 | **Reads** | positions, receipts, portfolio_meta, analysis_cache, tracked_wallets | positions/paper_positions, liquidity_snapshots, tracked_wallets | orders |
 | **Writes** | orders, trades, watchlist, tracked_wallets, analysis_cache, sentinel_alerts | orders, sentinel_alerts, liquidity_snapshots, sentinel_log | receipts, positions/paper_positions, executor_log, portfolio_meta |
@@ -99,8 +98,8 @@ flowchart TD
 
 | Scenario | Handler | How |
 |---|---|---|
-| New trending token appears | Research | scan-tokens.js → dedup → Sonnet analysis → risk → propose |
-| Token already analyzed (avoid) | Research | check-token-status hits analysis_cache → skip (no Sonnet spawn) |
+| New trending token appears | Research | scan-tokens.js → dedup → analysis → risk → propose |
+| Token already analyzed (avoid) | Research | check-token-status hits analysis_cache → skip (no redundant analysis) |
 | Token is honeypot | Research | check-contract.js detects → auto-reject, cache result |
 | Top holder >30% | Research | holder-distribution.js detects → auto-reject |
 | Liquidity <$5k | Research | token-metrics.js detects → auto-reject |
@@ -175,11 +174,11 @@ flowchart LR
 
 ## Key Design Decisions
 
-**Three agents, clear separation.** Research thinks deeply (Claude Haiku 4.5, spawns Sonnet sub-agents for analysis/risk, 30m heartbeat). Sentinel reacts fast (GPT-5.4-mini, 10m). Executor handles wallet operations (GPT-5.4-mini, 1m).
+**Three agents, clear separation.** Research thinks deeply (GPT-5.4, handles all analysis/risk directly, 30m heartbeat). Sentinel reacts fast (GPT-5.4, 10m). Executor handles wallet operations (GPT-5.4, 1m).
 
-**Cost-optimized model routing.** Research runs on Claude Haiku 4.5 by default; Sentinel and Executor run on GPT-5.4-mini. Research escalates to Claude Sonnet for the two expensive skills — deep token analysis and risk assessment — by spawning sub-agents via `sessions_spawn`. Discovery, market checks, and portfolio work stay on Haiku.
+**Single model, flat fee.** All three agents run on GPT-5.4 via OpenAI Codex OAuth (ChatGPT subscription — flat fee, no per-token billing). Research handles all skills directly — no sub-agent spawning needed.
 
-**Token deduplication.** Before spawning expensive Sonnet sub-agents, Research checks `check-token-status` against the database: open positions, pending orders, watchlist entries, and recently cached analysis results are all skipped. This prevents redundant analysis of the same trending tokens across heartbeats.
+**Token deduplication.** Before running analysis, Research checks `check-token-status` against the database: open positions, pending orders, watchlist entries, and recently cached analysis results are all skipped. This prevents redundant analysis of the same trending tokens across heartbeats.
 
 **Market regime awareness.** The system classifies market conditions (bullish, neutral, bearish, crisis) and automatically tightens position limits, raises cash reserves, and adjusts risk thresholds. In crisis mode, no new moonshot positions are allowed.
 
@@ -199,8 +198,7 @@ flowchart LR
 
 - Docker and Docker Compose (for Docker path) or OpenClaw installed locally (for manual path)
 - Node.js 22+ (manual path only)
-- Anthropic API key (Haiku for Research agent, Sonnet for sub-agents)
-- OpenAI API key (GPT-5.4-mini for Sentinel/Executor agents)
+- ChatGPT Plus/Pro/Team subscription (GPT-5.4 via Codex OAuth) or OpenAI API key (per-token fallback)
 - A deployed Safe wallet on your target EVM chain(s) and/or Squads multisig on Solana
 - RPC endpoints for each chain (Alchemy, Infura, Helius, etc.)
 
@@ -219,9 +217,8 @@ Edit `.env` with your values:
 # Fund identity — pick a name for this deployment
 SAFE_ID=fund-alpha
 
-# Required: LLM providers
-ANTHROPIC_API_KEY=sk-ant-...         # Research agent (Haiku) + sub-agents (Sonnet)
-OPENAI_API_KEY=sk-...                # Sentinel/Executor agents (GPT-5.4-mini)
+# LLM providers
+# OPENAI_API_KEY=sk-...              # Optional fallback (per-token) — prefer Codex OAuth
 
 # Safe wallet (EVM)
 SAFE_ADDRESS_BASE=0x...              # Your Safe address on Base
@@ -294,14 +291,10 @@ In paper mode:
 ### Model Configuration
 
 ```bash
-# Default: Research on Claude Haiku, Sentinel/Executor on GPT-5.4-mini, deep analysis on Sonnet
-RESEARCH_MODEL=anthropic/claude-haiku-4-5-20251001
-SENTINEL_MODEL=openai/gpt-5.4-mini
-EXECUTOR_MODEL=openai/gpt-5.4-mini
-RESEARCH_SUBAGENT_MODEL=anthropic/claude-sonnet-4-6
-
-# Full quality Research (higher cost)
-RESEARCH_MODEL=anthropic/claude-sonnet-4-6 docker compose up -d
+# Default: All agents on GPT-5.4 via Codex OAuth (flat fee)
+RESEARCH_MODEL=openai-codex/gpt-5.4
+SENTINEL_MODEL=openai-codex/gpt-5.4
+EXECUTOR_MODEL=openai-codex/gpt-5.4
 ```
 
 ### Step 3: Configure Your Profile
@@ -542,8 +535,8 @@ crypto-claw/
 |   |   +-- HEARTBEAT.md             # 30min rotating checks
 |   |   +-- skills/
 |   |       +-- discovery/SKILL.md   # Token scanning + dedup
-|   |       +-- analyst/SKILL.md     # Scoring framework (Sonnet sub-agent)
-|   |       +-- risk/SKILL.md        # Safety checks (Sonnet sub-agent)
+|   |       +-- analyst/SKILL.md     # Scoring framework
+|   |       +-- risk/SKILL.md        # Safety checks
 |   |       +-- portfolio/SKILL.md   # Position management
 |   |
 |   +-- sentinel/                    # SENTINEL AGENT
@@ -675,9 +668,9 @@ node tests/test-scripts.js     # Script output format (needs network, 38 tests)
 
 ## Cost Optimization
 
-- Research runs on **Claude Haiku 4.5**; Sentinel/Executor on **GPT-5.4-mini**
-- Research escalates to **Sonnet** for deep analysis/risk (on-demand sub-agents)
-- **Token dedup** prevents redundant Sonnet spawns on already-analyzed tokens
+- All agents run on **GPT-5.4** via Codex OAuth (ChatGPT subscription — flat fee)
+- All agents use **GPT-5.4** — single model, no sub-agent overhead
+- **Token dedup** prevents redundant analysis of already-analyzed tokens
 - **Background loops** with pre-checks skip agent invocation when nothing is pending
 - Scripts handle ALL API calls — LLM never fetches data directly
 - Sentinel/Executor context stays minimal when portfolio is healthy or no orders pending

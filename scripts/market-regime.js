@@ -26,8 +26,8 @@ const REGIMES = {
     baseBuyingEnabled: true,
     maxMoonshotPosition: 5,
     maxConvictionPosition: 10,
-    maxBasePosition: 50,
-    maxMoonshotAllocation: 20,
+    maxBasePosition: 30,
+    maxMoonshotAllocation: 30,
     minBuyScore: 50,
   },
   neutral: {
@@ -35,8 +35,8 @@ const REGIMES = {
     baseBuyingEnabled: true,
     maxMoonshotPosition: 5,
     maxConvictionPosition: 10,
-    maxBasePosition: 50,
-    maxMoonshotAllocation: 20,
+    maxBasePosition: 30,
+    maxMoonshotAllocation: 30,
     minBuyScore: 50,
   },
   bearish: {
@@ -44,8 +44,8 @@ const REGIMES = {
     baseBuyingEnabled: false,
     maxMoonshotPosition: 3,
     maxConvictionPosition: 7,
-    maxBasePosition: 50,
-    maxMoonshotAllocation: 15,
+    maxBasePosition: 30,
+    maxMoonshotAllocation: 20,
     minBuyScore: 65,
   },
   crisis: {
@@ -53,7 +53,7 @@ const REGIMES = {
     baseBuyingEnabled: false,
     maxMoonshotPosition: 0,
     maxConvictionPosition: 5,
-    maxBasePosition: 50,
+    maxBasePosition: 30,
     maxMoonshotAllocation: 10,
     minBuyScore: 80,
   },
@@ -64,8 +64,8 @@ const HARD_LIMITS = {
   minCashReserve: 10, // regime can raise this, never lower
   maxMoonshotPosition: 5, // regime can lower this, never raise
   maxConvictionPosition: 10, // regime can lower this, never raise
-  maxBasePosition: 50, // regime can lower this, never raise
-  maxMoonshotAllocation: 20, // regime can lower this, never raise
+  maxBasePosition: 30, // regime can lower this, never raise
+  maxMoonshotAllocation: 30, // regime can lower this, never raise
 };
 
 /**
@@ -92,6 +92,29 @@ export function getRegimeAdjustments(regime) {
   adjustments.maxMoonshotAllocation = Math.min(adjustments.maxMoonshotAllocation, HARD_LIMITS.maxMoonshotAllocation);
 
   return { regime, ...adjustments };
+}
+
+// ============================================================
+// Exit Adjustments — regime-aware TP/SL modifiers
+// Applied at order creation time (baked into position at entry)
+// ============================================================
+
+const EXIT_ADJUSTMENTS = {
+  bullish: { tpMultiplier: 1.2, slTightenPct: 0, sellPctAdjust: -10, timeStopDays: 2 },
+  neutral: { tpMultiplier: 1.0, slTightenPct: 0, sellPctAdjust: 0, timeStopDays: 0 },
+  bearish: { tpMultiplier: 0.8, slTightenPct: 10, sellPctAdjust: 5, timeStopDays: -1 },
+  crisis: { tpMultiplier: 0.6, slTightenPct: 20, sellPctAdjust: 10, timeStopDays: -2 },
+};
+
+/**
+ * Get exit adjustments for a regime.
+ * tpMultiplier: multiply baseline TP targets (e.g., 2x * 1.2 = 2.4x in bullish)
+ * slTightenPct: tighten SL by this % (e.g., -45% baseline * 10% = -40.5% in bearish)
+ * sellPctAdjust: add to sell percentages at each TP level (clamped 5-90%)
+ * timeStopDays: add/subtract from time stop days
+ */
+export function getExitAdjustments(regime) {
+  return { regime, ...(EXIT_ADJUSTMENTS[regime] || EXIT_ADJUSTMENTS.neutral) };
 }
 
 /**
@@ -192,6 +215,7 @@ async function main() {
         btcDominance: parseFloat((global.market_cap_percentage?.btc ?? 0).toFixed(2)),
       },
       adjustments,
+      exitAdjustments: getExitAdjustments(effectiveRegime),
       timestamp: new Date().toISOString(),
     };
 

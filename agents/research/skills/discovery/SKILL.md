@@ -31,7 +31,7 @@ Read the current regime before scanning: `node scripts/db-query.js get-meta --ke
 - **Bullish/Neutral:** Proceed normally.
 
 ### Step 1: Gather Data
-Run the scanning script. The `--chain all` flag scans all active chains (controlled by `ACTIVE_CHAINS` env var, defaults to `base`):
+Run the scanning script. The `--chain all` flag scans all active chains (controlled by `ACTIVE_CHAINS` env var, defaults to `base,solana`):
 ```bash
 # Bullish/Neutral: full scan across active chains
 node scripts/scan-tokens.js --chain all --sort trending --limit 50
@@ -64,6 +64,26 @@ Apply conviction-specific filters:
 
 These feed into the same analysis pipeline but will be assigned conviction tier by the analyst.
 
+### Step 1c: Narrative-Guided Discovery
+
+After trending and newest scans, check narrative momentum and run deep scans for hot/warming narratives:
+
+```bash
+# Get top 3 tokens per hot/warming narrative (lightweight agent mode)
+node scripts/narrative-deep-scan.js --narrative all --hot-only --quick
+```
+
+Merge these results with trending/newest scan results. If a token appears in BOTH a trending scan AND a narrative deep scan, boost its urgency to `high` — it has both organic momentum and narrative tailwind.
+
+**Momentum-aware strategy:**
+
+| Narrative Momentum | Action | Position Sizing |
+|--------------------|--------|----------------|
+| **Hot** (>10% avg) | Active hunting. Prioritize speed to entry. | 100% of tier max |
+| **Warming** (0–10%) | Selective. Look for catalyst-backed tokens. | 75% of tier max |
+| **Cooling** (-10–0%) | No new entries. Tighten existing stop-losses 10%. Watchlist strong tokens. | 0% new |
+| **Cold** (<-10%) | Exit-only for pure narrative plays. Hold tokens with fundamentals beyond narrative. | Exit weak positions |
+
 ### Step 1.5: Check Token Status (Dedup)
 For each token in scan results, check if it needs analysis:
 ```bash
@@ -72,7 +92,7 @@ node scripts/db-query.js check-token-status --address <TOKEN_ADDRESS> --chain <C
 - `action: "skip"` → remove from batch, no further processing (already has position, pending order, watchlist entry, or recent cached analysis)
 - `action: "analyze"` → keep for Step 2 filtering
 
-This prevents redundant Sonnet sub-agent spawns on tokens that were already analyzed, have open positions, or are pending execution.
+This prevents redundant analysis of tokens that were already analyzed, have open positions, or are pending execution.
 
 ### Step 2: Initial Filter
 From the raw results, apply these filters:
@@ -87,7 +107,7 @@ From the raw results, apply these filters:
 **Strong Positive Signals:**
 - Buy:sell ratio > 1.5
 - Smart money wallets entering (check `scripts/check-wallets.js`)
-- Fits an active narrative (AI, RWA, DePIN, etc.)
+- Fits an active narrative (26 tracked — AI infra, AI agents, DeFi, restaking, LST, RWA, L2, ZK, modular, DePIN, memecoins, gaming, etc.)
 - Dev wallet < 10% of supply
 - Liquidity locked or burned
 

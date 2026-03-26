@@ -1,0 +1,178 @@
+# TOOLS.md — Sentinel Agent Tool Reference
+
+## General Notes
+- All scripts output **valid JSON to stdout**. Parse the output directly — no need for `jq` unless extracting a specific field.
+- Errors go to stderr. Exit code 0 = success, 1 = failure.
+- **Do NOT use web_search or browser tools.** They are disabled. All market data comes from the scripts below.
+
+## Database CLI (db-query.js)
+
+All wallet data lives in SQLite. Interact through `db-query.js` — never access the DB file directly.
+
+### Portfolio & Cash (Read-Only)
+```bash
+node scripts/db-query.js get-portfolio
+node scripts/db-query.js get-portfolio --chain base
+node scripts/db-query.js get-cash
+node scripts/db-query.js get-cash --chain base
+node scripts/db-query.js get-gas
+node scripts/db-query.js get-meta --key my_key
+```
+
+### Positions
+```bash
+node scripts/db-query.js get-positions
+node scripts/db-query.js get-positions --status open
+node scripts/db-query.js get-positions --symbol TOKEN
+node scripts/db-query.js update-position --id pos-001 --json '{"current_price": 0.0015}'
+node scripts/db-query.js close-position --id pos-001 --json '{"exit_price": 0.002, "exit_reason": "stop_loss"}'
+node scripts/db-query.js close-position --id pos-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "take_profit_partial"}'
+```
+
+### Orders (Sentinel → Executor)
+
+Orders use a status state machine: `pending → approved → executed` (or `rejected`/`cancelled`/`failed`).
+Sell orders written by sentinel are auto-approved.
+
+```bash
+node scripts/db-query.js get-orders
+node scripts/db-query.js get-orders --pending
+node scripts/db-query.js get-order --id sell-001
+node scripts/db-query.js get-order-history --limit 20
+
+# Write a sell order (auto-approved)
+node scripts/db-query.js add-order --json '{"id":"sell-001","action":"sell","symbol":"TOKEN","address":"0x...","chain":"base","amount":"all","reason":"stop_loss_hit","urgency":"immediate"}'
+```
+
+### Receipts (Read-Only — written by Executor)
+```bash
+node scripts/db-query.js get-receipts --limit 10
+```
+
+### Sentinel Alerts
+```bash
+node scripts/db-query.js get-alerts --unprocessed
+node scripts/db-query.js add-alert --json '{"id":"alert-001","symbol":"TOKEN","chain":"base","alert_type":"liquidity_drop","severity":"high","details":"Liquidity dropped 25% in 5 minutes"}'
+node scripts/db-query.js mark-alert-processed --id alert-001
+```
+
+### Liquidity Snapshots
+```bash
+node scripts/db-query.js get-liquidity --address 0x... --chain base
+node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain base --liquidity 50000
+```
+
+### Contract Snapshots
+```bash
+node scripts/db-query.js get-contract-snapshots --address 0x... --chain base
+node scripts/db-query.js get-contract-snapshots --address 0x... --chain base --limit 10
+node scripts/db-query.js add-contract-snapshot --address 0x... --chain base --json '<safety_data_json>'
+```
+
+### Heartbeat & Logs
+```bash
+node scripts/db-query.js get-heartbeat --agent sentinel
+node scripts/db-query.js update-heartbeat --agent sentinel --check position_monitor
+node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"status":"ok"}'
+node scripts/db-query.js get-trade-stats
+```
+
+### Paper Mode
+Paper commands mirror real-mode equivalents with `paper-` prefix and identical flags:
+```bash
+node scripts/db-query.js get-paper-portfolio
+node scripts/db-query.js get-paper-cash
+node scripts/db-query.js get-paper-positions
+node scripts/db-query.js get-paper-positions --status open
+node scripts/db-query.js get-paper-positions --symbol TOKEN
+node scripts/db-query.js update-paper-position --id pp-001 --json '{"current_price": 0.0015, "value_usd": 15}'
+# close-paper-position: auto-adds sale proceeds to paper_cash
+node scripts/db-query.js close-paper-position --id pp-001 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
+node scripts/db-query.js close-paper-position --id pp-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
+node scripts/db-query.js get-paper-receipts --limit 10
+node scripts/db-query.js get-paper-stats
+```
+
+### Portfolio Sync (On-Chain — Real Mode Only)
+```bash
+node scripts/db-query.js sync-portfolio --chain base
+node scripts/db-query.js get-sync-status
+node scripts/db-query.js get-sync-status --chain base
+```
+
+## Monitoring Scripts
+
+### Position Monitoring
+```bash
+# Current prices for all positions (reads from DB, respects PAPER_MODE)
+node scripts/check-positions.js
+# Liquidity for all open positions
+node scripts/check-liquidity.js
+node scripts/check-liquidity.js --chain base
+```
+
+### Wallet Monitoring
+```bash
+node scripts/check-wallets.js
+node scripts/check-wallets.js --positions
+node scripts/check-wallets.js --chain base
+node scripts/check-wallets.js --type smart_money
+```
+
+### Contract Safety Monitoring
+```bash
+# Check contract changes for all open positions (snapshot diff)
+node scripts/check-contract.js --changes
+node scripts/check-contract.js --changes --address <TOKEN_ADDRESS> --chain <CHAIN>
+```
+
+### On-Chain Portfolio Sync (Real Mode Only)
+```bash
+# EVM (Safe TX Service primary, DeBank fallback)
+node scripts/portfolio-load-evm.js --chain base
+# Solana (Helius DAS primary, RPC fallback)
+node scripts/portfolio-load-solana.js --chain solana
+```
+Native ETH/SOL stored as gas metadata (not a position). Stablecoins accumulate as cash.
+
+## Emergency & Alerts
+
+### Emergency Sentinel (No LLM Required)
+```bash
+# Script-only position monitor — runs when sentinel agent can't reach any model
+# Checks: stop-loss, take-profit, severe loss (>30%), liquidity drain (>50% drop), low liquidity (<$5k)
+# Writes sell orders to the orders table, logs to sentinel_log
+node scripts/emergency-sentinel.js
+```
+
+### Send Alert
+```bash
+node scripts/send-alert.js --type model_failure --agent sentinel --message "Agent failed"
+node scripts/send-alert.js --type emergency_mode --agent sentinel --message "Emergency mode active"
+node scripts/send-alert.js --type recovered --agent sentinel --message "Back to normal"
+```
+
+## Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `ACTIVE_CHAINS` | `base,solana` | Comma-separated list of active chains. Supported: `base`, `solana`. |
+| `PAPER_MODE` | `false` | Enable simulated trading (no real transactions, no on-chain sync) |
+
+## Important Notes
+
+- All scripts return JSON to stdout — parse the output, don't display it raw
+- If a script fails, log the error and continue monitoring
+- NEVER pass wallet private keys to any script
+- Scripts cache responses for 60 seconds to avoid redundant API calls
+- The database auto-creates and auto-migrates on first query
+
+#### Position Statuses
+| Status | Meaning |
+|--------|---------|
+| `open` | Active, monitored by Sentinel |
+| `draft` | BUY queued in multisig — committed but not yet confirmed on-chain |
+| `pending_exit` | SELL queued in multisig — awaiting confirmation |
+| `partial_exit` | Partial sell executed |
+| `closed` | Fully exited |
+| `pending_analysis` | Discovered on-chain, awaiting analysis |

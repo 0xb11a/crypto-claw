@@ -14,8 +14,8 @@
 const PORTFOLIO_RULES = {
   maxMoonshotPosition: 5, // % of chain portfolio
   maxConvictionPosition: 10,
-  maxBasePosition: 50,
-  maxMoonshotAllocation: 20,
+  maxBasePosition: 30,
+  maxMoonshotAllocation: 30,
   minCashReserve: 10,
   maxSameNarrative: 3,
   maxOpenPositions: 15,

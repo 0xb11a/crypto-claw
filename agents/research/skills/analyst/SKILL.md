@@ -10,7 +10,7 @@ triggers:
   - analysis
 ---
 
-> **Model Routing:** This skill requires deep reasoning. When triggered during an autonomous heartbeat cycle, the parent agent should spawn a Sonnet sub-agent (`sessions_spawn --model anthropic/claude-sonnet-4-6`) and pass all gathered data (token-metrics, check-contract, holder-distribution outputs, current portfolio, relevant memory patterns). The sub-agent executes this skill and returns the structured JSON output.
+> **Note:** This skill requires deep reasoning. Gather all data (token-metrics, check-contract, holder-distribution outputs, current portfolio, relevant memory patterns) before executing.
 
 # Analyst Skill
 
@@ -79,12 +79,17 @@ node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 | Influencer mentions (paid only) | -10 |
 
 **Narrative Fit (Weight: 10%)**
+
+26 narratives tracked (see `scripts/narrative-config.js` for full list): ai_infra, ai_agents, defi, restaking, lst, yield, payfi, rwa, prediction, l2, zk, modular, intents, depin, memecoin, socialfi, gaming, nft_infra, btc_eco, btc_l2, privacy, telegram, consumer, desci, degov, energy.
+
 | Signal | Points |
 |--------|--------|
 | Leading token in hot narrative | 90-100 |
 | Solid token in active narrative | 60-80 |
 | Narrative cooling down | 30-50 |
 | No clear narrative | 0-20 |
+
+Apply tier affinity boost from Step 3b.3 on top of the base score (cap at 100).
 
 **Timing (Weight: 10%)**
 | Signal | Points |
@@ -103,13 +108,52 @@ overall = (contract * 0.25) + (tokenomics * 0.20) + (liquidity * 0.20) +
 
 ### Step 3b: Assign Tier
 
-Based on token characteristics, assign the appropriate portfolio tier:
+Based on token characteristics AND narrative context, assign the appropriate portfolio tier.
+
+**Step 3b.1 — Base tier check (unchanged):**
 
 | Criteria | Tier |
 |----------|------|
 | Base chain: WETH (`0x4200000000000000000000000000000000000006`), cbBTC (`0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf`). Solana: wSOL (`So11111111111111111111111111111111111111112`) | `base` |
-| Age > 7 days AND liquidity > $100k AND market cap > $1M AND verified contract with renounced/multisig ownership | `conviction` |
-| Everything else passing filters | `moonshot` |
+
+**Step 3b.2 — Narrative-aware tier assignment:**
+
+Each narrative has a tier affinity (defined in `scripts/narrative-config.js`). Use this decision tree:
+
+```
+Is tierAffinity "strong_moonshot"?
+  → Always moonshot. Volatility too high for conviction sizing.
+    Narratives: memecoin, socialfi, telegram, desci, energy, degov
+
+Is tierAffinity "lean_moonshot"?
+  → Default moonshot. Only conviction if EXCEPTIONAL:
+    age >30 days AND liquidity >$500k
+    Narratives: ai_agents, gaming, btc_eco, btc_l2, nft_infra, intents, consumer
+
+Does token meet conviction criteria?
+  (age >7d, liquidity >$100k, mcap >$1M, verified + renounced/multisig)
+
+  YES + affinity "strong_conviction" or "lean_conviction"?
+    → conviction
+    Narratives: defi, lst, restaking, rwa, l2, zk, modular,
+                ai_infra, yield, depin, payfi, prediction, privacy
+
+  YES + affinity "lean_moonshot"?
+    → moonshot (unless exceptional as above)
+
+  NO → moonshot
+```
+
+**Step 3b.3 — Narrative score modifier:**
+
+When narrative is hot or warming, apply a boost to the narrative fit dimension score:
+
+| Tier Affinity | Narrative Score Boost |
+|---------------|----------------------|
+| `strong_conviction` | +15 when hot/warming |
+| `lean_conviction` | +10 when hot/warming |
+| `lean_moonshot` | +5 when hot |
+| `strong_moonshot` | +0 (no boost) |
 
 The tier determines position limits, stop-loss levels, and slippage tolerance.
 

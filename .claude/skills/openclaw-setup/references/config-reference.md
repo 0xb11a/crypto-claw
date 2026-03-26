@@ -17,12 +17,12 @@ The gateway configuration file lives at `~/.openclaw/.openclaw/openclaw.json`. I
         // How many tokens to reserve for flush + compaction summary
         // Higher = flush fires earlier = more safety margin
         // With 200K window: flush fires at 200,000 - 40,000 - 4,000 = 156K tokens
-        "reserveTokensFloor": 40000,
+        "reserveTokensFloor": 80000,
 
         // Pre-compaction flush: agent saves context to disk before compression
         "memoryFlush": {
           "enabled": true,                    // MUST be true for memory safety
-          "softThresholdTokens": 4000,        // Trigger flush this many tokens before floor
+          "softThresholdTokens": 8000,        // Trigger flush this many tokens before floor
           "systemPrompt": "Session nearing compaction. Store durable memories now.",
           "prompt": "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."
         }
@@ -202,7 +202,7 @@ The gateway configuration file lives at `~/.openclaw/.openclaw/openclaw.json`. I
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `reserveTokensFloor` | number | 20000 | Tokens reserved for flush + summary. Recommended: 40000 |
+| `reserveTokensFloor` | number | 20000 | Tokens reserved for flush + summary. Recommended: 80000 for large-context models |
 | `memoryFlush.enabled` | boolean | false | Enable pre-compaction flush. **Set to true.** |
 | `memoryFlush.softThresholdTokens` | number | 4000 | How far before floor to trigger flush |
 | `memoryFlush.systemPrompt` | string | — | System message sent when flush triggers |
@@ -345,10 +345,10 @@ If you change nothing else, at least set these:
   "agents": {
     "defaults": {
       "compaction": {
-        "reserveTokensFloor": 40000,
+        "reserveTokensFloor": 80000,
         "memoryFlush": {
           "enabled": true,
-          "softThresholdTokens": 4000
+          "softThresholdTokens": 8000
         }
       },
       "contextPruning": {

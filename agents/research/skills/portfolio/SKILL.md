@@ -22,7 +22,7 @@ Convert risk-assessed opportunities into concrete trade proposals. Manage sizing
 ```bash
 echo "=== PORTFOLIO CONFIG ==="
 echo "PAPER_MODE=${PAPER_MODE:-false}"
-echo "ACTIVE_CHAINS=${ACTIVE_CHAINS:-base}"
+echo "ACTIVE_CHAINS=${ACTIVE_CHAINS:-base,solana}"
 echo "======================"
 ```
 Read the output. This determines your entire cycle:
@@ -40,10 +40,10 @@ Always include `--chain <chain>` on portfolio and cash commands. Reference this 
 
 | Tier | Target | Range | Examples |
 |------|--------|-------|---------|
-| Base | 50% | 40-60% | BTC, ETH, SOL |
-| Conviction | 25% | 20-30% | Established alts with fundamentals |
-| Moonshot | 15% | 10-20% | New high-risk plays |
-| Cash | 10% | 10-20% | USDC, USDT |
+| Conviction | 30% | 25-35% | Established alts with fundamentals |
+| Moonshot | 25% | 20-30% | Power-law bets, outsized returns |
+| Base | 25% | 20-30% | BTC, ETH, SOL — stability anchor |
+| Cash | 15% | 10-20% | USDC, USDT |
 
 All allocation percentages are per-chain. Read chain rules with `getPortfolioRules(chain)` before sizing. If `tiersEnabled` for the chain doesn't include the proposed tier, reject the trade.
 
@@ -57,19 +57,45 @@ All allocation percentages are per-chain. Read chain rules with `getPortfolioRul
 
 ## Exit Strategy
 
-### Take-Profit Levels
-| Level | Multiplier | Sell % | Purpose |
-|-------|-----------|--------|---------|
-| TP1 | 2-3x | 40-50% | Recover initial capital |
-| TP2 | 5x | 30% | Lock in profit |
-| TP3 | 10x+ | 10-15% | Capture outsized gains |
-| Moonbag | — | Keep 5-10% | Free ride, no stop-loss |
+### Moonshot Take-Profit & Stop-Loss
+| Level | Target | Sell % | Purpose |
+|-------|--------|--------|---------|
+| TP1 | 2x | 50% | Recover entire initial capital |
+| TP2 | 4x | 25% | Lock meaningful profit |
+| TP3 | 8x | 15% | Capture outsized move |
+| Moonbag | — | 10% | Free ride, no stop-loss |
+| **SL** | **-45%** | sell all | Wide enough for volatility |
+| **Time Stop** | **5 days** | sell all | Dead moonshots don't recover |
 
-### Stop-Loss
-| Tier | Stop-Loss | Time Stop |
-|------|----------|-----------|
-| Moonshot | -40% to -50% | 7 days no catalyst |
-| Conviction | -25% to -30% | 14 days no catalyst |
+After TP1 → move SL to breakeven. After TP2 → activate 30% trailing stop.
+
+### Conviction Take-Profit & Stop-Loss
+| Level | Target | Sell % | Purpose |
+|-------|--------|--------|---------|
+| TP1 | 1.5x | 35% | First profit at strong outcome |
+| TP2 | 2.5x | 35% | Lock majority of profit |
+| TP3 | 4x | 20% | Bull market gains |
+| Moonbag | — | 10% | Long-term hold |
+| **SL** | **-25%** | sell all | Thesis broken |
+| **Time Stop** | **10 days** | reassess | Check thesis before cutting |
+
+After TP1 → move SL to breakeven. After TP2 → activate 20% trailing stop.
+
+### Base Tier (Rebalancing, NOT TP/SL)
+| Trigger | Action |
+|---------|--------|
+| Position >30% of chain portfolio | Sell excess to 25% target |
+| Position <15% of chain portfolio | Buy up to 20% target |
+| Drops -25% from peak | Alert human |
+| Rises +40% from entry | Sell 15% to cash |
+
+### Regime Exit Adjustments (apply at order creation)
+| Parameter | Bullish | Neutral | Bearish | Crisis |
+|-----------|---------|---------|---------|--------|
+| TP target multiplier | 1.2x | 1.0x | 0.8x | 0.6x |
+| SL tighten % | 0% | 0% | 10% | 20% |
+| Sell % adjustment | -10% | 0% | +5% | +10% |
+| Time stop days | +2 | 0 | -1 | -2 |
 
 ### Immediate Exit Triggers
 - Sentinel alerts: rug warning, liquidity drain
@@ -192,7 +218,8 @@ Apply regime-adjusted limits using `min(hard_limit, regime_limit)` for maximums 
 | Base tier buying | Enabled | **Paused** | **Paused** |
 | Max moonshot position | 5% | 3% | 0% (no new) |
 | Max conviction position | 10% | 7% | 5% |
-| Max moonshot allocation | 20% | 15% | 10% |
+| Max base position | 30% | 30% | 30% |
+| Max moonshot allocation | 30% | 20% | 10% |
 | Min buy score | 50 | 65 | 80 |
 
 - In `bearish` or `crisis`: skip base tier rebalance buys entirely
@@ -201,7 +228,7 @@ Apply regime-adjusted limits using `min(hard_limit, regime_limit)` for maximums 
 
 ## Rules
 - NEVER execute trades directly — the Executor agent handles all wallet operations
-- NEVER exceed position limits (5% moonshot, 10% conviction, 50% base) — regime may lower these further
+- NEVER exceed position limits (5% moonshot, 10% conviction, 30% base) — regime may lower these further
 - NEVER let cash drop below regime-adjusted minimum (10% bullish/neutral, 25% bearish, 40% crisis)
 - Minimum risk:reward ratio of 3:1
 - Log every decision to daily memory

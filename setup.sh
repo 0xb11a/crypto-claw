@@ -92,7 +92,7 @@ cp "$SCRIPT_DIR/agents/research/skills/orders/SKILL.md"    "$RESEARCH_DIR/worksp
 
 # Shared workspace files — code-owned (always update)
 cp "$SCRIPT_DIR/workspace/IDENTITY.md"   "$RESEARCH_DIR/workspace/IDENTITY.md"
-cp "$SCRIPT_DIR/workspace/TOOLS.md"      "$RESEARCH_DIR/workspace/TOOLS.md"
+cp "$SCRIPT_DIR/agents/research/TOOLS.md" "$RESEARCH_DIR/workspace/TOOLS.md"
 cp "$SCRIPT_DIR/workspace/BOOT.md"       "$RESEARCH_DIR/workspace/BOOT.md"
 
 # User-owned (preserve customizations on redeploy)
@@ -114,8 +114,8 @@ cp "$SCRIPT_DIR/agents/sentinel/HEARTBEAT.md"   "$SENTINEL_DIR/workspace/HEARTBE
 # Per-agent skill
 cp "$SCRIPT_DIR/agents/sentinel/skills/sentinel/SKILL.md" "$SENTINEL_DIR/workspace/skills/sentinel/SKILL.md"
 
-# Shared workspace files — symlink to research copy
-ln -sf "$RESEARCH_DIR/workspace/TOOLS.md"      "$SENTINEL_DIR/workspace/TOOLS.md"
+# Shared workspace files
+cp "$SCRIPT_DIR/agents/sentinel/TOOLS.md"      "$SENTINEL_DIR/workspace/TOOLS.md"
 ln -sf "$RESEARCH_DIR/workspace/IDENTITY.md"   "$SENTINEL_DIR/workspace/IDENTITY.md"
 
 # ============================================================
@@ -130,8 +130,8 @@ cp "$SCRIPT_DIR/agents/executor/HEARTBEAT.md"   "$EXECUTOR_DIR/workspace/HEARTBE
 # Per-agent skill
 cp "$SCRIPT_DIR/agents/executor/skills/executor/SKILL.md" "$EXECUTOR_DIR/workspace/skills/executor/SKILL.md"
 
-# Shared workspace files — symlink to research copy
-ln -sf "$RESEARCH_DIR/workspace/TOOLS.md"      "$EXECUTOR_DIR/workspace/TOOLS.md"
+# Shared workspace files
+cp "$SCRIPT_DIR/agents/executor/TOOLS.md"      "$EXECUTOR_DIR/workspace/TOOLS.md"
 ln -sf "$RESEARCH_DIR/workspace/IDENTITY.md"   "$EXECUTOR_DIR/workspace/IDENTITY.md"
 
 # ============================================================

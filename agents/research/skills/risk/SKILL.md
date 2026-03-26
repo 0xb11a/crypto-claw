@@ -10,7 +10,7 @@ triggers:
   - should I buy
 ---
 
-> **Model Routing:** This skill requires deep reasoning. When triggered during an autonomous heartbeat cycle, the parent agent should spawn a Sonnet sub-agent (`sessions_spawn --model anthropic/claude-sonnet-4-6`) and pass all gathered data (check-contract --deep output, analysis results, current portfolio/positions, market regime). The sub-agent executes this skill and returns the structured JSON output.
+> **Note:** This skill requires deep reasoning. Gather all data (check-contract --deep output, analysis results, current portfolio/positions, market regime) before executing.
 
 # Risk Skill
 

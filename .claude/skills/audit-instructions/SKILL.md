@@ -32,7 +32,9 @@ You are auditing CryptoClaw's agent instruction files for consistency against so
 - `agents/executor/SOUL.md`
 - `agents/executor/HEARTBEAT.md`
 - `agents/executor/skills/executor/SKILL.md`
-- `workspace/TOOLS.md`
+- `agents/research/TOOLS.md`
+- `agents/sentinel/TOOLS.md`
+- `agents/executor/TOOLS.md`
 
 ## Audit Procedure
 
@@ -71,7 +73,7 @@ You are auditing CryptoClaw's agent instruction files for consistency against so
 
 ### Pass 5: Completeness (semantic)
 
-1. Every `db-query.js` command documented in `workspace/TOOLS.md` should appear in at least one agent's instruction files. **Flag as INFO** any command documented but never referenced by any agent.
+1. Every `db-query.js` command documented in an agent's `TOOLS.md` should appear in that agent's instruction files (AGENTS.md, HEARTBEAT.md, SKILL.md). Cross-check each agent's `agents/{name}/TOOLS.md` against its own instructions. **Flag as INFO** any command documented in an agent's TOOLS.md but never referenced by that agent. Also flag any command in an agent's TOOLS.md that the agent doesn't have access to (per `build-templates.sh`/`setup.sh` script deployment).
 2. Every script deployed to an agent (per `build-templates.sh`/`setup.sh`) should be referenced in that agent's instruction files. **Flag as INFO** any deployed-but-unreferenced scripts.
 3. Every safety rule stated in an agent's AGENTS.md should have a corresponding check or reference in at least one of that agent's SKILL.md files. **Flag as INFO** any safety rule without a skill-level reference.
 

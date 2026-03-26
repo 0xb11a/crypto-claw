@@ -16,6 +16,7 @@
 import 'dotenv/config';
 import { getChain, getCashToken } from './chains.js';
 import { createPublicClient, http, parseAbi, encodeFunctionData, formatUnits, parseUnits, maxUint256 } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import SafeModule from '@safe-global/protocol-kit';
 import SafeApiKitModule from '@safe-global/api-kit';
 const Safe = SafeModule.default || SafeModule;
@@ -150,25 +151,25 @@ export function build1inchUrl(chainId, params) {
 
 async function get1inchSwap(chainId, params, apiKey) {
   const url = build1inchUrl(chainId, params);
+  const MAX_RETRIES = 4;
 
-  let res = await fetch(url, {
-    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
-  });
-
-  // Retry once on 429
-  if (res.status === 429) {
-    await new Promise((r) => setTimeout(r, 2000));
-    res = await fetch(url, {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const res = await fetch(url, {
       headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     });
-  }
 
-  if (!res.ok) {
+    if (res.ok) return res.json();
+
+    if (res.status === 429 && attempt < MAX_RETRIES) {
+      // Exponential backoff: 2s, 4s, 8s, 16s
+      const delay = 2000 * Math.pow(2, attempt);
+      await new Promise((r) => setTimeout(r, delay));
+      continue;
+    }
+
     const text = await res.text();
     throw new Error(`1inch API error (${res.status}): ${text}`);
   }
-
-  return res.json();
 }
 
 // ============================================================
@@ -249,11 +250,14 @@ async function buildAndSubmitSafeTx(env, transactions) {
   const signedTx = await protocolKit.signTransaction(safeTransaction);
   const safeTxHash = await protocolKit.getTransactionHash(signedTx);
 
+  // Derive signer address from private key (not Safe address)
+  const signerAccount = privateKeyToAccount(env.signerKey.startsWith('0x') ? env.signerKey : `0x${env.signerKey}`);
+
   await apiKit.proposeTransaction({
     safeAddress: env.safeAddress,
     safeTransactionData: signedTx.data,
     safeTxHash,
-    senderAddress: await protocolKit.getAddress(),
+    senderAddress: signerAccount.address,
     senderSignature: signedTx.signatures.values().next().value.data,
   });
 

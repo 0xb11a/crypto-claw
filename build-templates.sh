@@ -23,11 +23,16 @@ echo "[build-templates] Building workspace templates..."
 # 1. Shared workspace templates (used by all agents)
 # ============================================================
 mkdir -p "$TEMPLATES"
-cp "$SRC/workspace/TOOLS.md"     "$TEMPLATES/TOOLS.md"
 cp "$SRC/workspace/BOOT.md"      "$TEMPLATES/BOOT.md"
 cp "$SRC/workspace/IDENTITY.md"  "$TEMPLATES/IDENTITY.md"
 cp "$SRC/workspace/USER.md"      "$TEMPLATES/USER.md"
 cp "$SRC/workspace/MEMORY.md"    "$TEMPLATES/MEMORY.md"
+
+# ============================================================
+# 1b. Research agent template (TOOLS.md is per-agent)
+# ============================================================
+mkdir -p "$AGENT_TPL/research"
+cp "$SRC/agents/research/TOOLS.md" "$AGENT_TPL/research/TOOLS.md"
 
 # ============================================================
 # 2. Per-agent templates (sentinel, executor)
@@ -39,6 +44,7 @@ mkdir -p "$AGENT_TPL/sentinel/skills/sentinel" "$AGENT_TPL/sentinel/scripts"
 cp "$SRC/agents/sentinel/AGENTS.md"     "$AGENT_TPL/sentinel/AGENTS.md"
 cp "$SRC/agents/sentinel/SOUL.md"       "$AGENT_TPL/sentinel/SOUL.md"
 cp "$SRC/agents/sentinel/HEARTBEAT.md"  "$AGENT_TPL/sentinel/HEARTBEAT.md"
+cp "$SRC/agents/sentinel/TOOLS.md"      "$AGENT_TPL/sentinel/TOOLS.md"
 cp "$SRC/agents/sentinel/skills/sentinel/SKILL.md" "$AGENT_TPL/sentinel/skills/sentinel/SKILL.md"
 
 # Sentinel scripts: monitoring + db access + chain config + portfolio sync + emergency
@@ -52,6 +58,7 @@ mkdir -p "$AGENT_TPL/executor/skills/executor" "$AGENT_TPL/executor/scripts"
 cp "$SRC/agents/executor/AGENTS.md"     "$AGENT_TPL/executor/AGENTS.md"
 cp "$SRC/agents/executor/SOUL.md"       "$AGENT_TPL/executor/SOUL.md"
 cp "$SRC/agents/executor/HEARTBEAT.md"  "$AGENT_TPL/executor/HEARTBEAT.md"
+cp "$SRC/agents/executor/TOOLS.md"      "$AGENT_TPL/executor/TOOLS.md"
 cp "$SRC/agents/executor/skills/executor/SKILL.md" "$AGENT_TPL/executor/skills/executor/SKILL.md"
 
 # Executor scripts: db access + execution + price checking + chain config + portfolio sync + emergency

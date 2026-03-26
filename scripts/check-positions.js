@@ -22,19 +22,38 @@ function loadPositions() {
     const rows = db
       .prepare(`SELECT * FROM ${table} WHERE status IN ('open', 'partial_exit') ORDER BY created_at DESC`)
       .all();
-    return rows.map((r) => ({
-      id: r.id,
-      symbol: r.symbol,
-      address: r.address,
-      chain: r.chain,
-      entryPrice: r.entry_price,
-      currentPrice: r.current_price,
-      quantity: r.quantity,
-      sizePercent: r.percent_of_portfolio ?? null,
-      tier: r.tier,
-      stopLoss: r.stop_loss,
-      status: r.status,
-    }));
+    return rows.map((r) => {
+      let takeProfitLevels = [];
+      try {
+        takeProfitLevels = r.take_profit_levels ? JSON.parse(r.take_profit_levels) : [];
+      } catch {
+        takeProfitLevels = [];
+      }
+      let tpLevelsHit = [];
+      try {
+        tpLevelsHit = r.tp_levels_hit ? JSON.parse(r.tp_levels_hit) : [];
+      } catch {
+        tpLevelsHit = [];
+      }
+      return {
+        id: r.id,
+        symbol: r.symbol,
+        address: r.address,
+        chain: r.chain,
+        entryPrice: r.entry_price,
+        currentPrice: r.current_price,
+        quantity: r.quantity,
+        sizePercent: r.percent_of_portfolio ?? null,
+        tier: r.tier,
+        stopLoss: r.stop_loss,
+        takeProfitLevels,
+        maxPriceSinceEntry: r.max_price_since_entry ?? null,
+        trailingStopPct: r.trailing_stop_pct ?? null,
+        trailingStopActive: r.trailing_stop_active === 1,
+        tpLevelsHit,
+        status: r.status,
+      };
+    });
   } catch {
     return [];
   }
@@ -82,17 +101,48 @@ async function main() {
   const results = [];
   for (const pos of positions) {
     const current = await getCurrentPrice(pos.symbol);
+    const currentPrice = current?.price ?? pos.currentPrice;
     const pnlPercent = current ? ((current.price - pos.entryPrice) / pos.entryPrice) * 100 : null;
+    const pnlMultiple = current ? current.price / pos.entryPrice : null;
+
+    // Detect TP hits — check each untriggered level
+    const takeProfitHits = [];
+    if (current && pos.takeProfitLevels.length > 0) {
+      for (const tp of pos.takeProfitLevels) {
+        const alreadyHit = tp.triggered || pos.tpLevelsHit.includes(tp.level);
+        if (!alreadyHit && current.price >= tp.price) {
+          takeProfitHits.push({
+            level: tp.level,
+            price: tp.price,
+            sellPercent: tp.sellPercent,
+            multiplier: tp.multiplier ?? null,
+          });
+        }
+      }
+    }
+
+    // Detect trailing stop trigger
+    const maxPrice = pos.maxPriceSinceEntry ?? pos.entryPrice;
+    const newMaxPrice = current ? Math.max(maxPrice, current.price) : maxPrice;
+    let trailingStopHit = false;
+    if (pos.trailingStopActive && pos.trailingStopPct && current) {
+      const trailingThreshold = newMaxPrice * (1 - pos.trailingStopPct / 100);
+      trailingStopHit = current.price < trailingThreshold;
+    }
 
     results.push({
       ...pos,
-      currentPrice: current?.price ?? pos.currentPrice,
+      currentPrice,
       currentLiquidity: current?.liquidity ?? null,
       volume24h: current?.volume24h ?? null,
       priceChange24h: current?.priceChange24h ?? null,
-      pnlPercent: pnlPercent ? parseFloat(pnlPercent.toFixed(2)) : null,
+      pnlPercent: pnlPercent !== null ? parseFloat(pnlPercent.toFixed(2)) : null,
+      pnlMultiple: pnlMultiple !== null ? parseFloat(pnlMultiple.toFixed(2)) : null,
+      maxPriceSinceEntry: newMaxPrice,
       alerts: {
         stopLossHit: current && current.price <= pos.stopLoss,
+        takeProfitHits,
+        trailingStopHit,
         downMoreThan20: pnlPercent !== null && pnlPercent < -20,
         liquidityLow: current && current.liquidity < 5000,
       },
@@ -102,7 +152,14 @@ async function main() {
     await new Promise((r) => setTimeout(r, 200));
   }
 
-  const alerts = results.filter((r) => r.alerts.stopLossHit || r.alerts.downMoreThan20 || r.alerts.liquidityLow);
+  const alerts = results.filter(
+    (r) =>
+      r.alerts.stopLossHit ||
+      r.alerts.takeProfitHits.length > 0 ||
+      r.alerts.trailingStopHit ||
+      r.alerts.downMoreThan20 ||
+      r.alerts.liquidityLow,
+  );
 
   console.log(
     JSON.stringify(
@@ -111,17 +168,22 @@ async function main() {
         totalPositions: results.length,
         alertCount: alerts.length,
         positions: results,
-        alerts: alerts.map((a) => ({
-          symbol: a.symbol,
-          reason: a.alerts.stopLossHit
-            ? 'STOP_LOSS_HIT'
-            : a.alerts.liquidityLow
-              ? 'LOW_LIQUIDITY'
-              : 'DOWN_MORE_THAN_20PCT',
-          currentPrice: a.currentPrice,
-          entryPrice: a.entryPrice,
-          pnlPercent: a.pnlPercent,
-        })),
+        alerts: alerts.map((a) => {
+          let reason = 'DOWN_MORE_THAN_20PCT';
+          if (a.alerts.stopLossHit) reason = 'STOP_LOSS_HIT';
+          else if (a.alerts.trailingStopHit) reason = 'TRAILING_STOP_HIT';
+          else if (a.alerts.takeProfitHits.length > 0) reason = `TP${a.alerts.takeProfitHits[0].level}_HIT`;
+          else if (a.alerts.liquidityLow) reason = 'LOW_LIQUIDITY';
+          return {
+            symbol: a.symbol,
+            reason,
+            currentPrice: a.currentPrice,
+            entryPrice: a.entryPrice,
+            pnlPercent: a.pnlPercent,
+            pnlMultiple: a.pnlMultiple,
+            takeProfitHits: a.alerts.takeProfitHits.length > 0 ? a.alerts.takeProfitHits : undefined,
+          };
+        }),
         timestamp: new Date().toISOString(),
       },
       null,

@@ -83,6 +83,7 @@ if (dbAvailable) {
       'heartbeat_state',
       'sentinel_log',
       'executor_log',
+      'research_log',
       'portfolio_meta',
       '_migrations',
       'paper_receipts',
@@ -158,6 +159,7 @@ if (dbAvailable) {
         'token_scan',
         'smart_money',
         'narrative_check',
+        'narrative_deep_scan',
         'rebalance_review',
         'daily_summary',
         'watchlist_check',
@@ -319,6 +321,44 @@ if (dbAvailable) {
       for (const col of ['exit_price', 'exit_date', 'pnl_percent', 'pnl_usd', 'exit_reason']) {
         assert(cols.includes(col), `positions must have column '${col}'`);
       }
+    });
+  });
+
+  describe('Wallet Database — Trailing Stop Columns', () => {
+    test('positions table has trailing stop columns', () => {
+      const cols = db
+        .prepare('PRAGMA table_info(positions)')
+        .all()
+        .map((c) => c.name);
+      for (const col of ['max_price_since_entry', 'trailing_stop_pct', 'trailing_stop_active', 'tp_levels_hit']) {
+        assert(cols.includes(col), `positions must have column '${col}'`);
+      }
+    });
+
+    test('paper_positions table has trailing stop columns', () => {
+      const cols = db
+        .prepare('PRAGMA table_info(paper_positions)')
+        .all()
+        .map((c) => c.name);
+      for (const col of ['max_price_since_entry', 'trailing_stop_pct', 'trailing_stop_active', 'tp_levels_hit']) {
+        assert(cols.includes(col), `paper_positions must have column '${col}'`);
+      }
+    });
+
+    test('trailing_stop_active defaults to 0', () => {
+      const colInfo = db
+        .prepare('PRAGMA table_info(positions)')
+        .all()
+        .find((c) => c.name === 'trailing_stop_active');
+      assertEqual(colInfo.dflt_value, '0');
+    });
+
+    test('tp_levels_hit defaults to empty JSON array', () => {
+      const colInfo = db
+        .prepare('PRAGMA table_info(positions)')
+        .all()
+        .find((c) => c.name === 'tp_levels_hit');
+      assertEqual(colInfo.dflt_value, "'[]'");
     });
   });
 

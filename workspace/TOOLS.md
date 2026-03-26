@@ -1,3 +1,4 @@
+<!-- Full reference — not deployed to agents. Per-agent versions live in agents/{name}/TOOLS.md -->
 # TOOLS.md — CryptoClaw Tool Usage Guide
 
 ## General Notes
@@ -282,6 +283,8 @@ node scripts/db-query.js update-heartbeat --agent research --check token_scan
 # Write agent logs
 node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"status":"ok"}'
 node scripts/db-query.js add-executor-log --json '{"action":"process_orders","sells_processed":1,"buys_processed":0,"status":"ok"}'
+node scripts/db-query.js add-research-log --json '{"check_type":"token_scan","tokens_scanned":30,"tokens_analyzed":2,"trades_proposed":1,"summary":"Scanned 30 trending, proposed 1 BUY","status":"ok"}'
+node scripts/db-query.js get-research-log --limit 10
 
 # Trade statistics
 node scripts/db-query.js get-trade-stats
@@ -367,7 +370,7 @@ In paper mode, `sync-portfolio` returns a message explaining sync is skipped (DB
 
 ### Analysis Cache (Token Dedup)
 ```bash
-# Check if a token needs analysis (dedup before spawning sub-agents)
+# Check if a token needs analysis (dedup before running analyst/risk skills)
 # Returns action: "skip" or "analyze" with reason
 node scripts/db-query.js check-token-status --address 0x... --chain base
 # → {"address":"0x...","chain":"base","action":"skip","reason":"open_position","details":{...}}
@@ -503,8 +506,22 @@ node scripts/market-regime.js
 # Auto-updates portfolio_meta (key: market_regime) and heartbeat timestamp
 # Read stored regime: node scripts/db-query.js get-meta --key market_regime
 
-# Check narrative momentum (aggregates social + price data)
-node scripts/narrative-check.js --narrative <ai|rwa|depin|memecoin|gaming>
+# Check narrative momentum (26 narratives — AI, DeFi, RWA, L2, ZK, memecoins, etc.)
+node scripts/narrative-check.js                         # All 26 narratives
+node scripts/narrative-check.js --narrative ai_infra    # Single narrative
+# → Returns momentum (hot/warming/cooling/cold), volume, top picks, rotation detection
+# Narrative IDs: ai_infra, ai_agents, defi, restaking, lst, yield, payfi, rwa, prediction,
+#   l2, zk, modular, intents, depin, memecoin, socialfi, gaming, nft_infra, btc_eco, btc_l2,
+#   privacy, telegram, consumer, desci, degov, energy
+
+# Deep narrative scan — find and rank top tokens within a narrative
+node scripts/narrative-deep-scan.js --narrative ai_infra                  # Manual: all keywords, top 10
+node scripts/narrative-deep-scan.js --narrative all                       # All 26 narratives
+node scripts/narrative-deep-scan.js --narrative all --hot-only            # Only hot/warming narratives
+node scripts/narrative-deep-scan.js --narrative ai_infra --quick          # Agent mode: 1 keyword, top 3
+node scripts/narrative-deep-scan.js --narrative all --hot-only --quick    # Agent heartbeat use
+node scripts/narrative-deep-scan.js --narrative ai_infra --chain base --limit 5
+# → Returns ranked tokens with score, suggested tier, volume, liquidity, buy ratio
 ```
 
 ### Heartbeat Pre-Check
@@ -664,6 +681,22 @@ node scripts/send-alert.js --type recovered --agent sentinel --message "Back to 
 | `HELIUS_API_KEY` | Helius | Solana wallet tracking (fallback if no Solscan) |
 
 DEXScreener and CoinGecko free tiers don't require API keys.
+
+## Codex OAuth Login (codex-login.sh)
+
+One-time authentication for OpenAI Codex OAuth provider (ChatGPT subscription — flat fee).
+
+```bash
+# Run inside Docker container
+bash /home/openclaw/crypto-claw/scripts/codex-login.sh
+# Or directly:
+openclaw models auth login --provider openai-codex
+```
+
+- Uses OpenClaw's native `openai-codex` provider with built-in OAuth
+- Auth managed and refreshed automatically by OpenClaw
+- After login, restart the container to activate
+- If Codex OAuth is not set up, falls back to `OPENAI_API_KEY` (per-token billing)
 
 ## Important Notes
 

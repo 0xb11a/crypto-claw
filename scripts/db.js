@@ -820,6 +820,43 @@ const migrations = [
       ALTER TABLE orders ADD COLUMN updated_at TEXT;
     `,
   },
+  {
+    name: '017_narrative_deep_scan_heartbeat',
+    sql: `
+      INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('research', 'narrative_deep_scan');
+    `,
+  },
+  {
+    name: '018_trailing_stops',
+    sql: `
+      ALTER TABLE positions ADD COLUMN max_price_since_entry REAL;
+      ALTER TABLE positions ADD COLUMN trailing_stop_pct REAL;
+      ALTER TABLE positions ADD COLUMN trailing_stop_active INTEGER DEFAULT 0;
+      ALTER TABLE positions ADD COLUMN tp_levels_hit TEXT DEFAULT '[]';
+
+      ALTER TABLE paper_positions ADD COLUMN max_price_since_entry REAL;
+      ALTER TABLE paper_positions ADD COLUMN trailing_stop_pct REAL;
+      ALTER TABLE paper_positions ADD COLUMN trailing_stop_active INTEGER DEFAULT 0;
+      ALTER TABLE paper_positions ADD COLUMN tp_levels_hit TEXT DEFAULT '[]';
+    `,
+  },
+  {
+    name: '019_research_log',
+    sql: `
+      CREATE TABLE research_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        check_type TEXT NOT NULL,
+        tokens_scanned INTEGER DEFAULT 0,
+        tokens_analyzed INTEGER DEFAULT 0,
+        trades_proposed INTEGER DEFAULT 0,
+        alerts_processed INTEGER DEFAULT 0,
+        watchlist_hits INTEGER DEFAULT 0,
+        summary TEXT,
+        status TEXT NOT NULL DEFAULT 'ok',
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+    `,
+  },
 ];
 
 export default { getDb, close };

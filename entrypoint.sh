@@ -60,11 +60,15 @@ for dir in "$RESEARCH_WS/scripts" "$RESEARCH_WS/memory" "$RESEARCH_WS/skills"; d
 done
 
 # Code-owned files — always overwrite from templates
-for file in TOOLS.md BOOT.md IDENTITY.md; do
+for file in BOOT.md IDENTITY.md; do
   if [ -f "$TEMPLATES_DIR/$file" ]; then
     cp "$TEMPLATES_DIR/$file" "$RESEARCH_WS/$file"
   fi
 done
+# Per-agent TOOLS.md (each agent gets its own version)
+if [ -f "$AGENT_TEMPLATES/research/TOOLS.md" ]; then
+  cp "$AGENT_TEMPLATES/research/TOOLS.md" "$RESEARCH_WS/TOOLS.md"
+fi
 
 # Research agent-specific files — always overwrite from source
 for file in AGENTS.md SOUL.md HEARTBEAT.md; do
@@ -159,13 +163,13 @@ for agent in sentinel executor; do
 
   mkdir -p "$ws/skills" "$ws/scripts"
 
-  # Agent-specific workspace files (AGENTS.md, SOUL.md, HEARTBEAT.md)
-  for file in AGENTS.md SOUL.md HEARTBEAT.md; do
+  # Agent-specific workspace files (AGENTS.md, SOUL.md, HEARTBEAT.md, TOOLS.md)
+  for file in AGENTS.md SOUL.md HEARTBEAT.md TOOLS.md; do
     [ -f "$tpl/$file" ] && cp "$tpl/$file" "$ws/$file"
   done
 
   # Shared workspace files — symlink to templates (identical across agents)
-  for file in TOOLS.md IDENTITY.md; do
+  for file in IDENTITY.md; do
     ln -sf "$TEMPLATES_DIR/$file" "$ws/$file"
   done
 
@@ -307,11 +311,11 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   openclaw config set 'browser' '{"enabled":false}' --strict-json
   openclaw config set 'tools.web.search' '{"enabled":false}' --strict-json
   openclaw config set 'tools.web.fetch' '{"enabled":true}' --strict-json
-  openclaw config set 'tools.exec' '{"security":"allowlist","ask":"on-miss","safeBins":["node scripts/*","cat memory/*","ls memory/","echo *"],"safeBinProfiles":{"node scripts/*":{"minPositional":1,"maxPositional":10,"deniedFlags":["-e","--eval","--input-type","-p","--print","-c","--check"]},"cat memory/*":{"minPositional":1,"maxPositional":5},"ls memory/":{"minPositional":0,"maxPositional":2},"echo *":{"minPositional":0,"maxPositional":10}}}' --strict-json
+  openclaw config set 'tools.exec' '{"security":"allowlist","ask":"on-miss","safeBins":["node scripts/*","cat memory/*","ls memory/","echo *","openclaw cron *"],"safeBinProfiles":{"node scripts/*":{"minPositional":1,"maxPositional":10,"deniedFlags":["-e","--eval","--input-type","-p","--print","-c","--check"]},"cat memory/*":{"minPositional":1,"maxPositional":5},"ls memory/":{"minPositional":0,"maxPositional":2},"echo *":{"minPositional":0,"maxPositional":10},"openclaw cron *":{"minPositional":1,"maxPositional":5}}}' --strict-json
 
   # --- Memory: compaction flush + search ---
-  openclaw config set 'agents.defaults.compaction.reserveTokensFloor' 40000
-  openclaw config set 'agents.defaults.compaction.memoryFlush' '{"enabled":true,"softThresholdTokens":4000,"systemPrompt":"Session nearing compaction. Store durable memories now.","prompt":"Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."}' --strict-json
+  openclaw config set 'agents.defaults.compaction.reserveTokensFloor' 80000
+  openclaw config set 'agents.defaults.compaction.memoryFlush' '{"enabled":true,"softThresholdTokens":8000,"systemPrompt":"Session nearing compaction. Store durable memories now.","prompt":"Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."}' --strict-json
   openclaw config set 'agents.defaults.memorySearch' '{"enabled":true,"provider":"local","local":{"modelPath":"hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf"},"query":{"hybrid":{"enabled":true,"vectorWeight":0.7,"textWeight":0.3}},"cache":{"enabled":true}}' --strict-json
   openclaw config set 'agents.defaults.contextPruning' '{"mode":"cache-ttl","ttl":"5m"}' --strict-json
   openclaw config set 'agents.defaults.sandbox.mode' 'off'
@@ -326,6 +330,14 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   echo "[entrypoint] First-run configuration complete"
 else
   echo "[entrypoint] State volume exists — preserving config/pairing/sessions"
+
+  # --- Migrate compaction settings for larger context window models ---
+  CURRENT_RESERVE=$(openclaw config get 'agents.defaults.compaction.reserveTokensFloor' 2>/dev/null || echo "0")
+  if [ "$CURRENT_RESERVE" = "40000" ]; then
+    openclaw config set 'agents.defaults.compaction.reserveTokensFloor' 80000
+    openclaw config set 'agents.defaults.compaction.memoryFlush.softThresholdTokens' 8000
+    echo "[entrypoint] Migrated compaction settings for larger context windows"
+  fi
 
   # --- Ensure all agents are registered (auto-recover removed agents) ---
   ensure_agents() {
@@ -375,21 +387,29 @@ fi
 # 5c. Configure model providers (runs every start — API keys may change)
 # ============================================================
 
-# OpenAI provider (required for GPT-5.4-mini agents)
+# OpenAI model providers
+# Always register openai-codex provider (OpenClaw handles OAuth auth internally)
+CODEX_PROVIDER='{"baseUrl":"https://api.openai.com/v1","api":"openai-codex-responses","models":[{"id":"gpt-5.4","name":"GPT-5.4","contextWindow":1050000},{"id":"gpt-5.4-mini","name":"GPT-5.4 Mini","contextWindow":400000}]}'
+openclaw config set 'models.providers.openai-codex' "$CODEX_PROVIDER" --strict-json
+echo "[entrypoint] OpenAI: Codex OAuth provider registered"
+echo "[entrypoint]   → If not yet authenticated: docker compose exec crypto-claw openclaw models auth login --provider openai-codex"
+
+# Allow Codex models for agents
+openclaw config set 'agents.defaults.models' '{"openai-codex/gpt-5.4":{},"openai-codex/gpt-5.4-mini":{}}' --strict-json
+# Clean up stale CLI backend config from previous approach
+openclaw config unset 'agents.defaults.cliBackends.codex-cli' 2>/dev/null || true
+
+# Also register API key provider if available (fallback)
 if [ -n "${OPENAI_API_KEY:-}" ]; then
-  OPENAI_CONFIG="{\"baseUrl\":\"https://api.openai.com/v1\",\"api\":\"openai-responses\",\"apiKey\":\"$OPENAI_API_KEY\",\"models\":[{\"id\":\"gpt-5.4-mini\",\"name\":\"GPT-5.4 Mini\"}]}"
+  OPENAI_CONFIG="{\"baseUrl\":\"https://api.openai.com/v1\",\"api\":\"openai-responses\",\"apiKey\":\"$OPENAI_API_KEY\",\"models\":[{\"id\":\"gpt-5.4\",\"name\":\"GPT-5.4\",\"contextWindow\":1050000},{\"id\":\"gpt-5.4-mini\",\"name\":\"GPT-5.4 Mini\",\"contextWindow\":400000}]}"
   openclaw config set 'models.providers.openai' "$OPENAI_CONFIG" --strict-json
-  echo "[entrypoint] OpenAI provider configured"
-else
-  # Warn if agents are configured for OpenAI but no key is set
-  if echo "$RESEARCH_MODEL$SENTINEL_MODEL$EXECUTOR_MODEL" | grep -q "openai/"; then
-    echo "[entrypoint] WARNING: Agents configured for OpenAI models but OPENAI_API_KEY is not set — agents will fall back to default Anthropic model"
-  fi
+  echo "[entrypoint] OpenAI: API key provider also registered (fallback)"
 fi
+
 
 # Anthropic provider (required for Claude agents)
 if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-  ANTHROPIC_CONFIG="{\"baseUrl\":\"https://api.anthropic.com/v1\",\"api\":\"anthropic-messages\",\"apiKey\":\"$ANTHROPIC_API_KEY\",\"models\":[{\"id\":\"claude-haiku-4-5-20251001\",\"name\":\"Claude Haiku 4.5\"},{\"id\":\"claude-sonnet-4-6\",\"name\":\"Claude Sonnet 4.6\"}]}"
+  ANTHROPIC_CONFIG="{\"baseUrl\":\"https://api.anthropic.com/v1\",\"api\":\"anthropic-messages\",\"apiKey\":\"$ANTHROPIC_API_KEY\",\"models\":[{\"id\":\"claude-haiku-4-5-20251001\",\"name\":\"Claude Haiku 4.5\",\"contextWindow\":200000},{\"id\":\"claude-sonnet-4-6\",\"name\":\"Claude Sonnet 4.6\",\"contextWindow\":500000}]}"
   openclaw config set 'models.providers.anthropic' "$ANTHROPIC_CONFIG" --strict-json
   echo "[entrypoint] Anthropic provider configured"
 else
@@ -453,7 +473,7 @@ ensure_cron_jobs() {
 
   add_if_missing "research-cycle" \
     --every "30m" --agent research --model "$RESEARCH_MODEL" --session isolated --no-deliver \
-    --message "Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. If the check produces discoveries, run the FULL pipeline autonomously: analysis, risk assessment, trade proposal. Do not stop after scanning — you decide what to buy. Update timestamps via db-query.js. Log results to daily memory. If nothing actionable, reply HEARTBEAT_OK."
+    --message "OVERLAP GUARD: First run openclaw cron list --json to find the research-cycle job ID, then run openclaw cron runs --id <that-id> --json --limit 5. If another run (not the most recent = you) has status running/active, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. If the check produces discoveries, run the FULL pipeline autonomously: analysis, risk assessment, trade proposal. Do not stop after scanning — you decide what to buy. Update timestamps via db-query.js. Log results to daily memory. If nothing actionable, reply HEARTBEAT_OK."
 
   echo "[cron-setup] Done"
 }

@@ -243,8 +243,8 @@ async function runTests() {
       const rules = chains.getPortfolioRules('base');
       assertEqual(rules.maxMoonshotPosition, 5);
       assertEqual(rules.maxConvictionPosition, 10);
-      assertEqual(rules.maxBasePosition, 50);
-      assertEqual(rules.maxMoonshotAllocation, 20);
+      assertEqual(rules.maxBasePosition, 30);
+      assertEqual(rules.maxMoonshotAllocation, 30);
       assertEqual(rules.minCashReserve, 10);
       assertEqual(rules.maxSameNarrative, 3);
       assertEqual(rules.maxOpenPositions, 15);
@@ -272,7 +272,7 @@ async function runTests() {
 
     test('unspecified fields fall through to global defaults', () => {
       const rules = chains.getPortfolioRules('solana');
-      assertEqual(rules.maxBasePosition, 50, 'maxBasePosition not overridden');
+      assertEqual(rules.maxBasePosition, 30, 'maxBasePosition falls through to global default');
     });
 
     test('PORTFOLIO_RULES global defaults are exported', () => {
