@@ -68,15 +68,6 @@ async function fetchSearch(keyword) {
   return res.json();
 }
 
-async function fetchTokenPairs(chain, addresses) {
-  // eslint-disable-line no-unused-vars
-  // DEXScreener tokens endpoint: up to 30 addresses per call
-  const url = `${DEXSCREENER_TOKENS}/${chain}/${addresses.join(',')}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Tokens API error: ${res.status}`);
-  return res.json();
-}
-
 /**
  * Check if address is a stablecoin on any active chain.
  */
