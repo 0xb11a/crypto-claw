@@ -4,7 +4,7 @@
  *
  * Runs when all model providers fail. Processes SELL orders only:
  *   1. Query orders table for pending approved sells
- *   2. For each sell order: call execute-trade.js or execute-trade-solana.js
+ *   2. For each sell order: call execute-trade-evm.js or execute-trade-solana.js
  *   3. On success: mark order executed, write receipt, update position
  *   4. In paper mode: simulate execution, write to paper tables
  *   5. Output JSON summary
@@ -63,7 +63,7 @@ async function fetchCurrentPrice(address) {
 }
 
 function executeTradeLive(order) {
-  const scriptName = SOLANA_CHAINS.has(order.chain) ? 'execute-trade-solana.js' : 'execute-trade.js';
+  const scriptName = SOLANA_CHAINS.has(order.chain) ? 'execute-trade-solana.js' : 'execute-trade-evm.js';
   const scriptPath = resolve(__dirname, scriptName);
 
   const args = [

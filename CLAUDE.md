@@ -87,7 +87,7 @@ scripts/                  # Node.js scripts
   portfolio-load-evm.js   # On-chain portfolio sync (EVM via DeBank)
   portfolio-load-solana.js # On-chain portfolio sync (Solana via Helius)
   chains.js               # Centralized chain config (single source of truth)
-  execute-trade.js        # Safe wallet swap execution (EVM)
+  execute-trade-evm.js    # Safe wallet swap execution (EVM)
   execute-trade-solana.js # Squads/Jupiter swap execution (Solana)
   check-safe-status.js    # Safe wallet status check (EVM)
   check-squads-status.js  # Squads multisig status check (Solana)

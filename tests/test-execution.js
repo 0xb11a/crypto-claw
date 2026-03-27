@@ -2,7 +2,7 @@
 /**
  * Test Suite: Execution Scripts
  *
- * Offline tests for pure logic in execute-trade.js and check-safe-status.js:
+ * Offline tests for pure logic in execute-trade-evm.js and check-safe-status.js:
  * - CLI argument parsing and validation
  * - 1inch URL construction
  * - Slippage pre-check logic
@@ -18,12 +18,12 @@ import {
   build1inchUrl,
   checkSlippage,
   buildApproveCalldata,
-} from '../scripts/execute-trade.js';
+} from '../scripts/execute-trade-evm.js';
 
 // ============================================================
 // CLI Argument Parsing
 // ============================================================
-describe('execute-trade.js — Argument Parsing', () => {
+describe('execute-trade-evm.js — Argument Parsing', () => {
   test('parses all valid arguments', () => {
     const args = parseArgs([
       '--action',
@@ -93,7 +93,7 @@ describe('execute-trade.js — Argument Parsing', () => {
 // ============================================================
 // Argument Validation
 // ============================================================
-describe('execute-trade.js — Argument Validation', () => {
+describe('execute-trade-evm.js — Argument Validation', () => {
   test('valid buy args produce no errors', () => {
     const args = parseArgs([
       '--action',
@@ -275,7 +275,7 @@ describe('execute-trade.js — Argument Validation', () => {
 // ============================================================
 // 1inch URL Construction
 // ============================================================
-describe('execute-trade.js — 1inch URL Construction', () => {
+describe('execute-trade-evm.js — 1inch URL Construction', () => {
   test('builds correct URL with all params', () => {
     const url = build1inchUrl('8453', {
       src: '0xUSDC',
@@ -320,7 +320,7 @@ describe('execute-trade.js — 1inch URL Construction', () => {
 // ============================================================
 // Slippage Pre-Check
 // ============================================================
-describe('execute-trade.js — Slippage Pre-Check', () => {
+describe('execute-trade-evm.js — Slippage Pre-Check', () => {
   test('slippage within limit is ok', () => {
     const result = checkSlippage('98', '100', 5);
     assert(result.ok, 'Should pass — 2% slippage within 5% limit');
@@ -353,7 +353,7 @@ describe('execute-trade.js — Slippage Pre-Check', () => {
 // ============================================================
 // ERC-20 Approve Calldata
 // ============================================================
-describe('execute-trade.js — Approve Calldata', () => {
+describe('execute-trade-evm.js — Approve Calldata', () => {
   test('generates valid calldata for approve', () => {
     const calldata = buildApproveCalldata('0x111111125421cA6dc452d289314280a0f8842A65', 1000000n);
     assert(typeof calldata === 'string', 'Should return hex string');
@@ -376,7 +376,7 @@ describe('execute-trade.js — Approve Calldata', () => {
 // ============================================================
 // Output Format Validation
 // ============================================================
-describe('execute-trade.js — Output Format', () => {
+describe('execute-trade-evm.js — Output Format', () => {
   test('executed result has required fields', () => {
     const result = {
       status: 'executed',
@@ -432,7 +432,7 @@ describe('execute-trade.js — Output Format', () => {
 // ============================================================
 // Security: No Private Key Leakage
 // ============================================================
-describe('execute-trade.js — Security', () => {
+describe('execute-trade-evm.js — Security', () => {
   test('output format has no key-like fields', () => {
     const validFields = [
       'status',

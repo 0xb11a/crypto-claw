@@ -100,11 +100,11 @@ node scripts/db-query.js set-onchain-balance --id <position_id> --balance 1000.5
 
 ## Trade Execution (Real Mode Only)
 
-### EVM (Safe Wallet) — execute-trade.js
+### EVM (Safe Wallet) — execute-trade-evm.js
 ```bash
-node scripts/execute-trade.js --action buy --chain base --address 0xTOKEN --symbol TOKEN --amount 500 --max-slippage 5 --tier moonshot --deadline 300
-node scripts/execute-trade.js --action sell --chain base --address 0xTOKEN --symbol TOKEN --amount all --max-slippage 5
-node scripts/execute-trade.js --action sell --chain base --address 0xTOKEN --symbol TOKEN --amount 10000 --max-slippage 2 --deadline 300
+node scripts/execute-trade-evm.js --action buy --chain base --address 0xTOKEN --symbol TOKEN --amount 500 --max-slippage 5 --tier moonshot --deadline 300
+node scripts/execute-trade-evm.js --action sell --chain base --address 0xTOKEN --symbol TOKEN --amount all --max-slippage 5
+node scripts/execute-trade-evm.js --action sell --chain base --address 0xTOKEN --symbol TOKEN --amount 10000 --max-slippage 2 --deadline 300
 ```
 Handles: 1inch swap quoting, ERC-20 approvals, Safe multi-send, signing with `SAFE_SIGNER_KEY`.
 Requires: `SAFE_ADDRESS_<CHAIN>`, `SAFE_SIGNER_KEY`, `RPC_<CHAIN>`.
@@ -160,7 +160,7 @@ Native ETH/SOL stored as gas metadata (not a position). Stablecoins accumulate a
 ### Emergency Executor (No LLM Required)
 ```bash
 # Script-only sell executor — runs when executor agent can't reach any model
-# Processes SELL orders only (never buys). Calls execute-trade.js / execute-trade-solana.js
+# Processes SELL orders only (never buys). Calls execute-trade-evm.js / execute-trade-solana.js
 # In paper mode: simulates execution, writes to paper tables
 node scripts/emergency-executor.js
 ```

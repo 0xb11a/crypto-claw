@@ -27,7 +27,7 @@ node scripts/process-order.js --order-id ORDER_ID
 
 The script handles the **entire lifecycle** atomically:
 - Validates (cash, price, position)
-- Executes (calls execute-trade.js or simulates in paper mode)
+- Executes (calls execute-trade-evm.js or simulates in paper mode)
 - Writes receipt (linked to position via `position_id`)
 - Creates/closes position (or creates `draft`/`pending_exit` for queued multisig)
 - Updates cash

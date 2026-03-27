@@ -161,7 +161,7 @@ flowchart LR
 |---|---|---|
 | **Wallet type** | Safe multisig | Squads Protocol V4 |
 | **DEX aggregator** | 1inch | Jupiter |
-| **Execution script** | execute-trade.js | execute-trade-solana.js |
+| **Execution script** | execute-trade-evm.js | execute-trade-solana.js |
 | **Status check** | check-safe-status.js | check-squads-status.js |
 | **Portfolio sync** | portfolio-load-evm.js (DeBank) | portfolio-load-solana.js (Helius) |
 | **Token scanning** | DEXScreener | DEXScreener |
@@ -580,7 +580,7 @@ crypto-claw/
 |   +-- portfolio-load-evm.js        # On-chain portfolio sync (EVM via DeBank)
 |   +-- portfolio-load-solana.js     # On-chain portfolio sync (Solana via Helius)
 |   +-- chains.js                    # Centralized chain config (single source of truth)
-|   +-- execute-trade.js             # Safe wallet swap execution (EVM)
+|   +-- execute-trade-evm.js             # Safe wallet swap execution (EVM)
 |   +-- execute-trade-solana.js      # Squads/Jupiter swap execution (Solana)
 |   +-- check-safe-status.js         # Safe wallet status check (EVM)
 |   +-- check-squads-status.js       # Squads multisig status check (Solana)

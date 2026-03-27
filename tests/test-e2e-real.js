@@ -16,7 +16,7 @@
  *   8. Happy path — TP1 partial sell via update-position
  *   9. Portfolio sync metadata — verify set-meta/get-meta for sync timestamps
  *
- * Does NOT call execute-trade.js or execute-trade-solana.js (no real wallets needed).
+ * Does NOT call execute-trade-evm.js or execute-trade-solana.js (no real wallets needed).
  * Uses a unique SAFE_ID per run to avoid interfering with real data.
  */
 
