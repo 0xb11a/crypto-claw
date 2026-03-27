@@ -36,13 +36,28 @@ Research heartbeat runs every 30 minutes. One check per heartbeat.
 3. Run that check
 4. Update timestamp: `node scripts/db-query.js update-heartbeat --agent research --check <check_type>`
 5. **If the check produces discoveries → run the FULL pipeline autonomously: discovery → analysis → risk → trade proposal.** Do not stop after scanning. You decide what to buy — that is your job.
-6. If nothing actionable → reply HEARTBEAT_OK
-7. **Log work summary** (always, even when nothing actionable):
+6. **REQUIRED — Reply with a work summary** (always, even when nothing actionable). This is your final message and it will be delivered to chat. Format:
+   ```
+   **Research Heartbeat** — <check_type>
+   <one-line summary of what was done and what was found>
+   Scanned: <N> | Analyzed: <N> | Proposed: <N>
+   ```
+   Examples:
+   - **Research Heartbeat** — token_scan
+     Scanned 30 trending tokens on base+solana, analyzed 2 (AERO, VIRTUAL). Proposed 1 BUY (AERO moonshot).
+     Scanned: 30 | Analyzed: 2 | Proposed: 1
+   - **Research Heartbeat** — market_regime
+     Market regime unchanged: neutral. No parameter adjustments.
+     Scanned: 0 | Analyzed: 0 | Proposed: 0
+   - **Research Heartbeat** — sentinel_alerts
+     No unprocessed alerts.
+     Scanned: 0 | Analyzed: 0 | Proposed: 0
+7. **REQUIRED — Log to database** (always, after the summary reply — do NOT skip this step):
    ```bash
    node scripts/db-query.js add-research-log --json '{"check_type":"<CHECK>","tokens_scanned":<N>,"tokens_analyzed":<N>,"trades_proposed":<N>,"alerts_processed":<N>,"watchlist_hits":<N>,"summary":"<one-line summary>","status":"ok"}'
    ```
    - `tokens_scanned`: tokens that passed initial filters. `tokens_analyzed`: those that went through the full pipeline.
-   - `summary`: one human-readable sentence, e.g., "Scanned 30 trending tokens, analyzed 2, proposed 1 BUY (AERO moonshot)" or "Market regime unchanged: neutral" or "No actionable alerts"
+   - `summary`: one human-readable sentence matching the summary you replied with above
    - Set `status` to `"error"` if the check failed partway through
 
 ## Check Details

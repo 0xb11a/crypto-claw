@@ -472,8 +472,8 @@ ensure_cron_jobs() {
   fi
 
   add_if_missing "research-cycle" \
-    --every "30m" --agent research --model "$RESEARCH_MODEL" --session isolated --no-deliver \
-    --message "OVERLAP GUARD: First run openclaw cron list --json to find the research-cycle job ID, then run openclaw cron runs --id <that-id> --json --limit 5. If another run (not the most recent = you) has status running/active, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. If the check produces discoveries, run the FULL pipeline autonomously: analysis, risk assessment, trade proposal. Do not stop after scanning — you decide what to buy. Update timestamps via db-query.js. Log results to daily memory. If nothing actionable, reply HEARTBEAT_OK."
+    --every "30m" --agent research --model "$RESEARCH_MODEL" --session isolated \
+    --message "OVERLAP GUARD: First run openclaw cron list --json to find the research-cycle job ID, then run openclaw cron runs --id <that-id> --json --limit 5. If another run (not the most recent = you) has status running/active, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. If the check produces discoveries, run the FULL pipeline autonomously: analysis, risk assessment, trade proposal. Do not stop after scanning — you decide what to buy. Update timestamps via db-query.js. Log results to daily memory and database (add-research-log). ALWAYS end with a short work summary: what check ran, what was found, counts (scanned/analyzed/proposed)."
 
   echo "[cron-setup] Done"
 }
