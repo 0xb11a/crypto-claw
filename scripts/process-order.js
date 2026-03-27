@@ -142,7 +142,7 @@ async function fetchCurrentPrice(address, chain) {
 // ============================================================
 
 function executeTrade(order, action) {
-  const scriptName = isSolana(order.chain) ? 'execute-trade-solana.js' : 'execute-trade.js';
+  const scriptName = isSolana(order.chain) ? 'execute-trade-solana.js' : 'execute-trade-evm.js';
   const scriptPath = resolve(__dirname, scriptName);
 
   const args = [
@@ -172,7 +172,7 @@ function executeTrade(order, action) {
     });
     return JSON.parse(raw);
   } catch (err) {
-    // execute-trade.js exits 1 on failure but still outputs JSON
+    // execute-trade-evm.js exits 1 on failure but still outputs JSON
     if (err.stdout) {
       try {
         return JSON.parse(err.stdout);
@@ -202,7 +202,7 @@ function writeReceipt(db, order, tradeResult, action, positionId) {
       order.address,
       order.chain,
       order.tier || null,
-      tradeResult.proposedPrice || order.entry_price || null,
+      tradeResult.proposedPrice || order.entry_price || 0,
       tradeResult.quantity || null,
       tradeResult.amount || null,
       tradeResult.pnlPercent || null,

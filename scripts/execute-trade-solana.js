@@ -50,29 +50,34 @@ export function parseArgs(argv) {
     amount: '',
     maxSlippage: '',
     tier: '',
+    dryRun: false,
   };
-  for (let i = 0; i < args.length; i += 2) {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--dry-run') {
+      config.dryRun = true;
+      continue;
+    }
     switch (args[i]) {
       case '--action':
-        config.action = args[i + 1];
+        config.action = args[++i];
         break;
       case '--chain':
-        config.chain = args[i + 1];
+        config.chain = args[++i];
         break;
       case '--address':
-        config.address = args[i + 1];
+        config.address = args[++i];
         break;
       case '--symbol':
-        config.symbol = args[i + 1];
+        config.symbol = args[++i];
         break;
       case '--amount':
-        config.amount = args[i + 1];
+        config.amount = args[++i];
         break;
       case '--max-slippage':
-        config.maxSlippage = args[i + 1];
+        config.maxSlippage = args[++i];
         break;
       case '--tier':
-        config.tier = args[i + 1];
+        config.tier = args[++i];
         break;
     }
   }
@@ -163,6 +168,8 @@ async function getJupiterQuote(inputMint, outputMint, amount, slippageBps) {
     outputMint: outputMint.toString(),
     amount: amount.toString(),
     slippageBps: slippageBps.toString(),
+    // Limit accounts to fit within Squads vault transaction size limits
+    maxAccounts: '20',
   });
 
   const res = await fetch(`${JUPITER_API}/quote?${params}`);
@@ -207,7 +214,7 @@ function deserializeInstruction(ix) {
 // Squads Transaction Building
 // ============================================================
 
-async function buildAndSubmitSquadsTx(env, instructions) {
+async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false } = {}) {
   const { connection, multisigPda, vaultPda, signer, vaultIndex } = env;
 
   // Get current multisig state for transaction index
@@ -261,6 +268,19 @@ async function buildAndSubmitSquadsTx(env, instructions) {
   const metaTx = new VersionedTransaction(metaMessage);
   metaTx.sign([signer]);
 
+  // Dry run: return signed tx data without broadcasting
+  if (dryRun) {
+    return {
+      status: 'dry_run',
+      squadsTransactionIndex: transactionIndex,
+      signerAddress: signer.publicKey.toString(),
+      vaultAddress: vaultPda.toString(),
+      instructionCount: instructions.length,
+      threshold: Number(multisigAccount.threshold),
+      serializedTxLength: metaTx.serialize().length,
+    };
+  }
+
   const metaSig = await connection.sendTransaction(metaTx, {
     skipPreflight: false,
   });
@@ -274,7 +294,8 @@ async function buildAndSubmitSquadsTx(env, instructions) {
   const threshold = Number(multisigAccount.threshold);
   if (threshold <= 1) {
     try {
-      const executeTxIx = multisig.instructions.vaultTransactionExecute({
+      const { instruction: executeTxIx, lookupTableAccounts } = await multisig.instructions.vaultTransactionExecute({
+        connection,
         multisigPda,
         transactionIndex: transactionIndexBN,
         member: signer.publicKey,
@@ -285,7 +306,7 @@ async function buildAndSubmitSquadsTx(env, instructions) {
         payerKey: signer.publicKey,
         recentBlockhash: execBlockhash.blockhash,
         instructions: [executeTxIx],
-      }).compileToV0Message();
+      }).compileToV0Message(lookupTableAccounts);
 
       const execTx = new VersionedTransaction(execMessage);
       execTx.sign([signer]);
@@ -327,7 +348,7 @@ async function buildAndSubmitSquadsTx(env, instructions) {
 // BUY Flow: USDC → Token
 // ============================================================
 
-async function executeBuy(args, env) {
+async function executeBuy(args, env, { dryRun = false } = {}) {
   const tokenMint = new PublicKey(args.address);
   const buyAmountUsd = parseFloat(args.amount);
 
@@ -364,7 +385,7 @@ async function executeBuy(args, env) {
     allInstructions.push(deserializeInstruction(swapData.cleanupInstruction));
   }
 
-  const result = await buildAndSubmitSquadsTx(env, allInstructions);
+  const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun });
 
   return {
     ...result,
@@ -382,7 +403,7 @@ async function executeBuy(args, env) {
 // SELL Flow: Token → USDC
 // ============================================================
 
-async function executeSell(args, env) {
+async function executeSell(args, env, { dryRun = false } = {}) {
   const tokenMint = new PublicKey(args.address);
 
   // Get vault's token balance
@@ -427,7 +448,7 @@ async function executeSell(args, env) {
     allInstructions.push(deserializeInstruction(swapData.cleanupInstruction));
   }
 
-  const result = await buildAndSubmitSquadsTx(env, allInstructions);
+  const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun });
 
   const expectedUsdc = Number(quote.outAmount) / 10 ** USDC_DECIMALS;
 
@@ -468,7 +489,8 @@ async function main() {
   }
 
   try {
-    const result = args.action === 'buy' ? await executeBuy(args, env) : await executeSell(args, env);
+    const opts = { dryRun: args.dryRun };
+    const result = args.action === 'buy' ? await executeBuy(args, env, opts) : await executeSell(args, env, opts);
 
     // Safety: ensure no private key in output
     const output = JSON.stringify(result, null, 2);
