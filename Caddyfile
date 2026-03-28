@@ -1,0 +1,9 @@
+{
+	auto_https off
+	admin off
+}
+
+https://{$SERVER_IP}:{$CADDY_HTTPS_PORT:443} {
+	tls internal
+	reverse_proxy crypto-claw:{$OPENCLAW_GATEWAY_PORT:18789}
+}
