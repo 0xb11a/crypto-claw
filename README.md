@@ -118,7 +118,7 @@ flowchart TD
 | Agent memory survives redeploy | Infra | MEMORY.md + daily logs preserved, private git backup every 15m |
 | Wallet data survives redeploy | Infra | SQLite DB preserved + auto-migrated on restart |
 | Too many positions in one narrative | Research | Portfolio check → max 3 same-narrative positions |
-| Portfolio over-concentrated | Research | Position limits (5% moonshot, 10% conviction, 50% base) |
+| Portfolio over-concentrated | Research | Position limits (5% moonshot, 10% conviction, 30% base) |
 
 ### Data Flow
 
@@ -255,7 +255,7 @@ What happens on first start:
 
 1. Image builds: installs OpenClaw, deploys three agents, installs npm dependencies
 2. `entrypoint.sh` runs: seeds workspace files (USER.md, MEMORY.md, TOOLS.md, etc.)
-3. SQLite database created and migrated (`data/<SAFE_ID>.db` — 17 tables)
+3. SQLite database created and migrated (`data/<SAFE_ID>.db` — 19 tables)
 4. Background loops start: memory backup (15m), wallet scoring (10m), sentinel (10m), executor (1m)
 5. OpenClaw gateway starts, research agent begins 30m heartbeat cycle via cron
 
@@ -332,7 +332,7 @@ SAFE_ID=fund-alpha ./setup.sh --memory-backup
 # Run tests (offline — no API calls)
 cd tests && node run-all.js --offline
 
-# Check all 9 suites pass (391 tests)
+# Check all 14 suites pass (537+ tests)
 ```
 
 ---
@@ -502,7 +502,7 @@ Agent knowledge that applies across all fund deployments. Backed by a **private 
 
 ### Layer 2: Wallet Data (SQLite)
 
-Per-fund data in `data/<SAFE_ID>.db`. 17 tables, auto-migrating schema. Accessed via `node scripts/db-query.js` (35+ commands).
+Per-fund data in `data/<SAFE_ID>.db`. 19 tables, auto-migrating schema. Accessed via `node scripts/db-query.js` (35+ commands).
 
 | Table | Written By | Read By | Purpose |
 |-------|-----------|---------|---------|
@@ -521,6 +521,41 @@ Per-fund data in `data/<SAFE_ID>.db`. 17 tables, auto-migrating schema. Accessed
 | `portfolio_meta` | All | All | Cash balance, safe_id, market regime |
 | `paper_receipts` | Executor | All | Simulated trade records (paper mode) |
 | `paper_positions` | Executor | All | Simulated positions (paper mode) |
+| `portfolio_sync` | Sentinel | Sentinel | On-chain portfolio sync state |
+| `contract_snapshots` | Sentinel | Sentinel | Contract safety snapshots for change detection |
+| `research_log` | Research | Research | Research heartbeat check history |
+
+---
+
+## Telegram Integration
+
+Alerts are routed to a Telegram supergroup with per-topic threads. Each agent sends to its designated topic.
+
+### Topic Routing
+
+| Topic Env Var | Agent | Content |
+|---|---|---|
+| `TG_TOPIC_RESEARCH` | Research | Discoveries, trade proposals, analysis results |
+| `TG_TOPIC_SENTINEL` | Sentinel | Stop-loss, take-profit, rug detection, LP alerts |
+| `TG_TOPIC_EXECUTOR` | Executor | Execution receipts, transaction confirmations |
+| `TG_TOPIC_ALERTS` | All | Critical alerts (model failure, emergency mode, rug warning) |
+| `TG_TOPIC_SYSTEM` | System | Health checks, startup, errors |
+| `TG_TOPIC_PORTFOLIO` | System | Daily portfolio report |
+
+### Security
+
+`TELEGRAM_OWNER_ID` restricts owner-only commands (like approve/reject) to a single Telegram user ID.
+
+### Setup
+
+1. Create a Telegram supergroup with topics enabled
+2. Run `node scripts/telegram-get-topics.js` to discover thread IDs
+3. Set the `TG_TOPIC_*` env vars in `.env`
+4. Set `TELEGRAM_OWNER_ID` to your Telegram user ID
+
+### Daily Portfolio Reports
+
+Configure `PORTFOLIO_REPORT_HOUR` (0-23, default: 0) to receive automated daily portfolio summaries in the portfolio topic.
 
 ---
 
@@ -533,16 +568,19 @@ crypto-claw/
 |   |   +-- AGENTS.md                # Operating rules + buy approval logic
 |   |   +-- SOUL.md                  # Research persona
 |   |   +-- HEARTBEAT.md             # 30min rotating checks
+|   |   +-- TOOLS.md                 # Per-agent CLI usage guide
 |   |   +-- skills/
 |   |       +-- discovery/SKILL.md   # Token scanning + dedup
 |   |       +-- analyst/SKILL.md     # Scoring framework
 |   |       +-- risk/SKILL.md        # Safety checks
 |   |       +-- portfolio/SKILL.md   # Position management
+|   |       +-- orders/SKILL.md      # Order management via chat
 |   |
 |   +-- sentinel/                    # SENTINEL AGENT
 |   |   +-- AGENTS.md                # Monitoring rules + sell order logic
 |   |   +-- SOUL.md                  # Watchdog persona
 |   |   +-- HEARTBEAT.md             # 10min all checks
+|   |   +-- TOOLS.md                 # Per-agent CLI usage guide
 |   |   +-- skills/
 |   |       +-- sentinel/SKILL.md    # Position monitoring
 |   |
@@ -550,6 +588,7 @@ crypto-claw/
 |       +-- AGENTS.md                # Transaction rules + validation logic
 |       +-- SOUL.md                  # Mechanical persona
 |       +-- HEARTBEAT.md             # 1min order processing
+|       +-- TOOLS.md                 # Per-agent CLI usage guide
 |       +-- skills/
 |           +-- executor/SKILL.md    # Safe wallet tx building
 |
@@ -562,7 +601,7 @@ crypto-claw/
 |   +-- memory/                      # Daily logs (preserved)
 |
 +-- scripts/                         # NODE.JS SCRIPTS
-|   +-- db.js                        # SQLite schema + migrations (17 tables)
+|   +-- db.js                        # SQLite schema + migrations (19 tables)
 |   +-- db-query.js                  # CLI interface for wallet data (35+ commands)
 |   +-- package.json                 # Dependencies (better-sqlite3, dotenv)
 |   +-- scan-tokens.js               # DEXScreener trending/new/established
@@ -585,10 +624,19 @@ crypto-claw/
 |   +-- check-safe-status.js         # Safe wallet status check (EVM)
 |   +-- check-squads-status.js       # Squads multisig status check (Solana)
 |   +-- narrative-check.js           # Narrative momentum
+|   +-- narrative-config.js          # Narrative definitions and tier affinities
+|   +-- narrative-deep-scan.js       # Deep narrative analysis
 |   +-- holder-distribution.js       # Top holder analysis
+|   +-- process-order.js             # Atomic order processing with status workflow
+|   +-- emergency-sentinel.js        # Emergency sentinel activation on failures
+|   +-- emergency-executor.js        # Emergency executor activation on failures
+|   +-- track-multisig.js            # Multisig approval workflow tracking
+|   +-- send-alert.js                # Telegram alerts via openclaw message send
+|   +-- telegram-get-topics.js       # Setup helper: discover supergroup topic IDs
 |   +-- memory-backup.sh             # Git auto-commit for agent memory
+|   +-- codex-login.sh               # One-time Codex OAuth login
 |
-+-- tests/                           # 9 TEST SUITES
++-- tests/                           # 14 TEST SUITES
 |   +-- run-all.js                   # Test runner
 |   +-- test-helpers.js              # Minimal test framework
 |   +-- test-memory.js               # Agent memory + SQLite schema + CRUD
@@ -597,9 +645,14 @@ crypto-claw/
 |   +-- test-executor.js             # Executor validation + cross-chain cash
 |   +-- test-paper-mode.js           # Paper trading lifecycle + per-chain cash
 |   +-- test-e2e-paper.js            # End-to-end paper trading + multi-chain
+|   +-- test-e2e-real.js             # End-to-end real trading
 |   +-- test-regime.js               # Market regime classification + anti-whipsaw
 |   +-- test-chains.js               # Chain config + portfolio sync
+|   +-- test-execution.js            # Trade execution flow
+|   +-- test-emergency.js            # Emergency sentinel/executor activation
+|   +-- test-telegram.js             # Telegram alerts + topic routing
 |   +-- test-scripts.js              # Script output validation (needs network)
+|   +-- test-process-order.js        # Order processing lifecycle (needs network)
 |
 +-- entrypoint.sh                    # Docker runtime init + background loops
 +-- Dockerfile                       # Image build
@@ -616,8 +669,8 @@ crypto-claw/
 |------|-------|------------|
 | Max moonshot position | 5% | Research + Executor |
 | Max conviction position | 10% | Research + Executor |
-| Max base position | 50% | Research + Executor |
-| Max moonshot allocation | 20% | Research |
+| Max base position | 30% | Research + Executor |
+| Max moonshot allocation | 30% | Research |
 | Min cash reserve | 10% (25% bearish, 40% crisis) | Research |
 | Max same-narrative positions | 3 | Research |
 | Max open positions | 15 | Research |
@@ -655,15 +708,20 @@ cd tests && node run-all.js --offline
 cd tests && node run-all.js
 
 # Run individual suites
-node tests/test-memory.js      # Agent memory + SQLite schema + CRUD (62 tests)
-node tests/test-safety.js      # Safety rules + regime limits (46 tests)
-node tests/test-pipeline.js    # Pipeline + dedup + Solana (52 tests)
-node tests/test-executor.js    # Validation, slippage, receipts, cross-chain (37 tests)
-node tests/test-paper-mode.js  # Paper trading lifecycle + per-chain cash (18 tests)
-node tests/test-e2e-paper.js   # End-to-end paper trading + multi-chain (49 tests)
-node tests/test-regime.js      # Regime classification + anti-whipsaw (47 tests)
-node tests/test-chains.js      # Chain config + portfolio sync (42 tests)
-node tests/test-scripts.js     # Script output format (needs network, 38 tests)
+node tests/test-memory.js        # Agent memory + SQLite schema + CRUD (82 tests)
+node tests/test-safety.js        # Safety rules + regime limits (46 tests)
+node tests/test-pipeline.js      # Pipeline + dedup + Solana (57 tests)
+node tests/test-executor.js      # Validation, slippage, receipts, cross-chain (42 tests)
+node tests/test-paper-mode.js    # Paper trading lifecycle + per-chain cash (22 tests)
+node tests/test-e2e-paper.js     # End-to-end paper trading + multi-chain (49 tests)
+node tests/test-e2e-real.js      # End-to-end real trading (53 tests)
+node tests/test-regime.js        # Regime classification + anti-whipsaw (57 tests)
+node tests/test-chains.js        # Chain config + portfolio sync (50 tests)
+node tests/test-execution.js     # Trade execution flow (38 tests)
+node tests/test-emergency.js     # Emergency sentinel/executor activation (19 tests)
+node tests/test-telegram.js      # Telegram alerts + topic routing (22 tests)
+node tests/test-scripts.js       # Script output format (needs network)
+node tests/test-process-order.js # Order processing lifecycle (needs network)
 ```
 
 ## Cost Optimization

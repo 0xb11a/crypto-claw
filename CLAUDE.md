@@ -10,7 +10,7 @@ CryptoClaw is a three-agent crypto research and portfolio management system buil
 
 Three agents communicate through a shared SQLite database:
 
-- **Research Agent** (`agents/research/`) — Runs on GPT-5.4 via Codex OAuth, 30-minute heartbeat. Handles discovery, market checks, trade proposals. Handles all skills directly (analysis, risk, portfolio). Has 4 skills: discovery, analyst, risk, portfolio.
+- **Research Agent** (`agents/research/`) — Runs on GPT-5.4 via Codex OAuth, 30-minute heartbeat. Handles discovery, market checks, trade proposals. Handles all skills directly (analysis, risk, portfolio). Has 5 skills: discovery, analyst, risk, portfolio, orders.
 - **Sentinel Agent** (`agents/sentinel/`) — Runs on GPT-5.4 via Codex OAuth, 10-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders to the unified orders table. Has 1 skill: sentinel.
 - **Executor Agent** (`agents/executor/`) — Runs on GPT-5.4 via Codex OAuth, 1-minute heartbeat. Reads orders (buy and sell), validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
 - **Ollama Cloud** — Some agents might use Ollama Cloud's API (`https://ollama.com/api/chat`). No sidecar needed — OpenClaw's built-in Ollama provider sends `OLLAMA_API_KEY` as a Bearer token directly.
@@ -34,7 +34,7 @@ Positions, trades, orders, alerts, receipts — everything tied to a specific Sa
 - Database path: `data/<SAFE_ID>.db`
 - Access via CLI: `node scripts/db-query.js <command> [--flags]`
 - Schema managed by auto-migrations in `scripts/db.js`
-- 20 tables: positions, trades, approved_trades, sell_orders, trade_receipts, orders, receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_trades, paper_positions, paper_receipts, analysis_cache, _migrations
+- 19 tables: positions, trades, orders, receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_positions, paper_receipts, analysis_cache, portfolio_sync, contract_snapshots, research_log, _migrations
 
 ### Why Two Layers?
 The project can be deployed multiple times managing different Safe wallets/funds. Agent memory (patterns, lessons) is universal knowledge shared across all deployments. Wallet data (positions, cash, orders) is specific to one fund and must be isolated.
@@ -92,12 +92,18 @@ scripts/                  # Node.js scripts
   check-safe-status.js    # Safe wallet status check (EVM)
   check-squads-status.js  # Squads multisig status check (Solana)
   narrative-check.js      # Narrative momentum
+  narrative-config.js     # Narrative definitions and tier affinities
+  narrative-deep-scan.js  # Deep narrative analysis
   holder-distribution.js  # Top holder analysis
+  process-order.js        # Atomic order processing with status workflow and multisig tracking
+  emergency-sentinel.js   # Emergency sentinel activation on repeated model failures
+  emergency-executor.js   # Emergency executor activation on repeated model failures
+  track-multisig.js       # Multisig approval workflow tracking
   send-alert.js           # Telegram alerts via openclaw message send (topic routing)
   telegram-get-topics.js  # Setup helper: discover supergroup topic thread IDs
   memory-backup.sh        # Git auto-commit for agent memory
   codex-login.sh          # One-time Codex OAuth login (ChatGPT subscription)
-tests/                    # 12 test suites + runner + helpers
+tests/                    # 14 test suites + runner + helpers
 Dockerfile                # Based on ghcr.io/openclaw/openclaw:latest
 docker-compose.yml        # One-command deployment
 build-templates.sh        # Docker build-time template assembly (replaces setup.sh in Docker)
@@ -117,6 +123,8 @@ setup.sh                  # Bare-metal installer (deploys agents into OpenClaw d
 | `scripts/chains.js` | Centralized chain config — Safe/Squads env vars, portfolio rules, cash tokens |
 | `agents/{name}/TOOLS.md` | Per-agent CLI usage guide — each agent gets only the commands/scripts it uses |
 | `workspace/TOOLS.md` | Full tool reference (not deployed) — check this for the complete picture |
+| `scripts/process-order.js` | Atomic order processing — validates, executes, updates status, writes receipts |
+| `entrypoint.sh` | Docker runtime init — per-agent config, background loops, workspace seeding |
 | `setup.sh` | Understand this to know how files get deployed to OpenClaw |
 
 ## Commands
@@ -134,8 +142,15 @@ node tests/test-safety.js       # Safety rule logic
 node tests/test-pipeline.js     # Pipeline stage integration + executor handoff
 node tests/test-executor.js     # Executor validation, slippage, receipts, portfolio updates
 node tests/test-paper-mode.js   # Paper trading lifecycle, P&L, stats
+node tests/test-e2e-paper.js    # End-to-end paper trading + multi-chain
+node tests/test-e2e-real.js     # End-to-end real trading
 node tests/test-regime.js       # Market regime classification, adjustments, anti-whipsaw
+node tests/test-chains.js       # Chain config + portfolio sync
+node tests/test-execution.js    # Trade execution flow
+node tests/test-emergency.js    # Emergency sentinel/executor activation
+node tests/test-telegram.js     # Telegram alerts + topic routing
 node tests/test-scripts.js      # Script output format (needs network)
+node tests/test-process-order.js # Order processing lifecycle (needs network)
 
 # Database queries (from project root)
 SAFE_ID=my-fund node scripts/db-query.js get-portfolio
@@ -218,6 +233,30 @@ Paper mode (`PAPER_MODE=true`) runs the full system autonomously without touchin
 - `get-paper-portfolio`, `get-paper-positions`, `get-paper-receipts`, `get-paper-stats`
 - `add-paper-position`, `update-paper-position`, `close-paper-position`, `add-paper-receipt`
 - `get-paper-cash`, `set-paper-cash`
+
+## Telegram Integration
+
+CryptoClaw sends alerts to a Telegram supergroup with per-topic routing. Each agent type and system function sends to its own topic thread.
+
+### Topic Environment Variables
+- `TG_TOPIC_RESEARCH` — Thread ID for research discoveries and trade proposals
+- `TG_TOPIC_SENTINEL` — Thread ID for sentinel alerts (stop-loss, rug, LP)
+- `TG_TOPIC_EXECUTOR` — Thread ID for execution receipts
+- `TG_TOPIC_ALERTS` — Thread ID for critical alerts (model failure, emergency mode, rug warning)
+- `TG_TOPIC_SYSTEM` — Thread ID for system health messages (recovered, heartbeat summary)
+- `TG_TOPIC_PORTFOLIO` — Thread ID for daily portfolio reports
+
+### Security
+- `TELEGRAM_OWNER_ID` — Restricts owner-only commands (approve/reject) to a single Telegram user ID.
+
+### Setup
+1. Create a Telegram supergroup with topics enabled
+2. Run `node scripts/telegram-get-topics.js` to discover thread IDs
+3. Set the `TG_TOPIC_*` env vars in `.env`
+4. Set `TELEGRAM_OWNER_ID` to your Telegram user ID
+
+### Daily Portfolio Reports
+Configure `PORTFOLIO_REPORT_HOUR` (0-23, default: 0) to receive automated daily portfolio summaries in the portfolio topic.
 
 ## When Modifying
 
