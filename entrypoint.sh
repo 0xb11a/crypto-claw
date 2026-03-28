@@ -443,6 +443,18 @@ openclaw config set 'models.providers.openai-codex' "$CODEX_PROVIDER" --strict-j
 echo "[entrypoint] OpenAI: Codex OAuth provider registered"
 echo "[entrypoint]   → If not yet authenticated: docker compose exec crypto-claw openclaw models auth login --provider openai-codex"
 
+# Copy Codex OAuth credentials from research (persistent) to sentinel/executor (tmpfs)
+RESEARCH_AUTH="$OPENCLAW_HOME/agents/research/agent/auth-profiles.json"
+if [ -f "$RESEARCH_AUTH" ]; then
+  for agent_dir in "$OPENCLAW_HOME/agents/sentinel/agent" "$OPENCLAW_HOME/agents/executor/agent"; do
+    mkdir -p "$agent_dir"
+    cp "$RESEARCH_AUTH" "$agent_dir/auth-profiles.json"
+  done
+  echo "[entrypoint]   Auth profiles copied to sentinel + executor"
+else
+  echo "[entrypoint]   ⚠ No auth-profiles.json found — run: docker compose exec crypto-claw openclaw models auth login --provider openai-codex"
+fi
+
 # Allow Codex models for agents
 openclaw config set 'agents.defaults.models' '{"openai-codex/gpt-5.4":{},"openai-codex/gpt-5.4-mini":{}}' --strict-json
 # Clean up stale CLI backend config from previous approach
