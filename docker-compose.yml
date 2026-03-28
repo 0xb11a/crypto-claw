@@ -149,7 +149,20 @@ services:
     restart: unless-stopped
     ports:
       - '${CADDY_HTTPS_PORT:-443}:${CADDY_HTTPS_PORT:-443}'
-    command: caddy reverse-proxy --from https://${SERVER_IP:?Set SERVER_IP in .env}:${CADDY_HTTPS_PORT:-443} --to crypto-claw:${OPENCLAW_GATEWAY_PORT:-18789} --internal-certs
+    environment:
+      - SERVER_IP=${SERVER_IP:?Set SERVER_IP in .env}
+      - CADDY_HTTPS_PORT=${CADDY_HTTPS_PORT:-443}
+      - OPENCLAW_GATEWAY_PORT=${OPENCLAW_GATEWAY_PORT:-18789}
+    command: sh -c 'caddy run --config /dev/stdin <<CADDYEOF
+{
+  auto_https off
+  admin off
+}
+https://$SERVER_IP:$CADDY_HTTPS_PORT {
+  tls internal
+  reverse_proxy crypto-claw:$OPENCLAW_GATEWAY_PORT
+}
+CADDYEOF'
     networks:
       - crypto-claw-net
     depends_on:
