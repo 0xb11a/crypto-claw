@@ -148,8 +148,8 @@ services:
     container_name: crypto-claw-caddy
     restart: unless-stopped
     ports:
-      - '443:443'
-    command: caddy reverse-proxy --from https://${SERVER_IP:?Set SERVER_IP in .env} --to crypto-claw:${OPENCLAW_GATEWAY_PORT:-18789} --internal-certs
+      - '${CADDY_HTTPS_PORT:-443}:${CADDY_HTTPS_PORT:-443}'
+    command: caddy reverse-proxy --from https://${SERVER_IP:?Set SERVER_IP in .env}:${CADDY_HTTPS_PORT:-443} --to crypto-claw:${OPENCLAW_GATEWAY_PORT:-18789} --internal-certs
     networks:
       - crypto-claw-net
     depends_on:
