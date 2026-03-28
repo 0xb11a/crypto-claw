@@ -39,8 +39,9 @@ services:
       # Persistent: research agent state (auth, sessions)
       - crypto-claw-research-agent:/home/openclaw/.openclaw/agents/research/agent
 
-    ports:
-      - '${OPENCLAW_GATEWAY_PORT:-18789}:${OPENCLAW_GATEWAY_PORT:-18789}'
+    # Gateway accessible via Caddy HTTPS reverse proxy (no direct port exposure)
+    expose:
+      - '${OPENCLAW_GATEWAY_PORT:-18789}'
 
     environment:
       # Required: Anthropic API key
@@ -140,6 +141,19 @@ services:
         reservations:
           cpus: '1.0'
           memory: 2G
+
+  # HTTPS reverse proxy (self-signed TLS for secure context)
+  caddy:
+    image: caddy:latest
+    container_name: crypto-claw-caddy
+    restart: unless-stopped
+    ports:
+      - '443:443'
+    command: caddy reverse-proxy --from https://${SERVER_IP:?Set SERVER_IP in .env} --to crypto-claw:${OPENCLAW_GATEWAY_PORT:-18789} --internal-certs
+    networks:
+      - crypto-claw-net
+    depends_on:
+      - crypto-claw
 
 volumes:
   # Research workspace: MEMORY.md, daily logs, skills, scripts (back up with git)
