@@ -184,6 +184,7 @@ node scripts/scan-tokens.js --chain solana --sort trending --limit 20
 node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30
 node scripts/token-metrics.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN>
+node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN> --deep
 node scripts/check-contract.js --changes
 node scripts/check-contract.js --changes --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```

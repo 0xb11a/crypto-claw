@@ -97,7 +97,7 @@ node scripts/check-contract.js --changes --address <TOKEN_ADDRESS> --chain <CHAI
 | Proxy status changed | CRITICAL | Write sell_all order to DB + alert Research |
 | Became pausable | CRITICAL | Write sell_all order to DB + alert Research |
 | Blacklist added | CRITICAL | Write sell_all order to DB + alert Research |
-| Ownership transferred | HIGH | Alert Research, log to DB |
+| Ownership transferred | CRITICAL | Write sell_all order to DB + alert Research |
 | Buy/sell tax increased >5% | HIGH | Alert Research, log to DB |
 | Became mintable | HIGH | Alert Research, log to DB |
 

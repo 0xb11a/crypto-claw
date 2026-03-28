@@ -169,7 +169,7 @@ cp "$SCRIPT_DIR/scripts/"*.js "$RESEARCH_DIR/workspace/scripts/"
 cp "$SCRIPT_DIR/scripts/package.json" "$RESEARCH_DIR/workspace/scripts/"
 
 # Sentinel gets monitoring scripts + db access + alerts
-for script in db.js db-query.js chains.js check-positions.js check-liquidity.js check-wallets.js check-contract.js portfolio-load-evm.js portfolio-load-solana.js send-alert.js emergency-sentinel.js; do
+for script in db.js db-query.js chains.js check-positions.js check-liquidity.js check-wallets.js check-contract.js send-alert.js emergency-sentinel.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$SENTINEL_DIR/workspace/scripts/"
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$SENTINEL_DIR/workspace/scripts/"

@@ -74,7 +74,6 @@ node scripts/db-query.js add-contract-snapshot --address 0x... --chain base --js
 node scripts/db-query.js get-heartbeat --agent sentinel
 node scripts/db-query.js update-heartbeat --agent sentinel --check position_monitor
 node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"status":"ok"}'
-node scripts/db-query.js get-trade-stats
 ```
 
 ### Paper Mode
@@ -91,13 +90,6 @@ node scripts/db-query.js close-paper-position --id pp-001 --json '{"exit_price":
 node scripts/db-query.js close-paper-position --id pp-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
 node scripts/db-query.js get-paper-receipts --limit 10
 node scripts/db-query.js get-paper-stats
-```
-
-### Portfolio Sync (On-Chain — Real Mode Only)
-```bash
-node scripts/db-query.js sync-portfolio --chain base
-node scripts/db-query.js get-sync-status
-node scripts/db-query.js get-sync-status --chain base
 ```
 
 ## Monitoring Scripts
@@ -126,15 +118,6 @@ node scripts/check-contract.js --changes
 node scripts/check-contract.js --changes --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```
 
-### On-Chain Portfolio Sync (Real Mode Only)
-```bash
-# EVM (Safe TX Service primary, DeBank fallback)
-node scripts/portfolio-load-evm.js --chain base
-# Solana (Helius DAS primary, RPC fallback)
-node scripts/portfolio-load-solana.js --chain solana
-```
-Native ETH/SOL stored as gas metadata (not a position). Stablecoins accumulate as cash.
-
 ## Emergency & Alerts
 
 ### Emergency Sentinel (No LLM Required)
@@ -147,6 +130,9 @@ node scripts/emergency-sentinel.js
 
 ### Send Alert
 ```bash
+# Alerts route to the correct Telegram supergroup topic automatically
+# sell_triggered → Sentinel topic | model_failure/emergency_mode → Alerts topic
+node scripts/send-alert.js --type sell_triggered --agent sentinel --message "Stop-loss triggered for TOKEN"
 node scripts/send-alert.js --type model_failure --agent sentinel --message "Agent failed"
 node scripts/send-alert.js --type emergency_mode --agent sentinel --message "Emergency mode active"
 node scripts/send-alert.js --type recovered --agent sentinel --message "Back to normal"

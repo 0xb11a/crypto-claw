@@ -47,8 +47,8 @@ cp "$SRC/agents/sentinel/HEARTBEAT.md"  "$AGENT_TPL/sentinel/HEARTBEAT.md"
 cp "$SRC/agents/sentinel/TOOLS.md"      "$AGENT_TPL/sentinel/TOOLS.md"
 cp "$SRC/agents/sentinel/skills/sentinel/SKILL.md" "$AGENT_TPL/sentinel/skills/sentinel/SKILL.md"
 
-# Sentinel scripts: monitoring + db access + chain config + portfolio sync + emergency
-for script in db.js db-query.js chains.js check-positions.js check-liquidity.js check-wallets.js check-contract.js portfolio-load-evm.js portfolio-load-solana.js emergency-sentinel.js send-alert.js; do
+# Sentinel scripts: monitoring + db access + chain config + emergency
+for script in db.js db-query.js chains.js check-positions.js check-liquidity.js check-wallets.js check-contract.js emergency-sentinel.js send-alert.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/sentinel/scripts/"
 done
 cp "$SCRIPTS_DIR/package.json" "$AGENT_TPL/sentinel/scripts/"

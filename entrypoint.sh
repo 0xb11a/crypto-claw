@@ -319,12 +319,7 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   openclaw config set 'agents.defaults.memorySearch' '{"enabled":true,"provider":"local","local":{"modelPath":"hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf"},"query":{"hybrid":{"enabled":true,"vectorWeight":0.7,"textWeight":0.3}},"cache":{"enabled":true}}' --strict-json
   openclaw config set 'agents.defaults.contextPruning' '{"mode":"cache-ttl","ttl":"5m"}' --strict-json
   openclaw config set 'agents.defaults.sandbox.mode' 'off'
-  if [ "${ENABLE_CHANNELS:-false}" = "true" ] && [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
-    openclaw config set 'channels.telegram' '{"enabled":true,"groupPolicy":"open"}' --strict-json
-    echo "[entrypoint]   Telegram channel enabled (ENABLE_CHANNELS=true)"
-  else
-    openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"open"}' --strict-json
-  fi
+  # Telegram channel config is applied after this block (section 5a) on every startup
   echo "[entrypoint]   Memory: flush at compaction, hybrid search enabled, context pruning 5m TTL"
 
   echo "[entrypoint] First-run configuration complete"
@@ -381,6 +376,60 @@ else
   sync_model sentinel "$SENTINEL_MODEL" 2
   sync_model executor "$EXECUTOR_MODEL" 3
 
+fi
+
+# ============================================================
+# 5a. Sync Telegram channel config (every startup)
+#     Channel config must be applied on every start — not just first run —
+#     so env var changes (ENABLE_CHANNELS, topic IDs) take effect on redeploy.
+# ============================================================
+if [ "${ENABLE_CHANNELS:-false}" = "true" ] && [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+  # Build per-topic agent routing if topic env vars are set
+  TOPIC_CONFIG='{}'
+  if [ -n "${TG_TOPIC_RESEARCH:-}" ] || [ -n "${TG_TOPIC_SENTINEL:-}" ] || [ -n "${TG_TOPIC_EXECUTOR:-}" ]; then
+    TOPIC_CONFIG=$(node -e "
+      const t = {};
+      if (process.env.TG_TOPIC_RESEARCH) t[process.env.TG_TOPIC_RESEARCH] = {agentId:'research'};
+      if (process.env.TG_TOPIC_SENTINEL) t[process.env.TG_TOPIC_SENTINEL] = {agentId:'sentinel'};
+      if (process.env.TG_TOPIC_EXECUTOR) t[process.env.TG_TOPIC_EXECUTOR] = {agentId:'executor'};
+      console.log(JSON.stringify(t));
+    ")
+  fi
+
+  if [ -n "${TELEGRAM_CHAT_ID:-}" ] && [ "$TOPIC_CONFIG" != '{}' ]; then
+    # Supergroup with forum topics — per-topic agent routing
+    openclaw config set 'channels.telegram' "$(TOPIC_JSON="$TOPIC_CONFIG" node -e "
+      const ownerId = process.env.TELEGRAM_OWNER_ID;
+      const group = {
+        requireMention: false,
+        topics: JSON.parse(process.env.TOPIC_JSON)
+      };
+      if (ownerId) group.allowFrom = [Number(ownerId)];
+      const cfg = {
+        enabled: true,
+        botToken: process.env.TELEGRAM_BOT_TOKEN,
+        dmPolicy: 'disabled',
+        groups: {
+          [process.env.TELEGRAM_CHAT_ID]: group
+        }
+      };
+      console.log(JSON.stringify(cfg));
+    ")" --strict-json
+    echo "[entrypoint] Telegram channel synced with forum topic routing (DMs disabled)"
+  else
+    # Flat group or DM — no topic routing
+    openclaw config set 'channels.telegram' "$(node -e "
+      console.log(JSON.stringify({
+        enabled: true,
+        botToken: process.env.TELEGRAM_BOT_TOKEN,
+        dmPolicy: 'disabled'
+      }));
+    ")" --strict-json
+    echo "[entrypoint] Telegram channel synced (flat mode, DMs disabled, group allowlist)"
+  fi
+else
+  openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"open"}' --strict-json
+  echo "[entrypoint] Telegram channel disabled"
 fi
 
 # ============================================================
@@ -471,8 +520,15 @@ ensure_cron_jobs() {
     echo "[cron-setup] Recreated research-cycle with explicit model"
   fi
 
+  # Deliver research cycle output to Research topic if configured, otherwise suppress
+  RESEARCH_CRON_DELIVERY="--no-deliver"
+  if [ -n "${TG_TOPIC_RESEARCH:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+    RESEARCH_CRON_DELIVERY="--announce --channel telegram --to ${TELEGRAM_CHAT_ID}:topic:${TG_TOPIC_RESEARCH}"
+  fi
+
   add_if_missing "research-cycle" \
     --every "30m" --agent research --model "$RESEARCH_MODEL" --session isolated \
+    $RESEARCH_CRON_DELIVERY \
     --message "OVERLAP GUARD: First run openclaw cron list --json to find the research-cycle job ID, then run openclaw cron runs --id <that-id> --json --limit 5. If another run (not the most recent = you) has status running/active, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. If the check produces discoveries, run the FULL pipeline autonomously: analysis, risk assessment, trade proposal. Do not stop after scanning — you decide what to buy. Update timestamps via db-query.js. Log results to daily memory and database (add-research-log). ALWAYS end with a short work summary: what check ran, what was found, counts (scanned/analyzed/proposed)."
 
   echo "[cron-setup] Done"
@@ -592,6 +648,10 @@ run_executor_loop() {
             --message "Executor recovered after $failures consecutive failures" 2>/dev/null || true
         fi
         failures=0
+        # Post heartbeat summary to System topic
+        SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+          node "$RESEARCH_WS/scripts/send-alert.js" --type heartbeat_summary --agent executor \
+          --message "Executor cycle completed successfully" 2>/dev/null || true
       fi
     fi
     sleep 60
@@ -661,6 +721,10 @@ run_sentinel_loop() {
             --message "Sentinel recovered after $failures consecutive failures" 2>/dev/null || true
         fi
         failures=0
+        # Post heartbeat summary to System topic
+        SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+          node "$RESEARCH_WS/scripts/send-alert.js" --type heartbeat_summary --agent sentinel \
+          --message "Sentinel cycle completed successfully" 2>/dev/null || true
       fi
     fi
     sleep 600  # 10 minutes
@@ -668,10 +732,43 @@ run_sentinel_loop() {
 }
 
 # ============================================================
+# 5h. Portfolio daily report loop
+#     Posts a portfolio summary to the Portfolio topic once per day.
+#     Only runs if TELEGRAM_CHAT_ID and TG_TOPIC_PORTFOLIO are set.
+# ============================================================
+
+PORTFOLIO_REPORT_HOUR=${PORTFOLIO_REPORT_HOUR:-0}  # UTC hour (0 = midnight)
+
+run_portfolio_report_loop() {
+  if [ -z "${TELEGRAM_CHAT_ID:-}" ] || [ -z "${TG_TOPIC_PORTFOLIO:-}" ]; then
+    echo "[portfolio-report] Skipped — TG_TOPIC_PORTFOLIO or TELEGRAM_CHAT_ID not set"
+    return
+  fi
+  sleep 120  # wait for gateway + DB initialization
+  local last_report_day=""
+
+  while true; do
+    CURRENT_HOUR=$(date -u +%H)
+    CURRENT_DAY=$(date -u +%Y-%m-%d)
+    if [ "$CURRENT_HOUR" = "$(printf '%02d' $PORTFOLIO_REPORT_HOUR)" ] && [ "$CURRENT_DAY" != "$last_report_day" ]; then
+      echo "[portfolio-report] Generating daily portfolio report..."
+      SUMMARY=$(SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+        node "$RESEARCH_WS/scripts/portfolio-summary.js" 2>/dev/null || echo 'Portfolio summary unavailable')
+      SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+        node "$RESEARCH_WS/scripts/send-alert.js" --type portfolio_daily --agent system \
+        --message "$SUMMARY" 2>/dev/null || true
+      last_report_day="$CURRENT_DAY"
+      echo "[portfolio-report] Daily report sent"
+    fi
+    sleep 1800  # check every 30 minutes
+  done
+}
+
+# ============================================================
 # 6. Start OpenClaw gateway
 #    Launch cron setup, memory backup, wallet scoring, executor
-#    loop, and sentinel loop in background, then exec the
-#    gateway as PID 1.
+#    loop, sentinel loop, and portfolio report in background,
+#    then exec the gateway as PID 1.
 # ============================================================
 echo "[entrypoint] Starting OpenClaw gateway..."
 run_memory_backup_loop &
@@ -679,5 +776,6 @@ run_wallet_scoring_loop &
 run_multisig_tracker_loop &
 run_executor_loop &
 run_sentinel_loop &
+run_portfolio_report_loop &
 ensure_cron_jobs &
 exec openclaw gateway run --port "$GATEWAY_PORT"

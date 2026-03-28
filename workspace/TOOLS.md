@@ -651,11 +651,17 @@ node scripts/emergency-executor.js
 
 ### Send Alert
 ```bash
-# Send alerts via Telegram Bot API (requires TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID)
-# Types: model_failure, emergency_mode, recovered
+# Send alerts via openclaw message send (requires TELEGRAM_CHAT_ID)
+# Routes to correct Telegram supergroup topic based on alert type:
+#   trade_proposal → Research topic    | sell_triggered → Sentinel topic
+#   trade_executed/failed → Executor   | model_failure/emergency_mode/rug_warning → Alerts
+#   recovered/heartbeat_summary → System | portfolio_daily/rebalance_event → Portfolio
 node scripts/send-alert.js --type model_failure --agent sentinel --message "Agent failed"
 node scripts/send-alert.js --type emergency_mode --agent executor --message "Emergency mode active"
 node scripts/send-alert.js --type recovered --agent sentinel --message "Back to normal"
+node scripts/send-alert.js --type trade_proposal --agent research --message "BUY proposal: TOKEN"
+node scripts/send-alert.js --type heartbeat_summary --agent executor --message "Cycle OK"
+node scripts/send-alert.js --type portfolio_daily --agent system --message "Daily P&L report"
 ```
 
 ## Configuration

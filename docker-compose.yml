@@ -79,6 +79,18 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
 
+      # Telegram security — restrict who can interact with agents
+      - TELEGRAM_OWNER_ID=${TELEGRAM_OWNER_ID:-}
+
+      # Telegram supergroup forum topics (optional — enables per-topic agent routing)
+      - TG_TOPIC_RESEARCH=${TG_TOPIC_RESEARCH:-}
+      - TG_TOPIC_SENTINEL=${TG_TOPIC_SENTINEL:-}
+      - TG_TOPIC_EXECUTOR=${TG_TOPIC_EXECUTOR:-}
+      - TG_TOPIC_ALERTS=${TG_TOPIC_ALERTS:-}
+      - TG_TOPIC_SYSTEM=${TG_TOPIC_SYSTEM:-}
+      - TG_TOPIC_PORTFOLIO=${TG_TOPIC_PORTFOLIO:-}
+      - PORTFOLIO_REPORT_HOUR=${PORTFOLIO_REPORT_HOUR:-0}
+
       # 1inch Swap API (Executor Agent — EVM swaps)
       - ONEINCH_API_KEY=${ONEINCH_API_KEY:-}
 

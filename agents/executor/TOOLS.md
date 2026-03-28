@@ -167,6 +167,9 @@ node scripts/emergency-executor.js
 
 ### Send Alert
 ```bash
+# Alerts route to the correct Telegram supergroup topic automatically
+# trade_executed/trade_failed → Executor topic | model_failure/emergency_mode → Alerts topic
+node scripts/send-alert.js --type trade_executed --agent executor --message "BUY executed: TOKEN"
 node scripts/send-alert.js --type model_failure --agent executor --message "Agent failed"
 node scripts/send-alert.js --type emergency_mode --agent executor --message "Emergency mode active"
 node scripts/send-alert.js --type recovered --agent executor --message "Back to normal"

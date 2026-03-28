@@ -93,9 +93,11 @@ scripts/                  # Node.js scripts
   check-squads-status.js  # Squads multisig status check (Solana)
   narrative-check.js      # Narrative momentum
   holder-distribution.js  # Top holder analysis
+  send-alert.js           # Telegram alerts via openclaw message send (topic routing)
+  telegram-get-topics.js  # Setup helper: discover supergroup topic thread IDs
   memory-backup.sh        # Git auto-commit for agent memory
   codex-login.sh          # One-time Codex OAuth login (ChatGPT subscription)
-tests/                    # 9 test suites + runner + helpers
+tests/                    # 12 test suites + runner + helpers
 Dockerfile                # Based on ghcr.io/openclaw/openclaw:latest
 docker-compose.yml        # One-command deployment
 build-templates.sh        # Docker build-time template assembly (replaces setup.sh in Docker)

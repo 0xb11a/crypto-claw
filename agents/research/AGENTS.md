@@ -135,7 +135,7 @@ node scripts/db-query.js get-alerts --unprocessed
 - **Write order to DB: `node scripts/db-query.js add-order --json '...'`**
   - Paper mode: auto-approved (`status: 'approved'`, `approved_by: 'paper_mode'`)
   - Real mode: pending human approval (`status: 'pending'`)
-- **After writing a pending order, notify human: `node scripts/send-alert.js --type trade_proposal --agent research --message "..."`**
+- **After writing a pending order, notify human: `node scripts/send-alert.js --type trade_proposal --agent research --message "..."`** (routes to Research topic in Telegram supergroup)
 - **Human approves/rejects via chat (orders skill) or CLI**
 - **The Executor agent picks up approved orders and executes via Safe wallet**
 - **SELL proposals → Sentinel writes sell order to DB (auto-approved), Executor executes**

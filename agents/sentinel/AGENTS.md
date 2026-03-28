@@ -84,8 +84,11 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check price_check
 
 ### Contract Change
 - Proxy upgrade detected → write sell-all order immediately
-- Fee increase → alert human, don't auto-sell
 - Ownership transfer → write sell-all order
+- Became pausable → write sell-all order
+- Blacklist added → write sell-all order
+- Buy/sell tax increased >5% → alert human, don't auto-sell
+- Became mintable → alert human, don't auto-sell
 
 ## How Sells Work
 You detect danger and write sell instructions to the database. The **Executor Agent** handles the actual Safe wallet transaction:
