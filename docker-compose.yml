@@ -155,6 +155,8 @@ services:
       - OPENCLAW_GATEWAY_PORT=${OPENCLAW_GATEWAY_PORT:-18789}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-certs:/certs
+    entrypoint: sh -c 'if [ ! -f /certs/server.key ]; then apk add --no-cache openssl && openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -days 3650 -nodes -keyout /certs/server.key -out /certs/server.crt -subj "/CN=$SERVER_IP" -addext "subjectAltName=IP:$SERVER_IP"; fi && caddy run --config /etc/caddy/Caddyfile'
     networks:
       - crypto-claw-net
     depends_on:
@@ -172,6 +174,9 @@ volumes:
     driver: local
   # Research agent state: auth profiles, session store
   crypto-claw-research-agent:
+    driver: local
+  # Caddy TLS certificates (self-signed, persistent across restarts)
+  caddy-certs:
     driver: local
 
 networks:
