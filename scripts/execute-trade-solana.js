@@ -23,7 +23,7 @@ import {
   VersionedTransaction,
   TransactionInstruction,
 } from '@solana/web3.js';
-import { getAssociatedTokenAddress, getAccount, TOKEN_PROGRAM_ID as _TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { getAssociatedTokenAddress, getAccount, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import * as multisig from '@sqds/multisig';
 import bs58 from 'bs58';
 
@@ -148,10 +148,18 @@ function resolveConfig(chainName) {
 // SPL Token Helpers
 // ============================================================
 
+async function detectTokenProgram(connection, mint) {
+  const accountInfo = await connection.getAccountInfo(mint);
+  if (!accountInfo) throw new Error(`Mint account not found: ${mint.toString()}`);
+  if (accountInfo.owner.equals(TOKEN_2022_PROGRAM_ID)) return TOKEN_2022_PROGRAM_ID;
+  return TOKEN_PROGRAM_ID;
+}
+
 async function getTokenBalance(connection, mint, owner) {
   try {
-    const ata = await getAssociatedTokenAddress(mint, owner, true);
-    const account = await getAccount(connection, ata);
+    const programId = await detectTokenProgram(connection, mint);
+    const ata = await getAssociatedTokenAddress(mint, owner, true, programId);
+    const account = await getAccount(connection, ata, undefined, programId);
     return account.amount;
   } catch {
     return 0n;

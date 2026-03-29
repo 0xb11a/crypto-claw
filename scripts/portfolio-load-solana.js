@@ -17,7 +17,7 @@ import 'dotenv/config';
 import { getDb, close } from './db.js';
 import { getChain, isSolana, getStablecoins } from './chains.js';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import * as multisig from '@sqds/multisig';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
@@ -149,19 +149,22 @@ async function fetchHeliusAssets(vaultAddress, apiKey, chainCfg, stablecoinAddre
   return { onchainMap, cashBalance, gasBalance };
 }
 
-// Fallback: Raw RPC — getTokenAccountsByOwner
+// Fallback: Raw RPC — getTokenAccountsByOwner (queries both Token and Token-2022 programs)
 async function fetchRpcTokenAccounts(connection, vaultPda, chainCfg, stablecoinAddresses) {
-  const accounts = await connection.getTokenAccountsByOwner(vaultPda, {
-    programId: TOKEN_PROGRAM_ID,
-  });
+  const [classicAccounts, token2022Accounts] = await Promise.all([
+    connection.getTokenAccountsByOwner(vaultPda, { programId: TOKEN_PROGRAM_ID }),
+    connection.getTokenAccountsByOwner(vaultPda, { programId: TOKEN_2022_PROGRAM_ID }),
+  ]);
+
+  const allAccounts = [...classicAccounts.value, ...token2022Accounts.value];
 
   const onchainMap = new Map();
   let cashBalance = 0;
   let gasBalance = null;
 
-  for (const { account } of accounts.value) {
+  for (const { account } of allAccounts) {
     const data = account.data;
-    // Parse SPL token account data (165 bytes)
+    // Parse SPL token account data (165 bytes minimum)
     const mint = new PublicKey(data.slice(0, 32));
     const amountBuf = data.slice(64, 72);
     const amount = amountBuf.readBigUInt64LE(0);
