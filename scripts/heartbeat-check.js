@@ -38,7 +38,7 @@ try {
       SELECT
         SUM(CASE WHEN action='sell' THEN 1 ELSE 0 END) as sell_count,
         SUM(CASE WHEN action='buy' AND status = 'approved' THEN 1 ELSE 0 END) as buy_count
-      FROM orders WHERE status IN ('pending', 'approved', 'failed')
+      FROM orders WHERE status IN ('approved')
     `,
       )
       .get();
