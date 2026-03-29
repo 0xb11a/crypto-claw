@@ -97,11 +97,9 @@ async function main() {
   const formattedMessage = formatMessage(type, agent, message, safeId);
   const threadId = resolveThreadId(type);
 
-  // Build target: "chatId:topic:threadId" if topic is set, otherwise plain chatId
-  const target = threadId ? `${chatId}:topic:${threadId}` : chatId;
-
   try {
-    const args = ['message', 'send', '--channel', 'telegram', '--target', target, '--text', formattedMessage];
+    const args = ['message', 'send', '--channel', 'telegram', '--target', chatId, '--message', formattedMessage];
+    if (threadId) args.push('--thread-id', threadId);
 
     execFileSync('openclaw', args, {
       timeout: 15000,

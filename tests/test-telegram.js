@@ -127,28 +127,36 @@ describe('Emoji Mapping', () => {
 // 3. Command Construction Logic
 // ============================================================
 
-function buildTarget(type, chatId, topicEnvs = {}) {
+function resolveThreadId(type, topicEnvs = {}) {
   const topicEnvVar = TOPIC_MAP[type];
-  const threadId = topicEnvVar ? topicEnvs[topicEnvVar] || null : null;
-  return threadId ? `${chatId}:topic:${threadId}` : chatId;
+  return topicEnvVar ? topicEnvs[topicEnvVar] || null : null;
 }
 
 function buildSendArgs(type, chatId, message, topicEnvs = {}) {
-  const target = buildTarget(type, chatId, topicEnvs);
-  return ['message', 'send', '--channel', 'telegram', '--target', target, '--text', message];
+  const threadId = resolveThreadId(type, topicEnvs);
+  const args = ['message', 'send', '--channel', 'telegram', '--target', chatId, '--message', message];
+  if (threadId) args.push('--thread-id', threadId);
+  return args;
 }
 
 describe('Command Construction', () => {
-  test('target includes :topic:threadId when topic env var is set', () => {
-    const target = buildTarget('trade_proposal', '-100123', {
+  test('includes --thread-id when topic env var is set', () => {
+    const args = buildSendArgs('trade_proposal', '-100123', 'test', {
       TG_TOPIC_RESEARCH: '42',
     });
-    assertEqual(target, '-100123:topic:42');
+    const threadIdx = args.indexOf('--thread-id');
+    assert(threadIdx !== -1, 'Should include --thread-id');
+    assertEqual(args[threadIdx + 1], '42');
+    // target should be plain chatId
+    const targetIdx = args.indexOf('--target');
+    assertEqual(args[targetIdx + 1], '-100123');
   });
 
-  test('target is plain chatId when topic env var is not set', () => {
-    const target = buildTarget('trade_proposal', '-100123', {});
-    assertEqual(target, '-100123');
+  test('no --thread-id when topic env var is not set', () => {
+    const args = buildSendArgs('trade_proposal', '-100123', 'test', {});
+    assertEqual(args.indexOf('--thread-id'), -1, 'Should not include --thread-id');
+    const targetIdx = args.indexOf('--target');
+    assertEqual(args[targetIdx + 1], '-100123');
   });
 
   test('always includes --channel telegram', () => {
@@ -158,15 +166,15 @@ describe('Command Construction', () => {
     assertEqual(args[channelIdx + 1], 'telegram');
   });
 
-  test('uses --text not --message for openclaw message send', () => {
+  test('uses --message flag for message body', () => {
     const args = buildSendArgs('recovered', '-100999', 'hello', {});
-    const textIdx = args.indexOf('--text');
-    assert(textIdx !== -1, 'Should use --text flag');
-    assertEqual(args[textIdx + 1], 'hello');
-    assertEqual(args.indexOf('--message'), -1, 'Should not use --message flag');
+    const msgIdx = args.indexOf('--message');
+    assert(msgIdx !== -1, 'Should use --message flag');
+    assertEqual(args[msgIdx + 1], 'hello');
+    assertEqual(args.indexOf('--text'), -1, 'Should not use --text flag');
   });
 
-  test('routes different types to different topics via target', () => {
+  test('routes different types to different thread IDs', () => {
     const envs = {
       TG_TOPIC_RESEARCH: '10',
       TG_TOPIC_SENTINEL: '20',
@@ -176,19 +184,19 @@ describe('Command Construction', () => {
       TG_TOPIC_PORTFOLIO: '60',
     };
 
-    assertEqual(buildTarget('trade_proposal', '-100', envs), '-100:topic:10');
-    assertEqual(buildTarget('sell_triggered', '-100', envs), '-100:topic:20');
-    assertEqual(buildTarget('trade_executed', '-100', envs), '-100:topic:30');
-    assertEqual(buildTarget('model_failure', '-100', envs), '-100:topic:40');
-    assertEqual(buildTarget('recovered', '-100', envs), '-100:topic:50');
-    assertEqual(buildTarget('portfolio_daily', '-100', envs), '-100:topic:60');
+    assertEqual(resolveThreadId('trade_proposal', envs), '10');
+    assertEqual(resolveThreadId('sell_triggered', envs), '20');
+    assertEqual(resolveThreadId('trade_executed', envs), '30');
+    assertEqual(resolveThreadId('model_failure', envs), '40');
+    assertEqual(resolveThreadId('recovered', envs), '50');
+    assertEqual(resolveThreadId('portfolio_daily', envs), '60');
   });
 
-  test('unknown type sends to plain chatId', () => {
-    const target = buildTarget('unknown_type', '-100', {
+  test('unknown type has no thread ID', () => {
+    const threadId = resolveThreadId('unknown_type', {
       TG_TOPIC_RESEARCH: '10',
     });
-    assertEqual(target, '-100', 'Unknown type should use plain chatId');
+    assertEqual(threadId, null, 'Unknown type should have no thread ID');
   });
 });
 
