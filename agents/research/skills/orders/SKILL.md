@@ -75,11 +75,11 @@ failed   --> cancelled   (cancel-order)
 PENDING ORDERS
 
 BUY:
-  [buy-1711234567] $TOKEN on base — $500 (4% moonshot) — score: 76/100
-  [buy-1711234590] $OTHER on solana — $200 (2% conviction) — score: 82/100
+  [buy-1711234567] $TOKEN on <CHAIN> — $500 (4% moonshot) — score: 76/100
+  [buy-1711234590] $OTHER on <CHAIN> — $200 (2% conviction) — score: 82/100
 
 SELL:
-  [sell-1711234600] $TOKEN on base — all (stop_loss_hit) — URGENT
+  [sell-1711234600] $TOKEN on <CHAIN> — all (stop_loss_hit) — URGENT
 
 2 buys awaiting approval, 1 sell queued
 ```

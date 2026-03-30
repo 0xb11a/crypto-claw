@@ -11,30 +11,35 @@
 
 All wallet data (positions, trades, orders, alerts, receipts) lives in a SQLite database. Interact with it through `db-query.js` — never access the DB file directly.
 
+### Chain Discovery
+```bash
+# List all active chains
+node scripts/db-query.js get-chains
+# → ["base","ethereum","solana"]
+
+# Get config for a specific chain (RPC, explorer, cash token, Safe/Squads addresses)
+node scripts/db-query.js get-chain-config --chain <CHAIN>
+```
+
 ### Portfolio & Cash
 ```bash
 # Get full portfolio summary (all chains)
 node scripts/db-query.js get-portfolio
 
 # Get per-chain portfolio (chain-specific cash + positions + value)
-node scripts/db-query.js get-portfolio --chain base
-node scripts/db-query.js get-portfolio --chain ethereum
-node scripts/db-query.js get-portfolio --chain solana
+node scripts/db-query.js get-portfolio --chain <CHAIN>
 
 # Get cash balance (all chains breakdown)
 node scripts/db-query.js get-cash
 # Get per-chain cash
-node scripts/db-query.js get-cash --chain base
-node scripts/db-query.js get-cash --chain ethereum
+node scripts/db-query.js get-cash --chain <CHAIN>
 
 # Set cash balance (requires --chain)
-node scripts/db-query.js set-cash --chain base --amount 5000
-node scripts/db-query.js set-cash --chain ethereum --amount 5000
+node scripts/db-query.js set-cash --chain <CHAIN> --amount 5000
 
 # Get native gas balance (ETH/SOL — gas only, not a position)
 node scripts/db-query.js get-gas
-node scripts/db-query.js get-gas --chain base
-node scripts/db-query.js get-gas --chain ethereum
+node scripts/db-query.js get-gas --chain <CHAIN>
 
 # Get/set arbitrary metadata
 node scripts/db-query.js get-meta --key my_key
@@ -53,14 +58,13 @@ node scripts/db-query.js add-position --json '{
   "id": "pos-001",
   "symbol": "TOKEN",
   "address": "0x...",
-  "chain": "base",
+  "chain": "<CHAIN>",
   "tier": "moonshot",
   "entry_price": 0.001,
   "quantity": 10000,
   "stop_loss": 0.0005,
   "take_profit_levels": [{"level":1,"price":0.002,"sellPercent":50}]
 }'
-# For Ethereum, use "chain": "ethereum"
 
 # Update position fields
 node scripts/db-query.js update-position --id pos-001 --json '{"current_price": 0.0015}'
@@ -107,7 +111,7 @@ node scripts/db-query.js add-order --json '{
   "action": "buy",
   "symbol": "TOKEN",
   "address": "0x...",
-  "chain": "base",
+  "chain": "<CHAIN>",
   "amount": 500,
   "tier": "moonshot",
   "entry_price": 0.001,
@@ -115,7 +119,6 @@ node scripts/db-query.js add-order --json '{
   "take_profit_levels": "[{\"level\":1,\"price\":0.002,\"sellPercent\":50}]",
   "reasoning": "Strong AI narrative play"
 }'
-# For Ethereum, use "chain": "ethereum"
 
 # Write a sell order (auto-approved by sentinel)
 node scripts/db-query.js add-order --json '{
@@ -123,12 +126,11 @@ node scripts/db-query.js add-order --json '{
   "action": "sell",
   "symbol": "TOKEN",
   "address": "0x...",
-  "chain": "base",
+  "chain": "<CHAIN>",
   "amount": "all",
   "reason": "stop_loss_hit",
   "urgency": "immediate"
 }'
-# For Ethereum, use "chain": "ethereum"
 
 # Approve a pending order (human via chat or CLI)
 node scripts/db-query.js approve-order --id trade-001 --by human
@@ -161,14 +163,13 @@ node scripts/db-query.js add-receipt --json '{
   "action": "buy",
   "symbol": "TOKEN",
   "address": "0x...",
-  "chain": "base",
+  "chain": "<CHAIN>",
   "status": "executed",
   "safe_tx_hash": "0x...",
   "onchain_tx_hash": "0x...",
   "executed_price": 0.00098,
   "slippage": 0.02
 }'
-# For Ethereum, use "chain": "ethereum"
 ```
 
 ### Sentinel Alerts (Sentinel → Research)
@@ -180,12 +181,11 @@ node scripts/db-query.js get-alerts --unprocessed
 node scripts/db-query.js add-alert --json '{
   "id": "alert-001",
   "symbol": "TOKEN",
-  "chain": "base",
+  "chain": "<CHAIN>",
   "alert_type": "liquidity_drop",
   "severity": "high",
   "details": "Liquidity dropped 25% in 5 minutes"
 }'
-# For Ethereum, use "chain": "ethereum"
 
 # Mark alert as processed
 node scripts/db-query.js mark-alert-processed --id alert-001
@@ -200,34 +200,29 @@ node scripts/db-query.js get-watchlist
 node scripts/db-query.js add-to-watchlist --json '{
   "symbol": "TOKEN",
   "address": "0x...",
-  "chain": "base",
+  "chain": "<CHAIN>",
   "reason": "Smart money accumulation",
   "target_entry": 0.001
 }'
-# For Ethereum, use "chain": "ethereum"
 ```
 
 ### Liquidity Snapshots
 ```bash
 # Get latest liquidity for an address
-node scripts/db-query.js get-liquidity --address 0x... --chain base
-node scripts/db-query.js get-liquidity --address 0x... --chain ethereum
+node scripts/db-query.js get-liquidity --address 0x... --chain <CHAIN>
 
 # Save new snapshot
-node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain base --liquidity 50000
-node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain ethereum --liquidity 50000
+node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain <CHAIN> --liquidity 50000
 ```
 
 ### Contract Snapshots
 ```bash
 # Get latest contract safety snapshots for an address
-node scripts/db-query.js get-contract-snapshots --address 0x... --chain base
-node scripts/db-query.js get-contract-snapshots --address 0x... --chain ethereum
-node scripts/db-query.js get-contract-snapshots --address 0x... --chain base --limit 10
+node scripts/db-query.js get-contract-snapshots --address 0x... --chain <CHAIN>
+node scripts/db-query.js get-contract-snapshots --address 0x... --chain <CHAIN> --limit 10
 
 # Save new contract safety snapshot
-node scripts/db-query.js add-contract-snapshot --address 0x... --chain base --json '<safety_data_json>'
-node scripts/db-query.js add-contract-snapshot --address 0x... --chain ethereum --json '<safety_data_json>'
+node scripts/db-query.js add-contract-snapshot --address 0x... --chain <CHAIN> --json '<safety_data_json>'
 ```
 
 ### Wallet Tracking
@@ -242,7 +237,7 @@ node scripts/db-query.js get-tracked-wallets --status scored
 # If type is set, defaults to status='scored'; if null, status='proposed'
 node scripts/db-query.js add-tracked-wallet --json '{
   "address": "0x...",
-  "chain": "base",
+  "chain": "<CHAIN>",
   "label": "Smart Money #3",
   "type": "smart_money"
 }'
@@ -250,15 +245,14 @@ node scripts/db-query.js add-tracked-wallet --json '{
 # Add a deployer wallet (link to token via notes)
 node scripts/db-query.js add-tracked-wallet --json '{
   "address": "0x...",
-  "chain": "ethereum",
+  "chain": "<CHAIN>",
   "label": "TOKEN deployer",
   "type": "deployer",
   "notes": "Deployer for TOKEN (0xTokenAddress)"
 }'
 
 # Remove a tracked wallet
-node scripts/db-query.js remove-tracked-wallet --address 0x... --chain base
-node scripts/db-query.js remove-tracked-wallet --address 0x... --chain ethereum
+node scripts/db-query.js remove-tracked-wallet --address 0x... --chain <CHAIN>
 ```
 
 ### Wallet Scoring Pipeline
@@ -266,24 +260,22 @@ node scripts/db-query.js remove-tracked-wallet --address 0x... --chain ethereum
 # Propose a wallet for background scoring (fast, no API calls)
 node scripts/db-query.js propose-wallet --json '{
   "address": "0x...",
-  "chain": "base",
+  "chain": "<CHAIN>",
   "label": "Top holder #3 of TOKEN",
   "source_token": "0xTokenAddr"
 }'
-# For Ethereum, use "chain": "ethereum"
 
 # Get wallets waiting to be scored (proposed + failed with retry < 3)
 node scripts/db-query.js get-unscored-wallets
 node scripts/db-query.js get-unscored-wallets --limit 10
 
 # Update a wallet's score (used by background scorer)
-node scripts/db-query.js update-wallet-score --address 0x... --chain base --json '{
+node scripts/db-query.js update-wallet-score --address 0x... --chain <CHAIN> --json '{
   "score": 78,
   "type": "smart_money",
   "score_breakdown": {"profitability":85,"reputation":70,"volume":80,"activity":75,"consistency":60},
   "status": "scored"
 }'
-# Same format for ethereum: use --chain ethereum
 ```
 The background scorer (`score-wallets-bg.js`) runs every 10 minutes and processes up to 10 wallets per cycle (3s between wallets). Each scoring call auto-harvests ~100 wallets from Birdeye leaderboard + ~50 from token top traders into `tracked_wallets` (snowball effect). Wallets that fail scoring are retried up to 3 times.
 
@@ -294,12 +286,15 @@ The `source` column tracks how a wallet was discovered: `agent` (manually propos
 # Check when agents last ran
 node scripts/db-query.js get-heartbeat --agent <agent_name>
 
+# Get overdue checks (cadence enforced server-side — returns only checks that are due)
+node scripts/db-query.js get-overdue-checks --agent <agent_name>
+
 # Update heartbeat timestamp
 node scripts/db-query.js update-heartbeat --agent research --check token_scan
 
 # Write agent logs
 node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"status":"ok"}'
-node scripts/db-query.js add-executor-log --json '{"action":"process_orders","sells_processed":1,"buys_processed":0,"status":"ok"}'
+node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":1,"buy_orders_processed":0,"success_count":1,"status":"ok"}'
 node scripts/db-query.js add-research-log --json '{"check_type":"token_scan","tokens_scanned":30,"tokens_analyzed":2,"trades_proposed":1,"summary":"Scanned 30 trending, proposed 1 BUY","status":"ok"}'
 node scripts/db-query.js get-research-log --limit 10
 
@@ -315,12 +310,10 @@ node scripts/db-query.js get-paper-portfolio
 # Get paper cash balance (all chains breakdown)
 node scripts/db-query.js get-paper-cash
 # Get per-chain paper cash
-node scripts/db-query.js get-paper-cash --chain base
-node scripts/db-query.js get-paper-cash --chain ethereum
+node scripts/db-query.js get-paper-cash --chain <CHAIN>
 
 # Set paper cash balance (requires --chain)
-node scripts/db-query.js set-paper-cash --chain base --amount 10000
-node scripts/db-query.js set-paper-cash --chain ethereum --amount 10000
+node scripts/db-query.js set-paper-cash --chain <CHAIN> --amount 10000
 
 # Paper positions
 node scripts/db-query.js get-paper-positions
@@ -333,14 +326,13 @@ node scripts/db-query.js add-paper-position --json '{
   "id": "pp-001",
   "symbol": "TOKEN",
   "address": "0x...",
-  "chain": "base",
+  "chain": "<CHAIN>",
   "tier": "moonshot",
   "entry_price": 0.001,
   "value_usd": 10,
   "stop_loss": 0.0005,
   "take_profit_levels": [{"level":1,"price":0.002,"sellPercent":50}]
 }'
-# For Ethereum, use "chain": "ethereum"
 
 # Update paper position
 node scripts/db-query.js update-paper-position --id pp-001 --json '{"current_price": 0.0015, "value_usd": 15}'
@@ -358,13 +350,12 @@ node scripts/db-query.js add-paper-receipt --json '{
   "action": "buy",
   "symbol": "TOKEN",
   "address": "0x...",
-  "chain": "base",
+  "chain": "<CHAIN>",
   "tier": "moonshot",
   "proposed_price": 0.001,
   "quantity": 10000,
   "amount": 500
 }'
-# For Ethereum, use "chain": "ethereum"
 
 # Get paper receipts
 node scripts/db-query.js get-paper-receipts
@@ -377,15 +368,12 @@ node scripts/db-query.js get-paper-stats
 ### Portfolio Sync (On-Chain — Real Mode Only)
 ```bash
 # Trigger on-chain portfolio sync for a chain (routes to correct loader based on chain type)
-node scripts/db-query.js sync-portfolio --chain base
-node scripts/db-query.js sync-portfolio --chain base --trigger post_trade
-node scripts/db-query.js sync-portfolio --chain ethereum
-node scripts/db-query.js sync-portfolio --chain ethereum --trigger post_trade
+node scripts/db-query.js sync-portfolio --chain <CHAIN>
+node scripts/db-query.js sync-portfolio --chain <CHAIN> --trigger post_trade
 
 # Get last sync status (per chain)
 node scripts/db-query.js get-sync-status
-node scripts/db-query.js get-sync-status --chain base
-node scripts/db-query.js get-sync-status --chain ethereum
+node scripts/db-query.js get-sync-status --chain <CHAIN>
 
 # Update a position's on-chain balance (used by sync scripts)
 node scripts/db-query.js set-onchain-balance --id <position_id> --balance 1000.5
@@ -396,33 +384,30 @@ In paper mode, `sync-portfolio` returns a message explaining sync is skipped (DB
 ```bash
 # Check if a token needs analysis (dedup before running analyst/risk skills)
 # Returns action: "skip" or "analyze" with reason
-node scripts/db-query.js check-token-status --address 0x... --chain base
-node scripts/db-query.js check-token-status --address 0x... --chain ethereum
-# → {"address":"0x...","chain":"base","action":"skip","reason":"open_position","details":{...}}
-# → {"address":"0x...","chain":"base","action":"analyze","reason":"none"}
+node scripts/db-query.js check-token-status --address 0x... --chain <CHAIN>
+# → {"address":"0x...","chain":"<CHAIN>","action":"skip","reason":"open_position","details":{...}}
+# → {"address":"0x...","chain":"<CHAIN>","action":"analyze","reason":"none"}
 # Checks in order: open positions, pending buys, pending sells, watchlist, cached analysis
 
 # Cache an avoid/reject verdict (prevents re-analysis for 24h by default)
 node scripts/db-query.js cache-analysis --json '{
   "address": "0x...",
-  "chain": "base",
+  "chain": "<CHAIN>",
   "symbol": "TOKEN",
   "analysis_score": 25,
   "verdict": "avoid",
   "reasoning": "Low liquidity, unverified contract"
 }'
-# For Ethereum, use "chain": "ethereum"
 
 # Cache with custom TTL (e.g., 12 hours)
 node scripts/db-query.js cache-analysis --json '{
   "address": "0x...",
-  "chain": "base",
+  "chain": "<CHAIN>",
   "verdict": "risk_rejected",
   "risk_score": 82,
   "reasoning": "Top holder >30%",
   "ttl_hours": 12
 }'
-# For Ethereum, use "chain": "ethereum"
 
 # List all unexpired cache entries (debugging)
 node scripts/db-query.js get-analysis-cache
@@ -439,7 +424,7 @@ Scripts handle external API calls so the LLM doesn't burn tokens on data fetchin
 ### Token Data
 ```bash
 # Scan for new/trending tokens on a specific chain
-node scripts/scan-tokens.js --chain solana --sort trending --limit 20
+node scripts/scan-tokens.js --chain <CHAIN> --sort trending --limit 20
 
 # Scan for established conviction-tier tokens (age >7d, volume >$50k)
 node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30
@@ -464,25 +449,18 @@ node scripts/check-positions.js
 
 # Check liquidity for all open positions (reads from DB, respects PAPER_MODE)
 node scripts/check-liquidity.js
-node scripts/check-liquidity.js --chain base
-node scripts/check-liquidity.js --chain ethereum
-node scripts/check-liquidity.js --chain solana
+node scripts/check-liquidity.js --chain <CHAIN>
 
 # Get portfolio summary (value, allocation, P&L — reads from DB, respects PAPER_MODE)
 node scripts/portfolio-summary.js
-node scripts/portfolio-summary.js --chain base
-node scripts/portfolio-summary.js --chain ethereum
-node scripts/portfolio-summary.js --chain solana
+node scripts/portfolio-summary.js --chain <CHAIN>
 
 # Sync on-chain portfolio — EVM (Safe TX Service primary, DeBank fallback; real mode only)
 # Native ETH is stored as gas metadata (not a position). Stablecoins accumulate as cash.
 # Output includes gas_balance field with native token balance, price, and value.
-# Ethereum uses the same Safe + 1inch + DeBank stack as Base.
-node scripts/portfolio-load-evm.js --chain base
-node scripts/portfolio-load-evm.js --chain base --trigger post_trade
-node scripts/portfolio-load-evm.js --chain base --trigger manual
-node scripts/portfolio-load-evm.js --chain ethereum
-node scripts/portfolio-load-evm.js --chain ethereum --trigger post_trade
+node scripts/portfolio-load-evm.js --chain <CHAIN>
+node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger post_trade
+node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger manual
 
 # Sync on-chain portfolio — Solana (Helius DAS primary, RPC fallback; real mode only)
 # Native SOL is stored as gas metadata (not a position). Stablecoins accumulate as cash.
@@ -499,8 +477,7 @@ node scripts/check-wallets.js
 node scripts/check-wallets.js --positions
 
 # Filter to a specific chain
-node scripts/check-wallets.js --chain base
-node scripts/check-wallets.js --chain ethereum
+node scripts/check-wallets.js --chain <CHAIN>
 
 # Filter by wallet type
 node scripts/check-wallets.js --type smart_money
@@ -553,7 +530,7 @@ node scripts/narrative-deep-scan.js --narrative all                       # All 
 node scripts/narrative-deep-scan.js --narrative all --hot-only            # Only hot/warming narratives
 node scripts/narrative-deep-scan.js --narrative ai_infra --quick          # Agent mode: 1 keyword, top 3
 node scripts/narrative-deep-scan.js --narrative all --hot-only --quick    # Agent heartbeat use
-node scripts/narrative-deep-scan.js --narrative ai_infra --chain base --limit 5
+node scripts/narrative-deep-scan.js --narrative ai_infra --chain <CHAIN> --limit 5
 # → Returns ranked tokens with score, suggested tier, volume, liquidity, buy ratio
 ```
 
@@ -595,32 +572,22 @@ Sends reminder alerts every 30 minutes for pending transactions.
 
 ### Execute Trade via Safe Wallet
 
-Ethereum uses the same Safe + 1inch stack as Base. Requires `SAFE_ADDRESS_ETH`, `RPC_ETH`, `ETHERSCAN_API_KEY`.
+Requires `SAFE_ADDRESS_<CHAIN>`, `RPC_<CHAIN>`, and chain-specific explorer API key.
 
 ```bash
 # BUY: spend USDC to buy a token
 node scripts/execute-trade-evm.js \
-  --action buy --chain base --address 0xTOKEN --symbol TOKEN \
+  --action buy --chain <CHAIN> --address 0xTOKEN --symbol TOKEN \
   --amount 500 --max-slippage 5 --tier moonshot --deadline 300
-
-# BUY on Ethereum mainnet
-node scripts/execute-trade-evm.js \
-  --action buy --chain ethereum --address 0xTOKEN --symbol TOKEN \
-  --amount 500 --max-slippage 5 --tier conviction --deadline 300
 
 # SELL: sell all tokens back to USDC
 node scripts/execute-trade-evm.js \
-  --action sell --chain base --address 0xTOKEN --symbol TOKEN \
-  --amount all --max-slippage 5
-
-# SELL on Ethereum mainnet
-node scripts/execute-trade-evm.js \
-  --action sell --chain ethereum --address 0xTOKEN --symbol TOKEN \
+  --action sell --chain <CHAIN> --address 0xTOKEN --symbol TOKEN \
   --amount all --max-slippage 5
 
 # SELL: sell specific quantity
 node scripts/execute-trade-evm.js \
-  --action sell --chain base --address 0xTOKEN --symbol TOKEN \
+  --action sell --chain <CHAIN> --address 0xTOKEN --symbol TOKEN \
   --amount 10000 --max-slippage 2 --deadline 300
 ```
 
@@ -656,15 +623,13 @@ The script handles: Jupiter swap quoting, Squads vault transaction creation, pro
 ### Check Safe Wallet Status (EVM)
 ```bash
 # Get Safe info: nonce, threshold, owners, balances, pending txs
-node scripts/check-safe-status.js --chain base
-node scripts/check-safe-status.js --chain ethereum
+node scripts/check-safe-status.js --chain <CHAIN>
 
 # Check a specific pending transaction
-node scripts/check-safe-status.js --chain base --safe-hash 0xABC123...
-node scripts/check-safe-status.js --chain ethereum --safe-hash 0xDEF456...
+node scripts/check-safe-status.js --chain <CHAIN> --safe-hash 0xABC123...
 ```
 
-**Requires:** `SAFE_ADDRESS_<CHAIN>`, `RPC_<CHAIN>` env vars (e.g., `SAFE_ADDRESS_BASE`/`RPC_BASE` for Base, `SAFE_ADDRESS_ETH`/`RPC_ETH` for Ethereum).
+**Requires:** `SAFE_ADDRESS_<CHAIN>`, `RPC_<CHAIN>` env vars.
 
 ### Check Squads Multisig Status (Solana)
 ```bash
@@ -716,7 +681,7 @@ node scripts/send-alert.js --type portfolio_daily --agent system --message "Dail
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ACTIVE_CHAINS` | `base,ethereum,solana` | Comma-separated list of active chains. Controls which chains are scanned and synced. Supported: `base`, `ethereum`, `solana`. |
+| `ACTIVE_CHAINS` | (env var) | Comma-separated list of active chains. Controls which chains are scanned and synced. Run `get-chains` for current list. |
 | `PAPER_MODE` | `false` | Enable simulated trading (no real transactions, no on-chain sync) |
 
 ## API Keys Required (set in environment)

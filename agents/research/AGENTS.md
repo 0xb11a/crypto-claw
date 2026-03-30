@@ -146,18 +146,18 @@ node scripts/db-query.js get-alerts --unprocessed
 
 Portfolio limits are enforced **per-chain**. Each chain is an independent capital pool — you cannot use Solana cash for Base trades. Read chain-specific rules from `chains.js` via `getPortfolioRules(chain)`.
 
-| Rule | Default | Override |
-|------|---------|----------|
-| Max single moonshot position | 5% of **chain** portfolio | Solana: 7% |
-| Max single conviction position | 10% of **chain** portfolio | — |
-| Max single base position | 30% of **chain** portfolio | — |
-| Max total moonshot allocation | 30% of **chain** portfolio | — |
-| Min cash/stablecoin reserve | 10% of **chain** portfolio | — |
-| Max positions in same narrative | 3 per chain | — |
-| Max total open positions | 15 per chain | Solana: 10 |
-| Tiers enabled | moonshot, conviction, base | Solana: moonshot, conviction only |
+| Rule | Default |
+|------|---------|
+| Max single moonshot position | 5% of **chain** portfolio |
+| Max single conviction position | 10% of **chain** portfolio |
+| Max single base position | 30% of **chain** portfolio |
+| Max total moonshot allocation | 30% of **chain** portfolio |
+| Min cash/stablecoin reserve | 10% of **chain** portfolio |
+| Max positions in same narrative | 3 per chain |
+| Max total open positions | 15 per chain |
+| Tiers enabled | moonshot, conviction, base |
 
-**Ethereum mainnet** uses the same defaults as Base (no overrides). However, Ethereum has significantly higher gas costs — recommend minimum ~$500 position sizes to keep gas fees a small fraction of trade value.
+Some chains override these defaults (e.g., different max positions, restricted tiers). Run `get-chain-config --chain <CHAIN>` to retrieve chain-specific overrides before sizing positions.
 
 All portfolio queries must include `--chain`:
 - `node scripts/db-query.js get-portfolio --chain <chain>`
@@ -175,15 +175,15 @@ Read the current regime before sizing any position. Regime adjustments apply on 
 
 | Parameter | Bullish/Neutral | Bearish | Crisis |
 |-----------|----------------|---------|--------|
-| Min cash reserve | 10% | 25% | 40% |
+| Min cash reserve | (chain default) | 25% | 40% |
 | Base tier buying | Enabled | **Paused** | **Paused** |
-| Max moonshot position | 5% | 3% | 0% (no new) |
-| Max conviction position | 10% | 7% | 5% |
-| Max base position | 30% | 30% | 30% |
-| Max moonshot allocation | 30% | 20% | 10% |
+| Max moonshot position | (chain default) | 3% | 0% (no new) |
+| Max conviction position | (chain default) | 7% | 5% |
+| Max base position | (chain default) | 30% | 30% |
+| Max moonshot allocation | (chain default) | 20% | 10% |
 | Min buy score | 50 | 65 | 80 |
 
-When applying regime limits, use `min(hard_limit, regime_limit)` for maximums and `max(hard_limit, regime_limit)` for minimums — regime can only make rules stricter.
+When applying regime limits, use `min(chainRule, regimeLimit)` for maximums and `max(chainRule, regimeLimit)` for minimums — regime can only make chain rules stricter.
 
 ### Regime Exit Adjustments (Applied at Order Creation Time)
 
@@ -250,19 +250,18 @@ All stop-losses and take-profits auto-execute via Sentinel → Executor — no a
 
 ## Chain-Specific Notes
 
-### Ethereum
-- EVM chain (chain ID 1) — uses Safe wallet, 1inch for swaps, DeBank for portfolio sync, Etherscan for explorer
-- Same portfolio rules as Base (no overrides)
-- Higher gas costs than Base — recommend minimum ~$500 positions to keep gas a small fraction of trade value
-- USDC: `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48`
-- Included in `ACTIVE_CHAINS` by default (`base,ethereum,solana`)
+### EVM Chains
+- Safe wallet + 1inch DEX. Execution routed automatically by `process-order.js`.
+- Token addresses are hex (`0x...`) format.
+- Gas costs vary by chain — scale minimum position size accordingly.
+- Run `get-chain-config --chain <CHAIN>` for chain-specific token addresses and rules.
 
 ### Solana
-- Token addresses are **mint addresses** in base58 format (e.g., `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`), not `0x` hex addresses
-- SOL is the native token (like ETH on Base)
-- When proposing Solana trades, chain must be `'solana'`
-- Contract safety checks may flag `freeze_authority` and `close_authority` — these are Solana-specific risks (SPL token authorities)
-- Execution uses Jupiter DEX via Squads multisig (not 1inch/Safe)
+- Squads multisig + Jupiter DEX. Execution routed automatically by `process-order.js`.
+- Token addresses are base58 mint format (not hex).
+- SPL token authorities (`freeze_authority`, `close_authority`) are Solana-specific rug risks — always check via `check-contract.js`.
+
+Run `get-chains` to discover active chains.
 
 ## Security Rules
 - NEVER expose API keys, wallet keys, or seed phrases

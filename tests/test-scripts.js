@@ -532,6 +532,62 @@ describe('check-squads-status.js', () => {
 });
 
 // ============================================================
+// db-query.js — Chain Discovery Commands
+// ============================================================
+
+describe('db-query.js get-chains', () => {
+  testAsync('returns active and all chain lists', async () => {
+    const result = runScript('db-query.js', 'get-chains');
+    assert(result.success, 'get-chains should succeed');
+    assert(Array.isArray(result.parsed?.active), 'active should be an array');
+    assert(Array.isArray(result.parsed?.all), 'all should be an array');
+    assert(result.parsed.active.length > 0, 'active should have at least one chain');
+    assert(result.parsed.all.length > 0, 'all should have at least one chain');
+    assert(result.parsed.all.includes('base'), 'all should include base');
+    assert(result.parsed.all.includes('ethereum'), 'all should include ethereum');
+    assert(result.parsed.all.includes('solana'), 'all should include solana');
+  });
+});
+
+describe('db-query.js get-chain-config', () => {
+  testAsync('returns full config for base chain', async () => {
+    const result = runScript('db-query.js', 'get-chain-config --chain base');
+    assert(result.success, 'get-chain-config should succeed');
+    assertEqual(result.parsed?.name, 'base');
+    assertEqual(result.parsed?.type, 'evm');
+    assertEqual(result.parsed?.chainId, '8453');
+    assertEqual(result.parsed?.dex, '1inch');
+    assert(result.parsed?.cashToken, 'Should have cashToken');
+    assertEqual(result.parsed?.cashToken?.symbol, 'USDC');
+    assert(Array.isArray(result.parsed?.baseTierTokens), 'baseTierTokens should be array');
+    assert(result.parsed.baseTierTokens.length > 0, 'Should have base tier tokens');
+    assert(result.parsed?.rules, 'Should have rules');
+    assertEqual(result.parsed?.rules?.maxMoonshotPosition, 5);
+  });
+
+  testAsync('returns baseTierTokens with correct structure', async () => {
+    const result = runScript('db-query.js', 'get-chain-config --chain ethereum');
+    assert(result.success, 'get-chain-config should succeed');
+    const tokens = result.parsed?.baseTierTokens;
+    assert(Array.isArray(tokens), 'baseTierTokens should be array');
+    assert(tokens.length >= 2, 'Ethereum should have WETH + WBTC');
+    assert(tokens[0].symbol, 'Token should have symbol');
+    assert(tokens[0].address, 'Token should have address');
+    assert(typeof tokens[0].decimals === 'number', 'Token should have numeric decimals');
+  });
+
+  testAsync('errors without --chain flag', async () => {
+    const result = runScript('db-query.js', 'get-chain-config');
+    assert(!result.success, 'Should fail without --chain');
+  });
+
+  testAsync('errors for unknown chain', async () => {
+    const result = runScript('db-query.js', 'get-chain-config --chain polygon');
+    assert(!result.success, 'Should fail for unknown chain');
+  });
+});
+
+// ============================================================
 // Results
 // ============================================================
 const allPassed = summary();

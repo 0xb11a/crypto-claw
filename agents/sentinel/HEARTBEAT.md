@@ -23,6 +23,7 @@ node scripts/check-positions.js
 ### 2. Liquidity Check (CRITICAL)
 ```bash
 node scripts/check-liquidity.js
+node scripts/db-query.js update-heartbeat --agent sentinel --check liquidity_check
 ```
 - Compare current liquidity against previous snapshot from DB
 - If dropped >30% → CRITICAL: write sell-all order, alert human
@@ -32,6 +33,7 @@ node scripts/check-liquidity.js
 ### 3. Wallet Check (if positions exist)
 ```bash
 node scripts/check-wallets.js --positions
+node scripts/db-query.js update-heartbeat --agent sentinel --check wallet_check
 ```
 - Check dev/deployer wallets for sells
 - Check large holders for dumps
@@ -39,9 +41,9 @@ node scripts/check-wallets.js --positions
 
 ### 4. Contract Check (max 2x per hour)
 ```bash
-# Check heartbeat timestamp first — skip if last run was <30 minutes ago
-node scripts/db-query.js get-heartbeat --agent sentinel
-# Only run if contract_check last_run is NULL or >30 minutes ago
+# Check if contract_check is due (cadence: 30 min, enforced server-side)
+node scripts/db-query.js get-overdue-checks --agent sentinel
+# Only run if contract_check appears in the overdue array
 node scripts/check-contract.js --changes
 node scripts/db-query.js update-heartbeat --agent sentinel --check contract_check
 ```

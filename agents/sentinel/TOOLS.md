@@ -5,6 +5,14 @@
 - Errors go to stderr. Exit code 0 = success, 1 = failure.
 - **Do NOT use web_search or browser tools.** They are disabled. All market data comes from the scripts below.
 
+## Chain Discovery
+```bash
+# List all active chains
+node scripts/db-query.js get-chains
+# Get config for a specific chain (cash token, explorer, wallet type, etc.)
+node scripts/db-query.js get-chain-config --chain <CHAIN>
+```
+
 ## Database CLI (db-query.js)
 
 All wallet data lives in SQLite. Interact through `db-query.js` — never access the DB file directly.
@@ -12,11 +20,9 @@ All wallet data lives in SQLite. Interact through `db-query.js` — never access
 ### Portfolio & Cash (Read-Only)
 ```bash
 node scripts/db-query.js get-portfolio
-node scripts/db-query.js get-portfolio --chain base
-node scripts/db-query.js get-portfolio --chain ethereum
+node scripts/db-query.js get-portfolio --chain <CHAIN>
 node scripts/db-query.js get-cash
-node scripts/db-query.js get-cash --chain base
-node scripts/db-query.js get-cash --chain ethereum
+node scripts/db-query.js get-cash --chain <CHAIN>
 node scripts/db-query.js get-gas
 node scripts/db-query.js get-meta --key my_key
 ```
@@ -27,8 +33,6 @@ node scripts/db-query.js get-positions
 node scripts/db-query.js get-positions --status open
 node scripts/db-query.js get-positions --symbol TOKEN
 node scripts/db-query.js update-position --id pos-001 --json '{"current_price": 0.0015}'
-node scripts/db-query.js close-position --id pos-001 --json '{"exit_price": 0.002, "exit_reason": "stop_loss"}'
-node scripts/db-query.js close-position --id pos-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "take_profit_partial"}'
 ```
 
 ### Orders (Sentinel → Executor)
@@ -43,9 +47,7 @@ node scripts/db-query.js get-order --id sell-001
 node scripts/db-query.js get-order-history --limit 20
 
 # Write a sell order (auto-approved)
-node scripts/db-query.js add-order --json '{"id":"sell-001","action":"sell","symbol":"TOKEN","address":"0x...","chain":"base","amount":"all","reason":"stop_loss_hit","urgency":"immediate"}'
-# Ethereum sell order example
-node scripts/db-query.js add-order --json '{"id":"sell-002","action":"sell","symbol":"TOKEN","address":"0x...","chain":"ethereum","amount":"all","reason":"stop_loss_hit","urgency":"immediate"}'
+node scripts/db-query.js add-order --json '{"id":"sell-001","action":"sell","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","amount":"all","reason":"stop_loss_hit","urgency":"immediate"}'
 ```
 
 ### Receipts (Read-Only — written by Executor)
@@ -55,33 +57,27 @@ node scripts/db-query.js get-receipts --limit 10
 
 ### Sentinel Alerts
 ```bash
-node scripts/db-query.js get-alerts --unprocessed
-node scripts/db-query.js add-alert --json '{"id":"alert-001","symbol":"TOKEN","chain":"base","alert_type":"liquidity_drop","severity":"high","details":"Liquidity dropped 25% in 5 minutes"}'
-node scripts/db-query.js add-alert --json '{"id":"alert-002","symbol":"TOKEN","chain":"ethereum","alert_type":"liquidity_drop","severity":"high","details":"Liquidity dropped 25% in 5 minutes"}'
-node scripts/db-query.js mark-alert-processed --id alert-001
+node scripts/db-query.js add-alert --json '{"id":"alert-001","symbol":"TOKEN","chain":"<CHAIN>","alert_type":"liquidity_drop","severity":"high","details":"Liquidity dropped 25% in 5 minutes"}'
 ```
 
 ### Liquidity Snapshots
 ```bash
-node scripts/db-query.js get-liquidity --address 0x... --chain base
-node scripts/db-query.js get-liquidity --address 0x... --chain ethereum
-node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain base --liquidity 50000
-node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain ethereum --liquidity 50000
+node scripts/db-query.js get-liquidity --address 0x... --chain <CHAIN>
+node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain <CHAIN> --liquidity 50000
 ```
 
 ### Contract Snapshots
 ```bash
-node scripts/db-query.js get-contract-snapshots --address 0x... --chain base
-node scripts/db-query.js get-contract-snapshots --address 0x... --chain ethereum
-node scripts/db-query.js get-contract-snapshots --address 0x... --chain base --limit 10
-node scripts/db-query.js add-contract-snapshot --address 0x... --chain base --json '<safety_data_json>'
-node scripts/db-query.js add-contract-snapshot --address 0x... --chain ethereum --json '<safety_data_json>'
+node scripts/db-query.js get-contract-snapshots --address 0x... --chain <CHAIN>
+node scripts/db-query.js get-contract-snapshots --address 0x... --chain <CHAIN> --limit 10
+node scripts/db-query.js add-contract-snapshot --address 0x... --chain <CHAIN> --json '<safety_data_json>'
 ```
 
 ### Heartbeat & Logs
 ```bash
 node scripts/db-query.js get-heartbeat --agent sentinel
-node scripts/db-query.js update-heartbeat --agent sentinel --check position_monitor
+node scripts/db-query.js get-overdue-checks --agent sentinel
+node scripts/db-query.js update-heartbeat --agent sentinel --check price_check
 node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"status":"ok"}'
 ```
 
@@ -94,9 +90,6 @@ node scripts/db-query.js get-paper-positions
 node scripts/db-query.js get-paper-positions --status open
 node scripts/db-query.js get-paper-positions --symbol TOKEN
 node scripts/db-query.js update-paper-position --id pp-001 --json '{"current_price": 0.0015, "value_usd": 15}'
-# close-paper-position: auto-adds sale proceeds to paper_cash
-node scripts/db-query.js close-paper-position --id pp-001 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
-node scripts/db-query.js close-paper-position --id pp-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
 node scripts/db-query.js get-paper-receipts --limit 10
 node scripts/db-query.js get-paper-stats
 ```
@@ -109,16 +102,14 @@ node scripts/db-query.js get-paper-stats
 node scripts/check-positions.js
 # Liquidity for all open positions
 node scripts/check-liquidity.js
-node scripts/check-liquidity.js --chain base
-node scripts/check-liquidity.js --chain ethereum
+node scripts/check-liquidity.js --chain <CHAIN>
 ```
 
 ### Wallet Monitoring
 ```bash
 node scripts/check-wallets.js
 node scripts/check-wallets.js --positions
-node scripts/check-wallets.js --chain base
-node scripts/check-wallets.js --chain ethereum
+node scripts/check-wallets.js --chain <CHAIN>
 node scripts/check-wallets.js --type smart_money
 ```
 
@@ -153,7 +144,7 @@ node scripts/send-alert.js --type recovered --agent sentinel --message "Back to 
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ACTIVE_CHAINS` | `base,ethereum,solana` | Comma-separated list of active chains. Supported: `base`, `ethereum`, `solana`. |
+| `ACTIVE_CHAINS` | Per `get-chains` | Comma-separated list of active chains. Run `get-chains` to see available chains. |
 | `PAPER_MODE` | `false` | Enable simulated trading (no real transactions, no on-chain sync) |
 
 ## Important Notes

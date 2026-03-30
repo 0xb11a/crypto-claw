@@ -314,6 +314,57 @@ async function runTests() {
   });
 
   // ============================================================
+  // Base Tier Tokens Tests
+  // ============================================================
+
+  describe('Base Tier Tokens', () => {
+    test('getBaseTierTokens returns WETH + cbBTC for base', () => {
+      const tokens = chains.getBaseTierTokens('base');
+      assert(Array.isArray(tokens), 'Should return array');
+      assertEqual(tokens.length, 2);
+      assertEqual(tokens[0].symbol, 'WETH');
+      assertEqual(tokens[0].address, '0x4200000000000000000000000000000000000006');
+      assertEqual(tokens[1].symbol, 'cbBTC');
+    });
+
+    test('getBaseTierTokens returns WETH + WBTC for ethereum', () => {
+      const tokens = chains.getBaseTierTokens('ethereum');
+      assert(Array.isArray(tokens), 'Should return array');
+      assertEqual(tokens.length, 2);
+      assertEqual(tokens[0].symbol, 'WETH');
+      assertEqual(tokens[0].address, '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2');
+      assertEqual(tokens[1].symbol, 'WBTC');
+      assertEqual(tokens[1].address, '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599');
+    });
+
+    test('getBaseTierTokens returns wSOL for solana', () => {
+      const tokens = chains.getBaseTierTokens('solana');
+      assert(Array.isArray(tokens), 'Should return array');
+      assertEqual(tokens.length, 1);
+      assertEqual(tokens[0].symbol, 'wSOL');
+      assertEqual(tokens[0].address, 'So11111111111111111111111111111111111111112');
+    });
+
+    test('every chain has non-empty baseTierTokens', () => {
+      for (const name of chains.getAllChains()) {
+        const tokens = chains.getBaseTierTokens(name);
+        assert(tokens.length > 0, `${name} should have at least one base tier token`);
+      }
+    });
+
+    test('baseTierTokens have required fields', () => {
+      for (const name of chains.getAllChains()) {
+        const tokens = chains.getBaseTierTokens(name);
+        for (const token of tokens) {
+          assert(token.symbol, `${name} base tier token must have symbol`);
+          assert(token.address, `${name} base tier token must have address`);
+          assert(typeof token.decimals === 'number', `${name} base tier token must have numeric decimals`);
+        }
+      }
+    });
+  });
+
+  // ============================================================
   // Portfolio Rules Tests
   // ============================================================
 
@@ -472,12 +523,15 @@ async function runTests() {
       db.prepare('DELETE FROM positions WHERE id = ?').run(id);
     });
 
-    test('portfolio_sync heartbeat seeded', () => {
+    test('sentinel has no portfolio_sync heartbeat', () => {
       const db = dbMod.getDb();
       const row = db
         .prepare("SELECT * FROM heartbeat_state WHERE agent = 'sentinel' AND check_type = 'portfolio_sync'")
         .get();
-      assert(row !== undefined, 'Should have portfolio_sync heartbeat');
+      assert(
+        row === undefined,
+        'Sentinel should not have portfolio_sync heartbeat — that is research agent responsibility',
+      );
     });
   });
 

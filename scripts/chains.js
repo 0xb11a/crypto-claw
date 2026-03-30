@@ -46,6 +46,10 @@ const CHAINS = {
       '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', // DAI
       '0x4621b7A9c75199271F773Ebd9A499dbd165c3191', // DOLA
     ],
+    baseTierTokens: [
+      { symbol: 'WETH', address: '0x4200000000000000000000000000000000000006', decimals: 18 },
+      { symbol: 'cbBTC', address: '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf', decimals: 8 },
+    ],
     portfolio: { provider: 'debank', apiKeyEnv: 'DEBANK_API_KEY' },
     rules: {}, // Base uses all global defaults
   },
@@ -70,6 +74,10 @@ const CHAINS = {
       '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC
       '0xdAC17F958D2ee523a2206206994597C13D831ec7', // USDT
       '0x6B175474E89094C44Da98b954EedeAC495271d0F', // DAI
+    ],
+    baseTierTokens: [
+      { symbol: 'WETH', address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', decimals: 18 },
+      { symbol: 'WBTC', address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599', decimals: 8 },
     ],
     portfolio: { provider: 'debank', apiKeyEnv: 'DEBANK_API_KEY' },
     rules: {}, // Ethereum uses all global defaults (same as Base)
@@ -103,6 +111,7 @@ const CHAINS = {
       'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
       'USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA', // USDS
     ],
+    baseTierTokens: [{ symbol: 'wSOL', address: 'So11111111111111111111111111111111111111112', decimals: 9 }],
     portfolio: { provider: 'helius', apiKeyEnv: 'HELIUS_API_KEY' },
     rules: {
       maxMoonshotPosition: 7,
@@ -192,6 +201,13 @@ export function getStablecoins(chainName) {
 export function getPortfolioRules(chainName) {
   const chain = getChain(chainName);
   return { ...PORTFOLIO_RULES, ...(chain.rules || {}) };
+}
+
+/**
+ * Get base tier tokens for a chain.
+ */
+export function getBaseTierTokens(chainName) {
+  return getChain(chainName).baseTierTokens ?? [];
 }
 
 export { PORTFOLIO_RULES };

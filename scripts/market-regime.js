@@ -21,22 +21,24 @@ import { getDb, close } from './db.js';
 // ============================================================
 
 const REGIMES = {
+  // Bullish/neutral: no tightening — null means "use chain default"
+  // Caller applies min(chainRule, regimeLimit) so null = no regime constraint
   bullish: {
-    minCashReserve: 10,
+    minCashReserve: null,
     baseBuyingEnabled: true,
-    maxMoonshotPosition: 5,
-    maxConvictionPosition: 10,
-    maxBasePosition: 30,
-    maxMoonshotAllocation: 30,
+    maxMoonshotPosition: null,
+    maxConvictionPosition: null,
+    maxBasePosition: null,
+    maxMoonshotAllocation: null,
     minBuyScore: 50,
   },
   neutral: {
-    minCashReserve: 10,
+    minCashReserve: null,
     baseBuyingEnabled: true,
-    maxMoonshotPosition: 5,
-    maxConvictionPosition: 10,
-    maxBasePosition: 30,
-    maxMoonshotAllocation: 30,
+    maxMoonshotPosition: null,
+    maxConvictionPosition: null,
+    maxBasePosition: null,
+    maxMoonshotAllocation: null,
     minBuyScore: 50,
   },
   bearish: {
@@ -59,13 +61,14 @@ const REGIMES = {
   },
 };
 
-// Hard limits from AGENTS.md — regime can only tighten, never relax
-const HARD_LIMITS = {
-  minCashReserve: 10, // regime can raise this, never lower
-  maxMoonshotPosition: 5, // regime can lower this, never raise
-  maxConvictionPosition: 10, // regime can lower this, never raise
-  maxBasePosition: 30, // regime can lower this, never raise
-  maxMoonshotAllocation: 30, // regime can lower this, never raise
+// Global defaults from chains.js PORTFOLIO_RULES — used as fallback when regime returns null
+import { PORTFOLIO_RULES } from './chains.js';
+const GLOBAL_DEFAULTS = {
+  minCashReserve: PORTFOLIO_RULES.minCashReserve,
+  maxMoonshotPosition: PORTFOLIO_RULES.maxMoonshotPosition,
+  maxConvictionPosition: PORTFOLIO_RULES.maxConvictionPosition,
+  maxBasePosition: PORTFOLIO_RULES.maxBasePosition,
+  maxMoonshotAllocation: PORTFOLIO_RULES.maxMoonshotAllocation,
 };
 
 /**
@@ -79,17 +82,34 @@ export function classifyRegime(fearGreedValue, marketCapChange24h) {
 }
 
 /**
- * Get regime adjustments — ensures they only tighten, never relax hard limits
+ * Get regime adjustments.
+ * Null values mean "no regime constraint" — caller uses chain default via min(chainRule, regimeLimit).
+ * Non-null values are clamped against global defaults so regime can only tighten.
  */
 export function getRegimeAdjustments(regime) {
-  const adjustments = { ...REGIMES[regime] };
+  const raw = { ...REGIMES[regime] };
+  const adjustments = {};
 
-  // Enforce: can only tighten, never relax
-  adjustments.minCashReserve = Math.max(adjustments.minCashReserve, HARD_LIMITS.minCashReserve);
-  adjustments.maxMoonshotPosition = Math.min(adjustments.maxMoonshotPosition, HARD_LIMITS.maxMoonshotPosition);
-  adjustments.maxConvictionPosition = Math.min(adjustments.maxConvictionPosition, HARD_LIMITS.maxConvictionPosition);
-  adjustments.maxBasePosition = Math.min(adjustments.maxBasePosition, HARD_LIMITS.maxBasePosition);
-  adjustments.maxMoonshotAllocation = Math.min(adjustments.maxMoonshotAllocation, HARD_LIMITS.maxMoonshotAllocation);
+  // For each limit: null = use chain default, non-null = clamp so regime only tightens
+  adjustments.minCashReserve =
+    raw.minCashReserve != null
+      ? Math.max(raw.minCashReserve, GLOBAL_DEFAULTS.minCashReserve)
+      : GLOBAL_DEFAULTS.minCashReserve;
+  adjustments.maxMoonshotPosition =
+    raw.maxMoonshotPosition != null ? Math.min(raw.maxMoonshotPosition, GLOBAL_DEFAULTS.maxMoonshotPosition) : null;
+  adjustments.maxConvictionPosition =
+    raw.maxConvictionPosition != null
+      ? Math.min(raw.maxConvictionPosition, GLOBAL_DEFAULTS.maxConvictionPosition)
+      : null;
+  adjustments.maxBasePosition =
+    raw.maxBasePosition != null ? Math.min(raw.maxBasePosition, GLOBAL_DEFAULTS.maxBasePosition) : null;
+  adjustments.maxMoonshotAllocation =
+    raw.maxMoonshotAllocation != null
+      ? Math.min(raw.maxMoonshotAllocation, GLOBAL_DEFAULTS.maxMoonshotAllocation)
+      : null;
+
+  adjustments.baseBuyingEnabled = raw.baseBuyingEnabled;
+  adjustments.minBuyScore = raw.minBuyScore;
 
   return { regime, ...adjustments };
 }

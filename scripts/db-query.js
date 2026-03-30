@@ -70,6 +70,7 @@
  *   # Heartbeat
  *   get-heartbeat --agent <name>
  *   update-heartbeat --agent <name> --check <type>
+ *   get-overdue-checks --agent <name>             # Returns checks that exceed their cadence
  *
  *   # Logs
  *   add-sentinel-log --json '<json>'
@@ -111,7 +112,35 @@
 
 import { getDb, close } from './db.js';
 import { execSync } from 'child_process';
-import { getAllChains, getActiveChains, isSolana } from './chains.js';
+import { getAllChains, getActiveChains, getChain, isSolana, getPortfolioRules } from './chains.js';
+
+// Cadence in minutes for each agent's heartbeat checks.
+// Used by get-overdue-checks to compute which checks are due server-side.
+const HEARTBEAT_CADENCES = {
+  research: {
+    sentinel_alerts: 30,
+    market_regime: 60,
+    smart_money: 60,
+    watchlist_check: 60,
+    token_scan: 120,
+    narrative_check: 240,
+    narrative_deep_scan: 240,
+    conviction_scan: 360,
+    portfolio_sync: 360,
+    rebalance_review: 720,
+    base_rebalance: 720,
+    daily_summary: 1440,
+  },
+  sentinel: {
+    price_check: 0,
+    liquidity_check: 0,
+    wallet_check: 0,
+    contract_check: 30,
+  },
+  executor: {
+    process_orders: 0,
+  },
+};
 
 function cashKey(chain, paper = false) {
   return `${paper ? 'paper_cash' : 'cash'}_${chain}`;
@@ -450,6 +479,33 @@ function handle(db, cmd) {
         }
         output(result);
       }
+      break;
+    }
+    case 'get-chains': {
+      output({ active: getActiveChains(), all: getAllChains() });
+      break;
+    }
+    case 'get-chain-config': {
+      const chain = getArg('chain');
+      if (!chain) error('Missing --chain');
+      let cfg;
+      try {
+        cfg = getChain(chain);
+      } catch {
+        error(`Unknown chain: ${chain}`);
+      }
+      output({
+        name: cfg.name,
+        type: cfg.type,
+        chainId: cfg.chainId,
+        dex: cfg.dex,
+        nativeToken: cfg.nativeToken,
+        wrappedNativeToken: cfg.wrappedNativeToken,
+        cashToken: cfg.cashToken,
+        baseTierTokens: cfg.baseTierTokens ?? [],
+        stablecoins: cfg.stablecoins,
+        rules: getPortfolioRules(chain),
+      });
       break;
     }
     case 'get-meta': {
@@ -1016,6 +1072,35 @@ function handle(db, cmd) {
         check,
       );
       output({ ok: true });
+      break;
+    }
+    case 'get-overdue-checks': {
+      const agent = getArg('agent');
+      if (!agent) error('Missing --agent');
+      const cadences = HEARTBEAT_CADENCES[agent];
+      if (!cadences) {
+        output({ agent, overdue: [], not_yet_due: [] });
+        break;
+      }
+      const rows = db.prepare('SELECT * FROM heartbeat_state WHERE agent = ?').all(agent);
+      const now = Date.now();
+      const overdue = [];
+      const not_yet_due = [];
+      for (const row of rows) {
+        const cadence = cadences[row.check_type] ?? 0;
+        let minutes_since = null;
+        if (row.last_run) {
+          const ts = row.last_run.endsWith('Z') ? row.last_run : row.last_run + 'Z';
+          minutes_since = Math.round((now - Date.parse(ts)) / 60000);
+        }
+        const entry = { check_type: row.check_type, minutes_since, cadence };
+        if (minutes_since === null || minutes_since >= cadence) {
+          overdue.push(entry);
+        } else {
+          not_yet_due.push(entry);
+        }
+      }
+      output({ agent, overdue, not_yet_due });
       break;
     }
 

@@ -113,7 +113,7 @@ In `crisis` regime: if tier is `moonshot`, auto-reject (max position = 0%).
 ### Step 4: Portfolio-Level Checks
 Check `PAPER_MODE` env var. Use `get-paper-portfolio --chain <chain>` / `get-paper-positions` if paper mode, otherwise `get-portfolio --chain <chain>` / `get-positions`.
 
-Read the **target chain's** portfolio rules: `getPortfolioRules(chain)` from `chains.js`. All checks below use the chain-specific limits, not global defaults.
+Read the target chain's portfolio rules via `get-chain-config --chain <CHAIN>`. All checks below use the chain-specific limits, not global defaults.
 
 - Would this push moonshot allocation above the chain's `maxMoonshotAllocation`?
 - Would this push conviction allocation above the chain's `maxConvictionPosition` * position count?
@@ -130,9 +130,9 @@ Read the **target chain's** portfolio rules: `getPortfolioRules(chain)` from `ch
 | 51-75 | `approve_with_caution` | Max 1% |
 | 76+ | `reject` | 0% |
 
-Cap `maxPositionPercent` at the regime-adjusted limit for the token's tier:
-- Moonshot: `min(maxPositionPercent, regimeMaxMoonshot)` — 5% bullish/neutral, 3% bearish, 0% crisis
-- Conviction: `min(maxPositionPercent, regimeMaxConviction)` — 10% bullish/neutral, 7% bearish, 5% crisis
+Cap `maxPositionPercent` at the regime-adjusted limit for the token's tier (chain default = `getPortfolioRules(chain)` value):
+- Moonshot: `min(maxPositionPercent, regimeMaxMoonshot)` — chain default bullish/neutral, 3% bearish, 0% crisis
+- Conviction: `min(maxPositionPercent, regimeMaxConviction)` — chain default bullish/neutral, 7% bearish, 5% crisis
 
 ### Step 6: Output
 ```json

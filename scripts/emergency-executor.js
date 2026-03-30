@@ -23,6 +23,7 @@ import { getDb, close } from './db.js';
 import { execSync } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { isSolana } from './chains.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPaper = process.env.PAPER_MODE === 'true';
@@ -30,7 +31,7 @@ const isPaper = process.env.PAPER_MODE === 'true';
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 
 // Chains that use Solana execution (Squads/Jupiter) vs EVM (Safe/1inch)
-const SOLANA_CHAINS = new Set(['solana']);
+// Chain type detection imported from chains.js (same as process-order.js)
 
 function getPendingSells(db) {
   return db
@@ -63,7 +64,7 @@ async function fetchCurrentPrice(address) {
 }
 
 function executeTradeLive(order) {
-  const scriptName = SOLANA_CHAINS.has(order.chain) ? 'execute-trade-solana.js' : 'execute-trade-evm.js';
+  const scriptName = isSolana(order.chain) ? 'execute-trade-solana.js' : 'execute-trade-evm.js';
   const scriptPath = resolve(__dirname, scriptName);
 
   const args = [

@@ -512,8 +512,7 @@ const migrations = [
       DROP TABLE positions;
       ALTER TABLE positions_new RENAME TO positions;
 
-      -- Seed heartbeat state for portfolio sync
-      INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('sentinel', 'portfolio_sync');
+      -- (portfolio_sync seed for sentinel removed — sentinel does not perform portfolio sync)
     `,
   },
   {

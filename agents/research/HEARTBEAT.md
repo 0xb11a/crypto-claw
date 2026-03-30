@@ -36,8 +36,8 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 ## How to Run
 
 1. Run overlap guard (see above)
-2. Run `node scripts/db-query.js get-heartbeat --agent research` for last-run timestamps
-3. Identify ALL overdue checks: a check is overdue when `now - last_run > cadence`. Checks with `last_run` of NULL are always overdue.
+2. Run `node scripts/db-query.js get-overdue-checks --agent research` — returns checks that are due (cadence computed server-side, do NOT override or add extra checks).
+3. Read the `overdue` array from the output. If empty, skip to step 7.
 4. Split overdue checks into two groups using the Type column above:
    - **Quick checks**: `sentinel_alerts`, `market_regime`, `smart_money`, `narrative_check`, `rebalance_review`, `daily_summary`, `watchlist_check`, `portfolio_sync`, `base_rebalance`
    - **Pipeline checks**: `token_scan`, `conviction_scan`, `narrative_deep_scan`
@@ -81,7 +81,7 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 - Mark processed: `node scripts/db-query.js mark-alert-processed --id <alert_id>`
 
 **New Token Scan** (pipeline)
-- Run `node scripts/scan-tokens.js --chain all --sort trending --limit 30`
+- Run `node scripts/scan-tokens.js --chain all --sort trending --limit 50`
 - Filter through discovery skill criteria
 - Log discoveries to daily memory
 - **For each promising token: immediately run the full pipeline** (analysis → risk → trade proposal). Do NOT stop after scanning — proceed through every stage until you either propose a trade or reject the token. This is autonomous operation.
@@ -112,7 +112,7 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 - **First:** read market regime from DB: `node scripts/db-query.js get-meta --key market_regime`
 - If regime is `bearish` or `crisis` (`baseBuyingEnabled: false`): log "Base tier buying paused — market regime: {regime}" and skip
 - Check current base allocation vs 50% target
-- If base < 40%: propose buying the most underweight base asset per chain (Base chain: WETH/cbBTC, Solana: wSOL)
+- If base < 40%: propose buying the most underweight base asset per chain (query `get-chain-config --chain <CHAIN>` for `baseTierTokens`) — only for chains where `base` is in `tiersEnabled`
 - Use `node scripts/token-metrics.js --address <BASE_TOKEN_ADDRESS> --chain <CHAIN>` to get current prices for sizing
 - Base buys skip discovery/analysis pipeline — go straight to risk check + trade proposal
 - Risk check for base tokens is simplified: verify liquidity, check portfolio limits, confirm price isn't at extreme (>20% above 7d avg)
@@ -153,7 +153,7 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 
 **Portfolio Sync (On-Chain)** (quick)
 - Real mode only — skip entirely if `PAPER_MODE=true`
-- Read active chains from `ACTIVE_CHAINS` env var (default: `base,ethereum,solana`). For EACH active chain, run the appropriate loader based on chain type:
+- Read active chains via `get-chains`. For EACH active chain, run the appropriate loader based on chain type:
   - EVM chains: `node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger periodic`
   - Solana chains: `node scripts/portfolio-load-solana.js --chain <CHAIN> --trigger periodic`
 - After sync, check for auto-discovered tokens: `node scripts/db-query.js get-positions --status pending_analysis`

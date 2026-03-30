@@ -5,6 +5,14 @@
 - Errors go to stderr. Exit code 0 = success, 1 = failure.
 - **Do NOT use web_search or browser tools.** They are disabled.
 
+## Chain Discovery
+```bash
+# List all active chains
+node scripts/db-query.js get-chains
+# Get config for a specific chain (cash token, explorer, wallet type, etc.)
+node scripts/db-query.js get-chain-config --chain <CHAIN>
+```
+
 ## Database CLI (db-query.js)
 
 All wallet data lives in SQLite. Interact through `db-query.js` — never access the DB file directly.
@@ -12,16 +20,12 @@ All wallet data lives in SQLite. Interact through `db-query.js` — never access
 ### Portfolio & Cash
 ```bash
 node scripts/db-query.js get-portfolio
-node scripts/db-query.js get-portfolio --chain base
-node scripts/db-query.js get-portfolio --chain ethereum
+node scripts/db-query.js get-portfolio --chain <CHAIN>
 node scripts/db-query.js get-cash
-node scripts/db-query.js get-cash --chain base
-node scripts/db-query.js get-cash --chain ethereum
-node scripts/db-query.js set-cash --chain base --amount 5000
-node scripts/db-query.js set-cash --chain ethereum --amount 5000
+node scripts/db-query.js get-cash --chain <CHAIN>
+node scripts/db-query.js set-cash --chain <CHAIN> --amount 5000
 node scripts/db-query.js get-gas
-node scripts/db-query.js get-gas --chain base
-node scripts/db-query.js get-gas --chain ethereum
+node scripts/db-query.js get-gas --chain <CHAIN>
 node scripts/db-query.js get-meta --key my_key
 node scripts/db-query.js set-meta --key my_key --value my_value
 ```
@@ -31,8 +35,7 @@ node scripts/db-query.js set-meta --key my_key --value my_value
 node scripts/db-query.js get-positions
 node scripts/db-query.js get-positions --status open
 node scripts/db-query.js get-positions --symbol TOKEN
-node scripts/db-query.js add-position --json '{"id":"pos-001","symbol":"TOKEN","address":"0x...","chain":"base","tier":"moonshot","entry_price":0.001,"quantity":10000,"stop_loss":0.0005,"take_profit_levels":[{"level":1,"price":0.002,"sellPercent":50}]}'
-# For Ethereum, use "chain":"ethereum"
+node scripts/db-query.js add-position --json '{"id":"pos-001","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","tier":"moonshot","entry_price":0.001,"quantity":10000,"stop_loss":0.0005,"take_profit_levels":[{"level":1,"price":0.002,"sellPercent":50}]}'
 node scripts/db-query.js update-position --id pos-001 --json '{"current_price": 0.0015}'
 node scripts/db-query.js close-position --id pos-001 --json '{"exit_price": 0.002, "exit_reason": "stop_loss"}'
 node scripts/db-query.js close-position --id pos-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "take_profit_partial"}'
@@ -62,15 +65,14 @@ node scripts/db-query.js mark-order-executed --id trade-001 --status failed --re
 ### Receipts
 ```bash
 node scripts/db-query.js get-receipts --limit 10
-node scripts/db-query.js add-receipt --json '{"id":"rcpt-001","order_id":"trade-001","action":"buy","symbol":"TOKEN","address":"0x...","chain":"base","status":"executed","safe_tx_hash":"0x...","onchain_tx_hash":"0x...","executed_price":0.00098,"slippage":0.02}'
-# For Ethereum, use "chain":"ethereum"
+node scripts/db-query.js add-receipt --json '{"id":"rcpt-001","order_id":"trade-001","action":"buy","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","status":"executed","safe_tx_hash":"0x...","onchain_tx_hash":"0x...","executed_price":0.00098,"slippage":0.02}'
 ```
 
 ### Heartbeat & Logs
 ```bash
 node scripts/db-query.js get-heartbeat --agent executor
 node scripts/db-query.js update-heartbeat --agent executor --check process_orders
-node scripts/db-query.js add-executor-log --json '{"action":"process_orders","sells_processed":1,"buys_processed":0,"status":"ok"}'
+node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":1,"buy_orders_processed":0,"success_count":1,"status":"ok"}'
 node scripts/db-query.js get-trade-stats
 ```
 
@@ -79,21 +81,17 @@ Paper commands mirror real-mode equivalents with `paper-` prefix and identical f
 ```bash
 node scripts/db-query.js get-paper-portfolio
 node scripts/db-query.js get-paper-cash
-node scripts/db-query.js get-paper-cash --chain base
-node scripts/db-query.js get-paper-cash --chain ethereum
-node scripts/db-query.js set-paper-cash --chain base --amount 10000
-node scripts/db-query.js set-paper-cash --chain ethereum --amount 10000
+node scripts/db-query.js get-paper-cash --chain <CHAIN>
+node scripts/db-query.js set-paper-cash --chain <CHAIN> --amount 10000
 node scripts/db-query.js get-paper-positions
 node scripts/db-query.js get-paper-positions --status open
 node scripts/db-query.js get-paper-positions --symbol TOKEN
 # add-paper-position: same fields as add-position + value_usd. Auto-deducts from paper_cash, auto-calculates quantity.
-node scripts/db-query.js add-paper-position --json '{"id":"pp-001","symbol":"TOKEN","address":"0x...","chain":"base","tier":"moonshot","entry_price":0.001,"value_usd":10,"stop_loss":0.0005,"take_profit_levels":[{"level":1,"price":0.002,"sellPercent":50}]}'
-# For Ethereum, use "chain":"ethereum"
+node scripts/db-query.js add-paper-position --json '{"id":"pp-001","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","tier":"moonshot","entry_price":0.001,"value_usd":10,"stop_loss":0.0005,"take_profit_levels":[{"level":1,"price":0.002,"sellPercent":50}]}'
 node scripts/db-query.js update-paper-position --id pp-001 --json '{"current_price": 0.0015, "value_usd": 15}'
 node scripts/db-query.js close-paper-position --id pp-001 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
 node scripts/db-query.js close-paper-position --id pp-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
-node scripts/db-query.js add-paper-receipt --json '{"id":"pt-001","order_id":"trade-001","action":"buy","symbol":"TOKEN","address":"0x...","chain":"base","tier":"moonshot","proposed_price":0.001,"quantity":10000,"amount":500}'
-# For Ethereum, use "chain":"ethereum"
+node scripts/db-query.js add-paper-receipt --json '{"id":"pt-001","order_id":"trade-001","action":"buy","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","tier":"moonshot","proposed_price":0.001,"quantity":10000,"amount":500}'
 node scripts/db-query.js get-paper-receipts
 node scripts/db-query.js get-paper-receipts --limit 10
 node scripts/db-query.js get-paper-stats
@@ -101,13 +99,10 @@ node scripts/db-query.js get-paper-stats
 
 ### Portfolio Sync (On-Chain — Real Mode Only)
 ```bash
-node scripts/db-query.js sync-portfolio --chain base
-node scripts/db-query.js sync-portfolio --chain ethereum
-node scripts/db-query.js sync-portfolio --chain base --trigger post_trade
-node scripts/db-query.js sync-portfolio --chain ethereum --trigger post_trade
+node scripts/db-query.js sync-portfolio --chain <CHAIN>
+node scripts/db-query.js sync-portfolio --chain <CHAIN> --trigger post_trade
 node scripts/db-query.js get-sync-status
-node scripts/db-query.js get-sync-status --chain base
-node scripts/db-query.js get-sync-status --chain ethereum
+node scripts/db-query.js get-sync-status --chain <CHAIN>
 node scripts/db-query.js set-onchain-balance --id <position_id> --balance 1000.5
 ```
 
@@ -115,17 +110,15 @@ node scripts/db-query.js set-onchain-balance --id <position_id> --balance 1000.5
 
 ### EVM (Safe Wallet) — execute-trade-evm.js
 
-Ethereum uses the same Safe + 1inch stack as Base.
+All EVM chains use the same Safe + 1inch stack.
 
 ```bash
-node scripts/execute-trade-evm.js --action buy --chain base --address 0xTOKEN --symbol TOKEN --amount 500 --max-slippage 5 --tier moonshot --deadline 300
-node scripts/execute-trade-evm.js --action buy --chain ethereum --address 0xTOKEN --symbol TOKEN --amount 500 --max-slippage 5 --tier conviction --deadline 300
-node scripts/execute-trade-evm.js --action sell --chain base --address 0xTOKEN --symbol TOKEN --amount all --max-slippage 5
-node scripts/execute-trade-evm.js --action sell --chain ethereum --address 0xTOKEN --symbol TOKEN --amount all --max-slippage 5
-node scripts/execute-trade-evm.js --action sell --chain base --address 0xTOKEN --symbol TOKEN --amount 10000 --max-slippage 2 --deadline 300
+node scripts/execute-trade-evm.js --action buy --chain <CHAIN> --address 0xTOKEN --symbol TOKEN --amount 500 --max-slippage 5 --tier moonshot --deadline 300
+node scripts/execute-trade-evm.js --action sell --chain <CHAIN> --address 0xTOKEN --symbol TOKEN --amount all --max-slippage 5
+node scripts/execute-trade-evm.js --action sell --chain <CHAIN> --address 0xTOKEN --symbol TOKEN --amount 10000 --max-slippage 2 --deadline 300
 ```
 Handles: 1inch swap quoting, ERC-20 approvals, Safe multi-send, signing with `SAFE_SIGNER_KEY`.
-Requires: `SAFE_ADDRESS_<CHAIN>`, `SAFE_SIGNER_KEY`, `RPC_<CHAIN>` (e.g., `SAFE_ADDRESS_ETH`, `RPC_ETH` for Ethereum).
+Requires: `SAFE_ADDRESS_<CHAIN>`, `SAFE_SIGNER_KEY`, `RPC_<CHAIN>` per chain.
 
 ### Solana (Squads Multisig) — execute-trade-solana.js
 ```bash
@@ -143,10 +136,8 @@ Requires: `SQUADS_VAULT_ADDRESS` (or `SQUADS_MULTISIG_ADDRESS`), `SQUADS_SIGNER_
 ### Multisig Status
 ```bash
 # Safe wallet: nonce, threshold, owners, balances, pending txs
-node scripts/check-safe-status.js --chain base
-node scripts/check-safe-status.js --chain ethereum
-node scripts/check-safe-status.js --chain base --safe-hash 0xABC123...
-node scripts/check-safe-status.js --chain ethereum --safe-hash 0xDEF456...
+node scripts/check-safe-status.js --chain <CHAIN>
+node scripts/check-safe-status.js --chain <CHAIN> --safe-hash 0xABC123...
 # Squads multisig: threshold, members, vault balances
 node scripts/check-squads-status.js
 node scripts/check-squads-status.js --pending
@@ -168,10 +159,8 @@ node scripts/token-metrics.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 
 ### On-Chain Portfolio Sync (Real Mode Only)
 ```bash
-node scripts/portfolio-load-evm.js --chain base
-node scripts/portfolio-load-evm.js --chain base --trigger post_trade
-node scripts/portfolio-load-evm.js --chain ethereum
-node scripts/portfolio-load-evm.js --chain ethereum --trigger post_trade
+node scripts/portfolio-load-evm.js --chain <CHAIN>
+node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger post_trade
 node scripts/portfolio-load-solana.js --chain solana
 node scripts/portfolio-load-solana.js --chain solana --trigger post_trade
 ```
@@ -201,7 +190,7 @@ node scripts/send-alert.js --type recovered --agent executor --message "Back to 
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ACTIVE_CHAINS` | `base,ethereum,solana` | Comma-separated list of active chains. Supported: `base`, `ethereum`, `solana`. |
+| `ACTIVE_CHAINS` | Per `get-chains` | Comma-separated list of active chains. Run `get-chains` to see available chains. |
 | `PAPER_MODE` | `false` | Enable simulated trading (no real transactions, no on-chain sync) |
 
 ## Important Notes

@@ -336,26 +336,31 @@ describe('Max Open Positions Limit', () => {
 // Regime-Adjusted Limit Tests
 // ============================================================
 
-function validateRegimePositionSize(percentOfPortfolio, tier, regime) {
+function validateRegimePositionSize(percentOfPortfolio, tier, regime, chainRules) {
+  // Chain rules default to global defaults if not provided
+  const defaults = { moonshot: 5, conviction: 10, base: 30 };
+  const chain = { ...defaults, ...(chainRules || {}) };
+  // Regime limits: bullish/neutral = no tightening (use chain default), bearish/crisis = tighter
   const regimeLimits = {
-    bullish: { moonshot: 5, conviction: 10, base: 30 },
-    neutral: { moonshot: 5, conviction: 10, base: 30 },
+    bullish: { moonshot: chain.moonshot, conviction: chain.conviction, base: chain.base },
+    neutral: { moonshot: chain.moonshot, conviction: chain.conviction, base: chain.base },
     bearish: { moonshot: 3, conviction: 7, base: 30 },
     crisis: { moonshot: 0, conviction: 5, base: 30 },
   };
-  const hardLimits = { moonshot: 5, conviction: 10, base: 30 };
-  const rLimits = regimeLimits[regime] || hardLimits;
-  const max = Math.min(rLimits[tier], hardLimits[tier]);
-  if (!hardLimits[tier] && hardLimits[tier] !== 0) return { valid: false, reason: `Unknown tier: ${tier}` };
+  const rLimits = regimeLimits[regime] || chain;
+  // min(chainRule, regimeLimit) — regime can only tighten
+  const max = Math.min(rLimits[tier], chain[tier]);
+  if (!chain[tier] && chain[tier] !== 0) return { valid: false, reason: `Unknown tier: ${tier}` };
   if (percentOfPortfolio > max) {
     return { valid: false, reason: `${tier} position ${percentOfPortfolio}% exceeds regime-adjusted max ${max}%` };
   }
   return { valid: true };
 }
 
-function validateRegimeCashReserve(cashPercent, regime) {
-  const regimeMin = { bullish: 10, neutral: 10, bearish: 25, crisis: 40 };
-  const min = Math.max(regimeMin[regime] || 10, 10); // never below hard limit
+function validateRegimeCashReserve(cashPercent, regime, chainMinCash) {
+  const chainDefault = chainMinCash ?? 10;
+  const regimeMin = { bullish: chainDefault, neutral: chainDefault, bearish: 25, crisis: 40 };
+  const min = Math.max(regimeMin[regime] || chainDefault, chainDefault); // never below chain limit
   if (cashPercent < min) {
     return { valid: false, reason: `Cash ${cashPercent}% below regime minimum ${min}%` };
   }
@@ -391,13 +396,39 @@ describe('Regime-Adjusted Position Limits', () => {
     assert(!validateRegimePositionSize(6, 'conviction', 'crisis').valid, 'Should be rejected');
   });
 
-  test('regime limits never exceed hard limits', () => {
+  test('regime limits never exceed chain limits (default chains)', () => {
     for (const regime of ['bullish', 'neutral', 'bearish', 'crisis']) {
       const moonResult = validateRegimePositionSize(6, 'moonshot', regime);
-      assert(!moonResult.valid, `${regime}: 6% moonshot must always be rejected`);
+      assert(!moonResult.valid, `${regime}: 6% moonshot must be rejected on default chain`);
       const convResult = validateRegimePositionSize(11, 'conviction', regime);
       assert(!convResult.valid, `${regime}: 11% conviction must always be rejected`);
     }
+  });
+
+  test('chain override: Solana 7% moonshot allowed in bullish', () => {
+    const solanaRules = { moonshot: 7, conviction: 10 };
+    assert(
+      validateRegimePositionSize(7, 'moonshot', 'bullish', solanaRules).valid,
+      'Solana 7% moonshot should be valid in bullish',
+    );
+    assert(
+      validateRegimePositionSize(7, 'moonshot', 'neutral', solanaRules).valid,
+      'Solana 7% moonshot should be valid in neutral',
+    );
+  });
+
+  test('chain override: Solana 7% moonshot still capped in bearish/crisis', () => {
+    const solanaRules = { moonshot: 7, conviction: 10 };
+    assert(
+      !validateRegimePositionSize(4, 'moonshot', 'bearish', solanaRules).valid,
+      'Bearish caps at 3% even with Solana override',
+    );
+    assert(!validateRegimePositionSize(1, 'moonshot', 'crisis', solanaRules).valid, 'Crisis blocks all moonshots');
+  });
+
+  test('chain override: 8% moonshot rejected even on Solana (exceeds chain limit)', () => {
+    const solanaRules = { moonshot: 7, conviction: 10 };
+    assert(!validateRegimePositionSize(8, 'moonshot', 'bullish', solanaRules).valid, 'Should not exceed chain limit');
   });
 });
 

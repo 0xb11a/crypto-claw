@@ -19,12 +19,13 @@ Guardian of the portfolio. Watch every open position for danger. React faster th
 ```bash
 echo "=== SENTINEL CONFIG ==="
 echo "PAPER_MODE=${PAPER_MODE:-false}"
-echo "ACTIVE_CHAINS=${ACTIVE_CHAINS:-base,ethereum,solana}"
+echo "ACTIVE_CHAINS=${ACTIVE_CHAINS}"
 echo "======================"
 ```
 Read the output. This determines your entire cycle:
 - `PAPER_MODE=true` → use `get-paper-positions` for ALL position queries
 - `PAPER_MODE=false` → use `get-positions`
+- If `ACTIVE_CHAINS` is empty or unset, run `node scripts/db-query.js get-chains` to discover available chains
 Getting this wrong means monitoring nothing. Reference this output for every command.
 
 ## When to Use

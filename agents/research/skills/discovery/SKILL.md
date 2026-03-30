@@ -31,7 +31,7 @@ Read the current regime before scanning: `node scripts/db-query.js get-meta --ke
 - **Bullish/Neutral:** Proceed normally.
 
 ### Step 1: Gather Data
-Run the scanning script. The `--chain all` flag scans all active chains (controlled by `ACTIVE_CHAINS` env var, defaults to `base,ethereum,solana`):
+Run the scanning script. The `--chain all` flag scans all active chains (controlled by `ACTIVE_CHAINS` env var, query via `get-chains`):
 ```bash
 # Bullish/Neutral: full scan across active chains
 node scripts/scan-tokens.js --chain all --sort trending --limit 50
@@ -160,7 +160,7 @@ For each passing token, create a discovery entry:
 ```json
 {
   "tokenAddress": "string",
-  "chain": "ethereum | solana | base | arbitrum",
+  "chain": "<CHAIN>",
   "symbol": "string",
   "name": "string",
   "price": "number",

@@ -114,9 +114,9 @@ Based on token characteristics AND narrative context, assign the appropriate por
 
 | Criteria | Tier |
 |----------|------|
-| Base chain: WETH (`0x4200000000000000000000000000000000000006`), cbBTC (`0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf`). Ethereum: WETH (`0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`), WBTC (`0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599`). Solana: wSOL (`So11111111111111111111111111111111111111112`) | `base` |
+| Token address matches any entry in `baseTierTokens` from `get-chain-config --chain <CHAIN>` AND `base` is in the chain's `tiersEnabled` | `base` |
 
-**Base tier is a closed set.** ONLY the wrapped native tokens listed above can be base tier. No other token — regardless of liquidity, age, market cap, or how underweight the base allocation is — may be classified as base. If a token is not in this table, skip to Step 3b.2.
+**Base tier is a closed set.** ONLY the tokens listed in `baseTierTokens` from `get-chain-config` can be base tier. No other token — regardless of liquidity, age, market cap, or how underweight the base allocation is — may be classified as base. If a token is not in `baseTierTokens`, or if `base` is not in the chain's `tiersEnabled`, skip to Step 3b.2.
 
 **Step 3b.2 — Narrative-aware tier assignment:**
 
@@ -199,8 +199,7 @@ The tier determines position limits, stop-loss levels, and slippage tolerance.
 - If recommendation is buy or strong_buy → proceed to risk skill
 - If watch → add to watchlist via database:
   ```bash
-  node scripts/db-query.js add-to-watchlist --json '{"symbol":"TOKEN","address":"0x...","chain":"base","reason":"...","target_entry":0.001}'
-  # For Ethereum, use "chain":"ethereum"
+  node scripts/db-query.js add-to-watchlist --json '{"symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","reason":"...","target_entry":0.001}'
   ```
 - If avoid → cache the result and end:
   ```bash

@@ -15,9 +15,9 @@ import {
 } from '../scripts/market-regime.js';
 
 // ============================================================
-// Hard limits from AGENTS.md — these must NEVER be relaxed
+// Global defaults from chains.js — baseline (chains can override)
 // ============================================================
-const HARD_LIMITS = {
+const GLOBAL_DEFAULTS = {
   minCashReserve: 10,
   maxMoonshotPosition: 5,
   maxConvictionPosition: 10,
@@ -78,25 +78,25 @@ describe('Regime Classification', () => {
 // Regime Adjustment Tests
 // ============================================================
 describe('Regime Adjustments', () => {
-  test('bullish adjustments match defaults', () => {
+  test('bullish adjustments: no regime constraint on positions', () => {
     const adj = getRegimeAdjustments('bullish');
     assertEqual(adj.regime, 'bullish');
     assertEqual(adj.minCashReserve, 10);
     assertEqual(adj.baseBuyingEnabled, true);
-    assertEqual(adj.maxMoonshotPosition, 5);
-    assertEqual(adj.maxConvictionPosition, 10);
-    assertEqual(adj.maxBasePosition, 30);
-    assertEqual(adj.maxMoonshotAllocation, 30);
+    assertEqual(adj.maxMoonshotPosition, null);
+    assertEqual(adj.maxConvictionPosition, null);
+    assertEqual(adj.maxBasePosition, null);
+    assertEqual(adj.maxMoonshotAllocation, null);
     assertEqual(adj.minBuyScore, 50);
   });
 
-  test('neutral adjustments match defaults', () => {
+  test('neutral adjustments: no regime constraint on positions', () => {
     const adj = getRegimeAdjustments('neutral');
     assertEqual(adj.minCashReserve, 10);
     assertEqual(adj.baseBuyingEnabled, true);
-    assertEqual(adj.maxMoonshotPosition, 5);
-    assertEqual(adj.maxConvictionPosition, 10);
-    assertEqual(adj.maxBasePosition, 30);
+    assertEqual(adj.maxMoonshotPosition, null);
+    assertEqual(adj.maxConvictionPosition, null);
+    assertEqual(adj.maxBasePosition, null);
   });
 
   test('bearish tightens limits', () => {
@@ -123,47 +123,67 @@ describe('Regime Adjustments', () => {
 });
 
 // ============================================================
-// Safety Invariant: Never Relax Hard Limits
+// Safety Invariant: Regime Can Only Tighten
 // ============================================================
-describe('Safety Invariant — Regime Never Relaxes Hard Limits', () => {
-  for (const regime of ['bullish', 'neutral', 'bearish', 'crisis']) {
-    test(`${regime}: minCashReserve >= ${HARD_LIMITS.minCashReserve}%`, () => {
+describe('Safety Invariant — Regime Can Only Tighten', () => {
+  // Bullish/neutral: position limits should be null (no regime constraint, use chain default)
+  for (const regime of ['bullish', 'neutral']) {
+    test(`${regime}: position limits are null (no regime constraint)`, () => {
+      const adj = getRegimeAdjustments(regime);
+      assertEqual(adj.maxMoonshotPosition, null);
+      assertEqual(adj.maxConvictionPosition, null);
+      assertEqual(adj.maxBasePosition, null);
+      assertEqual(adj.maxMoonshotAllocation, null);
+    });
+
+    test(`${regime}: minCashReserve >= ${GLOBAL_DEFAULTS.minCashReserve}%`, () => {
       const adj = getRegimeAdjustments(regime);
       assert(
-        adj.minCashReserve >= HARD_LIMITS.minCashReserve,
-        `${regime} minCashReserve ${adj.minCashReserve}% < hard limit ${HARD_LIMITS.minCashReserve}%`,
+        adj.minCashReserve >= GLOBAL_DEFAULTS.minCashReserve,
+        `${regime} minCashReserve ${adj.minCashReserve}% < global default ${GLOBAL_DEFAULTS.minCashReserve}%`,
+      );
+    });
+  }
+
+  // Bearish/crisis: non-null limits must not exceed global defaults
+  for (const regime of ['bearish', 'crisis']) {
+    test(`${regime}: minCashReserve >= ${GLOBAL_DEFAULTS.minCashReserve}%`, () => {
+      const adj = getRegimeAdjustments(regime);
+      assert(
+        adj.minCashReserve >= GLOBAL_DEFAULTS.minCashReserve,
+        `${regime} minCashReserve ${adj.minCashReserve}% < global default ${GLOBAL_DEFAULTS.minCashReserve}%`,
       );
     });
 
-    test(`${regime}: maxMoonshotPosition <= ${HARD_LIMITS.maxMoonshotPosition}%`, () => {
+    test(`${regime}: maxMoonshotPosition <= ${GLOBAL_DEFAULTS.maxMoonshotPosition}%`, () => {
       const adj = getRegimeAdjustments(regime);
       assert(
-        adj.maxMoonshotPosition <= HARD_LIMITS.maxMoonshotPosition,
-        `${regime} maxMoonshotPosition ${adj.maxMoonshotPosition}% > hard limit ${HARD_LIMITS.maxMoonshotPosition}%`,
+        adj.maxMoonshotPosition <= GLOBAL_DEFAULTS.maxMoonshotPosition,
+        `${regime} maxMoonshotPosition ${adj.maxMoonshotPosition}% > global default ${GLOBAL_DEFAULTS.maxMoonshotPosition}%`,
       );
     });
 
-    test(`${regime}: maxConvictionPosition <= ${HARD_LIMITS.maxConvictionPosition}%`, () => {
+    test(`${regime}: maxConvictionPosition <= ${GLOBAL_DEFAULTS.maxConvictionPosition}%`, () => {
       const adj = getRegimeAdjustments(regime);
       assert(
-        adj.maxConvictionPosition <= HARD_LIMITS.maxConvictionPosition,
-        `${regime} maxConvictionPosition ${adj.maxConvictionPosition}% > hard limit ${HARD_LIMITS.maxConvictionPosition}%`,
+        adj.maxConvictionPosition <= GLOBAL_DEFAULTS.maxConvictionPosition,
+        `${regime} maxConvictionPosition ${adj.maxConvictionPosition}% > global default ${GLOBAL_DEFAULTS.maxConvictionPosition}%`,
       );
     });
 
-    test(`${regime}: maxBasePosition <= ${HARD_LIMITS.maxBasePosition}%`, () => {
+    test(`${regime}: maxBasePosition <= ${GLOBAL_DEFAULTS.maxBasePosition}%`, () => {
       const adj = getRegimeAdjustments(regime);
       assert(
-        adj.maxBasePosition <= HARD_LIMITS.maxBasePosition,
-        `${regime} maxBasePosition ${adj.maxBasePosition}% > hard limit ${HARD_LIMITS.maxBasePosition}%`,
+        adj.maxBasePosition <= GLOBAL_DEFAULTS.maxBasePosition,
+        `${regime} maxBasePosition ${adj.maxBasePosition}% > global default ${GLOBAL_DEFAULTS.maxBasePosition}%`,
       );
     });
 
-    test(`${regime}: maxMoonshotAllocation <= ${HARD_LIMITS.maxMoonshotAllocation}%`, () => {
+    test(`${regime}: maxMoonshotAllocation <= ${GLOBAL_DEFAULTS.maxMoonshotAllocation}%`, () => {
       const adj = getRegimeAdjustments(regime);
       assert(
-        adj.maxMoonshotAllocation <= HARD_LIMITS.maxMoonshotAllocation,
-        `${regime} maxMoonshotAllocation ${adj.maxMoonshotAllocation}% > hard limit ${HARD_LIMITS.maxMoonshotAllocation}%`,
+        adj.maxMoonshotAllocation <= GLOBAL_DEFAULTS.maxMoonshotAllocation,
+        `${regime} maxMoonshotAllocation ${adj.maxMoonshotAllocation}% > global default ${GLOBAL_DEFAULTS.maxMoonshotAllocation}%`,
       );
     });
   }
@@ -230,17 +250,20 @@ describe('Regime Strictness Ordering', () => {
     const n = getRegimeAdjustments('neutral');
     const be = getRegimeAdjustments('bearish');
     const c = getRegimeAdjustments('crisis');
-    assert(b.maxMoonshotPosition >= n.maxMoonshotPosition, 'bullish >= neutral');
-    assert(n.maxMoonshotPosition >= be.maxMoonshotPosition, 'neutral >= bearish');
-    assert(be.maxMoonshotPosition >= c.maxMoonshotPosition, 'bearish >= crisis');
+    // null = no regime constraint (effectively Infinity), so null >= any number
+    const val = (v) => v ?? Infinity;
+    assert(val(b.maxMoonshotPosition) >= val(n.maxMoonshotPosition), 'bullish >= neutral');
+    assert(val(n.maxMoonshotPosition) >= val(be.maxMoonshotPosition), 'neutral >= bearish');
+    assert(val(be.maxMoonshotPosition) >= val(c.maxMoonshotPosition), 'bearish >= crisis');
   });
 
   test('conviction position limit decreases with severity', () => {
     const b = getRegimeAdjustments('bullish');
     const be = getRegimeAdjustments('bearish');
     const c = getRegimeAdjustments('crisis');
-    assert(b.maxConvictionPosition >= be.maxConvictionPosition, 'bullish >= bearish');
-    assert(be.maxConvictionPosition >= c.maxConvictionPosition, 'bearish >= crisis');
+    const val = (v) => v ?? Infinity;
+    assert(val(b.maxConvictionPosition) >= val(be.maxConvictionPosition), 'bullish >= bearish');
+    assert(val(be.maxConvictionPosition) >= val(c.maxConvictionPosition), 'bearish >= crisis');
   });
 
   test('buy score threshold increases with severity', () => {
