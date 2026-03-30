@@ -41,18 +41,22 @@ All position and alert data lives in SQLite. **Check `PAPER_MODE` env var first*
 
 # Get liquidity snapshots for comparison
 node scripts/db-query.js get-liquidity --address 0x... --chain base --limit 2
+node scripts/db-query.js get-liquidity --address 0x... --chain ethereum --limit 2
 
 # Write sell order (Executor picks it up)
 node scripts/db-query.js add-order --json '{"id":"...","action":"sell","symbol":"TOKEN","address":"0x...","chain":"base","amount":"all","reason":"stop_loss_hit","urgency":"immediate"}'
+# For Ethereum, use "chain":"ethereum"
 
 # Write alert
 node scripts/db-query.js add-alert --json '{"id":"...","symbol":"TOKEN","chain":"base","alert_type":"stop_loss","severity":"critical",...}'
+# For Ethereum, use "chain":"ethereum"
 
 # Log check results
 node scripts/db-query.js add-sentinel-log --json '{"check_type":"price","positions_checked":5,"alerts_generated":0,"sells_executed":0,"status":"ok"}'
 
 # Add liquidity snapshot
 node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain base --liquidity 50000
+node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain ethereum --liquidity 50000
 
 # Update heartbeat timestamp
 node scripts/db-query.js update-heartbeat --agent sentinel --check price_check

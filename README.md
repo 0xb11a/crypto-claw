@@ -230,7 +230,7 @@ SQUADS_MULTISIG_ADDRESS=...          # Or multisig PDA — vault derived from th
 SQUADS_SIGNER_KEY=...                # Signer private key (base58, NEVER commit this)
 
 # Active chains (default: base)
-ACTIVE_CHAINS=base,solana
+ACTIVE_CHAINS=base,ethereum,solana
 
 # RPC endpoints
 RPC_BASE=https://base-mainnet.g.alchemy.com/v2/YOUR_KEY

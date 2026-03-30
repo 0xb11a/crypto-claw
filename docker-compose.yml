@@ -61,7 +61,8 @@ services:
       - PAPER_STARTING_BALANCE=${PAPER_STARTING_BALANCE:-10000}
       - PAPER_STARTING_BALANCE_BASE=${PAPER_STARTING_BALANCE_BASE:-}
       - PAPER_STARTING_BALANCE_SOLANA=${PAPER_STARTING_BALANCE_SOLANA:-}
-      - ACTIVE_CHAINS=${ACTIVE_CHAINS:-base,solana}
+      - PAPER_STARTING_BALANCE_ETHEREUM=${PAPER_STARTING_BALANCE_ETHEREUM:-}
+      - ACTIVE_CHAINS=${ACTIVE_CHAINS:-base,ethereum,solana}
       - DEBANK_API_KEY=${DEBANK_API_KEY:-}
 
       # Optional: API keys for data scripts
@@ -101,7 +102,7 @@ services:
       - SAFE_SIGNER_KEY=${SAFE_SIGNER_KEY:-}
       - RPC_ETH=${RPC_ETH:-}
       - RPC_BASE=${RPC_BASE:-}
-      - RPC_SOL=${RPC_SOL:-https://api.mainnet-beta.solana.com}
+      - RPC_SOL=${RPC_SOL:-}
 
       # Squads multisig (Executor Agent — Solana)
       - SQUADS_VAULT_ADDRESS=${SQUADS_VAULT_ADDRESS:-}

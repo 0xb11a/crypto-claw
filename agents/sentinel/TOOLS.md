@@ -13,8 +13,10 @@ All wallet data lives in SQLite. Interact through `db-query.js` — never access
 ```bash
 node scripts/db-query.js get-portfolio
 node scripts/db-query.js get-portfolio --chain base
+node scripts/db-query.js get-portfolio --chain ethereum
 node scripts/db-query.js get-cash
 node scripts/db-query.js get-cash --chain base
+node scripts/db-query.js get-cash --chain ethereum
 node scripts/db-query.js get-gas
 node scripts/db-query.js get-meta --key my_key
 ```
@@ -42,6 +44,8 @@ node scripts/db-query.js get-order-history --limit 20
 
 # Write a sell order (auto-approved)
 node scripts/db-query.js add-order --json '{"id":"sell-001","action":"sell","symbol":"TOKEN","address":"0x...","chain":"base","amount":"all","reason":"stop_loss_hit","urgency":"immediate"}'
+# Ethereum sell order example
+node scripts/db-query.js add-order --json '{"id":"sell-002","action":"sell","symbol":"TOKEN","address":"0x...","chain":"ethereum","amount":"all","reason":"stop_loss_hit","urgency":"immediate"}'
 ```
 
 ### Receipts (Read-Only — written by Executor)
@@ -53,20 +57,25 @@ node scripts/db-query.js get-receipts --limit 10
 ```bash
 node scripts/db-query.js get-alerts --unprocessed
 node scripts/db-query.js add-alert --json '{"id":"alert-001","symbol":"TOKEN","chain":"base","alert_type":"liquidity_drop","severity":"high","details":"Liquidity dropped 25% in 5 minutes"}'
+node scripts/db-query.js add-alert --json '{"id":"alert-002","symbol":"TOKEN","chain":"ethereum","alert_type":"liquidity_drop","severity":"high","details":"Liquidity dropped 25% in 5 minutes"}'
 node scripts/db-query.js mark-alert-processed --id alert-001
 ```
 
 ### Liquidity Snapshots
 ```bash
 node scripts/db-query.js get-liquidity --address 0x... --chain base
+node scripts/db-query.js get-liquidity --address 0x... --chain ethereum
 node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain base --liquidity 50000
+node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain ethereum --liquidity 50000
 ```
 
 ### Contract Snapshots
 ```bash
 node scripts/db-query.js get-contract-snapshots --address 0x... --chain base
+node scripts/db-query.js get-contract-snapshots --address 0x... --chain ethereum
 node scripts/db-query.js get-contract-snapshots --address 0x... --chain base --limit 10
 node scripts/db-query.js add-contract-snapshot --address 0x... --chain base --json '<safety_data_json>'
+node scripts/db-query.js add-contract-snapshot --address 0x... --chain ethereum --json '<safety_data_json>'
 ```
 
 ### Heartbeat & Logs
@@ -101,6 +110,7 @@ node scripts/check-positions.js
 # Liquidity for all open positions
 node scripts/check-liquidity.js
 node scripts/check-liquidity.js --chain base
+node scripts/check-liquidity.js --chain ethereum
 ```
 
 ### Wallet Monitoring
@@ -108,6 +118,7 @@ node scripts/check-liquidity.js --chain base
 node scripts/check-wallets.js
 node scripts/check-wallets.js --positions
 node scripts/check-wallets.js --chain base
+node scripts/check-wallets.js --chain ethereum
 node scripts/check-wallets.js --type smart_money
 ```
 
@@ -142,7 +153,7 @@ node scripts/send-alert.js --type recovered --agent sentinel --message "Back to 
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ACTIVE_CHAINS` | `base,solana` | Comma-separated list of active chains. Supported: `base`, `solana`. |
+| `ACTIVE_CHAINS` | `base,ethereum,solana` | Comma-separated list of active chains. Supported: `base`, `ethereum`, `solana`. |
 | `PAPER_MODE` | `false` | Enable simulated trading (no real transactions, no on-chain sync) |
 
 ## Important Notes

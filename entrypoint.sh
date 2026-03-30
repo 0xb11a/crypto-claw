@@ -235,11 +235,17 @@ else
   exit 1
 fi
 
-# Seed paper cash from env if paper mode enabled
+# Seed paper cash from env if paper mode enabled (per-chain)
 if [ "$PAPER_MODE" = "true" ]; then
-  (cd "$RESEARCH_WS" && node scripts/db-query.js set-paper-cash --amount "$PAPER_STARTING_BALANCE") > /dev/null
-  (cd "$RESEARCH_WS" && node scripts/db-query.js set-meta --key paper_initial_balance --value "$PAPER_STARTING_BALANCE") > /dev/null
-  echo "[entrypoint] Paper mode balance seeded: \$$PAPER_STARTING_BALANCE"
+  IFS=',' read -ra _CHAINS <<< "${ACTIVE_CHAINS:-base,ethereum,solana}"
+  for _chain in "${_CHAINS[@]}"; do
+    _chain=$(echo "$_chain" | xargs)
+    _override_var="PAPER_STARTING_BALANCE_$(echo "$_chain" | tr '[:lower:]' '[:upper:]')"
+    _balance="${!_override_var:-$PAPER_STARTING_BALANCE}"
+    (cd "$RESEARCH_WS" && node scripts/db-query.js set-paper-cash --chain "$_chain" --amount "$_balance") > /dev/null
+    (cd "$RESEARCH_WS" && node scripts/db-query.js set-meta --key "paper_initial_balance_$_chain" --value "$_balance") > /dev/null
+    echo "[entrypoint] Paper mode balance seeded: $_chain = \$$_balance"
+  done
 fi
 
 # ============================================================

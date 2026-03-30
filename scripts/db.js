@@ -857,6 +857,15 @@ const migrations = [
       );
     `,
   },
+  {
+    name: '020_ethereum_chain_cash',
+    sql: `
+      INSERT OR IGNORE INTO portfolio_meta (key, value) VALUES ('cash_ethereum', '0');
+      INSERT OR IGNORE INTO portfolio_meta (key, value) VALUES ('paper_cash_ethereum', '0');
+      INSERT OR IGNORE INTO portfolio_meta (key, value) VALUES ('paper_initial_balance_ethereum', '0');
+      INSERT OR IGNORE INTO portfolio_meta (key, value) VALUES ('total_deposited_ethereum', '0');
+    `,
+  },
 ];
 
 export default { getDb, close };

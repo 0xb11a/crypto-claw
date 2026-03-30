@@ -19,11 +19,12 @@ async function runTests() {
   // ============================================================
 
   describe('Chain Configuration', () => {
-    test('getActiveChains defaults to [base, solana] when ACTIVE_CHAINS not set', () => {
+    test('getActiveChains defaults to [base, ethereum, solana] when ACTIVE_CHAINS not set', () => {
       delete process.env.ACTIVE_CHAINS;
       const result = chains.getActiveChains();
-      assertEqual(result.length, 2);
+      assertEqual(result.length, 3);
       assert(result.includes('base'), 'Should include base');
+      assert(result.includes('ethereum'), 'Should include ethereum');
       assert(result.includes('solana'), 'Should include solana');
     });
 
@@ -37,7 +38,7 @@ async function runTests() {
     });
 
     test('getActiveChains ignores unknown chains', () => {
-      process.env.ACTIVE_CHAINS = 'base,ethereum,solana';
+      process.env.ACTIVE_CHAINS = 'base,polygon,solana';
       const result = chains.getActiveChains();
       assertEqual(result.length, 2);
       assert(result.includes('base'), 'Should include base');
@@ -45,11 +46,22 @@ async function runTests() {
       delete process.env.ACTIVE_CHAINS;
     });
 
+    test('getActiveChains includes ethereum when set', () => {
+      process.env.ACTIVE_CHAINS = 'base,ethereum,solana';
+      const result = chains.getActiveChains();
+      assertEqual(result.length, 3);
+      assert(result.includes('base'), 'Should include base');
+      assert(result.includes('ethereum'), 'Should include ethereum');
+      assert(result.includes('solana'), 'Should include solana');
+      delete process.env.ACTIVE_CHAINS;
+    });
+
     test('getActiveChains handles empty string', () => {
       process.env.ACTIVE_CHAINS = '';
       const result = chains.getActiveChains();
-      assertEqual(result.length, 2);
+      assertEqual(result.length, 3);
       assert(result.includes('base'), 'Should include base');
+      assert(result.includes('ethereum'), 'Should include ethereum');
       assert(result.includes('solana'), 'Should include solana');
       delete process.env.ACTIVE_CHAINS;
     });
@@ -141,7 +153,7 @@ async function runTests() {
     test('getChain throws for unknown chain', () => {
       let threw = false;
       try {
-        chains.getChain('ethereum');
+        chains.getChain('polygon');
       } catch {
         threw = true;
       }
@@ -226,11 +238,78 @@ async function runTests() {
       assert(stables.has('Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB'), 'Should have USDT mint');
     });
 
-    test('getAllChains returns base and solana', () => {
+    test('getAllChains returns base, ethereum, and solana', () => {
       const all = chains.getAllChains();
       assert(all.includes('base'), 'Should include base');
+      assert(all.includes('ethereum'), 'Should include ethereum');
       assert(all.includes('solana'), 'Should include solana');
-      assertEqual(all.length, 2);
+      assertEqual(all.length, 3);
+    });
+
+    test('getChain returns full config for ethereum', () => {
+      const cfg = chains.getChain('ethereum');
+      assertEqual(cfg.name, 'ethereum');
+      assertEqual(cfg.type, 'evm');
+      assertEqual(cfg.chainId, '1');
+      assertEqual(cfg.dexScreenerId, 'ethereum');
+      assertEqual(cfg.goplus.chainId, '1');
+      assertEqual(cfg.explorer.baseUrl, 'https://api.etherscan.io/api');
+      assertEqual(cfg.explorer.apiKeyEnv, 'ETHERSCAN_API_KEY');
+      assertEqual(cfg.birdeye, 'ethereum');
+      assertEqual(cfg.dex, '1inch');
+      assertEqual(cfg.portfolio.provider, 'debank');
+      assertEqual(cfg.safe.addressEnv, 'SAFE_ADDRESS_ETH');
+      assertEqual(cfg.safe.rpcEnv, 'RPC_ETH');
+    });
+
+    test('isEVM returns true for ethereum', () => {
+      assert(chains.isEVM('ethereum'), 'ethereum should be EVM');
+    });
+
+    test('ethereum config has cashToken', () => {
+      const cfg = chains.getChain('ethereum');
+      assertEqual(cfg.cashToken.symbol, 'USDC');
+      assertEqual(cfg.cashToken.address, '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48');
+      assertEqual(cfg.cashToken.decimals, 6);
+    });
+
+    test('ethereum config has nativeToken and wrappedNativeToken', () => {
+      const cfg = chains.getChain('ethereum');
+      assertEqual(cfg.nativeToken.symbol, 'ETH');
+      assertEqual(cfg.nativeToken.decimals, 18);
+      assertEqual(cfg.wrappedNativeToken.symbol, 'WETH');
+      assertEqual(cfg.wrappedNativeToken.address, '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2');
+      assertEqual(cfg.wrappedNativeToken.decimals, 18);
+    });
+
+    test('ethereum config has stablecoins list including cashToken', () => {
+      const cfg = chains.getChain('ethereum');
+      assert(Array.isArray(cfg.stablecoins), 'stablecoins must be an array');
+      assert(cfg.stablecoins.length >= 3, 'Should have USDC, USDT, DAI');
+      assert(
+        cfg.stablecoins.map((a) => a.toLowerCase()).includes(cfg.cashToken.address.toLowerCase()),
+        'cashToken address must be in stablecoins list',
+      );
+    });
+
+    test('getStablecoins returns Set with lowercased addresses for ethereum', () => {
+      const stables = chains.getStablecoins('ethereum');
+      assert(stables instanceof Set, 'Should return a Set');
+      assert(stables.size >= 3, 'Should have at least 3 stablecoins');
+      for (const addr of stables) {
+        assertEqual(addr, addr.toLowerCase(), 'EVM stablecoin addresses must be lowercased');
+      }
+    });
+
+    test('getPortfolioRules returns global defaults for ethereum', () => {
+      const rules = chains.getPortfolioRules('ethereum');
+      assertEqual(rules.maxMoonshotPosition, 5);
+      assertEqual(rules.maxConvictionPosition, 10);
+      assertEqual(rules.maxBasePosition, 30);
+      assertEqual(rules.maxOpenPositions, 15);
+      assert(rules.tiersEnabled.includes('base'), 'Ethereum should enable base tier');
+      assert(rules.tiersEnabled.includes('moonshot'), 'Ethereum should enable moonshot');
+      assert(rules.tiersEnabled.includes('conviction'), 'Ethereum should enable conviction');
     });
   });
 
@@ -333,6 +412,30 @@ async function runTests() {
       const db = dbMod.getDb();
       const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_initial_balance_base'").get();
       assert(row, 'paper_initial_balance_base key must exist');
+    });
+
+    test('cash_ethereum key exists after migration', () => {
+      const db = dbMod.getDb();
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'cash_ethereum'").get();
+      assert(row, 'cash_ethereum key must exist');
+    });
+
+    test('paper_cash_ethereum key exists after migration', () => {
+      const db = dbMod.getDb();
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_cash_ethereum'").get();
+      assert(row, 'paper_cash_ethereum key must exist');
+    });
+
+    test('total_deposited_ethereum key exists', () => {
+      const db = dbMod.getDb();
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'total_deposited_ethereum'").get();
+      assert(row, 'total_deposited_ethereum key must exist');
+    });
+
+    test('paper_initial_balance_ethereum key exists', () => {
+      const db = dbMod.getDb();
+      const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'paper_initial_balance_ethereum'").get();
+      assert(row, 'paper_initial_balance_ethereum key must exist');
     });
   });
 

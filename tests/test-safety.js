@@ -489,6 +489,74 @@ describe('Per-Chain Portfolio Rules', () => {
 });
 
 // ============================================================
+// Base Tier Closed Set Tests
+// ============================================================
+
+const BASE_TIER_TOKENS = {
+  base: [
+    '0x4200000000000000000000000000000000000006', // WETH
+    '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf', // cbBTC
+  ],
+  ethereum: [
+    '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', // WETH
+    '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599', // WBTC
+  ],
+  solana: [
+    'So11111111111111111111111111111111111111112', // wSOL
+  ],
+};
+
+function validateBaseTier(tokenAddress, chain) {
+  const allowed = BASE_TIER_TOKENS[chain];
+  if (!allowed) return { valid: false, reason: `No base tokens defined for chain: ${chain}` };
+  const normalized = chain === 'solana' ? tokenAddress : tokenAddress.toLowerCase();
+  const allowedNormalized = chain === 'solana' ? allowed : allowed.map((a) => a.toLowerCase());
+  if (!allowedNormalized.includes(normalized)) {
+    return { valid: false, reason: `Token ${tokenAddress} is not a valid base tier asset on ${chain}` };
+  }
+  return { valid: true };
+}
+
+describe('Base Tier Closed Set', () => {
+  test('WETH on Base is valid base tier', () => {
+    assert(validateBaseTier('0x4200000000000000000000000000000000000006', 'base').valid, 'WETH should be base tier');
+  });
+
+  test('cbBTC on Base is valid base tier', () => {
+    assert(validateBaseTier('0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf', 'base').valid, 'cbBTC should be base tier');
+  });
+
+  test('WETH on Ethereum is valid base tier', () => {
+    assert(
+      validateBaseTier('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', 'ethereum').valid,
+      'WETH should be base tier',
+    );
+  });
+
+  test('wSOL on Solana is valid base tier', () => {
+    assert(validateBaseTier('So11111111111111111111111111111111111111112', 'solana').valid, 'wSOL should be base tier');
+  });
+
+  test('random token on Base is NOT valid base tier', () => {
+    const result = validateBaseTier('0x1234567890abcdef1234567890abcdef12345678', 'base');
+    assert(!result.valid, 'Non-native token must not be base tier');
+  });
+
+  test('random token on Solana is NOT valid base tier', () => {
+    const result = validateBaseTier('AiDogTokenFakeAddress111111111111111111111', 'solana');
+    assert(!result.valid, 'Non-native token must not be base tier');
+  });
+
+  test('base tier validation is case-insensitive for EVM', () => {
+    assert(validateBaseTier('0x4200000000000000000000000000000000000006', 'base').valid, 'Lowercase should match');
+    assert(
+      validateBaseTier('0x4200000000000000000000000000000000000006'.toUpperCase().replace('0X', '0x'), 'base').valid,
+      'Uppercase should match',
+    );
+  });
+});
+
+// ============================================================
 // Results
 // ============================================================
 const allPassed = summary();

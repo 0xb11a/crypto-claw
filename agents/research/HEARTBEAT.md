@@ -153,7 +153,7 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 
 **Portfolio Sync (On-Chain)** (quick)
 - Real mode only — skip entirely if `PAPER_MODE=true`
-- Read active chains from `ACTIVE_CHAINS` env var (default: `base,solana`). For EACH active chain, run the appropriate loader based on chain type:
+- Read active chains from `ACTIVE_CHAINS` env var (default: `base,ethereum,solana`). For EACH active chain, run the appropriate loader based on chain type:
   - EVM chains: `node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger periodic`
   - Solana chains: `node scripts/portfolio-load-solana.js --chain <CHAIN> --trigger periodic`
 - After sync, check for auto-discovered tokens: `node scripts/db-query.js get-positions --status pending_analysis`

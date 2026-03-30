@@ -49,6 +49,31 @@ const CHAINS = {
     portfolio: { provider: 'debank', apiKeyEnv: 'DEBANK_API_KEY' },
     rules: {}, // Base uses all global defaults
   },
+  ethereum: {
+    name: 'ethereum',
+    type: 'evm',
+    chainId: '1',
+    dexScreenerId: 'ethereum',
+    goplus: { chainId: '1' },
+    explorer: { baseUrl: 'https://api.etherscan.io/api', apiKeyEnv: 'ETHERSCAN_API_KEY' },
+    birdeye: 'ethereum',
+    safe: {
+      addressEnv: 'SAFE_ADDRESS_ETH',
+      rpcEnv: 'RPC_ETH',
+      txServiceUrl: 'https://safe-transaction-mainnet.safe.global',
+    },
+    dex: '1inch',
+    nativeToken: { symbol: 'ETH', decimals: 18 },
+    wrappedNativeToken: { symbol: 'WETH', address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', decimals: 18 },
+    cashToken: { symbol: 'USDC', address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', decimals: 6 },
+    stablecoins: [
+      '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC
+      '0xdAC17F958D2ee523a2206206994597C13D831ec7', // USDT
+      '0x6B175474E89094C44Da98b954EedeAC495271d0F', // DAI
+    ],
+    portfolio: { provider: 'debank', apiKeyEnv: 'DEBANK_API_KEY' },
+    rules: {}, // Ethereum uses all global defaults (same as Base)
+  },
   solana: {
     name: 'solana',
     type: 'solana',
@@ -95,7 +120,7 @@ const CHAINS = {
  */
 export function getActiveChains() {
   const raw = process.env.ACTIVE_CHAINS;
-  if (!raw || raw.trim() === '') return ['base', 'solana'];
+  if (!raw || raw.trim() === '') return ['base', 'ethereum', 'solana'];
   return raw
     .split(',')
     .map((c) => c.trim())

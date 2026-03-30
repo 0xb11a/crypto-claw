@@ -157,6 +157,8 @@ Portfolio limits are enforced **per-chain**. Each chain is an independent capita
 | Max total open positions | 15 per chain | Solana: 10 |
 | Tiers enabled | moonshot, conviction, base | Solana: moonshot, conviction only |
 
+**Ethereum mainnet** uses the same defaults as Base (no overrides). However, Ethereum has significantly higher gas costs — recommend minimum ~$500 position sizes to keep gas fees a small fraction of trade value.
+
 All portfolio queries must include `--chain`:
 - `node scripts/db-query.js get-portfolio --chain <chain>`
 - `node scripts/db-query.js get-cash --chain <chain>`
@@ -247,6 +249,13 @@ All stop-losses and take-profits auto-execute via Sentinel → Executor — no a
 - Check receipts: real mode → `get-receipts --limit 5`, paper mode → `get-paper-receipts --limit 5`
 
 ## Chain-Specific Notes
+
+### Ethereum
+- EVM chain (chain ID 1) — uses Safe wallet, 1inch for swaps, DeBank for portfolio sync, Etherscan for explorer
+- Same portfolio rules as Base (no overrides)
+- Higher gas costs than Base — recommend minimum ~$500 positions to keep gas a small fraction of trade value
+- USDC: `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48`
+- Included in `ACTIVE_CHAINS` by default (`base,ethereum,solana`)
 
 ### Solana
 - Token addresses are **mint addresses** in base58 format (e.g., `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`), not `0x` hex addresses

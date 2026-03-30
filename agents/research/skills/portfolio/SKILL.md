@@ -22,7 +22,7 @@ Convert risk-assessed opportunities into concrete trade proposals. Manage sizing
 ```bash
 echo "=== PORTFOLIO CONFIG ==="
 echo "PAPER_MODE=${PAPER_MODE:-false}"
-echo "ACTIVE_CHAINS=${ACTIVE_CHAINS:-base,solana}"
+echo "ACTIVE_CHAINS=${ACTIVE_CHAINS:-base,ethereum,solana}"
 echo "======================"
 ```
 Read the output. This determines your entire cycle:
@@ -152,11 +152,15 @@ Reply APPROVE or REJECT
 5. Identify overweight/underweight tiers
 6. Propose specific sells (weakest positions in overweight tier)
 7. Propose specific buys or cash retention for underweight tier:
-   - **If base tier is underweight:** Propose buying the most underweight base asset. Prefer spreading across multiple base assets when available on the same chain (e.g., both WETH and cbBTC on Base) to improve diversification. Use `node scripts/token-metrics.js --address <BASE_TOKEN_ADDRESS> --chain <CHAIN>` to get current price. Base tokens per chain:
+   - **If base tier is underweight:** Base tier buys are restricted to wrapped native tokens only. Never classify or propose a non-native token as base tier to fill an underweight base allocation. If no base token is available or appropriate, leave the allocation underweight and allocate to cash instead. Propose buying the most underweight base asset from the closed list below. Prefer spreading across multiple base assets when available on the same chain (e.g., both WETH and cbBTC on Base) to improve diversification. Use `node scripts/token-metrics.js --address <BASE_TOKEN_ADDRESS> --chain <CHAIN>` to get current price. Base tokens per chain:
 
      **Base chain (EVM):**
      - WETH: `0x4200000000000000000000000000000000000006`
      - cbBTC: `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf`
+
+     **Ethereum mainnet (EVM):**
+     - WETH: `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`
+     - WBTC: `0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599`
 
      **Solana:**
      - wSOL: `So11111111111111111111111111111111111111112`

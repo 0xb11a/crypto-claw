@@ -19,7 +19,7 @@ Guardian of the portfolio. Watch every open position for danger. React faster th
 ```bash
 echo "=== SENTINEL CONFIG ==="
 echo "PAPER_MODE=${PAPER_MODE:-false}"
-echo "ACTIVE_CHAINS=${ACTIVE_CHAINS:-base,solana}"
+echo "ACTIVE_CHAINS=${ACTIVE_CHAINS:-base,ethereum,solana}"
 echo "======================"
 ```
 Read the output. This determines your entire cycle:
