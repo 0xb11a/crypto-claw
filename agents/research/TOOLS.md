@@ -75,6 +75,7 @@ node scripts/db-query.js mark-order-executed --id trade-001 --status failed --re
 ### Receipts
 ```bash
 node scripts/db-query.js get-receipts --limit 10
+node scripts/db-query.js get-receipt --id rcpt-001
 node scripts/db-query.js add-receipt --json '{"id":"rcpt-001","order_id":"trade-001","action":"buy","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","status":"executed","safe_tx_hash":"0x...","onchain_tx_hash":"0x...","executed_price":0.00098,"slippage":0.02}'
 ```
 
@@ -88,6 +89,8 @@ node scripts/db-query.js mark-alert-processed --id alert-001
 ```bash
 node scripts/db-query.js get-watchlist
 node scripts/db-query.js add-to-watchlist --json '{"symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","reason":"Smart money accumulation","target_entry":0.001}'
+node scripts/db-query.js update-watchlist --id <id> --json '{"target_entry":0.0008,"reason":"Updated after dip"}'
+node scripts/db-query.js remove-from-watchlist --id <id>
 ```
 
 ### Liquidity Snapshots

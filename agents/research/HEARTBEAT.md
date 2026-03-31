@@ -144,7 +144,7 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 - If `PAPER_MODE=true`: use `get-paper-portfolio --chain <chain>`, `get-paper-stats --chain <chain>`, `get-paper-receipts --limit 20`
 - If real mode: use `get-portfolio --chain <chain>`, `get-trade-stats`, `get-receipts --limit 20`
 - Compile: total value, daily P&L, trades executed, alerts
-- Send to human, log to daily memory
+- The system sends a daily portfolio Telegram alert separately — just compile the summary in your reply and log to daily memory
 
 **Watchlist Entry Check** (quick)
 - Run `node scripts/db-query.js get-watchlist --active`

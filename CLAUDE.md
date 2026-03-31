@@ -11,7 +11,7 @@ CryptoClaw is a three-agent crypto research and portfolio management system buil
 Three agents communicate through a shared SQLite database:
 
 - **Research Agent** (`agents/research/`) — Runs on GPT-5.4 via Codex OAuth, 30-minute heartbeat. Handles discovery, market checks, trade proposals. Handles all skills directly (analysis, risk, portfolio). Has 5 skills: discovery, analyst, risk, portfolio, orders.
-- **Sentinel Agent** (`agents/sentinel/`) — Runs on GPT-5.4 via Codex OAuth, 10-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders to the unified orders table. Has 1 skill: sentinel.
+- **Sentinel Agent** (`agents/sentinel/`) — Runs on GPT-5.4 via Codex OAuth, 15-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders to the unified orders table. Has 1 skill: sentinel.
 - **Executor Agent** (`agents/executor/`) — Runs on GPT-5.4 via Codex OAuth, 1-minute heartbeat. Reads orders (buy and sell), validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
 - **Ollama Cloud** — Some agents might use Ollama Cloud's API (`https://ollama.com/api/chat`). No sidecar needed — OpenClaw's built-in Ollama provider sends `OLLAMA_API_KEY` as a Bearer token directly.
 - **Model Routing** — All agents default to OpenAI Codex OAuth provider (ChatGPT subscription, flat fee): all three agents on GPT-5.4. Configured via `RESEARCH_MODEL`/`SENTINEL_MODEL`/`EXECUTOR_MODEL` env vars with `openai-codex/` prefix. Falls back to OpenAI API (`openai/` prefix + `OPENAI_API_KEY`) if Codex OAuth not configured. Research handles all skills directly (no sub-agent spawning).

@@ -73,7 +73,6 @@ node scripts/db-query.js add-receipt --json '{"id":"rcpt-001","order_id":"trade-
 node scripts/db-query.js get-heartbeat --agent executor
 node scripts/db-query.js update-heartbeat --agent executor --check process_orders
 node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":1,"buy_orders_processed":0,"success_count":1,"status":"ok"}'
-node scripts/db-query.js get-trade-stats
 ```
 
 ### Paper Mode

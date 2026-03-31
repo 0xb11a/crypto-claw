@@ -146,6 +146,10 @@ node scripts/db-query.js get-alerts --unprocessed
 
 Portfolio limits are enforced **per-chain**. Each chain is an independent capital pool — you cannot use Solana cash for Base trades. Read chain-specific rules from `chains.js` via `getPortfolioRules(chain)`.
 
+**Before sizing any position**, run `get-chain-config --chain <CHAIN>` to retrieve the active rules for that chain. Chains override defaults for position limits, tier availability, and allocation caps. Never assume defaults — always use the values returned by `get-chain-config`.
+
+Baseline defaults (chains may override any of these):
+
 | Rule | Default |
 |------|---------|
 | Max single moonshot position | 5% of **chain** portfolio |
@@ -156,8 +160,6 @@ Portfolio limits are enforced **per-chain**. Each chain is an independent capita
 | Max positions in same narrative | 3 per chain |
 | Max total open positions | 15 per chain |
 | Tiers enabled | moonshot, conviction, base |
-
-Some chains override these defaults (e.g., different max positions, restricted tiers). Run `get-chain-config --chain <CHAIN>` to retrieve chain-specific overrides before sizing positions.
 
 All portfolio queries must include `--chain`:
 - `node scripts/db-query.js get-portfolio --chain <chain>`

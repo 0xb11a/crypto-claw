@@ -87,7 +87,7 @@ flowchart TD
 | | Research | Sentinel | Executor |
 |---|---|---|---|
 | **Model** | GPT-5.4 | GPT-5.4 | GPT-5.4 |
-| **Heartbeat** | 30 min | 10 min | 1 min |
+| **Heartbeat** | 30 min | 15 min | 1 min |
 | **Reads** | positions, receipts, portfolio_meta, analysis_cache, tracked_wallets | positions/paper_positions, liquidity_snapshots, tracked_wallets | orders |
 | **Writes** | orders, trades, watchlist, tracked_wallets, analysis_cache, sentinel_alerts | orders, sentinel_alerts, liquidity_snapshots, sentinel_log | receipts, positions/paper_positions, executor_log, portfolio_meta |
 | **Checks** | Token safety, holder distribution, narrative strength, market regime, portfolio concentration | Price vs stops/TPs, LP changes, tracked wallet activity | Order staleness, price drift, slippage limits, balance sufficiency |

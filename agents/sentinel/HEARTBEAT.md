@@ -1,7 +1,7 @@
 # HEARTBEAT.md — Sentinel Agent
 
 ## Schedule
-Sentinel heartbeat runs every 10 minutes. ALL checks run every heartbeat (not rotating).
+Sentinel heartbeat runs every 15 minutes. ALL checks run every heartbeat (not rotating).
 Keep checks fast and mechanical.
 
 ## Every Heartbeat — Run ALL:
@@ -54,8 +54,29 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check contract_chec
 
 ### 5. Log Results
 ```bash
+# Use status: "ok" if nothing happened, "notable" if Tier 2 events occurred, "alert" if sell orders were written
 node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"sells_executed":0,"status":"ok"}'
 node scripts/db-query.js update-heartbeat --agent sentinel --check price_check
+```
+
+### 6. Summary Decision (ONLY after logging)
+Decide whether to send a periodic summary. Do NOT send alerts for quiet heartbeats.
+
+1. **Did you write sell orders this cycle?** → Immediate `sell_triggered` alert already sent in the skill. Done.
+2. **Were there notable (non-sell) events?** (price >20% drop, liquidity 15-30%, tax >5%, mintable) → Already logged with `status: "notable"` above. Do NOT send a Telegram alert now.
+3. **Is a periodic summary due?** Check:
+   ```bash
+   # Check recent logs — covers ~3h of 15-min heartbeats
+   # Look for any entries with status "notable" AND check timestamps to determine if >3h since last summary
+   node scripts/db-query.js get-sentinel-log --limit 12
+   ```
+   - If notable logs exist in last 3h AND you haven't sent a summary in this window → send `heartbeat_summary` with event details
+   - If no summary sent in >24h → send mandatory daily proof-of-life summary
+   - Otherwise → **stay completely silent**
+
+Summary format:
+```bash
+node scripts/send-alert.js --type heartbeat_summary --agent sentinel --message "SENTINEL SUMMARY (last 3h)\nHeartbeats: N | Positions: N\nNotable: [events or all clear]\nSells written: N\nStatus: OPERATIONAL"
 ```
 
 ## Rules
@@ -65,3 +86,5 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check price_check
 - **Run `echo "PAPER_MODE=${PAPER_MODE:-false}"` at the start of every heartbeat.** Read the output. Use `get-paper-positions` if `true`, `get-positions` if `false`/unset. Reference this for every command in the cycle.
 - If no open positions in DB → reply HEARTBEAT_OK immediately
 - Keep total response under 500 tokens when nothing is wrong
+- Do NOT call `send-alert.js` when all checks pass with no events — quiet runs produce zero Telegram messages
+- Only send Telegram alerts for: sell orders (immediate), periodic summaries (3h cadence if notable events), or 24h proof-of-life

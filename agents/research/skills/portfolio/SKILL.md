@@ -38,14 +38,16 @@ Always include `--chain <chain>` on portfolio and cash commands. Reference this 
 
 ## Allocation Targets
 
-| Tier | Target | Range | Examples |
-|------|--------|-------|---------|
-| Conviction | 30% | 25-35% | Established alts with fundamentals |
-| Moonshot | 25% | 20-30% | Power-law bets, outsized returns |
-| Base | 25% | 20-30% | BTC, ETH, SOL — stability anchor |
-| Cash | 15% | 10-20% | USDC, USDT |
+Before sizing, run `get-chain-config --chain <CHAIN>` and read `tiersEnabled`. Only allocate to tiers the chain supports — if a tier is missing, redistribute its target to cash.
 
-All allocation percentages are per-chain. Read the target chain's portfolio rules via `get-chain-config --chain <CHAIN>` before sizing. If `tiersEnabled` for the chain doesn't include the proposed tier, reject the trade.
+| Tier | Target (all tiers) | Target (no base tier) | Range |
+|------|--------------------|-----------------------|-------|
+| Conviction | 30% | 35% | 25-40% |
+| Moonshot | 25% | 30% | 20-35% |
+| Base | 25% | — | 20-30% |
+| Cash | 15% | 30% | 10-35% |
+
+All allocation percentages are per-chain. If `tiersEnabled` doesn't include the proposed tier, reject the trade.
 
 ## Entry Strategy — Scale In, Never Ape
 
@@ -156,7 +158,10 @@ Reply APPROVE or REJECT
 
    - **If conviction tier is underweight:** Check watchlist and recent analyses for conviction-rated tokens, or trigger a conviction scan via `node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30`
    - **If moonshot tier is underweight:** Normal discovery pipeline handles this
-8. If paper mode: auto-approve. If real mode: send rebalance proposal to human
+8. If paper mode: auto-approve. If real mode: send rebalance proposal to human:
+   ```bash
+   node scripts/send-alert.js --type rebalance_event --agent research --message "Rebalance proposed on <CHAIN>: sell overweight <TIER>, buy underweight <TIER>. X orders pending approval."
+   ```
 
 ## Writing Orders to Database
 

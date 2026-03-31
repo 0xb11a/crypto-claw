@@ -666,10 +666,6 @@ run_executor_loop() {
             --message "Executor recovered after $failures consecutive failures" 2>/dev/null || true
         fi
         failures=0
-        # Post heartbeat summary to System topic
-        SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
-          node "$RESEARCH_WS/scripts/send-alert.js" --type heartbeat_summary --agent executor \
-          --message "Executor cycle completed successfully" 2>/dev/null || true
       fi
     fi
     sleep 60
@@ -739,13 +735,9 @@ run_sentinel_loop() {
             --message "Sentinel recovered after $failures consecutive failures" 2>/dev/null || true
         fi
         failures=0
-        # Post heartbeat summary to System topic
-        SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
-          node "$RESEARCH_WS/scripts/send-alert.js" --type heartbeat_summary --agent sentinel \
-          --message "Sentinel cycle completed successfully" 2>/dev/null || true
       fi
     fi
-    sleep 600  # 10 minutes
+    sleep 900  # 15 minutes
   done
 }
 

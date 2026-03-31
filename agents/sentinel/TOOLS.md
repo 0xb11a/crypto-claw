@@ -24,6 +24,7 @@ node scripts/db-query.js get-portfolio --chain <CHAIN>
 node scripts/db-query.js get-cash
 node scripts/db-query.js get-cash --chain <CHAIN>
 node scripts/db-query.js get-gas
+node scripts/db-query.js get-gas --chain <CHAIN>
 node scripts/db-query.js get-meta --key my_key
 ```
 
@@ -78,7 +79,8 @@ node scripts/db-query.js add-contract-snapshot --address 0x... --chain <CHAIN> -
 node scripts/db-query.js get-heartbeat --agent sentinel
 node scripts/db-query.js get-overdue-checks --agent sentinel
 node scripts/db-query.js update-heartbeat --agent sentinel --check price_check
-node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"status":"ok"}'
+node scripts/db-query.js get-sentinel-log --limit 12
+node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"sells_executed":0,"status":"ok"}'
 ```
 
 ### Paper Mode

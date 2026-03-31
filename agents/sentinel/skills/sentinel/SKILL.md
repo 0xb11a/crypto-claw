@@ -120,7 +120,16 @@ Suggested Action: SELL ALL / SELL PARTIAL / HOLD / YOUR CALL
 ⏰ Time Sensitivity: Act within [minutes / hours]
 ```
 
-For non-critical alerts, batch them and send as a summary.
+**Tier 2 events** (price >20% drop without sell, liquidity 15-30% drop, tax >5%, mintable) are logged to `sentinel_log` with `status: "notable"` but do NOT trigger immediate Telegram alerts. They are included in the next periodic summary (every 3 hours if notable events exist, or mandatory daily proof-of-life).
+
+**Summary format:**
+```
+📡 SENTINEL SUMMARY (last 3h)
+Heartbeats: N | Positions: N
+Notable: [list of events or "all clear"]
+Sells written: N
+Status: OPERATIONAL
+```
 
 ## Writing Sell Orders to DB
 
@@ -166,6 +175,8 @@ The Executor agent polls for approved orders every heartbeat and executes them t
 - Log ALL alerts to daily memory, even false alarms (pattern learning)
 - Sentinel does not execute trades — it writes sell orders and the Executor processes them
 - Keep monitoring runs cheap — use scripts for data, LLM only for decision-making
+- Do NOT send `heartbeat_summary` or any Telegram alert after a quiet heartbeat where no sells were triggered and no notable events occurred
+- Quiet cycle = no sells, no notable events → zero Telegram messages
 
 ## Paper Mode
 
