@@ -547,7 +547,7 @@ ensure_cron_jobs() {
   add_if_missing "research-cycle" \
     --every "30m" --agent research --model "$RESEARCH_MODEL" --session isolated \
     $RESEARCH_CRON_DELIVERY \
-    --message "OVERLAP GUARD: First run openclaw cron list --json to find the research-cycle job ID, then run openclaw cron runs --id <that-id> --json --limit 5. If another run (not the most recent = you) has status running/active, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. If the check produces discoveries, run the FULL pipeline autonomously: analysis, risk assessment, trade proposal. Do not stop after scanning — you decide what to buy. Update timestamps via db-query.js. Log results to daily memory and database (add-research-log). ALWAYS end with a short work summary: what check ran, what was found, counts (scanned/analyzed/proposed)."
+    --message "OVERLAP GUARD: First run openclaw cron list --json to find the research-cycle job ID, then run openclaw cron runs --id <that-id> --limit 5. The output has an entries array. Skip the most recent entry (that is you). If any other entry has action other than finished, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. If the check produces discoveries, run the FULL pipeline autonomously: analysis, risk assessment, trade proposal. Do not stop after scanning — you decide what to buy. Update timestamps via db-query.js. Log results to daily memory and database (add-research-log). ALWAYS end with a short work summary: what check ran, what was found, counts (scanned/analyzed/proposed)."
 
   echo "[cron-setup] Done"
 }
@@ -764,9 +764,11 @@ run_portfolio_report_loop() {
       echo "[portfolio-report] Generating daily portfolio report..."
       SUMMARY=$(SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
         node "$RESEARCH_WS/scripts/portfolio-summary.js" 2>/dev/null || echo 'Portfolio summary unavailable')
+      # Escape dollar signs so they survive shell expansion in the --message argument
+      SAFE_SUMMARY=$(printf '%s' "$SUMMARY" | sed 's/\$/\\$/g')
       SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
         node "$RESEARCH_WS/scripts/send-alert.js" --type portfolio_daily --agent system \
-        --message "$SUMMARY" 2>/dev/null || true
+        --message "$SAFE_SUMMARY" 2>/dev/null || true
       last_report_day="$CURRENT_DAY"
       echo "[portfolio-report] Daily report sent"
     fi

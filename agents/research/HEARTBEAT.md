@@ -27,9 +27,9 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 ## Overlap Guard (run FIRST, before any work)
 
 1. Get the cron job ID: run `openclaw cron list --json`. The output may be a JSON array directly `[...]` or an object with a `jobs` key `{"jobs":[...]}`. Either way, find the entry with `"name": "research-cycle"` and extract its `id`.
-2. Run `openclaw cron runs --id <extracted-id> --json --limit 5`. The output may be a JSON array directly or an object with a `runs` key.
-3. The most recent run in the list is YOU — skip it
-4. If any OTHER run has status `running` or `active`: reply `HEARTBEAT_SKIP: previous run still active (run <id>)` and stop immediately
+2. Run `openclaw cron runs --id <extracted-id> --limit 5`. The output is an object with an `entries` array.
+3. The most recent entry in the list is YOU — skip it
+4. If any OTHER entry has `action` other than `"finished"` (e.g. `"running"`, `"started"`): reply `HEARTBEAT_SKIP: previous run still active (run <sessionId>)` and stop immediately
 5. If any command fails or the output format is unexpected, proceed normally (don't block on guard failure)
 6. If no other run is active → continue to the steps below
 §
