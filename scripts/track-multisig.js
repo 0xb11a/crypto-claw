@@ -16,7 +16,7 @@
 
 import 'dotenv/config';
 import { getDb, close } from './db.js';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { isSolana } from './chains.js';
@@ -31,7 +31,7 @@ const REMINDER_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 function sendAlert(type, message) {
   try {
     const scriptPath = resolve(__dirname, 'send-alert.js');
-    execSync(`node ${scriptPath} --type ${type} --agent tracker --message "${message.replace(/"/g, '\\"')}"`, {
+    execFileSync('node', [scriptPath, '--type', type, '--agent', 'tracker', '--message', message], {
       encoding: 'utf-8',
       timeout: 10_000,
       cwd: __dirname,

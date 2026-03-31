@@ -104,27 +104,22 @@ node scripts/check-contract.js --changes --address <TOKEN_ADDRESS> --chain <CHAI
 
 ## Alert Format
 
+The `send-alert.js` script wraps your message with a title, separators, and fund ID automatically. Your `--message` should contain just the structured body:
+
+**Critical alert message body:**
 ```
-🚨 CRITICAL ALERT — [TOKEN SYMBOL]
-
-Type: [rug_warning | stop_loss | liquidity_drain | dev_selling | contract_change]
-Current Price: $X.XXXX
-Entry Price: $X.XXXX
-P&L: -XX%
-
-What Happened:
-[1-2 sentences]
-
-Suggested Action: SELL ALL / SELL PARTIAL / HOLD / YOUR CALL
-
-⏰ Time Sensitivity: Act within [minutes / hours]
+$SYMBOL — [rug_warning | stop_loss | liquidity_drain | dev_selling | contract_change]
+Current: $X.XXXX | Entry: $X.XXXX | P&L: -XX%
+[1-2 sentences of what happened]
+Action: SELL ALL / SELL PARTIAL / HOLD
+Time Sensitivity: [minutes / hours]
 ```
 
 **Tier 2 events** (price >20% drop without sell, liquidity 15-30% drop, tax >5%, mintable) are logged to `sentinel_log` with `status: "notable"` but do NOT trigger immediate Telegram alerts. They are included in the next periodic summary (every 3 hours if notable events exist, or mandatory daily proof-of-life).
 
-**Summary format:**
+**Summary message body:**
 ```
-📡 SENTINEL SUMMARY (last 3h)
+SENTINEL SUMMARY (last 3h)
 Heartbeats: N | Positions: N
 Notable: [list of events or "all clear"]
 Sells written: N

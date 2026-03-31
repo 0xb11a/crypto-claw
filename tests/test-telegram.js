@@ -204,7 +204,147 @@ describe('Command Construction', () => {
 });
 
 // ============================================================
-// 4. Topic Count Validation
+// 4. Message Formatting
+// ============================================================
+
+const SEP = '\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015';
+
+const TYPE_LABELS = {
+  trade_executed: 'TRADE EXECUTED',
+  trade_failed: 'TRADE FAILED',
+  trade_retry: 'RETRY',
+  trade_proposal: 'TRADE PROPOSAL',
+  sell_triggered: 'SELL TRIGGERED',
+  model_failure: 'MODEL FAILURE',
+  emergency_mode: 'EMERGENCY MODE',
+  recovered: 'RECOVERED',
+  rug_warning: 'RUG WARNING',
+  heartbeat_summary: 'HEARTBEAT',
+  portfolio_daily: 'PORTFOLIO REPORT',
+  rebalance_event: 'REBALANCE',
+};
+
+function formatTradeExecuted(emoji, message, safeId) {
+  return `${emoji} TRADE EXECUTED\n${SEP}\n${message}\n${SEP}\nFund: ${safeId}`;
+}
+
+function formatTradeFailed(emoji, message, safeId) {
+  const colonIdx = message.indexOf(': ');
+  if (colonIdx !== -1) {
+    const header = message.slice(0, colonIdx);
+    const reason = message.slice(colonIdx + 2);
+    return `${emoji} TRADE FAILED\n${SEP}\n${header}\n${reason}\n${SEP}\nFund: ${safeId}`;
+  }
+  return `${emoji} TRADE FAILED\n${SEP}\n${message}\n${SEP}\nFund: ${safeId}`;
+}
+
+function formatTradeRetry(emoji, message, safeId) {
+  const retryMatch = message.match(/retry (\d+\/\d+)/);
+  const retryLabel = retryMatch ? ` ${retryMatch[1]}` : '';
+  const colonIdx = message.indexOf(': ');
+  if (colonIdx !== -1) {
+    const header = message.slice(0, colonIdx);
+    const detail = message.slice(colonIdx + 2).replace(/\s*—\s*retry \d+\/\d+/, '');
+    return `${emoji} RETRY${retryLabel}\n${SEP}\n${header}\n${detail}\n${SEP}\nFund: ${safeId}`;
+  }
+  return `${emoji} RETRY${retryLabel}\n${SEP}\n${message}\n${SEP}\nFund: ${safeId}`;
+}
+
+function formatPassthrough(emoji, type, message, safeId) {
+  const label = TYPE_LABELS[type] || type.toUpperCase().replace(/_/g, ' ');
+  return `${emoji} ${label}\n${SEP}\n${message}\n${SEP}\nFund: ${safeId}`;
+}
+
+function formatMessage(type, agent, message, safeId) {
+  const emoji = EMOJI_MAP[type] || '\u26A0\uFE0F';
+  if (type === 'trade_executed') return formatTradeExecuted(emoji, message || `${type} event`, safeId);
+  if (type === 'trade_failed') return formatTradeFailed(emoji, message || `${type} event`, safeId);
+  if (type === 'trade_retry') return formatTradeRetry(emoji, message || `${type} event`, safeId);
+  if (EMOJI_MAP[type]) return formatPassthrough(emoji, type, message || `${type} event`, safeId);
+  const label = type.toUpperCase().replace(/_/g, ' ');
+  return `${emoji} ${label}\n${SEP}\n${message || `${type} event`}\n${SEP}\nFund: ${safeId}`;
+}
+
+describe('Message Formatting', () => {
+  test('trade_executed uses separator lines and fund footer', () => {
+    const msg = formatMessage('trade_executed', 'executor', 'BUY $PEPE on solana \u2014 $500 at $0.00000333', 'fund-1');
+    assert(msg.includes('TRADE EXECUTED'), 'Should have title');
+    assert(msg.includes(SEP), 'Should have separator');
+    assert(msg.includes('Fund: fund-1'), 'Should include fund ID');
+    assert(!msg.includes('CryptoClaw Alert'), 'Should NOT have old header');
+    assert(!msg.includes('Agent:'), 'Should NOT have Agent line');
+    assert(!msg.includes('Type:'), 'Should NOT have Type line');
+  });
+
+  test('trade_executed preserves dollar signs in message', () => {
+    const msg = formatMessage('trade_executed', 'executor', 'BUY $PEPE on solana \u2014 $500 at $0.00000333', 'fund-1');
+    assert(msg.includes('$PEPE'), 'Dollar sign in symbol preserved');
+    assert(msg.includes('$500'), 'Dollar sign in amount preserved');
+    assert(msg.includes('$0.00000333'), 'Dollar sign in price preserved');
+  });
+
+  test('trade_failed splits header from reason', () => {
+    const msg = formatMessage(
+      'trade_failed',
+      'executor',
+      'BUY $PEPE: stale_price: proposed $0.0003, current $0.0002 (33% drift)',
+      'fund-1',
+    );
+    assert(msg.includes('TRADE FAILED'), 'Should have title');
+    assert(msg.includes('BUY $PEPE'), 'Should have action line');
+    assert(msg.includes('stale_price'), 'Should have reason');
+    // Header and reason should be on separate lines
+    const lines = msg.split('\n');
+    const headerLine = lines.find((l) => l.includes('BUY $PEPE') && !l.includes('stale_price'));
+    assert(headerLine, 'Header and reason should be on separate lines');
+  });
+
+  test('trade_retry extracts retry count', () => {
+    const msg = formatMessage('trade_retry', 'executor', 'BUY $DOGE: Too Many Requests \u2014 retry 2/3', 'fund-1');
+    assert(msg.includes('RETRY 2/3'), 'Should show retry count in title');
+    assert(msg.includes('BUY $DOGE'), 'Should have action line');
+    assert(msg.includes('Too Many Requests'), 'Should have error');
+  });
+
+  test('passthrough types preserve message body', () => {
+    const body = 'SENTINEL SUMMARY (last 3h)\nHeartbeats: 6 | Positions: 3\nNotable: all clear';
+    const msg = formatMessage('heartbeat_summary', 'sentinel', body, 'fund-1');
+    assert(msg.includes('HEARTBEAT'), 'Should have type label');
+    assert(msg.includes(body), 'Should preserve full body');
+    assert(msg.includes('Fund: fund-1'), 'Should have fund footer');
+  });
+
+  test('portfolio_daily preserves message body', () => {
+    const body = 'Total: $12,500\nPositions: 5\nP&L: +8.2%';
+    const msg = formatMessage('portfolio_daily', 'system', body, 'fund-1');
+    assert(msg.includes('PORTFOLIO REPORT'), 'Should have type label');
+    assert(msg.includes(body), 'Should preserve full body');
+  });
+
+  test('unknown type uses default format', () => {
+    const msg = formatMessage('unknown_type', 'test', 'something happened', 'fund-1');
+    assert(msg.includes('UNKNOWN TYPE'), 'Should show type as label');
+    assert(msg.includes('something happened'), 'Should include message');
+    assert(msg.includes('Fund: fund-1'), 'Should include fund');
+  });
+
+  test('empty message shows fallback', () => {
+    const msg = formatMessage('trade_executed', 'executor', '', 'fund-1');
+    assert(msg.includes('trade_executed event'), 'Should show fallback text');
+  });
+
+  test('all types produce messages with separator and fund', () => {
+    const types = Object.keys(EMOJI_MAP);
+    for (const type of types) {
+      const msg = formatMessage(type, 'test', 'test message', 'fund-1');
+      assert(msg.includes(SEP), `${type} should have separator`);
+      assert(msg.includes('Fund: fund-1'), `${type} should have fund footer`);
+    }
+  });
+});
+
+// ============================================================
+// 5. Topic Count Validation
 // ============================================================
 
 describe('Topic Configuration', () => {

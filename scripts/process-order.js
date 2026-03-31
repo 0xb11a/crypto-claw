@@ -17,7 +17,7 @@
 
 import 'dotenv/config';
 import { getDb, close } from './db.js';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { isSolana } from './chains.js';
@@ -257,7 +257,7 @@ function markFailed(db, orderId, reason) {
 function sendAlert(type, message) {
   try {
     const scriptPath = resolve(__dirname, 'send-alert.js');
-    execSync(`node ${scriptPath} --type ${type} --agent executor --message "${message.replace(/"/g, '\\"')}"`, {
+    execFileSync('node', [scriptPath, '--type', type, '--agent', 'executor', '--message', message], {
       encoding: 'utf-8',
       timeout: 10_000,
       cwd: __dirname,

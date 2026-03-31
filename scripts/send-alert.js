@@ -67,14 +67,88 @@ const EMOJI_MAP = {
   rebalance_event: '\u2696\uFE0F',
 };
 
+const SEP = '\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015';
+
+const TYPE_LABELS = {
+  trade_executed: 'TRADE EXECUTED',
+  trade_failed: 'TRADE FAILED',
+  trade_retry: 'RETRY',
+  trade_proposal: 'TRADE PROPOSAL',
+  sell_triggered: 'SELL TRIGGERED',
+  model_failure: 'MODEL FAILURE',
+  emergency_mode: 'EMERGENCY MODE',
+  recovered: 'RECOVERED',
+  rug_warning: 'RUG WARNING',
+  heartbeat_summary: 'HEARTBEAT',
+  portfolio_daily: 'PORTFOLIO REPORT',
+  rebalance_event: 'REBALANCE',
+};
+
 function resolveThreadId(type) {
   const envVar = TOPIC_MAP[type];
   return envVar ? process.env[envVar] || null : null;
 }
 
+// ============================================================
+// Per-type formatters
+// ============================================================
+
+function formatTradeExecuted(emoji, message, safeId) {
+  return `${emoji} TRADE EXECUTED\n${SEP}\n${message}\n${SEP}\nFund: ${safeId}`;
+}
+
+function formatTradeFailed(emoji, message, safeId) {
+  // Split on first ": " to separate "BUY $SYMBOL" from the reason
+  const colonIdx = message.indexOf(': ');
+  if (colonIdx !== -1) {
+    const header = message.slice(0, colonIdx);
+    const reason = message.slice(colonIdx + 2);
+    return `${emoji} TRADE FAILED\n${SEP}\n${header}\n${reason}\n${SEP}\nFund: ${safeId}`;
+  }
+  return `${emoji} TRADE FAILED\n${SEP}\n${message}\n${SEP}\nFund: ${safeId}`;
+}
+
+function formatTradeRetry(emoji, message, safeId) {
+  // Messages look like: "BUY $SYMBOL: error — retry 2/3"
+  const retryMatch = message.match(/retry (\d+\/\d+)/);
+  const retryLabel = retryMatch ? ` ${retryMatch[1]}` : '';
+  const colonIdx = message.indexOf(': ');
+  if (colonIdx !== -1) {
+    const header = message.slice(0, colonIdx);
+    const detail = message.slice(colonIdx + 2).replace(/\s*—\s*retry \d+\/\d+/, '');
+    return `${emoji} RETRY${retryLabel}\n${SEP}\n${header}\n${detail}\n${SEP}\nFund: ${safeId}`;
+  }
+  return `${emoji} RETRY${retryLabel}\n${SEP}\n${message}\n${SEP}\nFund: ${safeId}`;
+}
+
+function formatPassthrough(emoji, type, message, safeId) {
+  const label = TYPE_LABELS[type] || type.toUpperCase().replace(/_/g, ' ');
+  return `${emoji} ${label}\n${SEP}\n${message}\n${SEP}\nFund: ${safeId}`;
+}
+
+const FORMATTERS = {
+  trade_executed: (emoji, _type, _agent, message, safeId) => formatTradeExecuted(emoji, message, safeId),
+  trade_failed: (emoji, _type, _agent, message, safeId) => formatTradeFailed(emoji, message, safeId),
+  trade_retry: (emoji, _type, _agent, message, safeId) => formatTradeRetry(emoji, message, safeId),
+  trade_proposal: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
+  sell_triggered: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
+  model_failure: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
+  emergency_mode: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
+  recovered: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
+  rug_warning: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
+  heartbeat_summary: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
+  portfolio_daily: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
+  rebalance_event: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
+};
+
 function formatMessage(type, agent, message, safeId) {
   const emoji = EMOJI_MAP[type] || '\u26A0\uFE0F';
-  return `${emoji} CryptoClaw Alert\nFund: ${safeId}\nAgent: ${agent}\nType: ${type}\n${message || `${type} event for ${agent}`}`;
+  const formatter = FORMATTERS[type];
+  if (formatter) {
+    return formatter(emoji, type, agent, message || `${type} event`, safeId);
+  }
+  const label = type.toUpperCase().replace(/_/g, ' ');
+  return `${emoji} ${label}\n${SEP}\n${message || `${type} event`}\n${SEP}\nFund: ${safeId}`;
 }
 
 async function main() {
