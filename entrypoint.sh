@@ -319,6 +319,10 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   openclaw config set 'tools.web.fetch' '{"enabled":true}' --strict-json
   openclaw config set 'tools.exec' '{"host":"gateway","security":"full","ask":"off"}' --strict-json
   openclaw config set 'tools.sandbox.tools' '{"allow":["read","write","apply_patch","exec"],"deny":[]}' --strict-json
+  # Per-agent exec override (agents.list[N] takes precedence over global tools.exec)
+  for i in 0 1 2 3; do
+    openclaw config set "agents.list[$i].tools.exec" '{"host":"gateway","security":"full","ask":"off"}' --strict-json 2>/dev/null || true
+  done
 
   # --- Memory: compaction flush + search ---
   openclaw config set 'agents.defaults.compaction.reserveTokensFloor' 80000
@@ -341,12 +345,12 @@ else
     echo "[entrypoint] Migrated compaction settings for larger context windows"
   fi
 
-  # --- Migrate exec config for headless mode (security=full, ask=off, host=gateway) ---
-  CURRENT_SECURITY=$(openclaw config get 'tools.exec.security' 2>/dev/null || echo "")
-  if [ "$CURRENT_SECURITY" != "full" ]; then
-    openclaw config set 'tools.exec' '{"host":"gateway","security":"full","ask":"off"}' --strict-json
-    echo "[entrypoint] Migrated tools.exec: security=full, ask=off, host=gateway (headless mode)"
-  fi
+  # --- Ensure exec config for headless mode (security=full, ask=off, host=gateway) ---
+  # Always set — both global and per-agent (per-agent takes precedence)
+  openclaw config set 'tools.exec' '{"host":"gateway","security":"full","ask":"off"}' --strict-json
+  for i in 0 1 2 3; do
+    openclaw config set "agents.list[$i].tools.exec" '{"host":"gateway","security":"full","ask":"off"}' --strict-json 2>/dev/null || true
+  done
   # Ensure sandbox-level exec permission exists (new in latest OpenClaw)
   openclaw config set 'tools.sandbox.tools' '{"allow":["read","write","apply_patch","exec"],"deny":[]}' --strict-json
 
