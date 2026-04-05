@@ -116,7 +116,7 @@ The gateway configuration file lives at `~/.openclaw/.openclaw/openclaw.json`. I
   "tools": {
     "exec": {
       "security": "allowlist",    // "allowlist" = only safeBins allowed, "ask" = prompt user
-      "ask": "never",             // "never" = deny on miss (required for headless/daemon mode)
+      "ask": "off",               // "off" = deny on miss (required for headless/daemon mode)
       "safeBins": [               // Allowed command patterns
         "node scripts/*",
         "cat memory/*",
@@ -244,7 +244,7 @@ The gateway configuration file lives at `~/.openclaw/.openclaw/openclaw.json`. I
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `security` | string | — | `"allowlist"` = only safeBins allowed |
-| `ask` | string | — | `"never"` = deny non-allowlisted (headless), `"on-miss"` = prompt (interactive only) |
+| `ask` | string | — | `"off"` = deny non-allowlisted (headless), `"on-miss"` = prompt (interactive), `"always"` = prompt all |
 | `safeBins` | string[] | — | Allowed command patterns (e.g., `"node scripts/*"`) |
 | `safeBinProfiles` | object | — | Per-command constraints (positional args, denied flags) |
 | `safeBinProfiles.<cmd>.minPositional` | number | — | Minimum positional arguments |
