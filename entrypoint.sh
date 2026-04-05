@@ -311,13 +311,13 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   #   - Sentinel gets only: db-query, check-positions, check-liquidity, check-wallets
   #   - Executor gets only: db-query, execute-trade, check-safe-status
   # Per-agent skills are enforced by skills/ directory deployment (each agent has its own).
-  # The safeBins allowlist uses "node scripts/*" — agents can only run scripts that
-  # exist in their workspace, so the allowlist + deployment = least privilege.
+  # Exec uses security=full + ask=off (headless mode). Least privilege is enforced
+  # by script deployment: agents can only run scripts present in their workspace.
   openclaw config set 'skills.allowBundled' '[]' --strict-json
   openclaw config set 'browser' '{"enabled":false}' --strict-json
   openclaw config set 'tools.web.search' '{"enabled":false}' --strict-json
   openclaw config set 'tools.web.fetch' '{"enabled":true}' --strict-json
-  openclaw config set 'tools.exec' '{"host":"gateway","security":"allowlist","ask":"off","safeBins":["node scripts/*","cat memory/*","ls memory/","echo *","openclaw cron *","echo * && node scripts/*","node scripts/* && node scripts/*"],"safeBinProfiles":{"node scripts/*":{"minPositional":1,"maxPositional":10,"deniedFlags":["-e","--eval","--input-type","-p","--print","-c","--check"]},"cat memory/*":{"minPositional":1,"maxPositional":5},"ls memory/":{"minPositional":0,"maxPositional":2},"echo *":{"minPositional":0,"maxPositional":10},"openclaw cron *":{"minPositional":1,"maxPositional":5}}}' --strict-json
+  openclaw config set 'tools.exec' '{"host":"gateway","security":"full","ask":"off"}' --strict-json
   openclaw config set 'tools.sandbox.tools' '{"allow":["read","write","apply_patch","exec"],"deny":[]}' --strict-json
 
   # --- Memory: compaction flush + search ---
@@ -341,12 +341,11 @@ else
     echo "[entrypoint] Migrated compaction settings for larger context windows"
   fi
 
-  # --- Migrate exec config for headless mode (fix approval hang + host + compound commands) ---
-  CURRENT_HOST=$(openclaw config get 'tools.exec.host' 2>/dev/null || echo "")
-  CURRENT_ASK=$(openclaw config get 'tools.exec.ask' 2>/dev/null || echo "")
-  if [ "$CURRENT_HOST" != "gateway" ] || [ "$CURRENT_ASK" != "off" ]; then
-    openclaw config set 'tools.exec' '{"host":"gateway","security":"allowlist","ask":"off","safeBins":["node scripts/*","cat memory/*","ls memory/","echo *","openclaw cron *","echo * && node scripts/*","node scripts/* && node scripts/*"],"safeBinProfiles":{"node scripts/*":{"minPositional":1,"maxPositional":10,"deniedFlags":["-e","--eval","--input-type","-p","--print","-c","--check"]},"cat memory/*":{"minPositional":1,"maxPositional":5},"ls memory/":{"minPositional":0,"maxPositional":2},"echo *":{"minPositional":0,"maxPositional":10},"openclaw cron *":{"minPositional":1,"maxPositional":5}}}' --strict-json
-    echo "[entrypoint] Migrated tools.exec: host=gateway, ask=off, compound safeBins"
+  # --- Migrate exec config for headless mode (security=full, ask=off, host=gateway) ---
+  CURRENT_SECURITY=$(openclaw config get 'tools.exec.security' 2>/dev/null || echo "")
+  if [ "$CURRENT_SECURITY" != "full" ]; then
+    openclaw config set 'tools.exec' '{"host":"gateway","security":"full","ask":"off"}' --strict-json
+    echo "[entrypoint] Migrated tools.exec: security=full, ask=off, host=gateway (headless mode)"
   fi
   # Ensure sandbox-level exec permission exists (new in latest OpenClaw)
   openclaw config set 'tools.sandbox.tools' '{"allow":["read","write","apply_patch","exec"],"deny":[]}' --strict-json

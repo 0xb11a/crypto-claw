@@ -115,24 +115,9 @@ The gateway configuration file lives at `~/.openclaw/.openclaw/openclaw.json`. I
   // ============================================================
   "tools": {
     "exec": {
-      "security": "allowlist",    // "allowlist" = only safeBins allowed, "ask" = prompt user
-      "ask": "off",               // "off" = deny on miss (required for headless/daemon mode)
-      "safeBins": [               // Allowed command patterns
-        "node scripts/*",
-        "cat memory/*",
-        "ls memory/",
-        "echo *"
-      ],
-      "safeBinProfiles": {        // Per-command constraints
-        "node scripts/*": {
-          "minPositional": 1,
-          "maxPositional": 10,
-          "deniedFlags": ["-e", "--eval", "--input-type", "-p", "--print", "-c", "--check"]
-        },
-        "cat memory/*": { "minPositional": 1, "maxPositional": 5 },
-        "ls memory/":   { "minPositional": 0, "maxPositional": 2 },
-        "echo *":       { "minPositional": 0, "maxPositional": 10 }
-      }
+      "host": "gateway",          // "gateway" = execute on host machine (required for headless)
+      "security": "full",         // "full" = no command restrictions (least privilege via script deployment)
+      "ask": "off"                // "off" = no approval prompts (required for headless/daemon mode)
     },
     "web": {
       "search": { "enabled": false },  // Disable web search tool
@@ -243,13 +228,12 @@ The gateway configuration file lives at `~/.openclaw/.openclaw/openclaw.json`. I
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `security` | string | — | `"allowlist"` = only safeBins allowed |
-| `ask` | string | — | `"off"` = deny non-allowlisted (headless), `"on-miss"` = prompt (interactive), `"always"` = prompt all |
-| `safeBins` | string[] | — | Allowed command patterns (e.g., `"node scripts/*"`) |
-| `safeBinProfiles` | object | — | Per-command constraints (positional args, denied flags) |
-| `safeBinProfiles.<cmd>.minPositional` | number | — | Minimum positional arguments |
-| `safeBinProfiles.<cmd>.maxPositional` | number | — | Maximum positional arguments |
-| `safeBinProfiles.<cmd>.deniedFlags` | string[] | — | Flags the agent cannot use (e.g., `--eval`) |
+| `host` | string | `"auto"` | `"auto"`, `"sandbox"`, `"gateway"`, `"node"` — where commands execute |
+| `security` | string | varies | `"deny"`, `"allowlist"`, `"full"` — command restriction level |
+| `ask` | string | `"off"` | `"off"` = no prompts (headless), `"on-miss"` = prompt on allowlist miss, `"always"` = prompt all |
+| `safeBins` | string[] | — | Allowed binary names (allowlist mode only, no compound commands) |
+| `safeBinProfiles` | object | — | Per-binary constraints (required for each safeBins entry) |
+| `pathPrepend` | string[] | — | Directories prepended to PATH for command resolution |
 
 ### tools.sandbox.tools
 
