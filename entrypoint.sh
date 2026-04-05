@@ -317,7 +317,7 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   openclaw config set 'browser' '{"enabled":false}' --strict-json
   openclaw config set 'tools.web.search' '{"enabled":false}' --strict-json
   openclaw config set 'tools.web.fetch' '{"enabled":true}' --strict-json
-  openclaw config set 'tools.exec' '{"security":"allowlist","ask":"off","safeBins":["node scripts/*","cat memory/*","ls memory/","echo *","openclaw cron *"],"safeBinProfiles":{"node scripts/*":{"minPositional":1,"maxPositional":10,"deniedFlags":["-e","--eval","--input-type","-p","--print","-c","--check"]},"cat memory/*":{"minPositional":1,"maxPositional":5},"ls memory/":{"minPositional":0,"maxPositional":2},"echo *":{"minPositional":0,"maxPositional":10},"openclaw cron *":{"minPositional":1,"maxPositional":5}}}' --strict-json
+  openclaw config set 'tools.exec' '{"security":"allowlist","ask":"off","safeBins":["node scripts/*","cat memory/*","ls memory/","echo *","openclaw cron *","echo * && node scripts/*","node scripts/* && node scripts/*"],"safeBinProfiles":{"node scripts/*":{"minPositional":1,"maxPositional":10,"deniedFlags":["-e","--eval","--input-type","-p","--print","-c","--check"]},"cat memory/*":{"minPositional":1,"maxPositional":5},"ls memory/":{"minPositional":0,"maxPositional":2},"echo *":{"minPositional":0,"maxPositional":10},"openclaw cron *":{"minPositional":1,"maxPositional":5}}}' --strict-json
   openclaw config set 'tools.sandbox.tools' '{"allow":["read","write","apply_patch","exec"],"deny":[]}' --strict-json
 
   # --- Memory: compaction flush + search ---
