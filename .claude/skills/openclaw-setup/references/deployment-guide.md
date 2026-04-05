@@ -196,7 +196,8 @@ openclaw config set 'skills.allowBundled' '[]' --strict-json
 openclaw config set 'browser' '{"enabled":false}' --strict-json
 openclaw config set 'tools.web.search' '{"enabled":false}' --strict-json
 openclaw config set 'tools.web.fetch' '{"enabled":true}' --strict-json
-openclaw config set 'tools.exec' '{"security":"allowlist","ask":"on-miss","safeBins":["node scripts/*"],"safeBinProfiles":{"node scripts/*":{"minPositional":1,"maxPositional":10,"deniedFlags":["-e","--eval","--input-type"]}}}' --strict-json
+openclaw config set 'tools.exec' '{"security":"allowlist","ask":"never","safeBins":["node scripts/*"],"safeBinProfiles":{"node scripts/*":{"minPositional":1,"maxPositional":10,"deniedFlags":["-e","--eval","--input-type"]}}}' --strict-json
+openclaw config set 'tools.sandbox.tools' '{"allow":["read","write","apply_patch","exec"],"deny":[]}' --strict-json
 openclaw config set 'agents.defaults.sandbox.mode' 'off'
 
 # ---- Memory config ----

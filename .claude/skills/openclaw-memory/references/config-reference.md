@@ -116,7 +116,7 @@ The gateway configuration file lives at `~/.openclaw/.openclaw/openclaw.json`. I
   "tools": {
     "exec": {
       "security": "allowlist",    // "allowlist" = only safeBins allowed, "ask" = prompt user
-      "ask": "on-miss",           // What to do when command not in allowlist
+      "ask": "never",             // "never" = deny on miss (required for headless/daemon mode)
       "safeBins": [               // Allowed command patterns
         "node scripts/*",
         "cat memory/*",
@@ -244,12 +244,19 @@ The gateway configuration file lives at `~/.openclaw/.openclaw/openclaw.json`. I
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `security` | string | — | `"allowlist"` = only safeBins allowed |
-| `ask` | string | — | `"on-miss"` = prompt when command not in allowlist |
+| `ask` | string | — | `"never"` = deny non-allowlisted (headless), `"on-miss"` = prompt (interactive only) |
 | `safeBins` | string[] | — | Allowed command patterns (e.g., `"node scripts/*"`) |
 | `safeBinProfiles` | object | — | Per-command constraints (positional args, denied flags) |
 | `safeBinProfiles.<cmd>.minPositional` | number | — | Minimum positional arguments |
 | `safeBinProfiles.<cmd>.maxPositional` | number | — | Maximum positional arguments |
 | `safeBinProfiles.<cmd>.deniedFlags` | string[] | — | Flags the agent cannot use (e.g., `--eval`) |
+
+### tools.sandbox.tools
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `allow` | string[] | — | Tool categories permitted at sandbox level: `"read"`, `"write"`, `"apply_patch"`, `"exec"` |
+| `deny` | string[] | — | Tool categories explicitly denied (takes precedence over allow) |
 
 ### tools.web
 
