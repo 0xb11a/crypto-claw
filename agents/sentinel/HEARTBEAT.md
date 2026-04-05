@@ -23,6 +23,8 @@ node scripts/check-positions.js
 ### 2. Liquidity Check (CRITICAL)
 ```bash
 node scripts/check-liquidity.js
+```
+```bash
 node scripts/db-query.js update-heartbeat --agent sentinel --check liquidity_check
 ```
 - Compare current liquidity against previous snapshot from DB
@@ -33,6 +35,8 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check liquidity_che
 ### 3. Wallet Check (if positions exist)
 ```bash
 node scripts/check-wallets.js --positions
+```
+```bash
 node scripts/db-query.js update-heartbeat --agent sentinel --check wallet_check
 ```
 - Check dev/deployer wallets for sells
@@ -41,10 +45,13 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check wallet_check
 
 ### 4. Contract Check (max 2x per hour)
 ```bash
-# Check if contract_check is due (cadence: 30 min, enforced server-side)
 node scripts/db-query.js get-overdue-checks --agent sentinel
-# Only run if contract_check appears in the overdue array
+```
+Only run the following if `contract_check` appears in the overdue array:
+```bash
 node scripts/check-contract.js --changes
+```
+```bash
 node scripts/db-query.js update-heartbeat --agent sentinel --check contract_check
 ```
 - Diffs GoPlus safety data against previous snapshot in `contract_snapshots`
@@ -54,8 +61,10 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check contract_chec
 
 ### 5. Log Results
 ```bash
-# Use status: "ok" if nothing happened, "notable" if Tier 2 events occurred, "alert" if sell orders were written
 node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"sells_executed":0,"status":"ok"}'
+```
+Use status: `"ok"` if nothing happened, `"notable"` if Tier 2 events occurred, `"alert"` if sell orders were written.
+```bash
 node scripts/db-query.js update-heartbeat --agent sentinel --check price_check
 ```
 

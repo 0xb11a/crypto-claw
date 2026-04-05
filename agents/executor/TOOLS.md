@@ -4,6 +4,7 @@
 - All scripts output **valid JSON to stdout**. Parse the output directly — no need for `jq` unless extracting a specific field.
 - Errors go to stderr. Exit code 0 = success, 1 = failure.
 - **Do NOT use web_search or browser tools.** They are disabled.
+- **Run one command per exec call.** Never chain commands with `&&`, `||`, or `;`. If you need multiple commands, make separate exec calls for each.
 
 ## Chain Discovery
 ```bash

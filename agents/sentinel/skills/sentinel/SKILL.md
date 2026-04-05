@@ -16,16 +16,20 @@ triggers:
 Guardian of the portfolio. Watch every open position for danger. React faster than any human.
 
 ### Step 0: Load Configuration (MANDATORY — run at the start of every cycle)
+Run each command as a **separate** exec call:
 ```bash
-echo "=== SENTINEL CONFIG ==="
 echo "PAPER_MODE=${PAPER_MODE:-false}"
-echo "ACTIVE_CHAINS=${ACTIVE_CHAINS}"
-echo "======================"
 ```
-Read the output. This determines your entire cycle:
+```bash
+echo "ACTIVE_CHAINS=${ACTIVE_CHAINS}"
+```
+If `ACTIVE_CHAINS` is empty or unset, run:
+```bash
+node scripts/db-query.js get-chains
+```
+Read the outputs. This determines your entire cycle:
 - `PAPER_MODE=true` → use `get-paper-positions` for ALL position queries
 - `PAPER_MODE=false` → use `get-positions`
-- If `ACTIVE_CHAINS` is empty or unset, run `node scripts/db-query.js get-chains` to discover available chains
 Getting this wrong means monitoring nothing. Reference this output for every command.
 
 ## When to Use

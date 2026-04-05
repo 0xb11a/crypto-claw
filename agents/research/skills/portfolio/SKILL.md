@@ -19,13 +19,14 @@ triggers:
 Convert risk-assessed opportunities into concrete trade proposals. Manage sizing, entries, exits, and rebalancing.
 
 ### Step 0: Load Configuration (MANDATORY — run before any portfolio action)
+Run each command as a **separate** exec call:
 ```bash
-echo "=== PORTFOLIO CONFIG ==="
 echo "PAPER_MODE=${PAPER_MODE:-false}"
-echo "ACTIVE_CHAINS=$(node scripts/db-query.js get-chains)"
-echo "======================"
 ```
-Read the output. This determines your entire cycle:
+```bash
+node scripts/db-query.js get-chains
+```
+Read the outputs. This determines your entire cycle:
 - `PAPER_MODE=true` → use paper commands (`get-paper-portfolio`, `get-paper-cash`, `get-paper-positions`, `get-paper-stats`), auto-approve trades
 - `PAPER_MODE=false` → use real commands, require human approval
 Always include `--chain <chain>` on portfolio and cash commands. Reference this output throughout.

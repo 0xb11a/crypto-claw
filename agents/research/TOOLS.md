@@ -5,6 +5,7 @@
 - `jq` is available in the container if needed (e.g., `node scripts/scan-tokens.js | jq '.tokens[0].symbol'`).
 - Errors go to stderr. Exit code 0 = success, 1 = failure.
 - **Do NOT use web_search or browser tools.** They are disabled. All market data comes from the scripts below — they call the APIs directly.
+- **Run one command per exec call.** Never chain commands with `&&`, `||`, or `;`. If you need multiple commands, make separate exec calls for each.
 
 ## Database CLI (db-query.js)
 

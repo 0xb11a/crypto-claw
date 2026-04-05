@@ -14,6 +14,8 @@ If `PAPER_MODE=false` AND no `SAFE_SIGNER_KEY` env var → alert human, reply HE
 ### Step 1: Load approved orders (sells first, then buys)
 ```bash
 node scripts/db-query.js get-orders --status approved --action sell
+```
+```bash
 node scripts/db-query.js get-orders --status approved --action buy
 ```
 If both empty → reply HEARTBEAT_OK.
