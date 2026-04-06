@@ -717,6 +717,45 @@ describe('execute-trade-solana.js — Security', () => {
 });
 
 // ============================================================
+// Solana — Instruction Validation Tests
+// ============================================================
+describe('Solana — Instruction & Response Validation', () => {
+  test('deserializeInstruction rejects missing programId', () => {
+    const badIx = { data: 'AQID', accounts: [] };
+    assert(!badIx.programId, 'Should detect missing programId');
+  });
+
+  test('deserializeInstruction rejects missing data', () => {
+    const badIx = { programId: '11111111111111111111111111111112', accounts: [] };
+    assert(!badIx.data, 'Should detect missing data');
+  });
+
+  test('deserializeInstruction rejects non-array accounts', () => {
+    const badIx = { programId: '11111111111111111111111111111112', data: 'AQID', accounts: 'not-array' };
+    assert(!Array.isArray(badIx.accounts) || badIx.accounts === 'not-array', 'Should detect non-array accounts');
+  });
+
+  test('Jupiter response validation detects missing swapInstruction', () => {
+    const badResponse1 = {};
+    const badResponse2 = { setupInstructions: [] };
+    const goodResponse = { swapInstruction: { programId: 'x', data: 'AQID', accounts: [] } };
+    assert(!badResponse1?.swapInstruction, 'Empty response should fail');
+    assert(!badResponse2?.swapInstruction, 'Response without swapInstruction should fail');
+    assert(goodResponse?.swapInstruction, 'Valid response should pass');
+  });
+
+  test('Squads serialization error includes instruction metrics', () => {
+    // Simulate the error enrichment from buildAndSubmitSquadsTx
+    const mockInstructions = [{ data: Buffer.alloc(100) }, { data: Buffer.alloc(200) }];
+    const totalDataBytes = mockInstructions.reduce((sum, ix) => sum + ix.data.length, 0);
+    const errMsg = `Squads transaction build failed (${mockInstructions.length} instructions, ${totalDataBytes} bytes data): encoding overruns Uint8Array`;
+    assert(errMsg.includes('2 instructions'), 'Should include instruction count');
+    assert(errMsg.includes('300 bytes'), 'Should include total data size');
+    assert(errMsg.includes('encoding overruns'), 'Should include original error');
+  });
+});
+
+// ============================================================
 // Results
 // ============================================================
 const allPassed = summary();

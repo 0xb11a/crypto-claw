@@ -183,7 +183,15 @@ async function getJupiterQuote(inputMint, outputMint, amount, slippageBps) {
   const res = await fetch(`${JUPITER_API}/quote?${params}`);
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Jupiter quote error (${res.status}): ${text}`);
+    let detail = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.error) detail = parsed.error;
+      else if (parsed.message) detail = parsed.message;
+    } catch {
+      /* use raw text */
+    }
+    throw new Error(`Jupiter quote error (${res.status}): ${detail}`);
   }
   return res.json();
 }
@@ -201,12 +209,24 @@ async function getJupiterSwapInstructions(quoteResponse, userPublicKey) {
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Jupiter swap-instructions error (${res.status}): ${text}`);
+    let detail = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.error) detail = parsed.error;
+      else if (parsed.message) detail = parsed.message;
+    } catch {
+      /* use raw text */
+    }
+    throw new Error(`Jupiter swap-instructions error (${res.status}): ${detail}`);
   }
   return res.json();
 }
 
 function deserializeInstruction(ix) {
+  if (!ix?.programId || !ix?.data || !Array.isArray(ix?.accounts)) {
+    const keys = Object.keys(ix || {});
+    throw new Error(`Invalid instruction: missing required fields (keys: ${JSON.stringify(keys)})`);
+  }
   return new TransactionInstruction({
     programId: new PublicKey(ix.programId),
     keys: ix.accounts.map((a) => ({
@@ -267,14 +287,22 @@ async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false } = {}
   });
 
   // Build and send the meta-transaction (create + propose + approve)
-  const metaMessage = new TransactionMessage({
-    payerKey: signer.publicKey,
-    recentBlockhash: blockhash.blockhash,
-    instructions: [createTxIx, createProposalIx, approveIx],
-  }).compileToV0Message();
+  let metaTx;
+  try {
+    const metaMessage = new TransactionMessage({
+      payerKey: signer.publicKey,
+      recentBlockhash: blockhash.blockhash,
+      instructions: [createTxIx, createProposalIx, approveIx],
+    }).compileToV0Message();
 
-  const metaTx = new VersionedTransaction(metaMessage);
-  metaTx.sign([signer]);
+    metaTx = new VersionedTransaction(metaMessage);
+    metaTx.sign([signer]);
+  } catch (serErr) {
+    const totalDataBytes = instructions.reduce((sum, ix) => sum + ix.data.length, 0);
+    throw new Error(
+      `Squads transaction build failed (${instructions.length} instructions, ${totalDataBytes} bytes data): ${serErr.message}`,
+    );
+  }
 
   // Dry run: return signed tx data without broadcasting
   if (dryRun) {
@@ -383,14 +411,36 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
   // Get swap instructions for the vault
   const swapData = await getJupiterSwapInstructions(quote, env.vaultPda);
 
-  // Combine all instructions
-  const allInstructions = [];
-  if (swapData.setupInstructions) {
-    allInstructions.push(...swapData.setupInstructions.map(deserializeInstruction));
+  // Validate Jupiter response before deserialization
+  if (!swapData?.swapInstruction) {
+    return {
+      status: 'failed',
+      error: `Jupiter response missing swapInstruction (keys: ${JSON.stringify(Object.keys(swapData || {}))})`,
+      action: 'buy',
+      symbol: args.symbol,
+      chain: args.chain,
+    };
   }
-  allInstructions.push(deserializeInstruction(swapData.swapInstruction));
-  if (swapData.cleanupInstruction) {
-    allInstructions.push(deserializeInstruction(swapData.cleanupInstruction));
+
+  // Combine all instructions
+  let allInstructions;
+  try {
+    allInstructions = [];
+    if (swapData.setupInstructions) {
+      allInstructions.push(...swapData.setupInstructions.map(deserializeInstruction));
+    }
+    allInstructions.push(deserializeInstruction(swapData.swapInstruction));
+    if (swapData.cleanupInstruction) {
+      allInstructions.push(deserializeInstruction(swapData.cleanupInstruction));
+    }
+  } catch (deserErr) {
+    return {
+      status: 'failed',
+      error: `Failed to deserialize Jupiter instructions: ${deserErr.message}`,
+      action: 'buy',
+      symbol: args.symbol,
+      chain: args.chain,
+    };
   }
 
   const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun });
@@ -446,14 +496,36 @@ async function executeSell(args, env, { dryRun = false } = {}) {
   // Get swap instructions for the vault
   const swapData = await getJupiterSwapInstructions(quote, env.vaultPda);
 
-  // Combine all instructions
-  const allInstructions = [];
-  if (swapData.setupInstructions) {
-    allInstructions.push(...swapData.setupInstructions.map(deserializeInstruction));
+  // Validate Jupiter response before deserialization
+  if (!swapData?.swapInstruction) {
+    return {
+      status: 'failed',
+      error: `Jupiter response missing swapInstruction (keys: ${JSON.stringify(Object.keys(swapData || {}))})`,
+      action: 'sell',
+      symbol: args.symbol,
+      chain: args.chain,
+    };
   }
-  allInstructions.push(deserializeInstruction(swapData.swapInstruction));
-  if (swapData.cleanupInstruction) {
-    allInstructions.push(deserializeInstruction(swapData.cleanupInstruction));
+
+  // Combine all instructions
+  let allInstructions;
+  try {
+    allInstructions = [];
+    if (swapData.setupInstructions) {
+      allInstructions.push(...swapData.setupInstructions.map(deserializeInstruction));
+    }
+    allInstructions.push(deserializeInstruction(swapData.swapInstruction));
+    if (swapData.cleanupInstruction) {
+      allInstructions.push(deserializeInstruction(swapData.cleanupInstruction));
+    }
+  } catch (deserErr) {
+    return {
+      status: 'failed',
+      error: `Failed to deserialize Jupiter instructions: ${deserErr.message}`,
+      action: 'sell',
+      symbol: args.symbol,
+      chain: args.chain,
+    };
   }
 
   const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun });

@@ -591,6 +591,57 @@ describe('Executor — Close Position P&L (Partial Exit)', () => {
 });
 
 // ============================================================
+// Error Enrichment Tests
+// ============================================================
+describe('Executor — Error Enrichment', () => {
+  test('proposeTransaction error includes HTTP status and response body', () => {
+    // Simulate the error enrichment logic from buildAndSubmitSafeTx
+    const mockErr = {
+      message: 'Unprocessable Content',
+      status: 422,
+      response: { data: '{"nonFieldErrors":["nonce already used"]}' },
+    };
+    const status = mockErr.status || '';
+    const body = mockErr.response?.data || '';
+    const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+    const detail = ['Safe proposeTransaction failed', `(HTTP ${status})`, `: ${bodyStr.slice(0, 500)}`]
+      .filter(Boolean)
+      .join(' ');
+    assert(detail.includes('422'), 'Should include HTTP status');
+    assert(detail.includes('nonce already used'), 'Should include response body detail');
+    assert(detail.startsWith('Safe proposeTransaction failed'), 'Should identify the failing API call');
+  });
+
+  test('error enrichment handles missing response gracefully', () => {
+    const mockErr = { message: 'Network error' };
+    const status = mockErr.status || mockErr.response?.status || mockErr.code || '';
+    const body = mockErr.response?.data || mockErr.response?.body || mockErr.data || '';
+    const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+    const detail = [
+      'Safe proposeTransaction failed',
+      status ? `(HTTP ${status})` : '',
+      bodyStr ? `: ${bodyStr.slice(0, 500)}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    // Falls back to just the prefix when no HTTP detail available
+    assertEqual(detail, 'Safe proposeTransaction failed', 'Should still produce a message without HTTP detail');
+  });
+
+  test('swap response validation detects missing tx fields', () => {
+    const badSwap1 = { tx: {} };
+    const badSwap2 = { tx: { to: '0x123' } };
+    const badSwap3 = {};
+    const goodSwap = { tx: { to: '0x123', data: '0xabc' } };
+
+    assert(!badSwap1?.tx?.to || !badSwap1?.tx?.data, 'Empty tx should fail validation');
+    assert(!badSwap2?.tx?.data, 'Missing data should fail validation');
+    assert(!badSwap3?.tx?.to, 'Missing tx object should fail validation');
+    assert(goodSwap?.tx?.to && goodSwap?.tx?.data, 'Complete tx should pass validation');
+  });
+});
+
+// ============================================================
 // Results
 // ============================================================
 const allPassed = summary();

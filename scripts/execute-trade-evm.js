@@ -173,7 +173,15 @@ async function get1inchSwap(chainId, params, apiKey) {
     }
 
     const text = await res.text();
-    throw new Error(`1inch API error (${res.status}): ${text}`);
+    let detail = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.description) detail = parsed.description;
+      else if (parsed.error) detail = parsed.error;
+    } catch {
+      /* use raw text */
+    }
+    throw new Error(`1inch API error (${res.status}): ${detail}`);
   }
 }
 
@@ -269,13 +277,31 @@ async function buildAndSubmitSafeTx(env, transactions, { dryRun = false } = {}) 
     };
   }
 
-  await apiKit.proposeTransaction({
-    safeAddress: env.safeAddress,
-    safeTransactionData: signedTx.data,
-    safeTxHash,
-    senderAddress: signerAccount.address,
-    senderSignature: signedTx.signatures.values().next().value.data,
-  });
+  try {
+    await apiKit.proposeTransaction({
+      safeAddress: env.safeAddress,
+      safeTransactionData: signedTx.data,
+      safeTxHash,
+      senderAddress: signerAccount.address,
+      senderSignature: signedTx.signatures.values().next().value.data,
+    });
+  } catch (proposeErr) {
+    const status = proposeErr.status || proposeErr.response?.status || proposeErr.code || '';
+    const body =
+      proposeErr.response?.data ||
+      proposeErr.response?.body ||
+      (typeof proposeErr.data === 'object' ? JSON.stringify(proposeErr.data) : proposeErr.data) ||
+      '';
+    const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+    const detail = [
+      'Safe proposeTransaction failed',
+      status ? `(HTTP ${status})` : '',
+      bodyStr ? `: ${bodyStr.slice(0, 500)}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    throw new Error(detail || proposeErr.message);
+  }
 
   // Check if threshold is met (threshold == 1 means we can execute immediately)
   const safeInfo = await apiKit.getSafeInfo(env.safeAddress);
@@ -344,6 +370,17 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
     },
     env.oneInchApiKey,
   );
+
+  // Validate swap response before building Safe tx
+  if (!swap?.tx?.to || !swap?.tx?.data) {
+    return {
+      status: 'failed',
+      error: `1inch swap response missing required tx fields (keys: ${JSON.stringify(Object.keys(swap?.tx || {}))})`,
+      action: 'buy',
+      symbol: args.symbol,
+      chain: args.chain,
+    };
+  }
 
   // Build Safe transactions: approve + swap
   const transactions = [];
@@ -418,6 +455,17 @@ async function executeSell(args, env, { dryRun = false } = {}) {
     },
     env.oneInchApiKey,
   );
+
+  // Validate swap response before building Safe tx
+  if (!swap?.tx?.to || !swap?.tx?.data) {
+    return {
+      status: 'failed',
+      error: `1inch swap response missing required tx fields (keys: ${JSON.stringify(Object.keys(swap?.tx || {}))})`,
+      action: 'sell',
+      symbol: args.symbol,
+      chain: args.chain,
+    };
+  }
 
   // Build Safe transactions: approve (if needed) + swap
   const transactions = [];
