@@ -119,9 +119,9 @@ From the raw results, apply these filters:
 - Token name copies a well-known project
 - No social presence at all
 
-### Step 2b: Wallet Harvesting (Mostly Automatic)
-Wallets are now harvested automatically from two sources — no manual action needed for most cases:
-- **Scoring pipeline**: Each `score-wallet.js` call auto-proposes ~100 wallets from Birdeye leaderboard + ~50 from token top traders
+### Step 2b: Wallet Harvesting (Self-Seeding)
+The background scorer (`score-wallets-bg.js`) self-seeds every 60 minutes by fetching Birdeye top 100 gainers for every active chain (~300 wallets/harvest). Scoring continues every 10 min. Additional sources:
+- **Scoring pipeline**: Each `score-wallet.js` call also harvests token top traders (~50 per token scored)
 - **Holder analysis**: When you call `holder-distribution.js` with `--propose`, top 5 non-contract holders are auto-proposed
 
 **Always use `--propose` when calling holder-distribution.js:**
@@ -139,7 +139,7 @@ node scripts/db-query.js propose-wallet --json '{
 }'
 ```
 
-The background scoring pipeline (`score-wallets-bg.js`) picks up proposed wallets every 10 minutes and scores them via Birdeye/Zerion APIs. Each scoring call harvests more wallets (snowball effect). No need to wait — discovery can continue immediately.
+The background scoring pipeline (`score-wallets-bg.js`) self-seeds from Birdeye leaderboards and picks up proposed wallets every 10 minutes, scoring them via Birdeye/Zerion APIs. Each scoring call also harvests token top traders (snowball effect). No need to wait — discovery can continue immediately.
 
 **For high-priority wallets** (e.g., wallet appears in 3+ discovered tokens), score immediately:
 ```bash

@@ -277,7 +277,7 @@ node scripts/db-query.js update-wallet-score --address 0x... --chain <CHAIN> --j
   "status": "scored"
 }'
 ```
-The background scorer (`score-wallets-bg.js`) runs every 10 minutes and processes up to 10 wallets per cycle (3s between wallets). Each scoring call auto-harvests ~100 wallets from Birdeye leaderboard + ~50 from token top traders into `tracked_wallets` (snowball effect). Wallets that fail scoring are retried up to 3 times.
+The background scorer (`score-wallets-bg.js`) runs every 10 minutes. Self-seeds by fetching Birdeye top 100 gainers for every active chain every 60 min (~300 wallets/harvest), then scores up to 10 wallets from the queue per cycle (3s between wallets). Each scoring call also harvests token top traders (snowball effect). Wallets that fail scoring are retried up to 3 times.
 
 The `source` column tracks how a wallet was discovered: `agent` (manually proposed), `leaderboard` (Birdeye top gainers), `token_traders` (Birdeye token top traders), `holder_extraction` (from holder-distribution.js `--propose`).
 

@@ -20,34 +20,7 @@
 
 import 'dotenv/config';
 import { getDb, close } from './db.js';
-
-// ============================================================
-// Wallet harvesting helper — propose wallets from API results
-// ============================================================
-
-function harvestWallets(walletAddresses, chain, labelFn, source, excludeAddress) {
-  let harvested = 0;
-  try {
-    const db = getDb();
-    const stmt = db.prepare(`
-      INSERT OR IGNORE INTO tracked_wallets (address, chain, label, source, status)
-      VALUES (?, ?, ?, ?, 'proposed')
-    `);
-    const excludeLower = excludeAddress?.toLowerCase();
-    const insertMany = db.transaction((addrs) => {
-      for (const addr of addrs) {
-        if (!addr || addr.toLowerCase() === excludeLower) continue;
-        const result = stmt.run(addr, chain, labelFn(addr), source);
-        harvested += result.changes; // 1 if inserted, 0 if duplicate ignored
-      }
-    });
-    insertMany(walletAddresses);
-  } catch {
-    // Non-fatal — harvesting is best-effort
-  }
-  return harvested;
-}
-
+import { harvestWallets } from './harvest.js';
 import { getChain } from './chains.js';
 
 // ============================================================

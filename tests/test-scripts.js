@@ -238,6 +238,20 @@ describe('score-wallet.js', () => {
 });
 
 // ============================================================
+// score-wallets-bg.js
+// ============================================================
+describe('score-wallets-bg.js', () => {
+  testAsync('returns valid JSON with expected fields', async () => {
+    const result = runScript('score-wallets-bg.js');
+    assert(result.parsed !== null, 'Output must be valid JSON');
+    assertEqual(result.parsed.status, 'ok', 'Status should be ok');
+    assertType(result.parsed.scored, 'number', 'scored must be number');
+    assertType(result.parsed.failed, 'number', 'failed must be number');
+    assertType(result.parsed.harvested, 'number', 'harvested must be number');
+  });
+});
+
+// ============================================================
 // market-overview.js
 // ============================================================
 describe('market-overview.js', () => {

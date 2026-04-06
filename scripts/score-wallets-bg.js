@@ -7,9 +7,10 @@
  * shell loop in entrypoint.sh or system cron).
  *
  * Per cycle:
- *   1. Query get-unscored-wallets --limit 5
+ *   0. Harvest Birdeye leaderboards if ≥60 min since last harvest
+ *   1. Query get-unscored-wallets --limit 10
  *   2. For each: set status=scoring, run score-wallet.js, update result
- *   3. Wait 6s between wallets (rate limit respect)
+ *   3. Wait 3s between wallets (rate limit respect)
  *   4. Output summary JSON
  *
  * Usage:
@@ -24,11 +25,13 @@ import { execFileSync } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { getDb, close } from './db.js';
+import { harvestBirdeyeLeaderboards } from './harvest.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCORE_WALLET_SCRIPT = resolve(__dirname, 'score-wallet.js');
 const BATCH_SIZE = 10;
 const DELAY_MS = 3000;
+const HARVEST_INTERVAL_MS = 60 * 60 * 1000; // 60 minutes
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -41,6 +44,30 @@ async function main() {
   } catch (err) {
     console.log(JSON.stringify({ status: 'error', error: `DB init failed: ${err.message}` }));
     process.exit(1);
+  }
+
+  // 0. Self-seed: fetch Birdeye leaderboards (every 60 min, skip if too soon)
+  let totalHarvested = 0;
+  try {
+    const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'last_harvest_at'").get();
+    const lastHarvest = row ? new Date(row.value).getTime() : 0;
+    const elapsed = Date.now() - lastHarvest;
+
+    if (elapsed >= HARVEST_INTERVAL_MS) {
+      const harvest = await harvestBirdeyeLeaderboards();
+      totalHarvested = harvest.totalHarvested;
+      db.prepare("INSERT OR REPLACE INTO portfolio_meta (key, value) VALUES ('last_harvest_at', ?)").run(
+        new Date().toISOString(),
+      );
+      if (totalHarvested > 0) {
+        console.error(`[wallet-scorer] Harvested ${totalHarvested} wallets: ${JSON.stringify(harvest.chains)}`);
+      }
+    } else {
+      const minLeft = Math.round((HARVEST_INTERVAL_MS - elapsed) / 60000);
+      console.error(`[wallet-scorer] Harvest skipped (next in ${minLeft}m)`);
+    }
+  } catch (err) {
+    console.error(`[wallet-scorer] Harvest failed (non-fatal): ${err.message}`);
   }
 
   try {
@@ -57,7 +84,16 @@ async function main() {
       .all(BATCH_SIZE);
 
     if (wallets.length === 0) {
-      console.log(JSON.stringify({ status: 'ok', scored: 0, failed: 0, skipped: 0, message: 'No wallets to score' }));
+      console.log(
+        JSON.stringify({
+          status: 'ok',
+          scored: 0,
+          failed: 0,
+          skipped: 0,
+          harvested: totalHarvested,
+          message: 'No wallets to score',
+        }),
+      );
       return;
     }
 
@@ -154,7 +190,7 @@ async function main() {
       }
     }
 
-    console.log(JSON.stringify({ status: 'ok', scored, failed, skipped }));
+    console.log(JSON.stringify({ status: 'ok', scored, failed, skipped, harvested: totalHarvested }));
   } finally {
     close();
   }

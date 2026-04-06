@@ -33,7 +33,7 @@ node scripts/token-metrics.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 
 # Check holder distribution
-node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN>
+node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN> --propose
 ```
 
 ### Step 2: Score Across 6 Dimensions

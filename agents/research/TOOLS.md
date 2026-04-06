@@ -124,7 +124,7 @@ node scripts/db-query.js get-unscored-wallets
 node scripts/db-query.js get-unscored-wallets --limit 10
 node scripts/db-query.js update-wallet-score --address 0x... --chain <CHAIN> --json '{"score":78,"type":"smart_money","score_breakdown":{"profitability":85,"reputation":70,"volume":80,"activity":75,"consistency":60},"status":"scored"}'
 ```
-Background scorer (`score-wallets-bg.js`) runs every 10 min, processes up to 10 wallets/cycle. Auto-harvests wallets from Birdeye leaderboard + token top traders. Failed wallets retry up to 3 times.
+Background scorer (`score-wallets-bg.js`) runs every 10 min. Self-seeds by fetching Birdeye top 100 gainers for every active chain every 60 min (~300 wallets/harvest), then scores up to 10 wallets from the queue per cycle. Failed wallets retry up to 3 times.
 Source values: `agent`, `leaderboard`, `token_traders`, `holder_extraction`.
 
 ### Heartbeat & Logs
