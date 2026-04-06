@@ -59,19 +59,23 @@ function loadPositions() {
   }
 }
 
-async function getCurrentPrice(symbol) {
+async function getCurrentPrice(address, chain) {
   try {
-    const url = `${DEXSCREENER_BASE}/search?q=${symbol}`;
+    const url = `${DEXSCREENER_BASE}/tokens/${address}`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
-    const pair = data.pairs?.[0];
-    return pair
+    const pairs = data.pairs ?? [];
+    const chainPairs = pairs.filter((p) => p.chainId === chain);
+    const best = (chainPairs.length > 0 ? chainPairs : pairs).sort(
+      (a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0),
+    )[0];
+    return best
       ? {
-          price: parseFloat(pair.priceUsd ?? 0),
-          liquidity: parseFloat(pair.liquidity?.usd ?? 0),
-          volume24h: parseFloat(pair.volume?.h24 ?? 0),
-          priceChange24h: parseFloat(pair.priceChange?.h24 ?? 0),
+          price: parseFloat(best.priceUsd ?? 0),
+          liquidity: parseFloat(best.liquidity?.usd ?? 0),
+          volume24h: parseFloat(best.volume?.h24 ?? 0),
+          priceChange24h: parseFloat(best.priceChange?.h24 ?? 0),
         }
       : null;
   } catch {
@@ -100,7 +104,7 @@ async function main() {
 
   const results = [];
   for (const pos of positions) {
-    const current = await getCurrentPrice(pos.symbol);
+    const current = await getCurrentPrice(pos.address, pos.chain);
     const currentPrice = current?.price ?? pos.currentPrice;
     const pnlPercent = current ? ((current.price - pos.entryPrice) / pos.entryPrice) * 100 : null;
     const pnlMultiple = current ? current.price / pos.entryPrice : null;

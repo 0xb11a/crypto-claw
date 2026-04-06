@@ -127,11 +127,15 @@ async function fetchCurrentPrice(address, chain) {
 
   // Fallback: DEXScreener
   try {
-    const res = await fetch(`${DEXSCREENER_BASE}/search?q=${address}`);
+    const res = await fetch(`${DEXSCREENER_BASE}/tokens/${address}`);
     if (!res.ok) return null;
     const data = await res.json();
-    const pair = data.pairs?.[0];
-    return pair ? parseFloat(pair.priceUsd ?? 0) : null;
+    const pairs = data.pairs ?? [];
+    const chainPairs = pairs.filter((p) => p.chainId === chain);
+    const best = (chainPairs.length > 0 ? chainPairs : pairs).sort(
+      (a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0),
+    )[0];
+    return best ? parseFloat(best.priceUsd ?? 0) : null;
   } catch {
     return null;
   }

@@ -50,14 +50,18 @@ function getPosition(db, address, chain) {
     .get(address, chain);
 }
 
-async function fetchCurrentPrice(address) {
+async function fetchCurrentPrice(address, chain) {
   try {
-    const url = `${DEXSCREENER_BASE}/search?q=${address}`;
+    const url = `${DEXSCREENER_BASE}/tokens/${address}`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
-    const pair = data.pairs?.[0];
-    return pair ? parseFloat(pair.priceUsd ?? 0) : null;
+    const pairs = data.pairs ?? [];
+    const chainPairs = pairs.filter((p) => p.chainId === chain);
+    const best = (chainPairs.length > 0 ? chainPairs : pairs).sort(
+      (a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0),
+    )[0];
+    return best ? parseFloat(best.priceUsd ?? 0) : null;
   } catch {
     return null;
   }
@@ -209,7 +213,7 @@ async function main() {
       let tradeResult;
 
       if (isPaper) {
-        const currentPrice = await fetchCurrentPrice(order.address);
+        const currentPrice = await fetchCurrentPrice(order.address, order.chain);
         tradeResult = simulatePaperSell(db, order, position, currentPrice);
       } else {
         tradeResult = executeTradeLive(order);

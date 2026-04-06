@@ -74,13 +74,18 @@ function loadPortfolio(chain) {
   }
 }
 
-async function getCurrentPrice(symbol) {
+async function getCurrentPrice(address, chain) {
   try {
-    const url = `${DEXSCREENER_BASE}/search?q=${symbol}`;
+    const url = `${DEXSCREENER_BASE}/tokens/${address}`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
-    return parseFloat(data.pairs?.[0]?.priceUsd ?? 0);
+    const pairs = data.pairs ?? [];
+    const chainPairs = pairs.filter((p) => p.chainId === chain);
+    const best = (chainPairs.length > 0 ? chainPairs : pairs).sort(
+      (a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0),
+    )[0];
+    return best ? parseFloat(best.priceUsd ?? 0) : null;
   } catch {
     return null;
   }
@@ -111,7 +116,7 @@ async function main() {
   const positionDetails = [];
 
   for (const pos of portfolio.positions) {
-    const currentPrice = (await getCurrentPrice(pos.symbol)) ?? pos.entry_price;
+    const currentPrice = (await getCurrentPrice(pos.address, pos.chain)) ?? pos.entry_price;
     const quantity = pos.quantity;
     const value = currentPrice * quantity;
     const pnl = ((currentPrice - pos.entry_price) / pos.entry_price) * 100;
