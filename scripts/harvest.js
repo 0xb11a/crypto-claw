@@ -45,7 +45,26 @@ export function harvestWallets(walletAddresses, chain, labelFn, source, excludeA
 // Birdeye leaderboard harvest — fetch top 100 gainers per chain
 // ============================================================
 
-const HARVEST_DELAY_MS = 2000;
+const CHAIN_DELAY_MS = 3000; // 3s between chains (Birdeye free tier: 1 rps global)
+const MAX_RETRIES = 2;
+const RETRY_BASE_MS = 5000; // 5s, 10s exponential backoff
+
+async function fetchWithRetry(url, headers, label) {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const res = await fetch(url, { headers });
+
+    if (res.ok) return res;
+
+    if (res.status === 429 && attempt < MAX_RETRIES) {
+      const delay = RETRY_BASE_MS * Math.pow(2, attempt);
+      console.error(`[harvest] ${label}: HTTP 429, retry in ${delay / 1000}s (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      await new Promise((r) => setTimeout(r, delay));
+      continue;
+    }
+
+    return res; // non-429 error or exhausted retries
+  }
+}
 
 export async function harvestBirdeyeLeaderboards() {
   const apiKey = process.env.BIRDEYE_API_KEY;
@@ -68,9 +87,8 @@ export async function harvestBirdeyeLeaderboards() {
     const { name, birdeye } = activeChains[i];
     try {
       const url = `https://public-api.birdeye.so/trader/gainers-losers?type=today&sort_by=PnL&sort_type=desc&limit=100`;
-      const res = await fetch(url, {
-        headers: { 'X-API-KEY': apiKey, 'x-chain': birdeye },
-      });
+      const headers = { 'X-API-KEY': apiKey, 'x-chain': birdeye };
+      const res = await fetchWithRetry(url, headers, `Birdeye ${name}`);
 
       if (!res.ok) {
         console.error(`[harvest] Birdeye ${name}: HTTP ${res.status}`);
@@ -105,7 +123,7 @@ export async function harvestBirdeyeLeaderboards() {
 
     // Rate limit between chains (skip after last)
     if (i < activeChains.length - 1) {
-      await new Promise((r) => setTimeout(r, HARVEST_DELAY_MS));
+      await new Promise((r) => setTimeout(r, CHAIN_DELAY_MS));
     }
   }
 
