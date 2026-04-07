@@ -73,8 +73,8 @@ async function fetchBirdeyeTraderRank(address, chain) {
   if (!birdeyeChain) return null;
 
   try {
-    // Fetch top 100 gainers today — check if our wallet is among them
-    const url = `https://public-api.birdeye.so/trader/gainers-losers?type=today&sort_by=PnL&sort_type=desc&limit=100`;
+    // Fetch top gainers today — check if our wallet is among them
+    const url = `https://public-api.birdeye.so/trader/gainers-losers?type=today&sort_by=PnL&sort_type=desc&limit=10`;
     const res = await fetch(url, {
       headers: { 'X-API-KEY': apiKey, 'x-chain': birdeyeChain },
     });
