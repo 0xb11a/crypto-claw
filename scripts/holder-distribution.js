@@ -35,6 +35,74 @@ function parseArgs() {
   return config;
 }
 
+/**
+ * Fetch holder data from GoPlus Labs.
+ * Returns { holderCount, holders[] } or null if data is unavailable.
+ */
+async function fetchHoldersFromGoPlus(address, chain, chainCfg) {
+  const url = isSolana(chain)
+    ? `${GOPLUS_BASE}/${chainCfg.goplus.endpoint}/token_security?contract_addresses=${address}`
+    : `${GOPLUS_BASE}/token_security/${chainCfg.goplus.chainId}?contract_addresses=${address}`;
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`GoPlus API error: ${res.status}`);
+  const data = await res.json();
+  if (data.code !== 1) throw new Error(`GoPlus error: ${data.message}`);
+
+  const key = isSolana(chain) ? address : address.toLowerCase();
+  const info = data.result?.[key];
+  if (!info) return null;
+
+  const holders = (info.holders ?? []).map((h, i) => ({
+    rank: i + 1,
+    address: h.address ?? h.account,
+    percent: parseFloat((parseFloat(h.percent ?? 0) * 100).toFixed(2)),
+    isContract: h.is_contract === 1,
+    isLocked: h.is_locked === 1,
+    tag: h.tag ?? null,
+  }));
+
+  const holderCount = parseInt(info.holder_count ?? 0);
+
+  // GoPlus returned the token but with no holder data — signal to try fallback
+  if (holderCount === 0 && holders.length === 0) return null;
+
+  return { holderCount, holders };
+}
+
+/**
+ * Fetch holder data from Solscan Pro API (Solana only).
+ * Returns { holderCount, holders[] } or null if unavailable.
+ */
+async function fetchHoldersFromSolscan(address) {
+  const chainCfg = getChain('solana');
+  const apiKey = process.env[chainCfg.solana.solscan.apiKeyEnv];
+  if (!apiKey) return null;
+
+  const url = `${chainCfg.solana.solscan.baseUrl}/token/holders?address=${address}&page=1&page_size=40`;
+  const res = await fetch(url, { headers: { token: apiKey } });
+  if (!res.ok) {
+    process.stderr.write(`Solscan API error: ${res.status}\n`);
+    return null;
+  }
+  const data = await res.json();
+  if (!data.success || !data.data) return null;
+
+  const items = data.data.items ?? data.data.result ?? [];
+  if (items.length === 0 && (data.data.total ?? 0) === 0) return null;
+
+  const holders = items.map((h, i) => ({
+    rank: h.rank ?? i + 1,
+    address: h.owner ?? h.address,
+    percent: parseFloat((parseFloat(h.percentage ?? 0) * 100).toFixed(2)),
+    isContract: false,
+    isLocked: false,
+    tag: null,
+  }));
+
+  return { holderCount: data.data.total ?? holders.length, holders };
+}
+
 async function main() {
   const config = parseArgs();
   let chainCfg;
@@ -51,28 +119,41 @@ async function main() {
   }
 
   try {
-    const url = isSolana(config.chain)
-      ? `${GOPLUS_BASE}/${chainCfg.goplus.endpoint}/token_security?contract_addresses=${config.address}`
-      : `${GOPLUS_BASE}/token_security/${chainCfg.goplus.chainId}?contract_addresses=${config.address}`;
-    const res = await fetch(url);
-    const data = await res.json();
+    // 1. Try GoPlus (works for all chains)
+    let holderData = null;
+    let source = 'goplus';
+    try {
+      holderData = await fetchHoldersFromGoPlus(config.address, config.chain, chainCfg);
+    } catch (err) {
+      process.stderr.write(`GoPlus holder fetch failed: ${err.message}\n`);
+    }
 
-    // Solana addresses are base58 (case-sensitive); EVM addresses are hex (case-insensitive)
-    const key = isSolana(config.chain) ? config.address : config.address.toLowerCase();
-    const info = data.result?.[key];
-    if (!info) {
-      console.log(JSON.stringify({ status: 'not_found', address: config.address }));
+    // 2. If GoPlus returned no holder data and this is Solana, try Solscan
+    if (!holderData && isSolana(config.chain)) {
+      try {
+        holderData = await fetchHoldersFromSolscan(config.address);
+        if (holderData) source = 'solscan';
+      } catch (err) {
+        process.stderr.write(`Solscan holder fetch failed: ${err.message}\n`);
+      }
+    }
+
+    // 3. No data from any source
+    if (!holderData) {
+      console.log(
+        JSON.stringify({
+          status: 'no_holder_data',
+          address: config.address,
+          chain: config.chain,
+          message: 'No holder distribution data available from any API source',
+          source: 'none',
+          timestamp: new Date().toISOString(),
+        }),
+      );
       return;
     }
 
-    const holders = (info.holders ?? []).map((h, i) => ({
-      rank: i + 1,
-      address: h.address,
-      percent: parseFloat((parseFloat(h.percent ?? 0) * 100).toFixed(2)),
-      isContract: h.is_contract === 1,
-      isLocked: h.is_locked === 1,
-      tag: h.tag ?? null,
-    }));
+    const { holderCount, holders } = holderData;
 
     const top10Percent = holders.slice(0, 10).reduce((sum, h) => sum + h.percent, 0);
     const top5Percent = holders.slice(0, 5).reduce((sum, h) => sum + h.percent, 0);
@@ -116,7 +197,8 @@ async function main() {
           status: 'ok',
           address: config.address,
           chain: config.chain,
-          totalHolders: parseInt(info.holder_count ?? 0),
+          source,
+          totalHolders: holderCount,
           concentration: {
             top1: holders[0]?.percent ?? 0,
             top5: parseFloat(top5Percent.toFixed(2)),

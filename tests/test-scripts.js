@@ -387,6 +387,29 @@ describe('holder-distribution.js', () => {
 });
 
 // ============================================================
+// holder-distribution.js — Solana
+// ============================================================
+describe('holder-distribution.js — Solana', () => {
+  testAsync('returns holder data for known Solana token (BONK)', async () => {
+    const bonk = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+    const result = runScript('holder-distribution.js', `--address ${bonk} --chain solana`);
+    assert(result.parsed !== null, 'Output must be valid JSON');
+    assert(
+      ['ok', 'no_holder_data'].includes(result.parsed?.status),
+      `Status should be ok or no_holder_data, got: ${result.parsed?.status}`,
+    );
+    if (result.parsed?.status === 'ok') {
+      assertType(result.parsed.totalHolders, 'number', 'totalHolders must be number');
+      assert(result.parsed.totalHolders > 0, 'BONK should have holders');
+      assert(result.parsed.concentration, 'Must have concentration object');
+      assertType(result.parsed.concentration.top10, 'number', 'top10 must be number');
+      assert(Array.isArray(result.parsed.topHolders), 'topHolders must be array');
+      assert(result.parsed.source, 'Must have source field');
+    }
+  });
+});
+
+// ============================================================
 // heartbeat-check.js
 // ============================================================
 describe('heartbeat-check.js', () => {
