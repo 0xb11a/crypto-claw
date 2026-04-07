@@ -62,6 +62,16 @@ async function fetchWithRetry(url, headers, label) {
       continue;
     }
 
+    // Log response body for non-OK responses to aid debugging
+    if (!res.ok) {
+      try {
+        const body = await res.text();
+        console.error(`[harvest] ${label}: HTTP ${res.status} — ${body.slice(0, 200)}`);
+      } catch {
+        /* ignore body read errors */
+      }
+    }
+
     return res; // non-429 error or exhausted retries
   }
 }
@@ -86,12 +96,11 @@ export async function harvestBirdeyeLeaderboards() {
   for (let i = 0; i < activeChains.length; i++) {
     const { name, birdeye } = activeChains[i];
     try {
-      const url = `https://public-api.birdeye.so/trader/gainers-losers?type=today&sort_by=PnL&sort_type=desc&limit=100`;
+      const url = `https://public-api.birdeye.so/trader/gainers-losers?type=today&sort_by=PnL&sort_type=desc&limit=10`;
       const headers = { 'X-API-KEY': apiKey, 'x-chain': birdeye };
       const res = await fetchWithRetry(url, headers, `Birdeye ${name}`);
 
       if (!res.ok) {
-        console.error(`[harvest] Birdeye ${name}: HTTP ${res.status}`);
         chains[name] = 0;
         continue;
       }
