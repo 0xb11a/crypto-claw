@@ -463,14 +463,17 @@ openclaw config set 'models.providers.openai-codex' "$CODEX_PROVIDER" --strict-j
 echo "[entrypoint] OpenAI: Codex OAuth provider registered"
 echo "[entrypoint]   → If not yet authenticated: docker compose exec crypto-claw openclaw models auth login --provider openai-codex"
 
-# Copy Codex OAuth credentials from research (persistent) to sentinel/executor (tmpfs)
+# Symlink Codex OAuth credentials from research (persistent) to sentinel/executor (tmpfs)
+# NOTE: copy would cause token-refresh race — Research refreshes first, invalidating the
+# old refresh token that Sentinel/Executor still hold.  Symlink ensures all agents read
+# the same (always-current) file.
 RESEARCH_AUTH="$OPENCLAW_HOME/agents/research/agent/auth-profiles.json"
 if [ -f "$RESEARCH_AUTH" ]; then
   for agent_dir in "$OPENCLAW_HOME/agents/sentinel/agent" "$OPENCLAW_HOME/agents/executor/agent"; do
     mkdir -p "$agent_dir"
-    cp "$RESEARCH_AUTH" "$agent_dir/auth-profiles.json"
+    ln -sf "$RESEARCH_AUTH" "$agent_dir/auth-profiles.json"
   done
-  echo "[entrypoint]   Auth profiles copied to sentinel + executor"
+  echo "[entrypoint]   Auth profiles symlinked to sentinel + executor"
 else
   echo "[entrypoint]   ⚠ No auth-profiles.json found — run: docker compose exec crypto-claw openclaw models auth login --provider openai-codex"
 fi
