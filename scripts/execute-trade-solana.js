@@ -177,8 +177,11 @@ async function getJupiterQuote(inputMint, outputMint, amount, slippageBps) {
     outputMint: outputMint.toString(),
     amount: amount.toString(),
     slippageBps: slippageBps.toString(),
-    // Limit accounts to fit within Squads vault transaction size limits
-    maxAccounts: '20',
+    // Limit accounts to fit within Squads vault transaction size limits.
+    // Squads wraps the inner swap message inside vaultTransactionCreate,
+    // so the meta-tx (create + propose + approve) must stay under 1232 bytes.
+    // 15 accounts × 32 bytes = 480 bytes for keys, leaving ~750 bytes headroom.
+    maxAccounts: '15',
   });
 
   const res = await fetch(`${JUPITER_API}/quote?${params}`);
