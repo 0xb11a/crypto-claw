@@ -413,6 +413,50 @@ async function runTests() {
   });
 
   // ============================================================
+  // Signer Threshold Tests
+  // ============================================================
+
+  describe('Signer Thresholds', () => {
+    test('base has signerThreshold configured', () => {
+      const cfg = chains.getChain('base');
+      assertEqual(cfg.signerThreshold, 0.002);
+    });
+
+    test('ethereum has higher signerThreshold than base', () => {
+      const base = chains.getChain('base');
+      const eth = chains.getChain('ethereum');
+      assert(eth.signerThreshold > base.signerThreshold, 'Ethereum gas is more expensive than L2');
+    });
+
+    test('solana has signerThreshold configured', () => {
+      const cfg = chains.getChain('solana');
+      assertEqual(cfg.signerThreshold, 0.05);
+    });
+
+    test('getSignerThreshold returns per-chain value', () => {
+      assertEqual(chains.getSignerThreshold('base'), 0.002);
+      assertEqual(chains.getSignerThreshold('ethereum'), 0.01);
+      assertEqual(chains.getSignerThreshold('solana'), 0.05);
+    });
+
+    test('getSignerThreshold falls back to 0.005 for unknown threshold', () => {
+      // Temporarily remove threshold from a chain to test fallback
+      const cfg = chains.getChain('base');
+      const orig = cfg.signerThreshold;
+      delete cfg.signerThreshold;
+      assertEqual(chains.getSignerThreshold('base'), 0.005);
+      cfg.signerThreshold = orig;
+    });
+
+    test('every chain has a positive signerThreshold', () => {
+      for (const name of chains.getAllChains()) {
+        const threshold = chains.getSignerThreshold(name);
+        assert(threshold > 0, `${name} signerThreshold must be positive`);
+      }
+    });
+  });
+
+  // ============================================================
   // Per-Chain Cash Keys Tests
   // ============================================================
 

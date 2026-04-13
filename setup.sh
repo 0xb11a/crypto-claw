@@ -207,7 +207,7 @@ done
 cp "$SCRIPT_DIR/scripts/package.json" "$EXECUTOR_DIR/workspace/scripts/"
 
 # Observer gets db access + GitHub integration + alerting + logging
-for script in db.js db-query.js chains.js create-issue.js list-issues.js send-alert.js redact.js log.js; do
+for script in db.js db-query.js chains.js create-issue.js list-issues.js send-alert.js check-signer-balances.js redact.js log.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$OBSERVER_DIR/workspace/scripts/"
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$OBSERVER_DIR/workspace/scripts/"

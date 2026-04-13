@@ -23,6 +23,20 @@ SAFE_ID="$SAFE_ID" node scripts/db-query.js get-executor-log --limit 10
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-sentinel-log --limit 10
 ```
 
+### Step 1b: Check Signer Balances
+
+```bash
+node scripts/check-signer-balances.js
+```
+
+If `anyBelowThreshold` is `true`, send an alert for each chain that is below threshold:
+
+```bash
+node scripts/send-alert.js --type signer_low_balance --agent observer --message "Signer on <chain> has <balance> <symbol> — below threshold <threshold>. Refill needed to prevent silent execution failures."
+```
+
+This is always an operational issue (not a code bug). Do not create a GitHub issue for it.
+
 ### Step 2: Classify Each Problem
 
 For each error or failure found, determine:

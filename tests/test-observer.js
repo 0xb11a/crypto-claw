@@ -208,4 +208,37 @@ describe('GitHub Integration Scripts', () => {
 });
 
 // ============================================================
+// Signer Balance Monitoring
+// ============================================================
+describe('Signer Balance Monitoring', () => {
+  test('check-signer-balances.js exists', () => {
+    assert(existsSync(resolve(SCRIPTS_DIR, 'check-signer-balances.js')), 'check-signer-balances.js must exist');
+  });
+
+  test('outputs valid JSON with no keys set (graceful skip)', () => {
+    const output = execSync(`node ${resolve(SCRIPTS_DIR, 'check-signer-balances.js')}`, {
+      encoding: 'utf-8',
+      timeout: 15_000,
+      env: { ...process.env, SAFE_SIGNER_KEY: '', SQUADS_SIGNER_KEY: '', SQUADS_MULTISIG_ADDRESS: '' },
+    }).trim();
+    const result = JSON.parse(output);
+    assertEqual(result.status, 'ok');
+    assert(Array.isArray(result.signerBalances), 'Should have signerBalances array');
+    assertEqual(result.anyBelowThreshold, false);
+  });
+
+  test('output never contains private key material', () => {
+    // Hardhat test account #0 — not a real key
+    const fakeKey = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'; // pre-commit-allow
+    const output = execSync(`node ${resolve(SCRIPTS_DIR, 'check-signer-balances.js')}`, {
+      encoding: 'utf-8',
+      timeout: 15_000,
+      env: { ...process.env, SAFE_SIGNER_KEY: fakeKey, SQUADS_SIGNER_KEY: '', SQUADS_MULTISIG_ADDRESS: '' },
+    }).trim();
+    assert(!output.includes('ac0974bec'), 'Output must never contain private key material');
+    assert(!output.includes('bacb478'), 'Output must never contain private key fragments');
+  });
+});
+
+// ============================================================
 summary();

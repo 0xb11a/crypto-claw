@@ -20,6 +20,12 @@ SAFE_ID="$SAFE_ID" node scripts/db-query.js get-executor-log --limit 10
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-sentinel-log --limit 10
 ```
 
+### 2b. Check Signer Balances
+```bash
+node scripts/check-signer-balances.js
+```
+If any signer balance is below threshold, alert immediately via `send-alert.js` with type `signer_low_balance`. This prevents silent executor failures from drained gas accounts.
+
 ### 3. Analyze
 - Correlate log errors with receipt/order failures
 - Identify root cause (API rate limit? Contract issue? Logic bug?)

@@ -61,6 +61,22 @@ node scripts/send-alert.js --type system_health --agent observer --message "Mode
 #   system_health → TG_TOPIC_SYSTEM
 ```
 
+## Signer Balance Monitoring
+
+```bash
+# Check all active chain signer balances
+node scripts/check-signer-balances.js
+
+# Check a specific chain
+node scripts/check-signer-balances.js --chain base
+```
+
+Output includes `anyBelowThreshold` boolean. If `true`, send an alert:
+
+```bash
+node scripts/send-alert.js --type signer_low_balance --agent observer --message "Signer on <chain> has <balance> <symbol> — below threshold <threshold>"
+```
+
 ## Log Files
 
 ```bash

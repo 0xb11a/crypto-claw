@@ -7,8 +7,8 @@
  *
  * Types:
  *   model_failure, emergency_mode, recovered, trade_proposal, trade_executed,
- *   trade_failed, sell_triggered, rug_warning, heartbeat_summary,
- *   portfolio_daily, rebalance_event
+ *   trade_failed, sell_triggered, rug_warning, signer_low_balance,
+ *   system_health, heartbeat_summary, portfolio_daily, rebalance_event
  *
  * Env vars:
  *   TELEGRAM_CHAT_ID      — Supergroup/chat ID for alerts
@@ -47,7 +47,9 @@ const TOPIC_MAP = {
   model_failure: 'TG_TOPIC_ALERTS',
   emergency_mode: 'TG_TOPIC_ALERTS',
   rug_warning: 'TG_TOPIC_ALERTS',
+  signer_low_balance: 'TG_TOPIC_ALERTS',
   recovered: 'TG_TOPIC_SYSTEM',
+  system_health: 'TG_TOPIC_SYSTEM',
   heartbeat_summary: 'TG_TOPIC_SYSTEM',
   portfolio_daily: 'TG_TOPIC_PORTFOLIO',
   rebalance_event: 'TG_TOPIC_PORTFOLIO',
@@ -63,6 +65,8 @@ const EMOJI_MAP = {
   model_failure: '\u26A0\uFE0F',
   emergency_mode: '\u26A0\uFE0F',
   rug_warning: '\uD83D\uDEA8',
+  signer_low_balance: '\u26FD',
+  system_health: '\uD83D\uDCE1',
   heartbeat_summary: '\uD83D\uDCE1',
   portfolio_daily: '\uD83D\uDCB0',
   rebalance_event: '\u2696\uFE0F',
@@ -80,6 +84,8 @@ const TYPE_LABELS = {
   emergency_mode: 'EMERGENCY MODE',
   recovered: 'RECOVERED',
   rug_warning: 'RUG WARNING',
+  signer_low_balance: 'LOW SIGNER BALANCE',
+  system_health: 'SYSTEM HEALTH',
   heartbeat_summary: 'HEARTBEAT',
   portfolio_daily: 'PORTFOLIO REPORT',
   rebalance_event: 'REBALANCE',
@@ -220,6 +226,8 @@ const FORMATTERS = {
   emergency_mode: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
   recovered: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
   rug_warning: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
+  signer_low_balance: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
+  system_health: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
   heartbeat_summary: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
   portfolio_daily: (emoji, _type, _agent, message, safeId) => formatPortfolioDaily(emoji, message, safeId),
   rebalance_event: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
