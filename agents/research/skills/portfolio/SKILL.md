@@ -86,10 +86,13 @@ After TP1 → move SL to breakeven. After TP2 → activate 30% trailing stop.
 After TP1 → move SL to breakeven. After TP2 → activate 20% trailing stop.
 
 ### Base Tier (Rebalancing, NOT TP/SL)
+
+Use `maxBasePosition` from `get-chain-config --chain <CHAIN>` as the cap.
+
 | Trigger | Action |
 |---------|--------|
-| Position >30% of chain portfolio | Sell excess to 25% target |
-| Position <15% of chain portfolio | Buy up to 20% target |
+| Position exceeds `maxBasePosition` | Sell excess to `maxBasePosition` − 5% target |
+| Position below `maxBasePosition / 2` | Buy up to `maxBasePosition` − 10% target |
 | Drops -25% from peak | Alert human |
 | Rises +40% from entry | Sell 15% to cash |
 
@@ -228,12 +231,12 @@ Apply regime-adjusted limits using `min(chainRule, regimeLimit)` for maximums an
 
 - In `bearish` or `crisis`: skip base tier rebalance buys entirely
 - In `crisis`: reject all new moonshot positions (max = 0%)
-- Always check that post-trade cash stays above the regime-adjusted minimum, not just the 10% hard floor
+- Always check that post-trade cash stays above the regime-adjusted minimum, not just the chain's `minCashReserve` hard floor
 
 ## Rules
 - NEVER execute trades directly — the Executor agent handles all wallet operations
 - NEVER exceed chain-specific position limits (from `getPortfolioRules(chain)`) — regime may lower these further
-- NEVER let cash drop below regime-adjusted minimum (10% bullish/neutral, 25% bearish, 40% crisis)
+- NEVER let cash drop below regime-adjusted minimum (chain `minCashReserve` bullish/neutral, 25% bearish, 40% crisis)
 - Minimum risk:reward ratio of 3:1
 - Log every decision to daily memory
 - The best trade is sometimes NO trade

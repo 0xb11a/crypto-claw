@@ -123,16 +123,19 @@ Read the target chain's portfolio rules via `get-chain-config --chain <CHAIN>`. 
 - **For base tier:** Simplified risk check — established assets skip contract/social/narrative risk scoring. Focus on portfolio allocation limits and entry timing (reject if price >20% above 7-day average).
 
 ### Step 5: Verdict & Position Sizing
+
+Load the chain's `rules` from `get-chain-config --chain <CHAIN>` and use `maxMoonshotPosition` / `maxConvictionPosition` as the tier cap for that chain.
+
 | Overall Risk | Verdict | Max Position |
 |-------------|---------|-------------|
-| 0-30 | `approve` | Up to 5% |
+| 0-30 | `approve` | Up to chain tier cap |
 | 31-50 | `approve_with_caution` | Max 3% |
 | 51-75 | `approve_with_caution` | Max 1% |
 | 76+ | `reject` | 0% |
 
-Cap `maxPositionPercent` at the regime-adjusted limit for the token's tier (chain default = `getPortfolioRules(chain)` value):
-- Moonshot: `min(maxPositionPercent, regimeMaxMoonshot)` — chain default bullish/neutral, 3% bearish, 0% crisis
-- Conviction: `min(maxPositionPercent, regimeMaxConviction)` — chain default bullish/neutral, 7% bearish, 5% crisis
+Cap `maxPositionPercent` at the regime-adjusted limit for the token's tier:
+- Moonshot: `min(maxPositionPercent, regimeMaxMoonshot)` — chain `maxMoonshotPosition` bullish/neutral, 3% bearish, 0% crisis
+- Conviction: `min(maxPositionPercent, regimeMaxConviction)` — chain `maxConvictionPosition` bullish/neutral, 7% bearish, 5% crisis
 
 ### Step 6: Output
 ```json

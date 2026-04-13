@@ -18,8 +18,8 @@ If `system.log` does not exist or is empty, that means no scripts have logged si
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status tx_failed --limit 20
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status validation_failed --limit 10
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status reverted --limit 10
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-executor-log --limit 10
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-sentinel-log --limit 10
+SAFE_ID="$SAFE_ID" node scripts/db-query.js get-executor-log --limit 20
+SAFE_ID="$SAFE_ID" node scripts/db-query.js get-sentinel-log --limit 20
 ```
 
 ### 2b. Check Signer Balances

@@ -145,22 +145,22 @@ node scripts/db-query.js get-alerts --unprocessed
 
 ## Portfolio Rules (Per-Chain — Never Violate)
 
-Portfolio limits are enforced **per-chain**. Each chain is an independent capital pool — you cannot use Solana cash for Base trades. Read chain-specific rules from `chains.js` via `getPortfolioRules(chain)`.
+Portfolio limits are enforced **per-chain**. Each chain is an independent capital pool — you cannot use Solana cash for Base trades.
 
-**Before sizing any position**, run `get-chain-config --chain <CHAIN>` to retrieve the active rules for that chain. Chains override defaults for position limits, tier availability, and allocation caps. Never assume defaults — always use the values returned by `get-chain-config`.
+**Before sizing any position**, run `get-chain-config --chain <CHAIN>` and use the returned `rules` object as the single source of truth. Never hardcode limits — chains define their own position caps, tier availability, and allocation rules.
 
-Baseline defaults (chains may override any of these):
+The `rules` object contains these fields (all percentages are of the **chain** portfolio):
 
-| Rule | Default |
-|------|---------|
-| Max single moonshot position | 5% of **chain** portfolio |
-| Max single conviction position | 10% of **chain** portfolio |
-| Max single base position | 30% of **chain** portfolio |
-| Max total moonshot allocation | 30% of **chain** portfolio |
-| Min cash/stablecoin reserve | 10% of **chain** portfolio |
-| Max positions in same narrative | 3 per chain |
-| Max total open positions | 15 per chain |
-| Tiers enabled | moonshot, conviction, base |
+| Field | What It Controls |
+|-------|-----------------|
+| `maxMoonshotPosition` | Max single moonshot position % |
+| `maxConvictionPosition` | Max single conviction position % |
+| `maxBasePosition` | Max single base position % |
+| `maxMoonshotAllocation` | Max total moonshot allocation % |
+| `minCashReserve` | Min cash/stablecoin reserve % |
+| `maxSameNarrative` | Max positions in same narrative |
+| `maxOpenPositions` | Max total open positions |
+| `tiersEnabled` | Array of allowed tiers (e.g. `["moonshot", "conviction"]`) |
 
 All portfolio queries must include `--chain`:
 - `node scripts/db-query.js get-portfolio --chain <chain>`
@@ -227,10 +227,13 @@ After TP1 hit → move SL to breakeven (entry price). After TP2 hit → activate
 After TP1 hit → move SL to breakeven (entry price). After TP2 hit → activate 20% trailing stop below max price.
 
 ## Base Tier Rebalancing (No TP/SL)
+
+Use `maxBasePosition` from `get-chain-config --chain <CHAIN>` as the cap. Target = cap minus 5%, floor = cap / 2.
+
 | Trigger | Action |
 |---------|--------|
-| Position exceeds 30% of chain portfolio | Sell excess to target (25%) |
-| Position drops below 15% of chain portfolio | Buy up to target (20%) |
+| Position exceeds `maxBasePosition` | Sell excess to target (`maxBasePosition` − 5%) |
+| Position drops below `maxBasePosition / 2` | Buy up to target (`maxBasePosition` − 10%) |
 | Drops -25% from recent peak | Alert human, no auto-action |
 | Rises +40% from entry | Sell 15% to rebalance to cash |
 

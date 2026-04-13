@@ -74,6 +74,11 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check price_check
 - Log: write alert
 - Notify: inform human (non-urgent)
 
+### Severe Drop Circuit Breaker
+- Price dropped >40% since entry (regardless of stop-loss level)
+- Action: write sell order immediately
+- This is a universal safety net — catches positions with missing or wider stop-losses
+
 ### Rug Warning (Liquidity Drain)
 - Liquidity drops >30% in 1 hour
 - Action: write sell-all order immediately

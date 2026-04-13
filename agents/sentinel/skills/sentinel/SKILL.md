@@ -82,7 +82,7 @@ node scripts/check-wallets.js --positions
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
-| Dev wallet selling ANY amount | HIGH | Write sell order + alert Research |
+| Dev wallet selling ANY amount | HIGH | Write sell-all order + alert Research |
 | Whale selling >3% of supply | HIGH | Write sell-50% order + alert Research |
 | Multiple early buyers exiting | MEDIUM | Alert Research |
 | Smart money accumulating | INFO | Log as positive signal |

@@ -19,9 +19,11 @@ If `system.log` does not exist, that is normal after rotation or container resta
 Query the database for structured error data:
 ```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status tx_failed --limit 20
+SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status validation_failed --limit 10
+SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status reverted --limit 10
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-orders --status failed --limit 20
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-executor-log --limit 10
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-sentinel-log --limit 10
+SAFE_ID="$SAFE_ID" node scripts/db-query.js get-executor-log --limit 20
+SAFE_ID="$SAFE_ID" node scripts/db-query.js get-sentinel-log --limit 20
 ```
 
 ### Step 1b: Check Signer Balances
