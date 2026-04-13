@@ -99,7 +99,7 @@ function formatTradeExecuted(emoji, message, safeId) {
 }
 
 function formatTradeFailed(emoji, message, safeId) {
-  // Split on first ": " to separate "BUY $SYMBOL" from the reason
+  // Split on first ": " to separate "BUY SYMBOL" from the reason
   const colonIdx = message.indexOf(': ');
   if (colonIdx !== -1) {
     const header = message.slice(0, colonIdx);
@@ -110,7 +110,7 @@ function formatTradeFailed(emoji, message, safeId) {
 }
 
 function formatTradeRetry(emoji, message, safeId) {
-  // Messages look like: "BUY $SYMBOL: error — retry 2/3"
+  // Messages look like: "BUY SYMBOL: error — retry 2/3"
   const retryMatch = message.match(/retry (\d+\/\d+)/);
   const retryLabel = retryMatch ? ` ${retryMatch[1]}` : '';
   const colonIdx = message.indexOf(': ');
