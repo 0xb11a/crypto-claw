@@ -8,6 +8,7 @@
  */
 
 import 'dotenv/config';
+import { log } from './log.js';
 import { getChain, getCashToken } from './chains.js';
 import { createPublicClient, http, formatUnits, parseAbi } from 'viem';
 import SafeApiKitModule from '@safe-global/api-kit';
@@ -41,6 +42,7 @@ function parseArgs() {
     }
   }
   if (!config.chain) {
+    log('error', 'check-safe-status', '--chain is required');
     console.error('Error: --chain is required');
     process.exit(1);
   }
@@ -53,16 +55,23 @@ function resolveConfig(chainName) {
   const rpcUrl = process.env[chain.safe.rpcEnv];
 
   if (!safeAddress) {
+    log('error', 'check-safe-status', `${chain.safe.addressEnv} not set`);
     console.error(`Error: ${chain.safe.addressEnv} not set`);
     process.exit(1);
   }
   if (!rpcUrl) {
+    log('error', 'check-safe-status', `${chain.safe.rpcEnv} not set`);
     console.error(`Error: ${chain.safe.rpcEnv} not set`);
     process.exit(1);
   }
 
   const txServiceUrl = SAFE_TX_SERVICE_URLS[chain.chainId];
   if (!txServiceUrl) {
+    log(
+      'error',
+      'check-safe-status',
+      `No Safe Transaction Service URL for chain ${chainName} (chainId: ${chain.chainId})`,
+    );
     console.error(`Error: No Safe Transaction Service URL for chain ${chainName} (chainId: ${chain.chainId})`);
     process.exit(1);
   }
@@ -191,6 +200,7 @@ async function main() {
 
     console.log(JSON.stringify(result, null, 2));
   } catch (err) {
+    log('error', 'check-safe-status', `Failed: ${err.message}`);
     console.error(`Error: ${err.message}`);
     process.exit(1);
   }

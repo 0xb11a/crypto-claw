@@ -11,6 +11,7 @@
 
 import 'dotenv/config';
 import { getDb, close } from './db.js';
+import { log } from './log.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 
@@ -26,13 +27,23 @@ function loadPositions() {
       let takeProfitLevels = [];
       try {
         takeProfitLevels = r.take_profit_levels ? JSON.parse(r.take_profit_levels) : [];
-      } catch {
+      } catch (e) {
+        log(
+          'warn',
+          'check-positions',
+          `Failed to parse take_profit_levels for position ${r.id} (${r.symbol}): ${e.message}`,
+        );
         takeProfitLevels = [];
       }
       let tpLevelsHit = [];
       try {
         tpLevelsHit = r.tp_levels_hit ? JSON.parse(r.tp_levels_hit) : [];
-      } catch {
+      } catch (e) {
+        log(
+          'warn',
+          'check-positions',
+          `Failed to parse tp_levels_hit for position ${r.id} (${r.symbol}): ${e.message}`,
+        );
         tpLevelsHit = [];
       }
       return {
@@ -54,7 +65,8 @@ function loadPositions() {
         status: r.status,
       };
     });
-  } catch {
+  } catch (e) {
+    log('warn', 'check-positions', `Failed to load positions from DB: ${e.message}`);
     return [];
   }
 }
@@ -78,7 +90,8 @@ async function getCurrentPrice(address, chain) {
           priceChange24h: parseFloat(best.priceChange?.h24 ?? 0),
         }
       : null;
-  } catch {
+  } catch (e) {
+    log('warn', 'check-positions', `Price fetch failed for ${address} on ${chain}: ${e.message}`);
     return null;
   }
 }
@@ -105,6 +118,13 @@ async function main() {
   const results = [];
   for (const pos of positions) {
     const current = await getCurrentPrice(pos.address, pos.chain);
+    if (!current) {
+      log(
+        'warn',
+        'check-positions',
+        `No price data for ${pos.symbol} (${pos.address}) on ${pos.chain} — alerts will not fire`,
+      );
+    }
     const currentPrice = current?.price ?? pos.currentPrice;
     const pnlPercent = current ? ((current.price - pos.entryPrice) / pos.entryPrice) * 100 : null;
     const pnlMultiple = current ? current.price / pos.entryPrice : null;

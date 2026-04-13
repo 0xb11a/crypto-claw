@@ -124,7 +124,7 @@ function main() {
     process.exit(0);
   }
 
-  console.error('\n🚨 Pre-commit secret scan found potential secrets:\n');
+  console.error('🚨 Pre-commit secret scan found potential secrets:');
   for (const f of findings) {
     console.error(`  ${f.file}:${f.line}`);
     console.error(`    Rule: ${f.rule} — ${f.description}`);

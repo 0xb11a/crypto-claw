@@ -18,6 +18,7 @@
 
 import 'dotenv/config';
 import { getDb, close } from './db.js';
+import { log } from './log.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 
@@ -87,6 +88,8 @@ async function main() {
   const db = getDb();
   const positions = loadPositions(db);
 
+  log('critical', 'emergency-sentinel', 'Emergency sentinel activated — monitoring positions');
+
   const result = {
     status: 'ok',
     mode: 'emergency',
@@ -110,6 +113,7 @@ async function main() {
     try {
       const data = await fetchTokenData(pos.address);
       if (!data) {
+        log('warn', 'emergency-sentinel', `Position check skipped: ${pos.symbol} — failed to fetch price data`);
         result.errors.push({ symbol: pos.symbol, error: 'Failed to fetch price data' });
         continue;
       }
@@ -122,6 +126,11 @@ async function main() {
       // Check stop-loss
       if (pos.stop_loss && currentPrice <= pos.stop_loss) {
         const orderId = writeSellOrder(db, pos, 'stop_loss', 'immediate');
+        log(
+          'info',
+          'emergency-sentinel',
+          `Sell order created for ${pos.symbol} — stop_loss hit (price: ${currentPrice}, stop: ${pos.stop_loss})`,
+        );
         result.orders.push({
           orderId,
           symbol: pos.symbol,
@@ -139,6 +148,11 @@ async function main() {
       const maxTp = getMaxTakeProfit(pos);
       if (maxTp && currentPrice >= maxTp) {
         const orderId = writeSellOrder(db, pos, 'take_profit', 'normal');
+        log(
+          'info',
+          'emergency-sentinel',
+          `Sell order created for ${pos.symbol} — take_profit hit (price: ${currentPrice}, TP: ${maxTp})`,
+        );
         result.orders.push({
           orderId,
           symbol: pos.symbol,
@@ -155,6 +169,11 @@ async function main() {
       // Check severe loss (>30%)
       if (pnlPercent < -30) {
         const orderId = writeSellOrder(db, pos, 'emergency_severe_loss', 'immediate');
+        log(
+          'info',
+          'emergency-sentinel',
+          `Sell order created for ${pos.symbol} — severe loss ${pnlPercent.toFixed(1)}%`,
+        );
         result.orders.push({
           orderId,
           symbol: pos.symbol,
@@ -176,6 +195,11 @@ async function main() {
 
       if (prevSnapshot && liquidityDropPercent < -50) {
         const orderId = writeSellOrder(db, pos, 'emergency_liquidity_drain', 'immediate');
+        log(
+          'info',
+          'emergency-sentinel',
+          `Sell order created for ${pos.symbol} — liquidity drain ${liquidityDropPercent.toFixed(1)}%`,
+        );
         result.orders.push({
           orderId,
           symbol: pos.symbol,
@@ -191,6 +215,11 @@ async function main() {
 
       if (liquidity < 5000) {
         const orderId = writeSellOrder(db, pos, 'emergency_low_liquidity', 'immediate');
+        log(
+          'info',
+          'emergency-sentinel',
+          `Sell order created for ${pos.symbol} — low liquidity $${liquidity.toFixed(0)}`,
+        );
         result.orders.push({
           orderId,
           symbol: pos.symbol,
@@ -202,12 +231,18 @@ async function main() {
         continue;
       }
     } catch (err) {
+      log('warn', 'emergency-sentinel', `Position check skipped: ${pos.symbol} — ${err.message}`);
       result.errors.push({ symbol: pos.symbol, error: err.message });
     }
 
     await new Promise((r) => setTimeout(r, 200));
   }
 
+  log(
+    'info',
+    'emergency-sentinel',
+    `Emergency cycle complete: ${result.positionsChecked} checked, ${result.ordersWritten} sell orders written, ${result.errors.length} errors`,
+  );
   logToSentinel(db, result);
   console.log(JSON.stringify(result, null, 2));
   close();

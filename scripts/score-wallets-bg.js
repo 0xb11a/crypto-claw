@@ -26,6 +26,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { getDb, close } from './db.js';
 import { harvestBirdeyeLeaderboards } from './harvest.js';
+import { log } from './log.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCORE_WALLET_SCRIPT = resolve(__dirname, 'score-wallet.js');
@@ -67,6 +68,7 @@ async function main() {
       console.error(`[wallet-scorer] Harvest skipped (next in ${minLeft}m)`);
     }
   } catch (err) {
+    log('warn', 'score-wallets-bg', `Harvest failed (non-fatal): ${err.message}`);
     console.error(`[wallet-scorer] Harvest failed (non-fatal): ${err.message}`);
   }
 
@@ -168,6 +170,11 @@ async function main() {
           `,
           ).run(`Unexpected response: ${result.status}`, wallet.address, wallet.chain);
           failed++;
+          log(
+            'warn',
+            'score-wallets-bg',
+            `Unexpected score response for ${wallet.address} (${wallet.chain}): status=${result.status}`,
+          );
         }
       } catch (err) {
         // Script error — mark failed
@@ -181,6 +188,7 @@ async function main() {
         `,
         ).run(errorMsg, wallet.address, wallet.chain);
         failed++;
+        log('warn', 'score-wallets-bg', `Score script failed for ${wallet.address} (${wallet.chain}): ${errorMsg}`);
         console.error(`[wallet-scorer] Error scoring ${wallet.address} (${wallet.chain}): ${errorMsg}`);
       }
 

@@ -29,6 +29,7 @@
  */
 
 import 'dotenv/config';
+import { log } from './log.js';
 import { execFileSync } from 'node:child_process';
 
 function getArg(name) {
@@ -184,6 +185,7 @@ async function main() {
 
     console.log(JSON.stringify({ status: 'sent', type, agent, topic: threadId || 'default' }));
   } catch (err) {
+    log('warn', 'send-alert', `Failed to send via openclaw (type=${type}, agent=${agent}): ${err.message}`);
     console.error(`[send-alert] Failed to send via openclaw: ${err.message}`);
     console.log(JSON.stringify({ status: 'failed', type, agent, error: err.message }));
   }

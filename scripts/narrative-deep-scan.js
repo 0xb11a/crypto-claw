@@ -19,6 +19,7 @@ import 'dotenv/config';
 import { getDb, close } from './db.js';
 import { NARRATIVES, getAllIds } from './narrative-config.js';
 import { getActiveChains, getStablecoins } from './chains.js';
+import { log } from './log.js';
 
 const DEXSCREENER_SEARCH = 'https://api.dexscreener.com/latest/dex/search';
 const API_DELAY = 300; // ms between API calls
@@ -75,7 +76,8 @@ function isStablecoin(address, chain) {
     const stables = getStablecoins(chain);
     const normalized = chain === 'solana' ? address : address.toLowerCase();
     return stables.has(normalized);
-  } catch {
+  } catch (err) {
+    log('warn', 'narrative-deep-scan', `Stablecoin check failed for ${chain}: ${err.message}`);
     return false;
   }
 }
@@ -91,7 +93,8 @@ function getHotNarratives() {
     if (!row?.value) return [];
     const data = JSON.parse(row.value);
     return [...(data.hottest ?? []), ...(data.warming ?? [])];
-  } catch {
+  } catch (err) {
+    log('warn', 'narrative-deep-scan', `Failed to load hot narratives from DB: ${err.message}`);
     return [];
   }
 }
@@ -194,8 +197,8 @@ async function deepScanNarrative(id, config, options) {
         seenAddresses.add(addr);
         allPairs.push(p);
       }
-    } catch {
-      /* skip failed keyword search */
+    } catch (err) {
+      log('warn', 'narrative-deep-scan', `Keyword search failed for "${keyword}": ${err.message}`);
     }
     await delay(API_DELAY);
   }
@@ -338,6 +341,7 @@ async function main() {
 
     console.log(JSON.stringify(output, null, 2));
   } catch (err) {
+    log('error', 'narrative-deep-scan', `Failed: ${err.message}`);
     console.log(
       JSON.stringify({
         status: 'error',

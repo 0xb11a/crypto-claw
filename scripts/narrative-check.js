@@ -8,6 +8,7 @@
  */
 
 import 'dotenv/config';
+import { log } from './log.js';
 import { getDb, close } from './db.js';
 import { NARRATIVES, getAllIds, getKeywordMap } from './narrative-config.js';
 
@@ -146,6 +147,7 @@ async function main() {
   if (config.narrative) {
     const n = NARRATIVES[config.narrative];
     if (!n) {
+      log('warn', 'narrative-check', `Unknown narrative: ${config.narrative}`);
       console.error(`Unknown narrative: ${config.narrative}. Known: ${getAllIds().join(', ')}`);
       process.exit(1);
     }

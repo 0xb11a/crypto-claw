@@ -11,6 +11,7 @@
 import 'dotenv/config';
 import { getDb, close } from './db.js';
 import { isActive } from './chains.js';
+import { log } from './log.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com';
 const DEXSCREENER_DEX = `${DEXSCREENER_BASE}/latest/dex`;
@@ -72,12 +73,12 @@ async function scanTrending(chain) {
         const pairData = await fetchWithCache(url);
         const pairs = Array.isArray(pairData) ? pairData : (pairData.pairs ?? []);
         allPairs.push(...pairs);
-      } catch {
-        /* skip */
+      } catch (err) {
+        log('warn', 'scan-tokens', `Boosted token pair lookup failed for ${chainId}: ${err.message}`);
       }
     }
-  } catch {
-    /* boosts unavailable, continue to search fallback */
+  } catch (err) {
+    log('warn', 'scan-tokens', `Token boosts fetch failed, falling back to search: ${err.message}`);
   }
 
   // 2. Search fallback — catches organic trending tokens not in boosts
@@ -91,8 +92,8 @@ async function scanTrending(chain) {
       for (const p of searchPairs) {
         if (!seen.has(p.pairAddress)) allPairs.push(p);
       }
-    } catch {
-      /* search also failed */
+    } catch (err) {
+      log('warn', 'scan-tokens', `Search fallback failed for query "${q}": ${err.message}`);
     }
   }
 
@@ -119,8 +120,8 @@ async function scanNewest(chain) {
       const pairData = await fetchWithCache(url);
       const pairs = Array.isArray(pairData) ? pairData : (pairData.pairs ?? []);
       allPairs.push(...pairs);
-    } catch {
-      /* skip failed lookups */
+    } catch (err) {
+      log('warn', 'scan-tokens', `Newest token pair lookup failed for ${chainId}: ${err.message}`);
     }
   }
   return { pairs: allPairs };
@@ -142,7 +143,8 @@ function getActiveNarratives() {
       const kw = keywords[name];
       return kw ? `${kw[0]} crypto` : `${name} crypto`;
     });
-  } catch {
+  } catch (err) {
+    log('warn', 'scan-tokens', `Failed to load active narratives from DB, using fallback: ${err.message}`);
     return fallback;
   }
 }
@@ -163,8 +165,8 @@ async function scanEstablished(chain) {
           allPairs.push(p);
         }
       }
-    } catch {
-      /* skip failed narrative searches */
+    } catch (err) {
+      log('warn', 'scan-tokens', `Narrative search failed for "${query}": ${err.message}`);
     }
   }
 

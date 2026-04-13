@@ -14,6 +14,7 @@
 
 import 'dotenv/config';
 import { getDb, close } from './db.js';
+import { log } from './log.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 
@@ -61,7 +62,8 @@ async function getLiquidity(address) {
           symbol: pair.baseToken?.symbol,
         }
       : null;
-  } catch {
+  } catch (e) {
+    log('warn', 'check-liquidity', `Liquidity fetch failed for ${address}: ${e.message}`);
     return null;
   }
 }
@@ -95,7 +97,14 @@ async function main() {
 
   for (const pos of positions) {
     const current = await getLiquidity(pos.address);
-    if (!current) continue;
+    if (!current) {
+      log(
+        'warn',
+        'check-liquidity',
+        `Skipping position ${pos.symbol} (${pos.address}) on ${pos.chain} — liquidity fetch returned null`,
+      );
+      continue;
+    }
 
     const prev = getPreviousSnapshot(db, pos.address, pos.chain);
     const change = prev ? ((current.liquidity - prev.liquidity_usd) / prev.liquidity_usd) * 100 : 0;

@@ -19,6 +19,7 @@ import 'dotenv/config';
 import { getDb, close } from './db.js';
 import { getChain, isEVM, getStablecoins } from './chains.js';
 import { formatUnits } from 'viem';
+import { log } from './log.js';
 
 const DEBANK_BASE = 'https://pro-openapi.debank.com/v1';
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
@@ -34,7 +35,8 @@ async function fetchTokenPrice(address) {
     const mainPair = pairs.sort((a, b) => parseFloat(b.liquidity?.usd ?? 0) - parseFloat(a.liquidity?.usd ?? 0))[0];
     const price = parseFloat(mainPair.priceUsd ?? 0);
     return price > 0 ? price : null;
-  } catch {
+  } catch (err) {
+    log('warn', 'portfolio-load-evm', `Price fetch failed for token ${address}: ${err.message ?? err}`);
     return null;
   }
 }
@@ -57,6 +59,7 @@ function parseArgs() {
     }
   }
   if (!config.chain) {
+    log('error', 'portfolio-load-evm', 'Missing required --chain argument');
     console.error('Error: --chain is required');
     process.exit(1);
   }
@@ -227,7 +230,12 @@ async function main() {
       } catch (safeErr) {
         // Fall through to DeBank
         onchainMap = null;
-        process.stderr.write(`Safe API failed (${safeErr.message}), falling back to DeBank\n`);
+        log(
+          'warn',
+          'portfolio-load-evm',
+          `Safe API failed for chain=${chain} wallet=${walletAddress}: ${safeErr.message}, falling back to DeBank`,
+        );
+        process.stderr.write(`Safe API failed (${safeErr.message}), falling back to DeBank`);
       }
     }
 
@@ -427,10 +435,15 @@ async function main() {
         VALUES (?, ?, ?, 'error', ?)
       `,
       ).run(chain, provider ?? 'unknown', trigger, err.message);
-    } catch {
-      /* best effort */
+    } catch (dbErr) {
+      log(
+        'warn',
+        'portfolio-load-evm',
+        `Failed to record sync error in DB for chain=${chain}: ${dbErr.message ?? dbErr}`,
+      );
     }
 
+    log('error', 'portfolio-load-evm', `Portfolio sync failed for chain=${chain}: ${err.message}`);
     console.log(
       JSON.stringify({
         status: 'error',

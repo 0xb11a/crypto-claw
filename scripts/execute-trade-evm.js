@@ -21,6 +21,7 @@ import SafeModule from '@safe-global/protocol-kit';
 import SafeApiKitModule from '@safe-global/api-kit';
 const Safe = SafeModule.default || SafeModule;
 const SafeApiKit = SafeApiKitModule.default || SafeApiKitModule;
+import { log } from './log.js';
 
 // ============================================================
 // Constants
@@ -181,6 +182,7 @@ async function get1inchSwap(chainId, params, apiKey) {
     } catch {
       /* use raw text */
     }
+    log('error', 'execute-trade-evm', `1inch API error (${res.status}): ${detail}`);
     throw new Error(`1inch API error (${res.status}): ${detail}`);
   }
 }
@@ -300,6 +302,7 @@ async function buildAndSubmitSafeTx(env, transactions, { dryRun = false } = {}) 
     ]
       .filter(Boolean)
       .join(' ');
+    log('error', 'execute-trade-evm', `Safe proposeTransaction failed: ${detail || proposeErr.message}`);
     throw new Error(detail || proposeErr.message);
   }
 
@@ -316,6 +319,7 @@ async function buildAndSubmitSafeTx(env, transactions, { dryRun = false } = {}) 
       };
     } catch (execErr) {
       // Execution failed but tx is proposed
+      log('warn', 'execute-trade-evm', `Safe execution failed, queued: ${execErr.message} [safeHash=${safeTxHash}]`);
       return {
         status: 'queued_in_safe',
         safeHash: safeTxHash,
@@ -346,6 +350,11 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
   const buyAmount = parseFloat(args.amount);
 
   if (usdcBalanceFormatted < buyAmount) {
+    log(
+      'error',
+      'execute-trade-evm',
+      `BUY insufficient USDC: have ${usdcBalanceFormatted}, need ${buyAmount} [chain=${args.chain} symbol=${args.symbol}]`,
+    );
     return {
       status: 'failed',
       error: `Insufficient USDC: have ${usdcBalanceFormatted}, need ${buyAmount}`,
@@ -373,6 +382,11 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
 
   // Validate swap response before building Safe tx
   if (!swap?.tx?.to || !swap?.tx?.data) {
+    log(
+      'error',
+      'execute-trade-evm',
+      `BUY 1inch response missing tx fields [chain=${args.chain} symbol=${args.symbol}] keys=${JSON.stringify(Object.keys(swap?.tx || {}))}`,
+    );
     return {
       status: 'failed',
       error: `1inch swap response missing required tx fields (keys: ${JSON.stringify(Object.keys(swap?.tx || {}))})`,
@@ -437,6 +451,11 @@ async function executeSell(args, env, { dryRun = false } = {}) {
   }
 
   if (sellAmountWei === 0n || tokenBalance < sellAmountWei) {
+    log(
+      'error',
+      'execute-trade-evm',
+      `SELL insufficient token balance: have ${formatUnits(tokenBalance, tokenDecimals)}, need ${args.amount} [chain=${args.chain} symbol=${args.symbol}]`,
+    );
     return {
       status: 'failed',
       error: `Insufficient token balance: have ${formatUnits(tokenBalance, tokenDecimals)}, need ${args.amount}`,
@@ -458,6 +477,11 @@ async function executeSell(args, env, { dryRun = false } = {}) {
 
   // Validate swap response before building Safe tx
   if (!swap?.tx?.to || !swap?.tx?.data) {
+    log(
+      'error',
+      'execute-trade-evm',
+      `SELL 1inch response missing tx fields [chain=${args.chain} symbol=${args.symbol}] keys=${JSON.stringify(Object.keys(swap?.tx || {}))}`,
+    );
     return {
       status: 'failed',
       error: `1inch swap response missing required tx fields (keys: ${JSON.stringify(Object.keys(swap?.tx || {}))})`,
@@ -530,6 +554,11 @@ async function main() {
     // Safety: ensure no private key in output
     const output = JSON.stringify(result, null, 2);
     if (process.env.SAFE_SIGNER_KEY && output.includes(process.env.SAFE_SIGNER_KEY)) {
+      log(
+        'critical',
+        'execute-trade-evm',
+        `FATAL: Private key detected in output [action=${args.action} chain=${args.chain} symbol=${args.symbol}]`,
+      );
       console.error('FATAL: Private key detected in output — aborting');
       process.exit(1);
     }
@@ -543,6 +572,11 @@ async function main() {
       ? errorMsg.replace(process.env.SAFE_SIGNER_KEY, '[REDACTED]')
       : errorMsg;
 
+    log(
+      'critical',
+      'execute-trade-evm',
+      `crash: ${safeMsg} [action=${args.action} chain=${args.chain} symbol=${args.symbol}]`,
+    );
     console.log(
       JSON.stringify(
         {

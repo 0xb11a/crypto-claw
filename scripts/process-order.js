@@ -21,6 +21,7 @@ import { execSync, execFileSync } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { isSolana } from './chains.js';
+import { log } from './log.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPaper = process.env.PAPER_MODE === 'true';
@@ -302,6 +303,11 @@ async function processBuy(db, order) {
   const amount = parseFloat(order.amount);
   if (cash < amount) {
     const reason = `insufficient_cash: have $${cash.toFixed(2)}, need $${amount}`;
+    log(
+      'error',
+      'process-order',
+      `BUY validation_failed: ${reason} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+    );
     const receiptId = writeReceipt(db, order, { status: 'validation_failed', error: reason }, 'buy');
     markFailed(db, order.id, reason);
     sendAlert('trade_failed', `BUY $${order.symbol}: ${reason}`);
@@ -314,6 +320,11 @@ async function processBuy(db, order) {
     const drift = Math.abs(currentPrice - order.entry_price) / order.entry_price;
     if (drift > STALE_PRICE_THRESHOLD) {
       const reason = `stale_price: proposed $${order.entry_price}, current $${currentPrice} (${(drift * 100).toFixed(1)}% drift)`;
+      log(
+        'warn',
+        'process-order',
+        `BUY validation_failed: ${reason} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+      );
       const receiptId = writeReceipt(db, order, { status: 'validation_failed', error: reason }, 'buy');
       markFailed(db, order.id, reason);
       sendAlert('trade_failed', `BUY $${order.symbol}: ${reason}`);
@@ -326,6 +337,11 @@ async function processBuy(db, order) {
   // 3. Validate we have a usable price
   if (!execPrice || execPrice <= 0) {
     const reason = 'no_price: could not determine execution price';
+    log(
+      'error',
+      'process-order',
+      `BUY validation_failed: ${reason} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+    );
     const receiptId = writeReceipt(db, order, { status: 'validation_failed', error: reason }, 'buy');
     markFailed(db, order.id, reason);
     sendAlert('trade_failed', `BUY $${order.symbol}: ${reason}`);
@@ -359,10 +375,26 @@ async function processBuy(db, order) {
       if (retries < MAX_RETRIES) {
         setRetryCount(db, order.id, retries + 1);
         markRetry(db, order.id, errorMsg, retries + 1);
+        log(
+          'warn',
+          'process-order',
+          `BUY transient error: ${errorMsg} — retry ${retries + 1}/${MAX_RETRIES} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+        );
         sendAlert('trade_retry', `BUY $${order.symbol}: ${errorMsg} — retry ${retries + 1}/${MAX_RETRIES}`);
         return { ...result, status: 'retry', error: reason, retry: retries + 1, max_retries: MAX_RETRIES };
       }
+      log(
+        'error',
+        'process-order',
+        `BUY retries exhausted: ${errorMsg} — ${MAX_RETRIES}/${MAX_RETRIES} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+      );
       clearRetryCount(db, order.id);
+    } else {
+      log(
+        'error',
+        'process-order',
+        `BUY tx_failed: ${errorMsg} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+      );
     }
 
     const receiptId = writeReceipt(db, order, { ...tradeResult, status: 'tx_failed' }, 'buy');
@@ -457,6 +489,11 @@ async function processSell(db, order) {
   const position = getPosition(db, order.address, order.chain);
   if (!position) {
     const reason = 'no_position: no matching open position';
+    log(
+      'error',
+      'process-order',
+      `SELL validation_failed: ${reason} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+    );
     const receiptId = writeReceipt(db, order, { status: 'validation_failed', error: reason }, 'sell');
     markFailed(db, order.id, reason);
     sendAlert('trade_failed', `SELL $${order.symbol}: ${reason}`);
@@ -507,10 +544,26 @@ async function processSell(db, order) {
       if (retries < MAX_RETRIES) {
         setRetryCount(db, order.id, retries + 1);
         markRetry(db, order.id, errorMsg, retries + 1);
+        log(
+          'warn',
+          'process-order',
+          `SELL transient error: ${errorMsg} — retry ${retries + 1}/${MAX_RETRIES} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+        );
         sendAlert('trade_retry', `SELL $${order.symbol}: ${errorMsg} — retry ${retries + 1}/${MAX_RETRIES}`);
         return { ...result, status: 'retry', error: reason, retry: retries + 1, max_retries: MAX_RETRIES };
       }
+      log(
+        'error',
+        'process-order',
+        `SELL retries exhausted: ${errorMsg} — ${MAX_RETRIES}/${MAX_RETRIES} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+      );
       clearRetryCount(db, order.id);
+    } else {
+      log(
+        'error',
+        'process-order',
+        `SELL tx_failed: ${errorMsg} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+      );
     }
 
     const receiptId = writeReceipt(db, order, { ...tradeResult, status: 'tx_failed' }, 'sell');
@@ -665,6 +718,7 @@ async function main() {
     console.log(JSON.stringify(result, null, 2));
   } catch (err) {
     // Catch-all: mark failed and report
+    log('critical', 'process-order', `crash: ${err.message} (order: ${orderId})`);
     try {
       markFailed(db, orderId, `crash: ${err.message}`);
     } catch {

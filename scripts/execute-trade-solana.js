@@ -26,6 +26,7 @@ import {
 import { getAssociatedTokenAddress, getAccount, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import * as multisig from '@sqds/multisig';
 import bs58 from 'bs58';
+import { log } from './log.js';
 
 // ============================================================
 // Constants
@@ -191,7 +192,9 @@ async function getJupiterQuote(inputMint, outputMint, amount, slippageBps) {
     } catch {
       /* use raw text */
     }
-    throw new Error(`Jupiter quote error (${res.status}): ${detail}`);
+    const errMsg = `Jupiter quote error (${res.status}): ${detail}`;
+    log('error', 'execute-trade-solana', errMsg);
+    throw new Error(errMsg);
   }
   return res.json();
 }
@@ -217,7 +220,9 @@ async function getJupiterSwapInstructions(quoteResponse, userPublicKey) {
     } catch {
       /* use raw text */
     }
-    throw new Error(`Jupiter swap-instructions error (${res.status}): ${detail}`);
+    const errMsg = `Jupiter swap-instructions error (${res.status}): ${detail}`;
+    log('error', 'execute-trade-solana', errMsg);
+    throw new Error(errMsg);
   }
   return res.json();
 }
@@ -299,9 +304,9 @@ async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false } = {}
     metaTx.sign([signer]);
   } catch (serErr) {
     const totalDataBytes = instructions.reduce((sum, ix) => sum + ix.data.length, 0);
-    throw new Error(
-      `Squads transaction build failed (${instructions.length} instructions, ${totalDataBytes} bytes data): ${serErr.message}`,
-    );
+    const errMsg = `Squads transaction build failed (${instructions.length} instructions, ${totalDataBytes} bytes data): ${serErr.message}`;
+    log('error', 'execute-trade-solana', errMsg);
+    throw new Error(errMsg);
   }
 
   // Dry run: return signed tx data without broadcasting
@@ -362,6 +367,11 @@ async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false } = {}
         squadsTransactionIndex: transactionIndex,
       };
     } catch (execErr) {
+      log(
+        'warn',
+        'execute-trade-solana',
+        `Proposed and approved but execution failed (tx #${transactionIndex}): ${execErr.message}`,
+      );
       return {
         status: 'queued_in_squads',
         txSignature: metaSig,
@@ -393,6 +403,11 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
   const usdcBalanceFormatted = Number(usdcBalance) / 10 ** USDC_DECIMALS;
 
   if (usdcBalanceFormatted < buyAmountUsd) {
+    log(
+      'error',
+      'execute-trade-solana',
+      `Insufficient USDC for ${args.action} ${args.symbol} on ${args.chain}: have ${usdcBalanceFormatted}, need ${buyAmountUsd}`,
+    );
     return {
       status: 'failed',
       error: `Insufficient USDC: have ${usdcBalanceFormatted}, need ${buyAmountUsd}`,
@@ -413,6 +428,11 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
 
   // Validate Jupiter response before deserialization
   if (!swapData?.swapInstruction) {
+    log(
+      'error',
+      'execute-trade-solana',
+      `Jupiter response missing swapInstruction for buy ${args.symbol} on ${args.chain} (keys: ${JSON.stringify(Object.keys(swapData || {}))})`,
+    );
     return {
       status: 'failed',
       error: `Jupiter response missing swapInstruction (keys: ${JSON.stringify(Object.keys(swapData || {}))})`,
@@ -434,6 +454,11 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
       allInstructions.push(deserializeInstruction(swapData.cleanupInstruction));
     }
   } catch (deserErr) {
+    log(
+      'error',
+      'execute-trade-solana',
+      `Failed to deserialize Jupiter instructions for buy ${args.symbol} on ${args.chain}: ${deserErr.message}`,
+    );
     return {
       status: 'failed',
       error: `Failed to deserialize Jupiter instructions: ${deserErr.message}`,
@@ -498,6 +523,11 @@ async function executeSell(args, env, { dryRun = false } = {}) {
 
   // Validate Jupiter response before deserialization
   if (!swapData?.swapInstruction) {
+    log(
+      'error',
+      'execute-trade-solana',
+      `Jupiter response missing swapInstruction for sell ${args.symbol} on ${args.chain} (keys: ${JSON.stringify(Object.keys(swapData || {}))})`,
+    );
     return {
       status: 'failed',
       error: `Jupiter response missing swapInstruction (keys: ${JSON.stringify(Object.keys(swapData || {}))})`,
@@ -519,6 +549,11 @@ async function executeSell(args, env, { dryRun = false } = {}) {
       allInstructions.push(deserializeInstruction(swapData.cleanupInstruction));
     }
   } catch (deserErr) {
+    log(
+      'error',
+      'execute-trade-solana',
+      `Failed to deserialize Jupiter instructions for sell ${args.symbol} on ${args.chain}: ${deserErr.message}`,
+    );
     return {
       status: 'failed',
       error: `Failed to deserialize Jupiter instructions: ${deserErr.message}`,
@@ -575,6 +610,11 @@ async function main() {
     // Safety: ensure no private key in output
     const output = JSON.stringify(result, null, 2);
     if (process.env.SQUADS_SIGNER_KEY && output.includes(process.env.SQUADS_SIGNER_KEY)) {
+      log(
+        'critical',
+        'execute-trade-solana',
+        `Private key detected in output for ${args.action} ${args.symbol} on ${args.chain} — aborting`,
+      );
       console.error('FATAL: Private key detected in output — aborting');
       process.exit(1);
     }
@@ -587,6 +627,7 @@ async function main() {
       ? errorMsg.replace(process.env.SQUADS_SIGNER_KEY, '[REDACTED]')
       : errorMsg;
 
+    log('critical', 'execute-trade-solana', `${args.action} ${args.symbol} on ${args.chain} failed: ${safeMsg}`);
     console.log(
       JSON.stringify(
         {

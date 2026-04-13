@@ -7,6 +7,7 @@
  */
 
 import 'dotenv/config';
+import { log } from './log.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 
@@ -91,6 +92,7 @@ async function main() {
     const result = await getTokenMetrics(config.address, config.chain);
     console.log(JSON.stringify(result, null, 2));
   } catch (err) {
+    log('warn', 'token-metrics', `Failed for ${config.address}: ${err.message}`);
     console.log(
       JSON.stringify({
         status: 'error',

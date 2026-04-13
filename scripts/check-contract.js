@@ -11,6 +11,7 @@
 
 import 'dotenv/config';
 import { getChain, isSolana } from './chains.js';
+import { log } from './log.js';
 
 const GOPLUS_BASE = 'https://api.gopluslabs.io/api/v1';
 
@@ -431,7 +432,12 @@ async function runChangesMode(config) {
           : 0,
         lastChecked: new Date().toISOString(),
       };
-    } catch {
+    } catch (err) {
+      log(
+        'warn',
+        'check-contract',
+        `Changes check failed for ${target.symbol ?? target.address} (${target.chain}): ${err.message}`,
+      );
       continue;
     }
 

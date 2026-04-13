@@ -17,12 +17,14 @@
  */
 
 import { getDb, close } from './db.js';
+import { log } from './log.js';
 
 const args = process.argv.slice(2);
 const agentIdx = args.indexOf('--agent');
 const agent = agentIdx !== -1 && agentIdx + 1 < args.length ? args[agentIdx + 1] : null;
 
 if (!agent || !['executor', 'sentinel'].includes(agent)) {
+  log('error', 'heartbeat-check', `Invalid agent argument: ${agent}`);
   console.error(JSON.stringify({ error: 'Usage: heartbeat-check.js --agent executor|sentinel' }));
   process.exit(1);
 }
@@ -74,6 +76,7 @@ try {
 
   close();
 } catch (e) {
+  log('error', 'heartbeat-check', `DB check failed for ${agent}: ${e.message}`);
   console.error(JSON.stringify({ error: e.message }));
   process.exit(1);
 }

@@ -19,6 +19,7 @@ import { getChain, isSolana, getStablecoins } from './chains.js';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import * as multisig from '@sqds/multisig';
+import { log } from './log.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 
@@ -40,6 +41,7 @@ function parseArgs() {
     }
   }
   if (!config.chain) {
+    log('error', 'portfolio-load-solana', 'Missing required --chain argument');
     console.error('Error: --chain is required');
     process.exit(1);
   }
@@ -81,7 +83,8 @@ async function fetchTokenPrice(address) {
     const mainPair = pairs.sort((a, b) => parseFloat(b.liquidity?.usd ?? 0) - parseFloat(a.liquidity?.usd ?? 0))[0];
     const price = parseFloat(mainPair.priceUsd ?? 0);
     return price > 0 ? price : null;
-  } catch {
+  } catch (err) {
+    log('warn', 'portfolio-load-solana', `Price fetch failed for token ${address}: ${err.message ?? err}`);
     return null;
   }
 }
@@ -286,7 +289,12 @@ async function main() {
         gasBalance = result.gasBalance;
         provider = 'helius';
       } catch (heliusErr) {
-        process.stderr.write(`Helius API failed (${heliusErr.message}), falling back to RPC\n`);
+        log(
+          'warn',
+          'portfolio-load-solana',
+          `Helius API failed for chain=${chain} vault=${vaultEnv.vaultPda.toString()}: ${heliusErr.message}, falling back to RPC`,
+        );
+        process.stderr.write(`Helius API failed (${heliusErr.message}), falling back to RPC`);
         onchainMap = null;
       }
     }
@@ -466,10 +474,15 @@ async function main() {
         VALUES (?, ?, ?, 'error', ?)
       `,
       ).run(chain, provider, trigger, err.message);
-    } catch {
-      /* best effort */
+    } catch (dbErr) {
+      log(
+        'warn',
+        'portfolio-load-solana',
+        `Failed to record sync error in DB for chain=${chain}: ${dbErr.message ?? dbErr}`,
+      );
     }
 
+    log('error', 'portfolio-load-solana', `Portfolio sync failed for chain=${chain}: ${err.message}`);
     console.log(
       JSON.stringify({
         status: 'error',

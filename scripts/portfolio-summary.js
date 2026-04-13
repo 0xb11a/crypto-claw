@@ -14,6 +14,7 @@
 import 'dotenv/config';
 import { getDb, close } from './db.js';
 import { getAllChains, getPortfolioRules } from './chains.js';
+import { log } from './log.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 
@@ -69,7 +70,8 @@ function loadPortfolio(chain) {
       );
     }
     return { positions, cash, totalDeposited };
-  } catch {
+  } catch (err) {
+    log('error', 'portfolio-summary', `DB load failed: ${err.message}`);
     return { positions: [], cash: 0, totalDeposited: 0 };
   }
 }
@@ -158,17 +160,23 @@ async function main() {
     cash: totalValue > 0 ? parseFloat(((allocation.cash / totalValue) * 100).toFixed(1)) : 0,
   };
 
-  // Check allocation health — use per-chain rules if chain specified
+  // Check allocation health per chain using chain-specific rules
   const allocationAlerts = [];
-  if (chain) {
-    const rules = getPortfolioRules(chain);
-    if (allocationPercent.moonshot > rules.maxMoonshotAllocation)
-      allocationAlerts.push(`Moonshot allocation exceeds ${rules.maxMoonshotAllocation}% target`);
+  const chainsToCheck = chain ? [chain] : [...new Set(positionDetails.map((p) => p.chain))];
+  for (const c of chainsToCheck) {
+    const rules = getPortfolioRules(c);
+    const chainPositions = positionDetails.filter((p) => p.chain === c);
+    const chainValue = chainPositions.reduce((sum, p) => sum + p.value, 0);
+    const chainMoonshot = chainPositions.filter((p) => p.tier === 'moonshot').reduce((sum, p) => sum + p.value, 0);
+    if (chainValue > 0) {
+      const moonshotPct = (chainMoonshot / chainValue) * 100;
+      if (moonshotPct > rules.maxMoonshotAllocation)
+        allocationAlerts.push(
+          `[${c}] Moonshot allocation ${moonshotPct.toFixed(1)}% exceeds ${rules.maxMoonshotAllocation}% target`,
+        );
+    }
     if (allocationPercent.cash < rules.minCashReserve)
-      allocationAlerts.push(`Cash reserve below ${rules.minCashReserve}% minimum`);
-  } else {
-    if (allocationPercent.moonshot > 20) allocationAlerts.push('Moonshot allocation exceeds 20% target');
-    if (allocationPercent.cash < 10) allocationAlerts.push('Cash reserve below 10% minimum');
+      allocationAlerts.push(`[${c}] Cash reserve below ${rules.minCashReserve}% minimum`);
   }
 
   const result = {

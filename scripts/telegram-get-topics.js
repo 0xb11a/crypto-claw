@@ -11,11 +11,13 @@
  */
 
 import 'dotenv/config';
+import { log } from './log.js';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 if (!BOT_TOKEN || !CHAT_ID) {
+  log('error', 'telegram-get-topics', 'TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set');
   console.error('Error: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set');
   process.exit(1);
 }
@@ -39,6 +41,7 @@ async function main() {
   const chat = await callApi('getChat', { chat_id: CHAT_ID });
 
   if (!chat.is_forum) {
+    log('error', 'telegram-get-topics', `Chat "${chat.title}" is not a forum (topics not enabled)`);
     console.error(`Error: Chat "${chat.title}" is not a forum (topics not enabled)`);
     console.error('Enable topics: Group Settings → Topics → Toggle on');
     process.exit(1);
@@ -118,6 +121,7 @@ async function main() {
 }
 
 main().catch((err) => {
+  log('error', 'telegram-get-topics', `Failed: ${err.message}`);
   console.error(`Error: ${err.message}`);
   process.exit(1);
 });

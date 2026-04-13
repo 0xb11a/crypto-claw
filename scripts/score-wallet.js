@@ -22,6 +22,7 @@ import 'dotenv/config';
 import { getDb, close } from './db.js';
 import { harvestWallets } from './harvest.js';
 import { getChain } from './chains.js';
+import { log } from './log.js';
 
 // ============================================================
 // CLI args
@@ -67,7 +68,8 @@ async function fetchBirdeyeTraderRank(address, chain) {
   let birdeyeChain;
   try {
     birdeyeChain = getChain(chain).birdeye;
-  } catch {
+  } catch (err) {
+    log('warn', 'score-wallet', `Birdeye trader rank: unsupported chain ${chain}: ${err.message}`);
     return null;
   }
   if (!birdeyeChain) return null;
@@ -120,7 +122,8 @@ async function fetchBirdeyeTraderRank(address, chain) {
       topPnl: data.data.items[0]?.pnl ?? 0,
       walletsHarvested,
     };
-  } catch {
+  } catch (err) {
+    log('warn', 'score-wallet', `Birdeye trader rank API failed for ${address} (${chain}): ${err.message}`);
     return null;
   }
 }
@@ -136,7 +139,8 @@ async function fetchBirdeyeTokenTraderStats(address, chain, tokenAddress) {
   let birdeyeChain;
   try {
     birdeyeChain = getChain(chain).birdeye;
-  } catch {
+  } catch (err) {
+    log('warn', 'score-wallet', `Birdeye token trader stats: unsupported chain ${chain}: ${err.message}`);
     return null;
   }
   if (!birdeyeChain) return null;
@@ -179,7 +183,8 @@ async function fetchBirdeyeTokenTraderStats(address, chain, tokenAddress) {
     }
 
     return { isTopTrader: false, walletsHarvested };
-  } catch {
+  } catch (err) {
+    log('warn', 'score-wallet', `Birdeye token trader stats API failed for ${address} (${chain}): ${err.message}`);
     return null;
   }
 }
@@ -195,7 +200,8 @@ async function _fetchBirdeyeWalletSwaps(address, chain, tokenAddress) {
   let birdeyeChain;
   try {
     birdeyeChain = getChain(chain).birdeye;
-  } catch {
+  } catch (err) {
+    log('warn', 'score-wallet', `Birdeye wallet swaps: unsupported chain ${chain}: ${err.message}`);
     return null;
   }
   if (!birdeyeChain) return null;
@@ -243,7 +249,8 @@ async function _fetchBirdeyeWalletSwaps(address, chain, tokenAddress) {
       totalSellVol,
       netFlow: totalBuyVol - totalSellVol,
     };
-  } catch {
+  } catch (err) {
+    log('warn', 'score-wallet', `Birdeye wallet swaps API failed for ${address} (${chain}): ${err.message}`);
     return null;
   }
 }
@@ -285,7 +292,8 @@ async function fetchZerionPnl(address, chain) {
       totalInvested: costBasis > 0 ? costBasis : (pnl.total_invested ?? 0),
       relativeRealizedGain: pnl.relative_realized_gain_percentage ?? null,
     };
-  } catch {
+  } catch (err) {
+    log('warn', 'score-wallet', `Zerion PnL API failed for ${address} (${chain}): ${err.message}`);
     return null;
   }
 }

@@ -24,6 +24,7 @@ import { execSync } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { isSolana } from './chains.js';
+import { log } from './log.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPaper = process.env.PAPER_MODE === 'true';
@@ -181,6 +182,8 @@ async function main() {
   const db = getDb();
   const pendingSells = getPendingSells(db);
 
+  log('critical', 'emergency-executor', 'Emergency executor activated — processing sell orders only');
+
   const result = {
     status: 'ok',
     mode: 'emergency',
@@ -205,6 +208,7 @@ async function main() {
     try {
       const position = getPosition(db, order.address, order.chain);
       if (!position) {
+        log('warn', 'emergency-executor', `No matching position for sell order ${order.id}`);
         result.errors.push({ orderId: order.id, symbol: order.symbol, error: 'No matching open position' });
         result.sellsFailed++;
         continue;
@@ -218,6 +222,11 @@ async function main() {
       } else {
         tradeResult = executeTradeLive(order);
         if (tradeResult.status === 'failed') {
+          log(
+            'error',
+            'emergency-executor',
+            `SELL failed: ${tradeResult.error || 'Trade failed'} (order: ${order.id}, symbol: ${order.symbol})`,
+          );
           result.errors.push({ orderId: order.id, symbol: order.symbol, error: tradeResult.error || 'Trade failed' });
           result.sellsFailed++;
           continue;
@@ -226,6 +235,7 @@ async function main() {
       }
 
       markOrderExecuted(db, order.id);
+      log('info', 'emergency-executor', `SELL executed: ${order.id} (symbol: ${order.symbol})`);
       result.sellsProcessed++;
       result.results.push({
         orderId: order.id,
@@ -235,11 +245,17 @@ async function main() {
         ...tradeResult,
       });
     } catch (err) {
+      log('error', 'emergency-executor', `SELL failed: ${err.message} (order: ${order.id}, symbol: ${order.symbol})`);
       result.errors.push({ orderId: order.id, symbol: order.symbol, error: err.message });
       result.sellsFailed++;
     }
   }
 
+  log(
+    'info',
+    'emergency-executor',
+    `Emergency cycle complete: ${result.sellsProcessed} executed, ${result.sellsFailed} failed`,
+  );
   logToExecutor(db, result);
   console.log(JSON.stringify(result, null, 2));
   close();

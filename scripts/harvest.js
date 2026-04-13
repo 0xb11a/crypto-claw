@@ -13,6 +13,7 @@
 
 import { getDb } from './db.js';
 import { getActiveChains, getChain } from './chains.js';
+import { log } from './log.js';
 
 // ============================================================
 // Core harvest — propose wallets from API results
@@ -35,7 +36,8 @@ export function harvestWallets(walletAddresses, chain, labelFn, source, excludeA
       }
     });
     insertMany(walletAddresses);
-  } catch {
+  } catch (err) {
+    log('warn', 'harvest', `Wallet harvest failed for ${chain} (source=${source}): ${err.message}`);
     // Non-fatal — harvesting is best-effort
   }
   return harvested;
@@ -57,6 +59,7 @@ async function fetchWithRetry(url, headers, label) {
 
     if (res.status === 429 && attempt < MAX_RETRIES) {
       const delay = RETRY_BASE_MS * Math.pow(2, attempt);
+      log('warn', 'harvest', `${label}: HTTP 429, retry in ${delay / 1000}s (attempt ${attempt + 1}/${MAX_RETRIES})`);
       console.error(`[harvest] ${label}: HTTP 429, retry in ${delay / 1000}s (attempt ${attempt + 1}/${MAX_RETRIES})`);
       await new Promise((r) => setTimeout(r, delay));
       continue;
@@ -66,6 +69,7 @@ async function fetchWithRetry(url, headers, label) {
     if (!res.ok) {
       try {
         const body = await res.text();
+        log('warn', 'harvest', `${label}: HTTP ${res.status} — ${body.slice(0, 200)}`);
         console.error(`[harvest] ${label}: HTTP ${res.status} — ${body.slice(0, 200)}`);
       } catch {
         /* ignore body read errors */
@@ -84,7 +88,8 @@ export async function harvestBirdeyeLeaderboards() {
     .map((name) => {
       try {
         return { name, birdeye: getChain(name).birdeye };
-      } catch {
+      } catch (err) {
+        log('warn', 'harvest', `Chain ${name} has no Birdeye config, skipping: ${err.message}`);
         return null;
       }
     })
@@ -107,6 +112,7 @@ export async function harvestBirdeyeLeaderboards() {
 
       const data = await res.json();
       if (!data.success || !data.data?.items) {
+        log('warn', 'harvest', `Birdeye ${name}: no items in leaderboard response`);
         console.error(`[harvest] Birdeye ${name}: no items in response`);
         chains[name] = 0;
         continue;
@@ -126,6 +132,7 @@ export async function harvestBirdeyeLeaderboards() {
       chains[name] = count;
       totalHarvested += count;
     } catch (err) {
+      log('warn', 'harvest', `Birdeye leaderboard harvest failed for ${name}: ${err.message}`);
       console.error(`[harvest] Birdeye ${name} failed: ${err.message}`);
       chains[name] = 0;
     }

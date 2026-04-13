@@ -8,6 +8,7 @@
 
 import 'dotenv/config';
 import { getChain, isSolana } from './chains.js';
+import { log } from './log.js';
 
 const GOPLUS_BASE = 'https://api.gopluslabs.io/api/v1';
 
@@ -82,7 +83,8 @@ async function fetchHoldersFromSolscan(address) {
   const url = `${chainCfg.solana.solscan.baseUrl}/token/holders?address=${address}&page=1&page_size=40`;
   const res = await fetch(url, { headers: { token: apiKey } });
   if (!res.ok) {
-    process.stderr.write(`Solscan API error: ${res.status}\n`);
+    log('warn', 'holder-distribution', `Solscan API error: ${res.status}`);
+    process.stderr.write(`Solscan API error: ${res.status}`);
     return null;
   }
   const data = await res.json();
@@ -125,7 +127,8 @@ async function main() {
     try {
       holderData = await fetchHoldersFromGoPlus(config.address, config.chain, chainCfg);
     } catch (err) {
-      process.stderr.write(`GoPlus holder fetch failed: ${err.message}\n`);
+      log('warn', 'holder-distribution', `GoPlus holder fetch failed: ${err.message}`);
+      process.stderr.write(`GoPlus holder fetch failed: ${err.message}`);
     }
 
     // 2. If GoPlus returned no holder data and this is Solana, try Solscan
@@ -134,7 +137,8 @@ async function main() {
         holderData = await fetchHoldersFromSolscan(config.address);
         if (holderData) source = 'solscan';
       } catch (err) {
-        process.stderr.write(`Solscan holder fetch failed: ${err.message}\n`);
+        log('warn', 'holder-distribution', `Solscan holder fetch failed: ${err.message}`);
+        process.stderr.write(`Solscan holder fetch failed: ${err.message}`);
       }
     }
 
@@ -186,7 +190,8 @@ async function main() {
         });
         insertMany(proposable);
         close();
-      } catch {
+      } catch (err) {
+        log('warn', 'holder-distribution', `Wallet propose failed: ${err.message}`);
         // Non-fatal — propose is best-effort
       }
     }
@@ -214,6 +219,7 @@ async function main() {
       ),
     );
   } catch (err) {
+    log('error', 'holder-distribution', `Failed: ${err.message}`);
     console.log(
       JSON.stringify({
         status: 'error',

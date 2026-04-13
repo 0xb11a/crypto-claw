@@ -8,6 +8,7 @@
  */
 
 import 'dotenv/config';
+import { log } from './log.js';
 import { getChain, getCashToken } from './chains.js';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { getAssociatedTokenAddress, getAccount } from '@solana/spl-token';
@@ -69,7 +70,8 @@ async function getUsdcBalance(connection, owner) {
     const ata = await getAssociatedTokenAddress(USDC_MINT, owner, true);
     const account = await getAccount(connection, ata);
     return Number(account.amount) / 10 ** USDC_DECIMALS;
-  } catch {
+  } catch (err) {
+    log('warn', 'check-squads-status', `USDC balance fetch failed: ${err.message}`);
     return 0;
   }
 }
@@ -128,7 +130,8 @@ async function getSquadsInfo(env, showPending) {
                 rejected: proposal.rejected?.length ?? 0,
               });
             }
-          } catch {
+          } catch (err) {
+            log('warn', 'check-squads-status', `Proposal ${i} fetch failed: ${err.message}`);
             continue;
           }
         }
@@ -157,6 +160,7 @@ async function main() {
   try {
     env = resolveConfig();
   } catch (err) {
+    log('error', 'check-squads-status', `Config error: ${err.message}`);
     console.log(
       JSON.stringify(
         {
@@ -175,6 +179,7 @@ async function main() {
     const result = await getSquadsInfo(env, args.pending);
     console.log(JSON.stringify(result, null, 2));
   } catch (err) {
+    log('error', 'check-squads-status', `Failed: ${err.message}`);
     console.log(
       JSON.stringify(
         {

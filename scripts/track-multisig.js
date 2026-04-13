@@ -20,6 +20,7 @@ import { execSync, execFileSync } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { isSolana } from './chains.js';
+import { log } from './log.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REMINDER_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
@@ -36,8 +37,8 @@ function sendAlert(type, message) {
       timeout: 10_000,
       cwd: __dirname,
     });
-  } catch {
-    // alerting should never block tracking
+  } catch (err) {
+    log('warn', 'track-multisig', `Alert delivery failed: ${err.message} (type: ${type})`);
   }
 }
 
@@ -50,8 +51,8 @@ function syncPortfolio(chain) {
       timeout: 60_000,
       cwd: __dirname,
     });
-  } catch {
-    // sync failure should never block tracking
+  } catch (err) {
+    log('warn', 'track-multisig', `Portfolio sync failed: ${err.message} (chain: ${chain})`);
   }
 }
 
@@ -91,7 +92,8 @@ function checkSafeTransaction(chain, safeHash) {
       confirmations: tx.confirmations?.length || 0,
       confirmationsRequired: tx.confirmationsRequired || 0,
     };
-  } catch {
+  } catch (err) {
+    log('warn', 'track-multisig', `Safe status check failed: ${err.message} (chain: ${chain}, hash: ${safeHash})`);
     return null;
   }
 }
@@ -127,7 +129,8 @@ function checkSquadsTransaction(txIndex) {
       confirmations: threshold,
       confirmationsRequired: threshold,
     };
-  } catch {
+  } catch (err) {
+    log('warn', 'track-multisig', `Squads status check failed: ${err.message} (txIndex: ${txIndex})`);
     return null;
   }
 }
@@ -242,6 +245,11 @@ function main() {
       if (!position) {
         // Orphaned receipt — position was deleted; mark receipt as reverted
         db.prepare("UPDATE receipts SET status = 'reverted', error = 'orphaned_position' WHERE id = ?").run(receipt.id);
+        log(
+          'error',
+          'track-multisig',
+          `Transaction reverted: orphaned receipt id=${receipt.id} symbol=${receipt.symbol} — position ${receipt.position_id} no longer exists`,
+        );
         counts.failed++;
         continue;
       }
@@ -250,6 +258,11 @@ function main() {
       let txResult;
       if (receipt.status === 'queued_in_safe') {
         if (!receipt.safe_tx_hash) {
+          log(
+            'warn',
+            'track-multisig',
+            `Missing safe_tx_hash for receipt id=${receipt.id} symbol=${receipt.symbol} — skipping`,
+          );
           counts.failed++;
           continue;
         }
@@ -258,6 +271,11 @@ function main() {
         // queued_in_squads — use safe_nonce field as transaction index (or parse from notes)
         const txIndex = receipt.safe_nonce;
         if (!txIndex) {
+          log(
+            'warn',
+            'track-multisig',
+            `Missing txIndex (safe_nonce) for Squads receipt id=${receipt.id} symbol=${receipt.symbol} — skipping`,
+          );
           counts.failed++;
           continue;
         }
@@ -272,10 +290,20 @@ function main() {
 
       if (txResult.executed && txResult.successful) {
         handleConfirmed(db, receipt, position, txResult);
+        log(
+          'info',
+          'track-multisig',
+          `Transaction confirmed: ${receipt.action?.toUpperCase()} $${receipt.symbol} receipt=${receipt.id} txHash=${txResult.txHash || 'n/a'}`,
+        );
         counts.confirmed++;
       } else if (txResult.executed && !txResult.successful) {
         // Executed but reverted on-chain
         handleRejected(db, receipt, position);
+        log(
+          'error',
+          'track-multisig',
+          `Transaction reverted: ${receipt.action?.toUpperCase()} $${receipt.symbol} receipt=${receipt.id} — failed on-chain`,
+        );
         counts.failed++;
       } else {
         // Still pending

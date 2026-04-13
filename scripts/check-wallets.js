@@ -15,6 +15,7 @@
 import 'dotenv/config';
 import { getDb, close } from './db.js';
 import { getChain, isEVM, isSolana, getAllChains } from './chains.js';
+import { log } from './log.js';
 
 // ============================================================
 // CLI args
@@ -47,7 +48,8 @@ async function checkEvmWallet(address, chain) {
   let chainCfg;
   try {
     chainCfg = getChain(chain);
-  } catch {
+  } catch (e) {
+    log('warn', 'check-wallets', `getChain failed for ${chain} (wallet ${address}): ${e.message}`);
     return { address, chain, status: 'unsupported_chain' };
   }
   if (!chainCfg.explorer) return { address, chain, status: 'unsupported_chain' };
@@ -90,6 +92,7 @@ async function checkEvmWallet(address, chain) {
       lastActivity: txs[0]?.timestamp ?? null,
     };
   } catch (err) {
+    log('warn', 'check-wallets', `EVM wallet check failed for ${address} on ${chain}: ${err.message}`);
     return { address, chain, status: 'error', error: err.message };
   }
 }
@@ -139,6 +142,7 @@ async function checkSolanaViaSolscan(address, apiKey) {
       lastActivity: txs[0]?.timestamp ?? null,
     };
   } catch (err) {
+    log('warn', 'check-wallets', `Solscan wallet check failed for ${address}: ${err.message}`);
     return { address, chain: 'solana', status: 'error', error: err.message };
   }
 }
@@ -169,6 +173,7 @@ async function checkSolanaViaHelius(address, apiKey) {
       lastActivity: txs[0]?.timestamp ?? null,
     };
   } catch (err) {
+    log('warn', 'check-wallets', `Helius wallet check failed for ${address}: ${err.message}`);
     return { address, chain: 'solana', status: 'error', error: err.message };
   }
 }
