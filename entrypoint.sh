@@ -548,7 +548,7 @@ ensure_cron_jobs() {
   # Wait for gateway to be fully ready (health + cron subsystem loaded)
   GATEWAY_READY=false
   for i in $(seq 1 60); do
-    if timeout 5 openclaw gateway health > /dev/null 2>&1; then
+    if timeout -k 3 5 openclaw gateway health > /dev/null 2>&1; then
       echo "[cron-setup] Gateway healthy after ${i}s"
       # Extra wait for cron subsystem to load existing jobs from disk
       sleep 5
@@ -570,11 +570,29 @@ ensure_cron_jobs() {
   # Note: no early return — always proceed to force-recreate research-cycle
   # with explicit --model flag and clean up any legacy jobs
 
+  # Extract job id by name from $EXISTING JSON
+  get_job_id() {
+    echo "$EXISTING" | grep -B5 "\"name\".*\"$1\"" | grep '"id"' | head -1 | sed 's/.*"id": *"\([a-f0-9-]*\)".*/\1/'
+  }
+
+  # Remove a cron job by name (looks up id from $EXISTING)
+  remove_by_name() {
+    local name="$1"
+    local id
+    id=$(get_job_id "$name")
+    if [ -n "$id" ]; then
+      echo "[cron-setup] Removing $name (id: $id)..."
+      timeout -k 5 15 openclaw cron rm "$id" --json 2>/dev/null && \
+        echo "[cron-setup] Removed $name" || \
+        echo "[cron-setup] Failed to remove $name"
+    fi
+  }
+
   add_if_missing() {
     local name="$1"; shift
     if ! echo "$EXISTING" | grep -q "\"name\".*\"$name\""; then
       echo "[cron-setup] Adding $name..."
-      timeout 30 openclaw cron add --name "$name" "$@" && \
+      timeout -k 5 30 openclaw cron add --name "$name" "$@" && \
         echo "[cron-setup] Created $name" || \
         echo "[cron-setup] Failed to create $name"
     else
@@ -585,30 +603,24 @@ ensure_cron_jobs() {
   # Remove legacy cron jobs (replaced by background loops)
   for legacy in executor-poll sentinel-watch observer-loop; do
     if echo "$EXISTING" | grep -q "\"name\".*\"$legacy\""; then
-      echo "[cron-setup] Removing legacy $legacy..."
-      timeout 15 openclaw cron delete --name "$legacy" 2>/dev/null
-      echo "[cron-setup] Removed legacy $legacy cron job"
+      remove_by_name "$legacy"
     fi
   done
 
   # Force recreate research-cycle if it exists (picks up --model flag)
   if echo "$EXISTING" | grep -q '"name".*"research-cycle"'; then
-    echo "[cron-setup] Deleting research-cycle for recreate..."
-    timeout 15 openclaw cron delete --name "research-cycle" 2>/dev/null
-    echo "[cron-setup] Deleted research-cycle"
+    remove_by_name "research-cycle"
   fi
 
-  # --- Observer cycle: force recreate if exists (before refreshing EXISTING) ---
+  # Force recreate observer-cycle if it exists (picks up --model flag)
   if [ -n "${OBSERVER_ISSUES_REPO:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then
     if echo "$EXISTING" | grep -q '"name".*"observer-cycle"'; then
-      echo "[cron-setup] Deleting observer-cycle for recreate..."
-      timeout 15 openclaw cron delete --name "observer-cycle" 2>/dev/null
-      echo "[cron-setup] Deleted observer-cycle"
+      remove_by_name "observer-cycle"
     fi
   fi
 
   # Refresh EXISTING after all deletes so add_if_missing sees current state
-  EXISTING=$(timeout 10 openclaw cron list --json 2>/dev/null || echo '{"jobs":[]}')
+  EXISTING=$(timeout -k 3 10 openclaw cron list --json 2>/dev/null || echo '{"jobs":[]}')
   echo "[cron-setup] After cleanup: $(echo "$EXISTING" | grep -c '"name"' || echo 0) job(s)"
 
   # Deliver research cycle output to Research topic if configured, otherwise suppress
