@@ -1,8 +1,11 @@
 FROM ghcr.io/openclaw/openclaw:latest
 
-# Install jq (agents use it to parse JSON script output)
+# Install jq (agents use it to parse JSON script output) and gh (GitHub CLI for Observer agent)
 USER root
-RUN apt-get update -qq && apt-get install -y -qq jq > /dev/null 2>&1 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -qq && apt-get install -y -qq jq > /dev/null 2>&1 && rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list && \
+    apt-get update -qq && apt-get install -y -qq gh > /dev/null 2>&1 && rm -rf /var/lib/apt/lists/*
 
 # Run as non-root for security
 USER 1000:1000
@@ -32,7 +35,10 @@ RUN mkdir -p \
   ${OPENCLAW_HOME}/agents/sentinel/agent \
   ${OPENCLAW_HOME}/agents/executor/workspace/memory \
   ${OPENCLAW_HOME}/agents/executor/workspace/skills \
-  ${OPENCLAW_HOME}/agents/executor/agent
+  ${OPENCLAW_HOME}/agents/executor/agent \
+  ${OPENCLAW_HOME}/agents/observer/workspace/memory \
+  ${OPENCLAW_HOME}/agents/observer/workspace/skills \
+  ${OPENCLAW_HOME}/agents/observer/agent
 
 # Build workspace and agent templates (replaces setup.sh --docker)
 RUN chmod +x /home/openclaw/crypto-claw/build-templates.sh && \
