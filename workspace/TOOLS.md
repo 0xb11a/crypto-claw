@@ -105,7 +105,7 @@ node scripts/db-query.js get-order --id trade-001
 node scripts/db-query.js get-order-history --limit 20
 node scripts/db-query.js get-order-history --status rejected
 
-# Write a buy order (status auto-set: pending in real mode, approved in paper mode)
+# Write a buy order (status auto-set: pending in real mode, approved if PAPER_MODE=true or AUTO_APPROVE_BUY=true)
 node scripts/db-query.js add-order --json '{
   "id": "trade-001",
   "action": "buy",
@@ -683,6 +683,7 @@ node scripts/send-alert.js --type portfolio_daily --agent system --message "Dail
 |----------|---------|---------|
 | `ACTIVE_CHAINS` | (env var) | Comma-separated list of active chains. Controls which chains are scanned and synced. Run `get-chains` for current list. |
 | `PAPER_MODE` | `false` | Enable simulated trading (no real transactions, no on-chain sync) |
+| `AUTO_APPROVE_BUY` | `false` | Auto-approve BUY orders without human confirmation (real mode only, `approved_by: 'auto'`) |
 
 ## API Keys Required (set in environment)
 

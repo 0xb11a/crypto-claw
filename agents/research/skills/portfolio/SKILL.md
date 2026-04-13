@@ -28,7 +28,8 @@ node scripts/db-query.js get-chains
 ```
 Read the outputs. This determines your entire cycle:
 - `PAPER_MODE=true` → use paper commands (`get-paper-portfolio`, `get-paper-cash`, `get-paper-positions`, `get-paper-stats`), auto-approve trades
-- `PAPER_MODE=false` → use real commands, require human approval
+- `PAPER_MODE=false` + `AUTO_APPROVE_BUY=true` → use real commands, buys auto-approved (`approved_by: 'auto'`)
+- `PAPER_MODE=false` (default) → use real commands, require human approval
 Always include `--chain <chain>` on portfolio and cash commands. Reference this output throughout.
 
 ## When to Use
@@ -168,7 +169,8 @@ Reply APPROVE or REJECT
 
 After formatting the trade proposal, write the order to the database. The `add-order` command automatically sets the correct status:
 - **Paper mode** (`PAPER_MODE=true`): auto-approved (`status: 'approved'`, `approved_by: 'paper_mode'`)
-- **Real mode**: pending human approval (`status: 'pending'`)
+- **Real mode** + `AUTO_APPROVE_BUY=true`: auto-approved (`status: 'approved'`, `approved_by: 'auto'`)
+- **Real mode** (default): pending human approval (`status: 'pending'`)
 
 ```bash
 node scripts/db-query.js add-order --json '{
@@ -189,9 +191,12 @@ node scripts/db-query.js add-order --json '{
 }'
 ```
 
-**After writing a pending order (real mode), notify the human:**
+**After writing an order, always notify the human:**
 ```bash
+# If pending (manual approval needed):
 node scripts/send-alert.js --type trade_proposal --agent research --message "BUY $TOKEN on <CHAIN> — $500 (4% moonshot) — score: 76. Reply to approve or reject."
+# If auto-approved (AUTO_APPROVE_BUY=true):
+node scripts/send-alert.js --type trade_proposal --agent research --message "BUY $TOKEN on <CHAIN> — $500 (4% moonshot) — score: 76. [AUTO-APPROVED] Executor will process on next cycle."
 ```
 
 The human approves or rejects via chat (orders skill). The Executor agent polls for approved orders every minute, validates independently, builds the Safe wallet transaction, signs, and submits. You do NOT execute trades directly — the Executor handles all wallet operations.

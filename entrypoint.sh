@@ -29,6 +29,7 @@ EXECUTOR_MODEL_FALLBACK="${EXECUTOR_MODEL_FALLBACK:-}"
 EMERGENCY_AFTER="${EMERGENCY_AFTER:-3}"
 PAPER_MODE="${PAPER_MODE:-false}"
 PAPER_STARTING_BALANCE="${PAPER_STARTING_BALANCE:-10000}"
+AUTO_APPROVE_BUY="${AUTO_APPROVE_BUY:-false}"
 
 RESEARCH_WS="$OPENCLAW_HOME/agents/research/workspace"
 SENTINEL_WS="$OPENCLAW_HOME/agents/sentinel/workspace"
@@ -41,6 +42,9 @@ echo "[entrypoint] CryptoClaw starting (Safe ID: $SAFE_ID)"
 
 if [ "$PAPER_MODE" = "true" ]; then
   echo "[entrypoint] *** PAPER MODE — no real transactions ***"
+fi
+if [ "$AUTO_APPROVE_BUY" = "true" ] && [ "$PAPER_MODE" != "true" ]; then
+  echo "[entrypoint] *** AUTO-APPROVE BUY enabled — buys will not require human approval ***"
 fi
 
 # ============================================================

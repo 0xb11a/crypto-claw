@@ -234,6 +234,10 @@ Paper mode (`PAPER_MODE=true`) runs the full system autonomously without touchin
 - `PAPER_MODE=true|false` (default: `false`)
 - `PAPER_STARTING_BALANCE=10000` (default: `10000`, simulated USD)
 
+## Auto-Approve BUY
+
+When `AUTO_APPROVE_BUY=true` (default: `false`), BUY orders in real mode skip human approval and go directly to `status='approved'` with `approved_by='auto'`. Telegram alerts still fire so the operator sees what was auto-approved. Has no effect when `PAPER_MODE=true` (buys are already auto-approved by `paper_mode`).
+
 ### Paper-Specific Tables
 - `paper_receipts` — what would have been executed (buy/sell records with P&L)
 - `paper_positions` — simulated portfolio positions

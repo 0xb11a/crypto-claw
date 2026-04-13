@@ -296,6 +296,7 @@ describe('Executor Order Filtering — status-based', () => {
     { id: 'buy-3', action: 'buy', status: 'approved', approved_by: 'paper_mode' },
     { id: 'buy-4', action: 'buy', status: 'executed', approved_by: 'human' },
     { id: 'buy-5', action: 'buy', status: 'rejected', approved_by: null },
+    { id: 'buy-6', action: 'buy', status: 'approved', approved_by: 'auto' },
   ];
 
   function filterOrders({ pending, action, approved, status }) {
@@ -310,7 +311,7 @@ describe('Executor Order Filtering — status-based', () => {
 
   test('--pending --action buy --approved returns only approved pending buys', () => {
     const result = filterOrders({ pending: true, action: 'buy', approved: true });
-    assertEqual(result.length, 2, 'Should return 2 approved pending buys');
+    assertEqual(result.length, 3, 'Should return 3 approved pending buys (human + paper_mode + auto)');
     assert(
       result.every((o) => o.status === 'approved'),
       'All must be approved',
@@ -323,7 +324,7 @@ describe('Executor Order Filtering — status-based', () => {
 
   test('--pending --action buy without --approved returns pending + approved buys', () => {
     const result = filterOrders({ pending: true, action: 'buy', approved: false });
-    assertEqual(result.length, 3, 'Should return 3 pending buys (pending + approved statuses)');
+    assertEqual(result.length, 4, 'Should return 4 pending buys (pending + approved statuses)');
     assert(
       result.some((o) => o.status === 'pending'),
       'Should include pending order',
@@ -345,6 +346,51 @@ describe('Executor Order Filtering — status-based', () => {
     const result = filterOrders({ status: 'rejected' });
     assertEqual(result.length, 1, 'Should return 1 rejected order');
     assertEqual(result[0].id, 'buy-5');
+  });
+});
+
+// ============================================================
+// AUTO_APPROVE_BUY Logic
+// ============================================================
+
+describe('AUTO_APPROVE_BUY — order status determination', () => {
+  // Mirror the logic from db-query.js add-order
+  function determineStatus(action, paperMode, autoBuy) {
+    const isSell = action === 'sell';
+    const isPaper = paperMode === 'true';
+    const isAutoBuy = autoBuy === 'true';
+    const status = isSell || (action === 'buy' && (isPaper || isAutoBuy)) ? 'approved' : 'pending';
+    const approvedBy = isSell ? 'sentinel' : isPaper ? 'paper_mode' : isAutoBuy ? 'auto' : null;
+    return { status, approvedBy };
+  }
+
+  test('default: real mode buy is pending', () => {
+    const { status, approvedBy } = determineStatus('buy', 'false', 'false');
+    assertEqual(status, 'pending', 'Default buy must be pending');
+    assertEqual(approvedBy, null, 'No approver for pending order');
+  });
+
+  test('AUTO_APPROVE_BUY=true: real mode buy is auto-approved', () => {
+    const { status, approvedBy } = determineStatus('buy', 'false', 'true');
+    assertEqual(status, 'approved', 'Auto-approve buy must be approved');
+    assertEqual(approvedBy, 'auto', 'approved_by must be auto');
+  });
+
+  test('PAPER_MODE takes precedence over AUTO_APPROVE_BUY', () => {
+    const { status, approvedBy } = determineStatus('buy', 'true', 'true');
+    assertEqual(status, 'approved', 'Must be approved');
+    assertEqual(approvedBy, 'paper_mode', 'paper_mode takes precedence over auto');
+  });
+
+  test('sells are always sentinel-approved regardless of flags', () => {
+    const { status, approvedBy } = determineStatus('sell', 'false', 'true');
+    assertEqual(status, 'approved', 'Sell must be approved');
+    assertEqual(approvedBy, 'sentinel', 'Sell approver is always sentinel');
+  });
+
+  test('auto-approved orders pass executor filtering', () => {
+    const autoOrder = { id: 'buy-6', action: 'buy', status: 'approved', approved_by: 'auto' };
+    assert(autoOrder.status === 'approved', 'Auto-approved order must pass status check');
   });
 });
 

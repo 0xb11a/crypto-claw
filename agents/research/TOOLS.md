@@ -58,7 +58,7 @@ node scripts/db-query.js get-order --id trade-001
 node scripts/db-query.js get-order-history --limit 20
 node scripts/db-query.js get-order-history --status rejected
 
-# Write a buy order (status: pending in real mode, approved in paper mode)
+# Write a buy order (status: pending in real mode, approved if PAPER_MODE=true or AUTO_APPROVE_BUY=true)
 node scripts/db-query.js add-order --json '{"id":"trade-001","action":"buy","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","amount":500,"tier":"moonshot","entry_price":0.001,"stop_loss":0.0005,"take_profit_levels":"[{\"level\":1,\"price\":0.002,\"sellPercent\":50}]","reasoning":"Strong AI narrative play"}'
 
 # Write a sell order (auto-approved by sentinel)

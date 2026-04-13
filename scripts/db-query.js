@@ -582,9 +582,10 @@ function handle(db, cmd) {
       }
       const isSell = t.action === 'sell';
       const isPaper = process.env.PAPER_MODE === 'true';
-      // Status: sells auto-approved by sentinel, paper buys auto-approved, real buys pending
-      const status = isSell || (t.action === 'buy' && isPaper) ? 'approved' : 'pending';
-      const approvedBy = isSell ? 'sentinel' : isPaper ? 'paper_mode' : null;
+      const isAutoBuy = process.env.AUTO_APPROVE_BUY === 'true';
+      // Status: sells auto-approved by sentinel, paper/auto buys auto-approved, real buys pending
+      const status = isSell || (t.action === 'buy' && (isPaper || isAutoBuy)) ? 'approved' : 'pending';
+      const approvedBy = isSell ? 'sentinel' : isPaper ? 'paper_mode' : isAutoBuy ? 'auto' : null;
       const now = new Date().toISOString();
       db.prepare(
         `
