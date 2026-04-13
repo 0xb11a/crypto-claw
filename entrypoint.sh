@@ -573,7 +573,8 @@ ensure_cron_jobs() {
   add_if_missing() {
     local name="$1"; shift
     if ! echo "$EXISTING" | grep -q "\"name\".*\"$name\""; then
-      openclaw cron add --name "$name" "$@" && \
+      echo "[cron-setup] Adding $name..."
+      timeout 30 openclaw cron add --name "$name" "$@" && \
         echo "[cron-setup] Created $name" || \
         echo "[cron-setup] Failed to create $name"
     else
@@ -584,16 +585,31 @@ ensure_cron_jobs() {
   # Remove legacy cron jobs (replaced by background loops)
   for legacy in executor-poll sentinel-watch observer-loop; do
     if echo "$EXISTING" | grep -q "\"name\".*\"$legacy\""; then
-      openclaw cron delete --name "$legacy" 2>/dev/null
+      echo "[cron-setup] Removing legacy $legacy..."
+      timeout 15 openclaw cron delete --name "$legacy" 2>/dev/null
       echo "[cron-setup] Removed legacy $legacy cron job"
     fi
   done
 
   # Force recreate research-cycle if it exists (picks up --model flag)
   if echo "$EXISTING" | grep -q '"name".*"research-cycle"'; then
-    openclaw cron delete --name "research-cycle" 2>/dev/null
-    echo "[cron-setup] Recreated research-cycle with explicit model"
+    echo "[cron-setup] Deleting research-cycle for recreate..."
+    timeout 15 openclaw cron delete --name "research-cycle" 2>/dev/null
+    echo "[cron-setup] Deleted research-cycle"
   fi
+
+  # --- Observer cycle: force recreate if exists (before refreshing EXISTING) ---
+  if [ -n "${OBSERVER_ISSUES_REPO:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then
+    if echo "$EXISTING" | grep -q '"name".*"observer-cycle"'; then
+      echo "[cron-setup] Deleting observer-cycle for recreate..."
+      timeout 15 openclaw cron delete --name "observer-cycle" 2>/dev/null
+      echo "[cron-setup] Deleted observer-cycle"
+    fi
+  fi
+
+  # Refresh EXISTING after all deletes so add_if_missing sees current state
+  EXISTING=$(timeout 10 openclaw cron list --json 2>/dev/null || echo '{"jobs":[]}')
+  echo "[cron-setup] After cleanup: $(echo "$EXISTING" | grep -c '"name"' || echo 0) job(s)"
 
   # Deliver research cycle output to Research topic if configured, otherwise suppress
   RESEARCH_CRON_DELIVERY="--no-deliver"
@@ -608,12 +624,6 @@ ensure_cron_jobs() {
 
   # --- Observer cycle (cron-based, replaces background loop) ---
   if [ -n "${OBSERVER_ISSUES_REPO:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then
-    # Force recreate observer-cycle if it exists (picks up --model flag)
-    if echo "$EXISTING" | grep -q '"name".*"observer-cycle"'; then
-      openclaw cron delete --name "observer-cycle" 2>/dev/null
-      echo "[cron-setup] Recreated observer-cycle with explicit model"
-    fi
-
     OBSERVER_CRON_DELIVERY="--no-deliver"
     if [ -n "${TG_TOPIC_SYSTEM:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
       OBSERVER_CRON_DELIVERY="--announce --channel telegram --to ${TELEGRAM_CHAT_ID}:topic:${TG_TOPIC_SYSTEM}"
