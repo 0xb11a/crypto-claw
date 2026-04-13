@@ -544,18 +544,28 @@ echo "[entrypoint] Logging configured"
 #     then creates missing jobs idempotently.
 # ============================================================
 ensure_cron_jobs() {
+  echo "[cron-setup] Waiting for gateway..."
   # Wait for gateway to be fully ready (health + cron subsystem loaded)
+  GATEWAY_READY=false
   for i in $(seq 1 60); do
-    if openclaw gateway health > /dev/null 2>&1; then
+    if timeout 5 openclaw gateway health > /dev/null 2>&1; then
+      echo "[cron-setup] Gateway healthy after ${i}s"
       # Extra wait for cron subsystem to load existing jobs from disk
       sleep 5
+      GATEWAY_READY=true
       break
     fi
     sleep 1
   done
 
+  if [ "$GATEWAY_READY" != "true" ]; then
+    echo "[cron-setup] ERROR: gateway not ready after 60s — skipping cron setup"
+    return 1
+  fi
+
   EXISTING=$(openclaw cron list --json 2>/dev/null || echo '{"jobs":[]}')
   JOB_COUNT=$(echo "$EXISTING" | grep -c '"name"' || true)
+  echo "[cron-setup] Found $JOB_COUNT existing cron job(s)"
 
   # Note: no early return — always proceed to force-recreate research-cycle
   # with explicit --model flag and clean up any legacy jobs
@@ -563,9 +573,11 @@ ensure_cron_jobs() {
   add_if_missing() {
     local name="$1"; shift
     if ! echo "$EXISTING" | grep -q "\"name\".*\"$name\""; then
-      openclaw cron add --name "$name" "$@" 2>/dev/null && \
+      openclaw cron add --name "$name" "$@" && \
         echo "[cron-setup] Created $name" || \
         echo "[cron-setup] Failed to create $name"
+    else
+      echo "[cron-setup] $name already exists, skipping"
     fi
   }
 
