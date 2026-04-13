@@ -53,6 +53,11 @@ function rotateIfNeeded() {
     // File doesn't exist yet — no rotation needed
   }
 
+  // Ensure system.log always exists after rotation (Observer reads this file)
+  try {
+    appendFileSync(LOG_FILE, '', { flag: 'a' });
+  } catch {}
+
   // Clean archives older than RETENTION_DAYS
   try {
     const cutoff = Date.now() - RETENTION_DAYS * 86400000;

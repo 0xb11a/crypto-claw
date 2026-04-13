@@ -12,8 +12,9 @@ Every heartbeat cycle (60 minutes). Activated by the observer-cycle cron job.
 
 Read the system log for recent errors:
 ```bash
-tail -200 /tmp/openclaw/system.log
+tail -200 /tmp/openclaw/system.log 2>/dev/null || echo "(system.log not found — no script has logged yet this cycle)"
 ```
+If `system.log` does not exist, that is normal after rotation or container restart — proceed to database queries.
 
 Query the database for structured error data:
 ```bash

@@ -7,9 +7,11 @@ Every 60 minutes, triggered by the observer-cycle cron job.
 
 ### 1. Read System Logs
 ```bash
-tail -200 /tmp/openclaw/system.log
+tail -200 /tmp/openclaw/system.log 2>/dev/null || echo "(system.log not found — no script has logged yet this cycle)"
 ```
 Look for `[error]` and `[critical]` entries since your last run. Note patterns: same error repeating, correlated failures across scripts.
+
+If `system.log` does not exist or is empty, that means no scripts have logged since the last rotation or container restart — this is normal, not an error. Proceed to database queries.
 
 ### 2. Query Database for Failures
 ```bash
