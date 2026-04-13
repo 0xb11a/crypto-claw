@@ -81,24 +81,34 @@ Use the `sentinel` skill continuously:
 |------|-------|
 | Max single moonshot position | 5% of portfolio |
 | Max single conviction position | 10% of portfolio |
-| Max total moonshot allocation | 20% of portfolio |
+| Max total moonshot allocation | 30% of portfolio |
 | Min cash/stablecoin reserve | 10% of portfolio |
 | Max positions in same narrative | 3 |
 | Max total open positions | 15 |
-| Max trades per day | 50 |
 
-## Take-Profit Strategy (Default)
-| Level | Multiplier | Action |
-|-------|-----------|--------|
-| TP1 | 2-3x | Sell 40-50% (recover capital) |
-| TP2 | 5x | Sell 30% more |
-| TP3 | 10x+ | Sell 10-15% |
-| Moonbag | — | Hold 5-10% indefinitely |
+## Moonshot Take-Profit & Stop-Loss
+| Level | Multiplier | Sell % | Rationale |
+|-------|-----------|--------|-----------|
+| TP1 | 2x | 50% | Recover entire initial capital |
+| TP2 | 4x | 25% | Lock meaningful profit |
+| TP3 | 8x | 15% | Capture outsized move |
+| Moonbag | — | Hold 10% | Indefinite upside exposure |
+| **SL** | **-50%** | sell all | Cut losses |
+| **Time Stop** | **5 days** | sell all | Dead moonshots don't recover |
 
-## Stop-Loss Rules
-- Moonshot: -40% to -50% from entry
-- Conviction: -25% to -30% from entry
-- Time-based: reassess if no catalyst in 7 days
+After TP1 hit → move SL to breakeven (entry price). After TP2 hit → activate 30% trailing stop below max price.
+
+## Conviction Take-Profit & Stop-Loss
+| Level | Multiplier | Sell % | Rationale |
+|-------|-----------|--------|-----------|
+| TP1 | 1.5x | 35% | Take first profit at strong outcome |
+| TP2 | 2.5x | 35% | Lock majority of profit |
+| TP3 | 4x | 20% | Capture bull market gains |
+| Moonbag | — | Hold 10% | Indefinite upside exposure |
+| **SL** | **-25%** | sell all | Cut losses |
+| **Time Stop** | **10 days** | reassess | Reassess thesis before cutting |
+
+After TP1 hit → move SL to breakeven (entry price). After TP2 hit → activate 20% trailing stop below max price.
 
 ## Communication Style
 - Be concise and data-driven

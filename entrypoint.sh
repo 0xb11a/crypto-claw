@@ -23,6 +23,7 @@ GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
 RESEARCH_MODEL="${RESEARCH_MODEL:-}"
 SENTINEL_MODEL="${SENTINEL_MODEL:-}"
 EXECUTOR_MODEL="${EXECUTOR_MODEL:-}"
+OBSERVER_MODEL="${OBSERVER_MODEL:-}"
 SENTINEL_MODEL_FALLBACK="${SENTINEL_MODEL_FALLBACK:-}"
 EXECUTOR_MODEL_FALLBACK="${EXECUTOR_MODEL_FALLBACK:-}"
 EMERGENCY_AFTER="${EMERGENCY_AFTER:-3}"
@@ -32,6 +33,7 @@ PAPER_STARTING_BALANCE="${PAPER_STARTING_BALANCE:-10000}"
 RESEARCH_WS="$OPENCLAW_HOME/agents/research/workspace"
 SENTINEL_WS="$OPENCLAW_HOME/agents/sentinel/workspace"
 EXECUTOR_WS="$OPENCLAW_HOME/agents/executor/workspace"
+OBSERVER_WS="$OPENCLAW_HOME/agents/observer/workspace"
 DB_DIR="$OPENCLAW_HOME/agents/research/data"
 STATE_DIR="$OPENCLAW_HOME/.openclaw"
 
@@ -157,7 +159,7 @@ echo "[entrypoint]   Research workspace ready"
 # ============================================================
 echo "[entrypoint] Populating sentinel/executor workspaces..."
 
-for agent in sentinel executor; do
+for agent in sentinel executor observer; do
   ws="$OPENCLAW_HOME/agents/$agent/workspace"
   tpl="$AGENT_TEMPLATES/$agent"
 
@@ -189,7 +191,7 @@ for agent in sentinel executor; do
   ln -sfn "$NODE_MODULES_SRC" "$ws/scripts/node_modules"
 done
 
-echo "[entrypoint]   Sentinel/executor workspaces ready"
+echo "[entrypoint]   Sentinel/executor/observer workspaces ready"
 
 # ============================================================
 # 3. Set up symlinks (memory dirs, data dirs)
@@ -292,16 +294,22 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
     --model "$EXECUTOR_MODEL" \
     --non-interactive 2>/dev/null || true
 
+  openclaw agents add observer \
+    --workspace "$OBSERVER_WS" \
+    --agent-dir "$OPENCLAW_HOME/agents/observer/agent" \
+    --model "$OBSERVER_MODEL" \
+    --non-interactive 2>/dev/null || true
+
   # Disable the built-in "main" agent (can't be deleted, but disable heartbeat + make non-default)
   openclaw config set 'agents.list[0].default' 'false'
   openclaw config set 'agents.list[0].heartbeat' '{"every":"0m"}' --strict-json
   # Make research the default agent
   openclaw config set 'agents.list[1].default' 'true'
 
-  echo "[entrypoint]   Agents registered: research, sentinel, executor"
+  echo "[entrypoint]   Agents registered: research, sentinel, executor, observer"
 
   # --- Disable all heartbeats (using cron jobs instead for visibility) ---
-  for i in 0 1 2 3; do
+  for i in 0 1 2 3 4; do
     openclaw config set "agents.list[$i].heartbeat" '{"every":"0m"}' --strict-json 2>/dev/null || true
   done
 
@@ -320,7 +328,7 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   openclaw config set 'tools.exec' '{"host":"gateway","security":"full","ask":"off"}' --strict-json
   openclaw config set 'tools.sandbox.tools' '{"allow":["read","write","apply_patch","exec"],"deny":[]}' --strict-json
   # Per-agent exec override (agents.list[N] takes precedence over global tools.exec)
-  for i in 0 1 2 3; do
+  for i in 0 1 2 3 4; do
     openclaw config set "agents.list[$i].tools.exec" '{"host":"gateway","security":"full","ask":"off"}' --strict-json 2>/dev/null || true
   done
 
@@ -348,7 +356,7 @@ else
   # --- Ensure exec config for headless mode (security=full, ask=off, host=gateway) ---
   # Always set — both global and per-agent (per-agent takes precedence)
   openclaw config set 'tools.exec' '{"host":"gateway","security":"full","ask":"off"}' --strict-json
-  for i in 0 1 2 3; do
+  for i in 0 1 2 3 4; do
     openclaw config set "agents.list[$i].tools.exec" '{"host":"gateway","security":"full","ask":"off"}' --strict-json 2>/dev/null || true
   done
   # Ensure sandbox-level exec permission exists (new in latest OpenClaw)
@@ -373,6 +381,7 @@ else
     check_and_add research "$RESEARCH_WS" "$RESEARCH_MODEL"
     check_and_add sentinel "$SENTINEL_WS" "$SENTINEL_MODEL"
     check_and_add executor "$EXECUTOR_WS" "$EXECUTOR_MODEL"
+    check_and_add observer "$OBSERVER_WS" "$OBSERVER_MODEL"
   }
   ensure_agents
 
@@ -391,10 +400,11 @@ else
         echo "[entrypoint]     $name: $current → $desired" || true
     fi
   }
-  # indices: 0=main(disabled), 1=research, 2=sentinel, 3=executor
+  # indices: 0=main(disabled), 1=research, 2=sentinel, 3=executor, 4=observer
   sync_model research "$RESEARCH_MODEL" 1
   sync_model sentinel "$SENTINEL_MODEL" 2
   sync_model executor "$EXECUTOR_MODEL" 3
+  sync_model observer "$OBSERVER_MODEL" 4
 
 fi
 
@@ -469,11 +479,11 @@ echo "[entrypoint]   → If not yet authenticated: docker compose exec crypto-cl
 # the same (always-current) file.
 RESEARCH_AUTH="$OPENCLAW_HOME/agents/research/agent/auth-profiles.json"
 if [ -f "$RESEARCH_AUTH" ]; then
-  for agent_dir in "$OPENCLAW_HOME/agents/sentinel/agent" "$OPENCLAW_HOME/agents/executor/agent"; do
+  for agent_dir in "$OPENCLAW_HOME/agents/sentinel/agent" "$OPENCLAW_HOME/agents/executor/agent" "$OPENCLAW_HOME/agents/observer/agent"; do
     mkdir -p "$agent_dir"
     ln -sf "$RESEARCH_AUTH" "$agent_dir/auth-profiles.json"
   done
-  echo "[entrypoint]   Auth profiles symlinked to sentinel + executor"
+  echo "[entrypoint]   Auth profiles symlinked to sentinel + executor + observer"
 else
   echo "[entrypoint]   ⚠ No auth-profiles.json found — run: docker compose exec crypto-claw openclaw models auth login --provider openai-codex"
 fi
@@ -510,6 +520,24 @@ if [ -n "${OLLAMA_API_KEY:-}" ]; then
 fi
 
 # ============================================================
+# 5c½. Sync logging config (every startup — LOG_LEVEL changes take effect on restart)
+# ============================================================
+LOG_LEVEL="${LOG_LEVEL:-info}"
+OPENCLAW_LOG_STYLE="${OPENCLAW_LOG_STYLE:-pretty}"
+
+echo "[entrypoint] Configuring logging (level=$LOG_LEVEL, style=$OPENCLAW_LOG_STYLE)..."
+mkdir -p /tmp/openclaw
+
+openclaw config set 'logging.level' "$LOG_LEVEL"
+openclaw config set 'logging.consoleLevel' "$LOG_LEVEL"
+openclaw config set 'logging.consoleStyle' "$OPENCLAW_LOG_STYLE"
+openclaw config set 'logging.file' '/tmp/openclaw/openclaw.log'
+openclaw config set 'logging.redactSensitive' 'tools'
+openclaw config set 'logging.redactPatterns' '["sk-.*","xprv.*","0x[a-fA-F0-9]{64}"]' --strict-json
+
+echo "[entrypoint] Logging configured"
+
+# ============================================================
 # 5b. Ensure cron jobs exist (runs in background after gateway starts)
 #     openclaw cron add requires a running gateway (WebSocket),
 #     so we launch a background script that waits for the gateway
@@ -542,7 +570,7 @@ ensure_cron_jobs() {
   }
 
   # Remove legacy cron jobs (replaced by background loops)
-  for legacy in executor-poll sentinel-watch; do
+  for legacy in executor-poll sentinel-watch observer-loop; do
     if echo "$EXISTING" | grep -q "\"name\".*\"$legacy\""; then
       openclaw cron delete --name "$legacy" 2>/dev/null
       echo "[cron-setup] Removed legacy $legacy cron job"
@@ -565,6 +593,27 @@ ensure_cron_jobs() {
     --every "30m" --agent research --model "$RESEARCH_MODEL" --session isolated \
     $RESEARCH_CRON_DELIVERY \
     --message "OVERLAP GUARD: First run openclaw cron list --json to find the research-cycle job ID, then run openclaw cron runs --id <that-id> --limit 5. The output has an entries array. Skip the most recent entry (that is you). If any other entry has action other than finished, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. If the check produces discoveries, run the FULL pipeline autonomously: analysis, risk assessment, trade proposal. Do not stop after scanning — you decide what to buy. Update timestamps via db-query.js. Log results to daily memory and database (add-research-log). ALWAYS end with a short work summary: what check ran, what was found, counts (scanned/analyzed/proposed)."
+
+  # --- Observer cycle (cron-based, replaces background loop) ---
+  if [ -n "${OBSERVER_ISSUES_REPO:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then
+    # Force recreate observer-cycle if it exists (picks up --model flag)
+    if echo "$EXISTING" | grep -q '"name".*"observer-cycle"'; then
+      openclaw cron delete --name "observer-cycle" 2>/dev/null
+      echo "[cron-setup] Recreated observer-cycle with explicit model"
+    fi
+
+    OBSERVER_CRON_DELIVERY="--no-deliver"
+    if [ -n "${TG_TOPIC_SYSTEM:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+      OBSERVER_CRON_DELIVERY="--announce --channel telegram --to ${TELEGRAM_CHAT_ID}:topic:${TG_TOPIC_SYSTEM}"
+    fi
+
+    add_if_missing "observer-cycle" \
+      --every "60m" --agent observer --model "$OBSERVER_MODEL" --session isolated \
+      $OBSERVER_CRON_DELIVERY \
+      --message "OVERLAP GUARD: First run openclaw cron list --json to find the observer-cycle job ID, then run openclaw cron runs --id <that-id> --limit 5. The output has an entries array. Skip the most recent entry (that is you). If any other entry has action other than finished, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Run the triage skill now: read system logs, query DB for failures, analyze, and take action (create issues or send alerts). Check heartbeat state: node scripts/db-query.js get-heartbeat --agent observer. Update heartbeat when done. If nothing to report, reply HEARTBEAT_OK."
+  else
+    echo "[cron-setup] Observer skipped — OBSERVER_ISSUES_REPO or GITHUB_TOKEN not set"
+  fi
 
   echo "[cron-setup] Done"
 }
@@ -647,6 +696,7 @@ run_executor_loop() {
       if [ $exit_code -ne 0 ]; then
         failures=$((failures + 1))
         echo "[executor-loop] Agent failed (consecutive failures: $failures)"
+        echo "[$(date -u +%FT%TZ)] [error] [executor-loop] Agent failed (consecutive failures: $failures)" >> /tmp/openclaw/system.log
         SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
           node "$RESEARCH_WS/scripts/send-alert.js" --type model_failure --agent executor \
           --message "Executor agent failed (attempt $failures)" 2>/dev/null || true
@@ -669,6 +719,7 @@ run_executor_loop() {
         # Emergency mode after EMERGENCY_AFTER consecutive failures
         if [ $failures -ge "$EMERGENCY_AFTER" ]; then
           echo "[executor-loop] EMERGENCY MODE — all models failed ($failures consecutive)"
+          echo "[$(date -u +%FT%TZ)] [critical] [executor-loop] Emergency mode activated after $failures consecutive failures" >> /tmp/openclaw/system.log
           SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
             node "$RESEARCH_WS/scripts/emergency-executor.js" 2>&1 | sed 's/^/[emergency-executor] /'
           SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
@@ -716,6 +767,7 @@ run_sentinel_loop() {
       if [ $exit_code -ne 0 ]; then
         failures=$((failures + 1))
         echo "[sentinel-loop] Agent failed (consecutive failures: $failures)"
+        echo "[$(date -u +%FT%TZ)] [error] [sentinel-loop] Agent failed (consecutive failures: $failures)" >> /tmp/openclaw/system.log
         SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
           node "$RESEARCH_WS/scripts/send-alert.js" --type model_failure --agent sentinel \
           --message "Sentinel agent failed (attempt $failures)" 2>/dev/null || true
@@ -738,6 +790,7 @@ run_sentinel_loop() {
         # If fallback also failed (or not configured) → emergency mode immediately
         if [ $exit_code -ne 0 ]; then
           echo "[sentinel-loop] EMERGENCY MODE — all models failed"
+          echo "[$(date -u +%FT%TZ)] [critical] [sentinel-loop] Emergency mode activated — all models failed" >> /tmp/openclaw/system.log
           SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
             node "$RESEARCH_WS/scripts/emergency-sentinel.js" 2>&1 | sed 's/^/[emergency-sentinel] /'
           SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
@@ -807,4 +860,9 @@ run_executor_loop &
 run_sentinel_loop &
 run_portfolio_report_loop &
 ensure_cron_jobs &
+
+# Ensure Node.js heap limit is set for the gateway process (default V8 limit is ~2GB).
+# Set explicitly here in case NODE_OPTIONS from docker-compose.yml is not inherited
+# by the openclaw binary's embedded Node.js runtime.
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=6144}"
 exec openclaw gateway run --port "$GATEWAY_PORT"

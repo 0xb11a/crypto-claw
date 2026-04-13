@@ -52,6 +52,7 @@ echo "Creating agent directories..."
 RESEARCH_DIR="$OPENCLAW_HOME/agents/research"
 SENTINEL_DIR="$OPENCLAW_HOME/agents/sentinel"
 EXECUTOR_DIR="$OPENCLAW_HOME/agents/executor"
+OBSERVER_DIR="$OPENCLAW_HOME/agents/observer"
 
 # Research agent
 mkdir -p "$RESEARCH_DIR/workspace/memory"
@@ -72,6 +73,11 @@ mkdir -p "$SENTINEL_DIR/agent"
 mkdir -p "$EXECUTOR_DIR/workspace/memory"
 mkdir -p "$EXECUTOR_DIR/workspace/skills/executor"
 mkdir -p "$EXECUTOR_DIR/agent"
+
+# Observer agent
+mkdir -p "$OBSERVER_DIR/workspace/memory"
+mkdir -p "$OBSERVER_DIR/workspace/skills/triage"
+mkdir -p "$OBSERVER_DIR/agent"
 
 # ============================================================
 # 2. Deploy Research Agent
@@ -135,6 +141,22 @@ cp "$SCRIPT_DIR/agents/executor/TOOLS.md"      "$EXECUTOR_DIR/workspace/TOOLS.md
 ln -sf "$RESEARCH_DIR/workspace/IDENTITY.md"   "$EXECUTOR_DIR/workspace/IDENTITY.md"
 
 # ============================================================
+# 4b. Deploy Observer Agent
+# ============================================================
+echo "Deploying Observer Agent..."
+
+cp "$SCRIPT_DIR/agents/observer/AGENTS.md"     "$OBSERVER_DIR/workspace/AGENTS.md"
+cp "$SCRIPT_DIR/agents/observer/SOUL.md"        "$OBSERVER_DIR/workspace/SOUL.md"
+cp "$SCRIPT_DIR/agents/observer/HEARTBEAT.md"   "$OBSERVER_DIR/workspace/HEARTBEAT.md"
+
+# Per-agent skill
+cp "$SCRIPT_DIR/agents/observer/skills/triage/SKILL.md" "$OBSERVER_DIR/workspace/skills/triage/SKILL.md"
+
+# Shared workspace files
+cp "$SCRIPT_DIR/agents/observer/TOOLS.md"      "$OBSERVER_DIR/workspace/TOOLS.md"
+ln -sf "$RESEARCH_DIR/workspace/IDENTITY.md"   "$OBSERVER_DIR/workspace/IDENTITY.md"
+
+# ============================================================
 # 5. Deploy agent memory (markdown — shared knowledge)
 # ============================================================
 echo "Setting up agent memory..."
@@ -146,8 +168,8 @@ else
   echo "  Skipping MEMORY.md (already exists)"
 fi
 
-# Sentinel and Executor get symlinks to research memory dir (for daily logs)
-for dir in "$SENTINEL_DIR" "$EXECUTOR_DIR"; do
+# Sentinel, Executor, and Observer get symlinks to research memory dir (for daily logs)
+for dir in "$SENTINEL_DIR" "$EXECUTOR_DIR" "$OBSERVER_DIR"; do
   target="$dir/workspace/memory"
   if [ ! -L "$target" ]; then
     rm -rf "$target"
@@ -163,6 +185,7 @@ echo "Deploying scripts..."
 mkdir -p "$RESEARCH_DIR/workspace/scripts"
 mkdir -p "$SENTINEL_DIR/workspace/scripts"
 mkdir -p "$EXECUTOR_DIR/workspace/scripts"
+mkdir -p "$OBSERVER_DIR/workspace/scripts"
 
 # Research gets all scripts
 cp "$SCRIPT_DIR/scripts/"*.js "$RESEARCH_DIR/workspace/scripts/"
@@ -183,11 +206,18 @@ for script in execute-trade-evm.js check-safe-status.js execute-trade-solana.js 
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$EXECUTOR_DIR/workspace/scripts/"
 
+# Observer gets db access + GitHub integration + alerting + logging
+for script in db.js db-query.js chains.js create-issue.js list-issues.js send-alert.js redact.js log.js; do
+  cp "$SCRIPT_DIR/scripts/$script" "$OBSERVER_DIR/workspace/scripts/"
+done
+cp "$SCRIPT_DIR/scripts/package.json" "$OBSERVER_DIR/workspace/scripts/"
+
 # Install deps once, symlink to all agents
 echo "Installing script dependencies..."
 (cd "$RESEARCH_DIR/workspace/scripts" && npm install --production 2>/dev/null) || true
 ln -sfn "$RESEARCH_DIR/workspace/scripts/node_modules" "$SENTINEL_DIR/workspace/scripts/node_modules"
 ln -sfn "$RESEARCH_DIR/workspace/scripts/node_modules" "$EXECUTOR_DIR/workspace/scripts/node_modules"
+ln -sfn "$RESEARCH_DIR/workspace/scripts/node_modules" "$OBSERVER_DIR/workspace/scripts/node_modules"
 
 # ============================================================
 # 7. Initialize SQLite database (wallet-specific)
@@ -198,7 +228,7 @@ DB_DIR="$RESEARCH_DIR/data"
 mkdir -p "$DB_DIR"
 
 # Symlink data dir for all agents (inside workspace for script access)
-for dir in "$SENTINEL_DIR" "$EXECUTOR_DIR"; do
+for dir in "$SENTINEL_DIR" "$EXECUTOR_DIR" "$OBSERVER_DIR"; do
   if [ ! -L "$dir/data" ]; then
     ln -sf "$DB_DIR" "$dir/data"
   fi
@@ -272,7 +302,7 @@ fi
 # Done
 # ============================================================
 echo ""
-echo "CryptoClaw deployed! (3 agents: Research, Sentinel, Executor)"
+echo "CryptoClaw deployed! (4 agents: Research, Sentinel, Executor, Observer)"
 echo ""
 echo "Directory structure:"
 echo "  Research workspace: $RESEARCH_DIR/workspace/"

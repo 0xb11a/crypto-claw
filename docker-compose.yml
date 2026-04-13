@@ -24,9 +24,11 @@ services:
       # exec required: better-sqlite3 native bindings need mmap from node_modules
       - /home/openclaw/.openclaw/agents/sentinel/workspace:size=50M,uid=1000,gid=1000,exec
       - /home/openclaw/.openclaw/agents/executor/workspace:size=50M,uid=1000,gid=1000,exec
-      # Sentinel/executor agent state dirs (sessions are ephemeral for these agents)
+      - /home/openclaw/.openclaw/agents/observer/workspace:size=50M,uid=1000,gid=1000,exec
+      # Sentinel/executor/observer agent state dirs (sessions are ephemeral for these agents)
       - /home/openclaw/.openclaw/agents/sentinel/agent:size=10M,uid=1000,gid=1000
       - /home/openclaw/.openclaw/agents/executor/agent:size=10M,uid=1000,gid=1000
+      - /home/openclaw/.openclaw/agents/observer/agent:size=10M,uid=1000,gid=1000
       # node-llama-cpp cache (embedding model for memory search)
       - /home/node/.node-llama-cpp:size=500M,uid=1000,gid=1000
     volumes:
@@ -112,6 +114,10 @@ services:
       # Agent memory backup (optional — git remote for pushing memory)
       - MEMORY_GIT_REMOTE=${MEMORY_GIT_REMOTE:-}
 
+      # Observer agent — GitHub integration (private repo for issue tracking)
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - OBSERVER_ISSUES_REPO=${OBSERVER_ISSUES_REPO:-}
+
       # OpenClaw config
       - OPENCLAW_HOME=/home/openclaw/.openclaw
       - OPENCLAW_GATEWAY_PORT=${OPENCLAW_GATEWAY_PORT:-18789}
@@ -120,6 +126,7 @@ services:
       - RESEARCH_MODEL=${RESEARCH_MODEL:-openai-codex/gpt-5.4}
       - SENTINEL_MODEL=${SENTINEL_MODEL:-openai-codex/gpt-5.4}
       - EXECUTOR_MODEL=${EXECUTOR_MODEL:-openai-codex/gpt-5.4}
+      - OBSERVER_MODEL=${OBSERVER_MODEL:-openai-codex/gpt-5.4}
 
       # Agent resilience (entrypoint.sh fallback/emergency)
       - SENTINEL_MODEL_FALLBACK=${SENTINEL_MODEL_FALLBACK:-claude-haiku-4-5-20251001}
@@ -129,7 +136,8 @@ services:
       # App variables
       - NODE_ENV=production
       - NODE_OPTIONS=--max-old-space-size=6144
-      - LOG_LEVEL=info
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - OPENCLAW_LOG_STYLE=${OPENCLAW_LOG_STYLE:-pretty}
 
     networks:
       - crypto-claw-net

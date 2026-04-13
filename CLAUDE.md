@@ -4,17 +4,18 @@ This file helps Claude Code (and any Claude-based tool) understand the CryptoCla
 
 ## What This Project Is
 
-CryptoClaw is a three-agent crypto research and portfolio management system built for [OpenClaw](https://openclaw.ai/). It discovers high-potential tokens, analyzes them, proposes BUY trades (requiring human approval), and auto-executes SELL trades (stop-loss, take-profit, rug warnings) without approval — all through a Safe multisig wallet.
+CryptoClaw is a four-agent crypto research and portfolio management system built for [OpenClaw](https://openclaw.ai/). It discovers high-potential tokens, analyzes them, proposes BUY trades (requiring human approval), and auto-executes SELL trades (stop-loss, take-profit, rug warnings) without approval — all through a Safe multisig wallet.
 
 ## Architecture
 
-Three agents communicate through a shared SQLite database:
+Four agents communicate through a shared SQLite database:
 
 - **Research Agent** (`agents/research/`) — Runs on GPT-5.4 via Codex OAuth, 30-minute heartbeat. Handles discovery, market checks, trade proposals. Handles all skills directly (analysis, risk, portfolio). Has 5 skills: discovery, analyst, risk, portfolio, orders.
 - **Sentinel Agent** (`agents/sentinel/`) — Runs on GPT-5.4 via Codex OAuth, 15-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders to the unified orders table. Has 1 skill: sentinel.
 - **Executor Agent** (`agents/executor/`) — Runs on GPT-5.4 via Codex OAuth, 1-minute heartbeat. Reads orders (buy and sell), validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
+- **Observer Agent** (`agents/observer/`) — Runs on GPT-5.4 via Codex OAuth, 60-minute heartbeat. Monitors system logs and DB for execution failures, creates GitHub issues in a private repo for Claude Code to fix, sends Telegram alerts for operational issues. Has 1 skill: triage. Read-only access to DB. Part of the self-improvement loop.
 - **Ollama Cloud** — Some agents might use Ollama Cloud's API (`https://ollama.com/api/chat`). No sidecar needed — OpenClaw's built-in Ollama provider sends `OLLAMA_API_KEY` as a Bearer token directly.
-- **Model Routing** — All agents default to OpenAI Codex OAuth provider (ChatGPT subscription, flat fee): all three agents on GPT-5.4. Configured via `RESEARCH_MODEL`/`SENTINEL_MODEL`/`EXECUTOR_MODEL` env vars with `openai-codex/` prefix. Falls back to OpenAI API (`openai/` prefix + `OPENAI_API_KEY`) if Codex OAuth not configured. Research handles all skills directly (no sub-agent spawning).
+- **Model Routing** — All agents default to OpenAI Codex OAuth provider (ChatGPT subscription, flat fee): all four agents on GPT-5.4. Configured via `RESEARCH_MODEL`/`SENTINEL_MODEL`/`EXECUTOR_MODEL`/`OBSERVER_MODEL` env vars with `openai-codex/` prefix. Falls back to OpenAI API (`openai/` prefix + `OPENAI_API_KEY`) if Codex OAuth not configured. Research handles all skills directly (no sub-agent spawning).
 
 ## Memory System — Two Layers
 
@@ -26,7 +27,7 @@ Patterns, lessons, scoring calibration — knowledge that applies across all fun
 - `workspace/MEMORY.md` — Curated long-term patterns (updated when pattern seen 3+ times)
 - `workspace/memory/YYYY-MM-DD.md` — Daily logs with timestamped entries
 - Backed up every 15 minutes via `memory-backup.sh` (background shell loop in Docker, system cron for bare-metal)
-- Sentinel/Executor `memory/` dirs are symlinked to Research's workspace — the single backup job covers all three agents' writes
+- Sentinel/Executor/Observer `memory/` dirs are symlinked to Research's workspace — the single backup job covers all four agents' writes
 
 ### Layer 2: Wallet Data (SQLite — per-fund)
 Positions, trades, orders, alerts, receipts — everything tied to a specific Safe wallet. One database per fund, identified by `SAFE_ID`.
@@ -34,7 +35,7 @@ Positions, trades, orders, alerts, receipts — everything tied to a specific Sa
 - Database path: `data/<SAFE_ID>.db`
 - Access via CLI: `node scripts/db-query.js <command> [--flags]`
 - Schema managed by auto-migrations in `scripts/db.js`
-- 19 tables: positions, trades, orders, receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_positions, paper_receipts, analysis_cache, portfolio_sync, contract_snapshots, research_log, _migrations
+- 20 tables: positions, trades, orders, receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_positions, paper_receipts, analysis_cache, portfolio_sync, contract_snapshots, research_log, observer_log, _migrations
 
 ### Why Two Layers?
 The project can be deployed multiple times managing different Safe wallets/funds. Agent memory (patterns, lessons) is universal knowledge shared across all deployments. Wallet data (positions, cash, orders) is specific to one fund and must be isolated.
@@ -100,6 +101,10 @@ scripts/                  # Node.js scripts
   emergency-executor.js   # Emergency executor activation on repeated model failures
   track-multisig.js       # Multisig approval workflow tracking
   send-alert.js           # Telegram alerts via openclaw message send (topic routing)
+  redact.js               # Sensitive data redaction (shared module)
+  log.js                  # Structured logging helper (writes to system.log + stderr)
+  create-issue.js         # GitHub issue creation (Observer agent)
+  list-issues.js          # GitHub issue listing (Observer dedup check)
   telegram-get-topics.js  # Setup helper: discover supergroup topic thread IDs
   memory-backup.sh        # Git auto-commit for agent memory
   codex-login.sh          # One-time Codex OAuth login (ChatGPT subscription)
@@ -122,6 +127,8 @@ setup.sh                  # Bare-metal installer (deploys agents into OpenClaw d
 | `scripts/db-query.js` | 35+ CLI commands for agents to interact with wallet data |
 | `scripts/chains.js` | Centralized chain config — Safe/Squads env vars, portfolio rules, cash tokens |
 | `agents/{name}/TOOLS.md` | Per-agent CLI usage guide — each agent gets only the commands/scripts it uses |
+| `scripts/redact.js` | Sensitive data redaction — used by log.js and create-issue.js (3-layer defense) |
+| `scripts/log.js` | Structured logging — writes redacted entries to /tmp/openclaw/system.log + stderr |
 | `workspace/TOOLS.md` | Full tool reference (not deployed) — check this for the complete picture |
 | `scripts/process-order.js` | Atomic order processing — validates, executes, updates status, writes receipts |
 | `entrypoint.sh` | Docker runtime init — per-agent config, background loops, workspace seeding |
@@ -151,6 +158,7 @@ node tests/test-emergency.js    # Emergency sentinel/executor activation
 node tests/test-telegram.js     # Telegram alerts + topic routing
 node tests/test-scripts.js      # Script output format (needs network)
 node tests/test-process-order.js # Order processing lifecycle (needs network)
+node tests/test-observer.js     # Observer agent, redaction, logging, GitHub integration
 
 # Database queries (from project root)
 SAFE_ID=my-fund node scripts/db-query.js get-portfolio
@@ -195,6 +203,7 @@ SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup sy
 - **SAFE_ID** env var determines which database file is used. One DB per fund/wallet.
 - **Solana wallet config:** `SQUADS_VAULT_ADDRESS` (direct vault) takes priority over `SQUADS_MULTISIG_ADDRESS` (vault derived from multisig PDA). Set at least one for Solana.
 - **OLLAMA_API_KEY** env var authenticates with Ollama Cloud model access.
+- **Observer agent** requires `GITHUB_TOKEN` and `OBSERVER_ISSUES_REPO` (private repo, e.g., `owner/crypto-claw-issues`) to create GitHub issues. Without these, the observer cron job is not created.
 - **OpenAI auth** supports two methods (priority order): (1) OpenAI Codex OAuth via ChatGPT subscription (flat fee, `openai-codex/` prefix) — setup: `docker compose exec crypto-claw openclaw models auth login --provider openai-codex`, (2) `OPENAI_API_KEY` static API key (per-token billing, `openai/` prefix).
 
 ## Safety Rules (Do Not Weaken)

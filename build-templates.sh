@@ -70,4 +70,18 @@ for script in execute-trade-evm.js check-safe-status.js execute-trade-solana.js 
 done
 cp "$SCRIPTS_DIR/package.json" "$AGENT_TPL/executor/scripts/"
 
+# --- Observer ---
+mkdir -p "$AGENT_TPL/observer/skills/triage" "$AGENT_TPL/observer/scripts"
+cp "$SRC/agents/observer/AGENTS.md"     "$AGENT_TPL/observer/AGENTS.md"
+cp "$SRC/agents/observer/SOUL.md"       "$AGENT_TPL/observer/SOUL.md"
+cp "$SRC/agents/observer/HEARTBEAT.md"  "$AGENT_TPL/observer/HEARTBEAT.md"
+cp "$SRC/agents/observer/TOOLS.md"      "$AGENT_TPL/observer/TOOLS.md"
+cp "$SRC/agents/observer/skills/triage/SKILL.md" "$AGENT_TPL/observer/skills/triage/SKILL.md"
+
+# Observer scripts: db access + GitHub integration + alerting + logging
+for script in db.js db-query.js chains.js create-issue.js list-issues.js send-alert.js redact.js log.js; do
+  cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/observer/scripts/"
+done
+cp "$SCRIPTS_DIR/package.json" "$AGENT_TPL/observer/scripts/"
+
 echo "[build-templates] Done"

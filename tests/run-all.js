@@ -30,6 +30,7 @@ const suites = [
   { name: 'Emergency Resilience', file: 'test-emergency.js', requiresNetwork: false },
   { name: 'Telegram Integration', file: 'test-telegram.js', requiresNetwork: false },
   { name: 'Wallet Harvesting', file: 'test-harvest.js', requiresNetwork: false },
+  { name: 'Observer Agent', file: 'test-observer.js', requiresNetwork: false },
 ];
 
 // Scripts tests require network — run separately

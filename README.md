@@ -1,8 +1,8 @@
 # CryptoClaw
 
-**Three-agent crypto research & portfolio management system for [OpenClaw](https://openclaw.ai/).**
+**Four-agent crypto research & portfolio management system for [OpenClaw](https://openclaw.ai/).**
 
-CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent thinks. One agent watches. One agent executes. Agent knowledge is shared across deployments; wallet data is isolated per fund.
+CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent thinks. One agent watches. One agent executes. One agent observes. Agent knowledge is shared across deployments; wallet data is isolated per fund.
 
 ## Architecture
 
@@ -47,6 +47,21 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
                           v
                    Safe Wallet
               (policies & co-signers)
+
+   +-----------------+
+   |   OBSERVER      |
+   |    AGENT        |
+   |                 |
+   | * Log analysis  |
+   | * Failure triage|
+   | * GitHub issues |
+   | * Telegram alerts|
+   |                 |
+   | GPT-5.4         |
+   |   (60m)         |
+   +-----------------+
+     (reads DB + logs,
+      creates issues)
 ```
 
 ## System Overview
@@ -72,27 +87,34 @@ flowchart TD
         E["7. EXECUTE\nRead orders\nValidate independently\nBuild Safe/Squads tx → sign → submit\nWrite receipts → update positions"]
     end
 
+    subgraph Observer["OBSERVER AGENT · 60m heartbeat"]
+        O["8. OBSERVE\nRead system logs + DB\nTriage failures\n→ GitHub issues for code bugs\n→ Telegram alerts for ops issues"]
+    end
+
     P -- "orders" --> E
     M -- "orders" --> E
     E -- "receipts" --> Research
     M -- "sentinel_alerts" --> Research
+    E -- "executor_log" --> Observer
+    M -- "sentinel_log" --> Observer
 
     style Research fill:#1a1a2e,stroke:#e94560,color:#fff
     style Sentinel fill:#1a1a2e,stroke:#f5a623,color:#fff
     style Executor fill:#1a1a2e,stroke:#0f3460,color:#fff
+    style Observer fill:#1a1a2e,stroke:#533483,color:#fff
 ```
 
 ### Agent Responsibility Matrix
 
-| | Research | Sentinel | Executor |
-|---|---|---|---|
-| **Model** | GPT-5.4 | GPT-5.4 | GPT-5.4 |
-| **Heartbeat** | 30 min | 15 min | 1 min |
-| **Reads** | positions, receipts, portfolio_meta, analysis_cache, tracked_wallets | positions/paper_positions, liquidity_snapshots, tracked_wallets | orders |
-| **Writes** | orders, trades, watchlist, tracked_wallets, analysis_cache, sentinel_alerts | orders, sentinel_alerts, liquidity_snapshots, sentinel_log | receipts, positions/paper_positions, executor_log, portfolio_meta |
-| **Checks** | Token safety, holder distribution, narrative strength, market regime, portfolio concentration | Price vs stops/TPs, LP changes, tracked wallet activity | Order staleness, price drift, slippage limits, balance sufficiency |
-| **Enforces** | Position limits, cash reserve, dedup, auto-reject rules, regime adjustments | Stop-loss, take-profit, rug detection | Independent validation, slippage caps, stale order rejection |
-| **Scripts** | scan-tokens, token-metrics, check-contract, holder-distribution, narrative-check, market-overview, market-regime, portfolio-summary, score-wallet, portfolio-load-* | check-positions, check-liquidity, check-wallets | execute-trade, execute-trade-solana, check-safe-status, check-squads-status |
+| | Research | Sentinel | Executor | Observer |
+|---|---|---|---|---|
+| **Model** | GPT-5.4 | GPT-5.4 | GPT-5.4 | GPT-5.4 |
+| **Heartbeat** | 30 min | 15 min | 1 min | 60 min |
+| **Reads** | positions, receipts, portfolio_meta, analysis_cache, tracked_wallets | positions/paper_positions, liquidity_snapshots, tracked_wallets | orders | receipts, orders, executor_log, sentinel_log, positions |
+| **Writes** | orders, trades, watchlist, tracked_wallets, analysis_cache, sentinel_alerts | orders, sentinel_alerts, liquidity_snapshots, sentinel_log | receipts, positions/paper_positions, executor_log, portfolio_meta | observer_log (+ GitHub issues, Telegram alerts) |
+| **Checks** | Token safety, holder distribution, narrative strength, market regime, portfolio concentration | Price vs stops/TPs, LP changes, tracked wallet activity | Order staleness, price drift, slippage limits, balance sufficiency | Execution failures, model errors, system log errors |
+| **Enforces** | Position limits, cash reserve, dedup, auto-reject rules, regime adjustments | Stop-loss, take-profit, rug detection | Independent validation, slippage caps, stale order rejection | Issue deduplication, max 3 issues/cycle, sensitive data redaction |
+| **Scripts** | scan-tokens, token-metrics, check-contract, holder-distribution, narrative-check, market-overview, market-regime, portfolio-summary, score-wallet, portfolio-load-* | check-positions, check-liquidity, check-wallets | execute-trade, execute-trade-solana, check-safe-status, check-squads-status | create-issue, list-issues, send-alert, redact, log |
 
 ### Scenario Coverage
 
@@ -115,6 +137,8 @@ flowchart TD
 | Slippage exceeds limit | Executor | Pre-execution validation → reject order |
 | Multiple funds, same strategy | Infra | Different SAFE_ID → separate SQLite DBs, shared agent memory |
 | Paper trading (no real funds) | All | PAPER_MODE=true → auto-approve buys, simulated execution, paper_* tables |
+| Executor keeps failing | Observer | Reads executor_log + system.log → creates GitHub issue with root cause |
+| Model errors spike | Observer | Detects pattern in system.log → sends Telegram alert to system topic |
 | Agent memory survives redeploy | Infra | MEMORY.md + daily logs preserved, private git backup every 15m |
 | Wallet data survives redeploy | Infra | SQLite DB preserved + auto-migrated on restart |
 | Too many positions in one narrative | Research | Portfolio check → max 3 same-narrative positions |
@@ -148,10 +172,13 @@ flowchart LR
     R -- "read/write" --> PM
     S -- "read/write" --> PM
     X -- "read/write" --> PM
+    TR -- "read failures" --> O((Observer))
+    ORD -- "read failures" --> O
 
     style R fill:#e94560,stroke:#e94560,color:#fff
     style S fill:#f5a623,stroke:#f5a623,color:#000
     style X fill:#0f3460,stroke:#0f3460,color:#fff
+    style O fill:#533483,stroke:#533483,color:#fff
     style DB fill:#16213e,stroke:#533483,color:#fff
 ```
 
@@ -174,9 +201,9 @@ flowchart LR
 
 ## Key Design Decisions
 
-**Three agents, clear separation.** Research thinks deeply (GPT-5.4, handles all analysis/risk directly, 30m heartbeat). Sentinel reacts fast (GPT-5.4, 10m). Executor handles wallet operations (GPT-5.4, 1m).
+**Four agents, clear separation.** Research thinks deeply (GPT-5.4, handles all analysis/risk directly, 30m heartbeat). Sentinel reacts fast (GPT-5.4, 15m). Executor handles wallet operations (GPT-5.4, 1m). Observer monitors system health (GPT-5.4, 60m).
 
-**Single model, flat fee.** All three agents run on GPT-5.4 via OpenAI Codex OAuth (ChatGPT subscription — flat fee, no per-token billing). Research handles all skills directly — no sub-agent spawning needed.
+**Single model, flat fee.** All four agents run on GPT-5.4 via OpenAI Codex OAuth (ChatGPT subscription — flat fee, no per-token billing). Research handles all skills directly — no sub-agent spawning needed.
 
 **Token deduplication.** Before running analysis, Research checks `check-token-status` against the database: open positions, pending orders, watchlist entries, and recently cached analysis results are all skipped. This prevents redundant analysis of the same trending tokens across heartbeats.
 
@@ -253,11 +280,11 @@ docker compose logs -f    # watch startup
 
 What happens on first start:
 
-1. Image builds: installs OpenClaw, deploys three agents, installs npm dependencies
+1. Image builds: installs OpenClaw, deploys four agents, installs npm dependencies
 2. `entrypoint.sh` runs: seeds workspace files (USER.md, MEMORY.md, TOOLS.md, etc.)
-3. SQLite database created and migrated (`data/<SAFE_ID>.db` — 19 tables)
-4. Background loops start: memory backup (15m), wallet scoring (10m), sentinel (10m), executor (1m)
-5. OpenClaw gateway starts, research agent begins 30m heartbeat cycle via cron
+3. SQLite database created and migrated (`data/<SAFE_ID>.db` — 20 tables)
+4. Background loops start: memory backup (15m), wallet scoring (10m), sentinel (15m), executor (1m)
+5. OpenClaw gateway starts, cron jobs created: research (30m), observer (60m)
 
 #### Option B: Manual (No Docker)
 
@@ -295,6 +322,7 @@ In paper mode:
 RESEARCH_MODEL=openai-codex/gpt-5.4
 SENTINEL_MODEL=openai-codex/gpt-5.4
 EXECUTOR_MODEL=openai-codex/gpt-5.4
+OBSERVER_MODEL=openai-codex/gpt-5.4
 ```
 
 ### Step 3: Configure Your Profile
@@ -502,7 +530,7 @@ Agent knowledge that applies across all fund deployments. Backed by a **private 
 
 ### Layer 2: Wallet Data (SQLite)
 
-Per-fund data in `data/<SAFE_ID>.db`. 19 tables, auto-migrating schema. Accessed via `node scripts/db-query.js` (35+ commands).
+Per-fund data in `data/<SAFE_ID>.db`. 20 tables, auto-migrating schema. Accessed via `node scripts/db-query.js` (35+ commands).
 
 | Table | Written By | Read By | Purpose |
 |-------|-----------|---------|---------|
@@ -524,6 +552,7 @@ Per-fund data in `data/<SAFE_ID>.db`. 19 tables, auto-migrating schema. Accessed
 | `portfolio_sync` | Sentinel | Sentinel | On-chain portfolio sync state |
 | `contract_snapshots` | Sentinel | Sentinel | Contract safety snapshots for change detection |
 | `research_log` | Research | Research | Research heartbeat check history |
+| `observer_log` | Observer | Observer | Observer triage cycle history |
 
 ---
 
@@ -539,7 +568,7 @@ Alerts are routed to a Telegram supergroup with per-topic threads. Each agent se
 | `TG_TOPIC_SENTINEL` | Sentinel | Stop-loss, take-profit, rug detection, LP alerts |
 | `TG_TOPIC_EXECUTOR` | Executor | Execution receipts, transaction confirmations |
 | `TG_TOPIC_ALERTS` | All | Critical alerts (model failure, emergency mode, rug warning) |
-| `TG_TOPIC_SYSTEM` | System | Health checks, startup, errors |
+| `TG_TOPIC_SYSTEM` | System, Observer | Health checks, startup, errors, observer triage results |
 | `TG_TOPIC_PORTFOLIO` | System | Daily portfolio report |
 
 ### Security
@@ -585,12 +614,20 @@ crypto-claw/
 |   |       +-- sentinel/SKILL.md    # Position monitoring
 |   |
 |   +-- executor/                    # EXECUTOR AGENT
-|       +-- AGENTS.md                # Transaction rules + validation logic
-|       +-- SOUL.md                  # Mechanical persona
-|       +-- HEARTBEAT.md             # 1min order processing
+|   |   +-- AGENTS.md                # Transaction rules + validation logic
+|   |   +-- SOUL.md                  # Mechanical persona
+|   |   +-- HEARTBEAT.md             # 1min order processing
+|   |   +-- TOOLS.md                 # Per-agent CLI usage guide
+|   |   +-- skills/
+|   |       +-- executor/SKILL.md    # Safe wallet tx building
+|   |
+|   +-- observer/                    # OBSERVER AGENT
+|       +-- AGENTS.md                # Triage rules + issue creation logic
+|       +-- SOUL.md                  # Watchful persona
+|       +-- HEARTBEAT.md             # 60min triage cycle
 |       +-- TOOLS.md                 # Per-agent CLI usage guide
 |       +-- skills/
-|           +-- executor/SKILL.md    # Safe wallet tx building
+|           +-- triage/SKILL.md      # Log analysis + GitHub issues
 |
 +-- workspace/                       # SHARED (copied to all agents)
 |   +-- USER.md                      # Your profile (preserved on redeploy)
@@ -601,7 +638,7 @@ crypto-claw/
 |   +-- memory/                      # Daily logs (preserved)
 |
 +-- scripts/                         # NODE.JS SCRIPTS
-|   +-- db.js                        # SQLite schema + migrations (19 tables)
+|   +-- db.js                        # SQLite schema + migrations (20 tables)
 |   +-- db-query.js                  # CLI interface for wallet data (35+ commands)
 |   +-- package.json                 # Dependencies (better-sqlite3, dotenv)
 |   +-- scan-tokens.js               # DEXScreener trending/new/established
@@ -632,6 +669,10 @@ crypto-claw/
 |   +-- emergency-executor.js        # Emergency executor activation on failures
 |   +-- track-multisig.js            # Multisig approval workflow tracking
 |   +-- send-alert.js                # Telegram alerts via openclaw message send
+|   +-- redact.js                    # Sensitive data redaction (shared module)
+|   +-- log.js                       # Structured logging helper
+|   +-- create-issue.js              # GitHub issue creation (Observer agent)
+|   +-- list-issues.js               # GitHub issue listing (Observer dedup)
 |   +-- telegram-get-topics.js       # Setup helper: discover supergroup topic IDs
 |   +-- memory-backup.sh             # Git auto-commit for agent memory
 |   +-- codex-login.sh               # One-time Codex OAuth login
@@ -653,8 +694,9 @@ crypto-claw/
 |   +-- test-telegram.js             # Telegram alerts + topic routing
 |   +-- test-scripts.js              # Script output validation (needs network)
 |   +-- test-process-order.js        # Order processing lifecycle (needs network)
+|   +-- test-observer.js             # Observer agent + redaction + GitHub integration
 |
-+-- entrypoint.sh                    # Docker runtime init + background loops
++-- entrypoint.sh                    # Docker runtime init + background loops + cron setup
 +-- Dockerfile                       # Image build
 +-- docker-compose.yml               # One-command deployment
 +-- build-templates.sh               # Docker build-time template assembly
@@ -722,16 +764,19 @@ node tests/test-emergency.js     # Emergency sentinel/executor activation (19 te
 node tests/test-telegram.js      # Telegram alerts + topic routing (22 tests)
 node tests/test-scripts.js       # Script output format (needs network)
 node tests/test-process-order.js # Order processing lifecycle (needs network)
+node tests/test-observer.js      # Observer agent + redaction + GitHub integration
 ```
 
 ## Cost Optimization
 
-- All agents run on **GPT-5.4** via Codex OAuth (ChatGPT subscription — flat fee)
+- All four agents run on **GPT-5.4** via Codex OAuth (ChatGPT subscription — flat fee)
 - All agents use **GPT-5.4** — single model, no sub-agent overhead
 - **Token dedup** prevents redundant analysis of already-analyzed tokens
-- **Background loops** with pre-checks skip agent invocation when nothing is pending
+- **Background loops** (sentinel, executor) with pre-checks skip agent invocation when nothing is pending
+- **Cron jobs** (research 30m, observer 60m) with overlap guards prevent concurrent runs
 - Scripts handle ALL API calls — LLM never fetches data directly
 - Sentinel/Executor context stays minimal when portfolio is healthy or no orders pending
+- Observer only runs when `OBSERVER_ISSUES_REPO` and `GITHUB_TOKEN` are configured
 
 ## License
 

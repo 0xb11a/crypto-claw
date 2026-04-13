@@ -140,6 +140,9 @@ const HEARTBEAT_CADENCES = {
   executor: {
     process_orders: 0,
   },
+  observer: {
+    triage: 60,
+  },
 };
 
 function cashKey(chain, paper = false) {
@@ -1170,6 +1173,24 @@ function handle(db, cmd) {
     case 'get-research-log': {
       const limit = parseInt(getArg('limit') || '50');
       output(db.prepare('SELECT * FROM research_log ORDER BY created_at DESC LIMIT ?').all(limit));
+      break;
+    }
+
+    // ============================================================
+    // Observer log
+    // ============================================================
+    case 'add-observer-log': {
+      const l = parseJson();
+      db.prepare(
+        `INSERT INTO observer_log (errors_analyzed, issues_created, alerts_sent, summary, status)
+        VALUES (?, ?, ?, ?, ?)`,
+      ).run(l.errors_analyzed || 0, l.issues_created || 0, l.alerts_sent || 0, l.summary || null, l.status || 'ok');
+      output({ ok: true });
+      break;
+    }
+    case 'get-observer-log': {
+      const limit = parseInt(getArg('limit') || '50');
+      output(db.prepare('SELECT * FROM observer_log ORDER BY created_at DESC LIMIT ?').all(limit));
       break;
     }
 

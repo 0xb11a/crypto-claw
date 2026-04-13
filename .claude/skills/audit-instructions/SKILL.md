@@ -32,9 +32,14 @@ You are auditing CryptoClaw's agent instruction files for consistency against so
 - `agents/executor/SOUL.md`
 - `agents/executor/HEARTBEAT.md`
 - `agents/executor/skills/executor/SKILL.md`
+- `agents/observer/AGENTS.md`
+- `agents/observer/SOUL.md`
+- `agents/observer/HEARTBEAT.md`
+- `agents/observer/skills/triage/SKILL.md`
 - `agents/research/TOOLS.md`
 - `agents/sentinel/TOOLS.md`
 - `agents/executor/TOOLS.md`
+- `agents/observer/TOOLS.md`
 
 ## Audit Procedure
 

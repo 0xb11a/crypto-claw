@@ -865,6 +865,21 @@ const migrations = [
       INSERT OR IGNORE INTO portfolio_meta (key, value) VALUES ('total_deposited_ethereum', '0');
     `,
   },
+  {
+    name: '021_observer_log',
+    sql: `
+      CREATE TABLE IF NOT EXISTS observer_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        errors_analyzed INTEGER DEFAULT 0,
+        issues_created INTEGER DEFAULT 0,
+        alerts_sent INTEGER DEFAULT 0,
+        summary TEXT,
+        status TEXT NOT NULL DEFAULT 'ok',
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('observer', 'triage');
+    `,
+  },
 ];
 
 export default { getDb, close };
