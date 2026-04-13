@@ -255,11 +255,95 @@ function formatPassthrough(emoji, type, message, safeId) {
   return `${emoji} ${label}\n${SEP}\n${message}\n${SEP}\nFund: ${safeId}`;
 }
 
+function formatPortfolioDaily(emoji, message, safeId) {
+  let data;
+  try {
+    data = JSON.parse(message);
+  } catch {
+    return formatPassthrough(emoji, 'portfolio_daily', message, safeId);
+  }
+  if (!data || !data.summary) {
+    return formatPassthrough(emoji, 'portfolio_daily', message, safeId);
+  }
+
+  const s = data.summary;
+  const alloc = data.allocation || {};
+  const positions = data.positions || [];
+  const alerts = data.allocationAlerts || [];
+
+  const isPaper = process.env.PAPER_MODE === 'true';
+  const dateStr = data.timestamp ? data.timestamp.slice(0, 10) : new Date().toISOString().slice(0, 10);
+
+  const fmtUsd = (n) => {
+    const abs = Math.abs(n);
+    const [int, dec] = abs.toFixed(2).split('.');
+    const withCommas = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return (n < 0 ? '-' : '') + '$' + withCommas + '.' + dec;
+  };
+  const fmtPct = (n) => `${n > 0 ? '+' : ''}${n.toFixed(2)}%`;
+  const fmtPnlUsd = (n) => `${n > 0 ? '+' : ''}${fmtUsd(n)}`;
+  const chainShort = (c) => (c === 'solana' ? 'sol' : c);
+  const pnlArrow = (pnl) => (pnl > 0 ? '\u25B2' : pnl < 0 ? '\u25BC' : ' ');
+
+  const sorted = [...positions].sort((a, b) => b.value - a.value);
+  const DSEP = '\u2550'.repeat(28);
+
+  const lines = [];
+  lines.push(`${emoji} PORTFOLIO REPORT`);
+  lines.push(DSEP);
+  lines.push(isPaper ? `[PAPER] ${dateStr}` : dateStr);
+  lines.push('');
+  lines.push(`Total Value    ${fmtUsd(s.totalValue)}`);
+  lines.push(`Deposited      ${fmtUsd(s.totalDeposited)}`);
+  lines.push(`P&L            ${fmtPnlUsd(s.totalPnlUsd)} (${fmtPct(s.totalPnlPercent)})`);
+  lines.push(`Cash           ${fmtUsd(s.cashBalance)}`);
+
+  lines.push('');
+  lines.push('ALLOCATION');
+  for (const tier of ['base', 'conviction', 'moonshot', 'cash']) {
+    if (alloc[tier] !== undefined) {
+      const label = tier.charAt(0).toUpperCase() + tier.slice(1);
+      lines.push(`  ${label.padEnd(13)}${alloc[tier].toFixed(1)}%`);
+    }
+  }
+
+  if (alerts.length > 0) {
+    lines.push('');
+    lines.push('ALERTS');
+    for (const alert of alerts) {
+      lines.push(`  \u26A0 ${alert}`);
+    }
+  }
+
+  lines.push('');
+  if (sorted.length === 0) {
+    lines.push('POSITIONS (0)');
+    lines.push('  No open positions');
+  } else {
+    lines.push(`POSITIONS (${sorted.length})`);
+    for (const p of sorted) {
+      const arrow = pnlArrow(p.pnlPercent);
+      const sym = p.symbol.padEnd(8);
+      const tier = (p.tier || '').padEnd(11);
+      const chain = chainShort(p.chain || '').padEnd(5);
+      const val = fmtUsd(p.value).padStart(12);
+      const pnl = fmtPct(p.pnlPercent).padStart(9);
+      lines.push(`${arrow} ${sym} ${tier} ${chain} ${val} ${pnl}`);
+    }
+  }
+
+  lines.push('');
+  lines.push(DSEP);
+  lines.push(`Fund: ${safeId}`);
+  return lines.join('\n');
+}
+
 function formatMessage(type, agent, message, safeId) {
   const emoji = EMOJI_MAP[type] || '\u26A0\uFE0F';
   if (type === 'trade_executed') return formatTradeExecuted(emoji, message || `${type} event`, safeId);
   if (type === 'trade_failed') return formatTradeFailed(emoji, message || `${type} event`, safeId);
   if (type === 'trade_retry') return formatTradeRetry(emoji, message || `${type} event`, safeId);
+  if (type === 'portfolio_daily') return formatPortfolioDaily(emoji, message || '{}', safeId);
   if (EMOJI_MAP[type]) return formatPassthrough(emoji, type, message || `${type} event`, safeId);
   const label = type.toUpperCase().replace(/_/g, ' ');
   return `${emoji} ${label}\n${SEP}\n${message || `${type} event`}\n${SEP}\nFund: ${safeId}`;
@@ -314,11 +398,152 @@ describe('Message Formatting', () => {
     assert(msg.includes('Fund: fund-1'), 'Should have fund footer');
   });
 
-  test('portfolio_daily preserves message body', () => {
-    const body = 'Total: $12,500\nPositions: 5\nP&L: +8.2%';
-    const msg = formatMessage('portfolio_daily', 'system', body, 'fund-1');
-    assert(msg.includes('PORTFOLIO REPORT'), 'Should have type label');
-    assert(msg.includes(body), 'Should preserve full body');
+  test('portfolio_daily formats JSON into readable report', () => {
+    const jsonData = JSON.stringify({
+      status: 'ok',
+      summary: {
+        totalValue: 12500.5,
+        totalDeposited: 10000,
+        totalPnlPercent: 25.01,
+        totalPnlUsd: 2500.5,
+        positionCount: 2,
+        cashBalance: 1200,
+      },
+      allocation: { base: 45.2, conviction: 38.6, moonshot: 11.2, cash: 5.0 },
+      allocationAlerts: [],
+      positions: [
+        { symbol: 'PEPE', chain: 'base', tier: 'base', value: 800, pnlPercent: 12.5 },
+        { symbol: 'TOKEN', chain: 'solana', tier: 'conviction', value: 7500, pnlPercent: 50.0 },
+      ],
+      timestamp: '2026-04-13T00:05:23.456Z',
+    });
+    const msg = formatMessage('portfolio_daily', 'system', jsonData, 'fund-1');
+    assert(msg.includes('PORTFOLIO REPORT'), 'Should have title');
+    assert(msg.includes('$12,500.50'), 'Should show total value');
+    assert(msg.includes('+$2,500.50'), 'Should show P&L USD');
+    assert(msg.includes('+25.01%'), 'Should show P&L percent');
+    assert(msg.includes('$1,200.00'), 'Should show cash');
+    assert(msg.includes('TOKEN'), 'Should list TOKEN position');
+    assert(msg.includes('PEPE'), 'Should list PEPE position');
+    assert(msg.includes('Fund: fund-1'), 'Should have fund footer');
+  });
+
+  test('portfolio_daily sorts positions by value descending', () => {
+    const jsonData = JSON.stringify({
+      status: 'ok',
+      summary: {
+        totalValue: 1000,
+        totalDeposited: 1000,
+        totalPnlPercent: 0,
+        totalPnlUsd: 0,
+        positionCount: 2,
+        cashBalance: 0,
+      },
+      allocation: { base: 50, conviction: 50, moonshot: 0, cash: 0 },
+      allocationAlerts: [],
+      positions: [
+        { symbol: 'SMALL', chain: 'base', tier: 'base', value: 100, pnlPercent: 5.0 },
+        { symbol: 'BIG', chain: 'base', tier: 'conviction', value: 900, pnlPercent: 10.0 },
+      ],
+      timestamp: '2026-04-13T00:00:00Z',
+    });
+    const msg = formatMessage('portfolio_daily', 'system', jsonData, 'fund-1');
+    const bigIdx = msg.indexOf('BIG');
+    const smallIdx = msg.indexOf('SMALL');
+    assert(bigIdx < smallIdx, 'Higher value position should appear first');
+  });
+
+  test('portfolio_daily shows profit/loss arrows', () => {
+    const jsonData = JSON.stringify({
+      status: 'ok',
+      summary: {
+        totalValue: 1000,
+        totalDeposited: 1000,
+        totalPnlPercent: 0,
+        totalPnlUsd: 0,
+        positionCount: 2,
+        cashBalance: 0,
+      },
+      allocation: { base: 100, conviction: 0, moonshot: 0, cash: 0 },
+      allocationAlerts: [],
+      positions: [
+        { symbol: 'UP', chain: 'base', tier: 'base', value: 600, pnlPercent: 20.0 },
+        { symbol: 'DOWN', chain: 'base', tier: 'base', value: 400, pnlPercent: -15.0 },
+      ],
+      timestamp: '2026-04-13T00:00:00Z',
+    });
+    const msg = formatMessage('portfolio_daily', 'system', jsonData, 'fund-1');
+    assert(msg.includes('\u25B2'), 'Should have up arrow for profit');
+    assert(msg.includes('\u25BC'), 'Should have down arrow for loss');
+  });
+
+  test('portfolio_daily falls back to passthrough on invalid JSON', () => {
+    const msg = formatMessage('portfolio_daily', 'system', 'not valid json {{{', 'fund-1');
+    assert(msg.includes('PORTFOLIO REPORT'), 'Should still have title');
+    assert(msg.includes('not valid json'), 'Should passthrough the raw message');
+    assert(msg.includes('Fund: fund-1'), 'Should have fund footer');
+  });
+
+  test('portfolio_daily handles empty positions', () => {
+    const jsonData = JSON.stringify({
+      status: 'ok',
+      summary: {
+        totalValue: 500,
+        totalDeposited: 500,
+        totalPnlPercent: 0,
+        totalPnlUsd: 0,
+        positionCount: 0,
+        cashBalance: 500,
+      },
+      allocation: { base: 0, conviction: 0, moonshot: 0, cash: 100 },
+      allocationAlerts: [],
+      positions: [],
+      timestamp: '2026-04-13T00:00:00Z',
+    });
+    const msg = formatMessage('portfolio_daily', 'system', jsonData, 'fund-1');
+    assert(msg.includes('POSITIONS (0)'), 'Should show zero positions');
+    assert(msg.includes('No open positions'), 'Should show empty message');
+  });
+
+  test('portfolio_daily shows allocation alerts', () => {
+    const jsonData = JSON.stringify({
+      status: 'ok',
+      summary: {
+        totalValue: 1000,
+        totalDeposited: 1000,
+        totalPnlPercent: 0,
+        totalPnlUsd: 0,
+        positionCount: 1,
+        cashBalance: 10,
+      },
+      allocation: { base: 0, conviction: 0, moonshot: 90, cash: 10 },
+      allocationAlerts: ['[base] Moonshot allocation 90.0% exceeds 20% target'],
+      positions: [{ symbol: 'YOLO', chain: 'base', tier: 'moonshot', value: 990, pnlPercent: 5.0 }],
+      timestamp: '2026-04-13T00:00:00Z',
+    });
+    const msg = formatMessage('portfolio_daily', 'system', jsonData, 'fund-1');
+    assert(msg.includes('ALERTS'), 'Should have alerts section');
+    assert(msg.includes('Moonshot allocation'), 'Should show alert text');
+  });
+
+  test('portfolio_daily abbreviates solana to sol', () => {
+    const jsonData = JSON.stringify({
+      status: 'ok',
+      summary: {
+        totalValue: 1000,
+        totalDeposited: 1000,
+        totalPnlPercent: 0,
+        totalPnlUsd: 0,
+        positionCount: 1,
+        cashBalance: 0,
+      },
+      allocation: { base: 0, conviction: 100, moonshot: 0, cash: 0 },
+      allocationAlerts: [],
+      positions: [{ symbol: 'SOL1', chain: 'solana', tier: 'conviction', value: 1000, pnlPercent: 10.0 }],
+      timestamp: '2026-04-13T00:00:00Z',
+    });
+    const msg = formatMessage('portfolio_daily', 'system', jsonData, 'fund-1');
+    assert(msg.includes('sol'), 'Should abbreviate solana to sol');
   });
 
   test('unknown type uses default format', () => {

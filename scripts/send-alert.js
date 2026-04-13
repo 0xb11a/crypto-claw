@@ -127,6 +127,89 @@ function formatPassthrough(emoji, type, message, safeId) {
   return `${emoji} ${label}\n${SEP}\n${message}\n${SEP}\nFund: ${safeId}`;
 }
 
+function formatPortfolioDaily(emoji, message, safeId) {
+  let data;
+  try {
+    data = JSON.parse(message);
+  } catch {
+    return formatPassthrough(emoji, 'portfolio_daily', message, safeId);
+  }
+  if (!data || !data.summary) {
+    return formatPassthrough(emoji, 'portfolio_daily', message, safeId);
+  }
+
+  const s = data.summary;
+  const alloc = data.allocation || {};
+  const positions = data.positions || [];
+  const alerts = data.allocationAlerts || [];
+
+  const isPaper = process.env.PAPER_MODE === 'true';
+  const dateStr = data.timestamp ? data.timestamp.slice(0, 10) : new Date().toISOString().slice(0, 10);
+
+  const fmtUsd = (n) => {
+    const abs = Math.abs(n);
+    const [int, dec] = abs.toFixed(2).split('.');
+    const withCommas = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return (n < 0 ? '-' : '') + '$' + withCommas + '.' + dec;
+  };
+  const fmtPct = (n) => `${n > 0 ? '+' : ''}${n.toFixed(2)}%`;
+  const fmtPnlUsd = (n) => `${n > 0 ? '+' : ''}${fmtUsd(n)}`;
+  const chainShort = (c) => (c === 'solana' ? 'sol' : c);
+  const pnlArrow = (pnl) => (pnl > 0 ? '\u25B2' : pnl < 0 ? '\u25BC' : ' ');
+
+  const sorted = [...positions].sort((a, b) => b.value - a.value);
+  const DSEP = '\u2550'.repeat(28);
+
+  const lines = [];
+  lines.push(`${emoji} PORTFOLIO REPORT`);
+  lines.push(DSEP);
+  lines.push(isPaper ? `[PAPER] ${dateStr}` : dateStr);
+  lines.push('');
+  lines.push(`Total Value    ${fmtUsd(s.totalValue)}`);
+  lines.push(`Deposited      ${fmtUsd(s.totalDeposited)}`);
+  lines.push(`P&L            ${fmtPnlUsd(s.totalPnlUsd)} (${fmtPct(s.totalPnlPercent)})`);
+  lines.push(`Cash           ${fmtUsd(s.cashBalance)}`);
+
+  lines.push('');
+  lines.push('ALLOCATION');
+  for (const tier of ['base', 'conviction', 'moonshot', 'cash']) {
+    if (alloc[tier] !== undefined) {
+      const label = tier.charAt(0).toUpperCase() + tier.slice(1);
+      lines.push(`  ${label.padEnd(13)}${alloc[tier].toFixed(1)}%`);
+    }
+  }
+
+  if (alerts.length > 0) {
+    lines.push('');
+    lines.push('ALERTS');
+    for (const alert of alerts) {
+      lines.push(`  \u26A0 ${alert}`);
+    }
+  }
+
+  lines.push('');
+  if (sorted.length === 0) {
+    lines.push('POSITIONS (0)');
+    lines.push('  No open positions');
+  } else {
+    lines.push(`POSITIONS (${sorted.length})`);
+    for (const p of sorted) {
+      const arrow = pnlArrow(p.pnlPercent);
+      const sym = p.symbol.padEnd(8);
+      const tier = (p.tier || '').padEnd(11);
+      const chain = chainShort(p.chain || '').padEnd(5);
+      const val = fmtUsd(p.value).padStart(12);
+      const pnl = fmtPct(p.pnlPercent).padStart(9);
+      lines.push(`${arrow} ${sym} ${tier} ${chain} ${val} ${pnl}`);
+    }
+  }
+
+  lines.push('');
+  lines.push(DSEP);
+  lines.push(`Fund: ${safeId}`);
+  return lines.join('\n');
+}
+
 const FORMATTERS = {
   trade_executed: (emoji, _type, _agent, message, safeId) => formatTradeExecuted(emoji, message, safeId),
   trade_failed: (emoji, _type, _agent, message, safeId) => formatTradeFailed(emoji, message, safeId),
@@ -138,7 +221,7 @@ const FORMATTERS = {
   recovered: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
   rug_warning: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
   heartbeat_summary: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
-  portfolio_daily: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
+  portfolio_daily: (emoji, _type, _agent, message, safeId) => formatPortfolioDaily(emoji, message, safeId),
   rebalance_event: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
 };
 
