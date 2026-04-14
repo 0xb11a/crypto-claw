@@ -59,7 +59,7 @@ node scripts/create-issue.js --update-issue 42 --body "Recurrence observed: ..."
 node scripts/send-alert.js --type system_health --agent observer --message "Model failure detected..."
 
 # Available alert types for Observer:
-#   system_health → TG_TOPIC_SYSTEM
+#   system_health → TG_TOPIC_OBSERVER
 ```
 
 ## Signer Balance Monitoring

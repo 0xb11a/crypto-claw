@@ -18,6 +18,7 @@
  *   TG_TOPIC_EXECUTOR     — Forum topic thread ID for Executor
  *   TG_TOPIC_ALERTS       — Forum topic thread ID for Alerts (urgent)
  *   TG_TOPIC_SYSTEM       — Forum topic thread ID for System
+ *   TG_TOPIC_OBSERVER     — Forum topic thread ID for Observer
  *   TG_TOPIC_PORTFOLIO    — Forum topic thread ID for Portfolio
  *
  * Uses `openclaw message send` for delivery (native OpenClaw integration).
@@ -49,7 +50,7 @@ const TOPIC_MAP = {
   rug_warning: 'TG_TOPIC_ALERTS',
   signer_low_balance: 'TG_TOPIC_ALERTS',
   recovered: 'TG_TOPIC_SYSTEM',
-  system_health: 'TG_TOPIC_SYSTEM',
+  system_health: 'TG_TOPIC_OBSERVER',
   heartbeat_summary: 'TG_TOPIC_SYSTEM',
   portfolio_daily: 'TG_TOPIC_PORTFOLIO',
   rebalance_event: 'TG_TOPIC_PORTFOLIO',
@@ -164,11 +165,10 @@ function formatPortfolioDaily(emoji, message, safeId) {
   const pnlArrow = (pnl) => (pnl > 0 ? '\u25B2' : pnl < 0 ? '\u25BC' : ' ');
 
   const sorted = [...positions].sort((a, b) => b.value - a.value);
-  const DSEP = '\u2550'.repeat(28);
 
   const lines = [];
   lines.push(`${emoji} PORTFOLIO REPORT`);
-  lines.push(DSEP);
+  lines.push(SEP);
   lines.push(isPaper ? `[PAPER] ${dateStr}` : dateStr);
   lines.push('');
   lines.push(`Total Value    ${fmtUsd(s.totalValue)}`);
@@ -211,7 +211,7 @@ function formatPortfolioDaily(emoji, message, safeId) {
   }
 
   lines.push('');
-  lines.push(DSEP);
+  lines.push(SEP);
   lines.push(`Fund: ${safeId}`);
   return lines.join('\n');
 }

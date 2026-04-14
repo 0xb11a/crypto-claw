@@ -21,6 +21,8 @@ const TOPIC_MAP = {
   model_failure: 'TG_TOPIC_ALERTS',
   emergency_mode: 'TG_TOPIC_ALERTS',
   rug_warning: 'TG_TOPIC_ALERTS',
+  signer_low_balance: 'TG_TOPIC_ALERTS',
+  system_health: 'TG_TOPIC_OBSERVER',
   recovered: 'TG_TOPIC_SYSTEM',
   heartbeat_summary: 'TG_TOPIC_SYSTEM',
   portfolio_daily: 'TG_TOPIC_PORTFOLIO',
@@ -38,6 +40,8 @@ describe('Topic Mapping', () => {
       'model_failure',
       'emergency_mode',
       'rug_warning',
+      'signer_low_balance',
+      'system_health',
       'recovered',
       'heartbeat_summary',
       'portfolio_daily',
@@ -76,6 +80,14 @@ describe('Topic Mapping', () => {
     assertEqual(TOPIC_MAP['rug_warning'], 'TG_TOPIC_ALERTS');
   });
 
+  test('signer_low_balance routes to Alerts topic', () => {
+    assertEqual(TOPIC_MAP['signer_low_balance'], 'TG_TOPIC_ALERTS');
+  });
+
+  test('system_health routes to Observer topic', () => {
+    assertEqual(TOPIC_MAP['system_health'], 'TG_TOPIC_OBSERVER');
+  });
+
   test('recovered routes to System topic', () => {
     assertEqual(TOPIC_MAP['recovered'], 'TG_TOPIC_SYSTEM');
   });
@@ -107,6 +119,8 @@ const EMOJI_MAP = {
   model_failure: '\u26A0\uFE0F',
   emergency_mode: '\u26A0\uFE0F',
   rug_warning: '\uD83D\uDEA8',
+  signer_low_balance: '\u26FD',
+  system_health: '\uD83D\uDCE1',
   heartbeat_summary: '\uD83D\uDCE1',
   portfolio_daily: '\uD83D\uDCB0',
   rebalance_event: '\u2696\uFE0F',
@@ -184,6 +198,7 @@ describe('Command Construction', () => {
       TG_TOPIC_EXECUTOR: '30',
       TG_TOPIC_ALERTS: '40',
       TG_TOPIC_SYSTEM: '50',
+      TG_TOPIC_OBSERVER: '55',
       TG_TOPIC_PORTFOLIO: '60',
     };
 
@@ -191,6 +206,8 @@ describe('Command Construction', () => {
     assertEqual(resolveThreadId('sell_triggered', envs), '20');
     assertEqual(resolveThreadId('trade_executed', envs), '30');
     assertEqual(resolveThreadId('model_failure', envs), '40');
+    assertEqual(resolveThreadId('signer_low_balance', envs), '40');
+    assertEqual(resolveThreadId('system_health', envs), '55');
     assertEqual(resolveThreadId('recovered', envs), '50');
     assertEqual(resolveThreadId('portfolio_daily', envs), '60');
   });
@@ -573,9 +590,9 @@ describe('Message Formatting', () => {
 // ============================================================
 
 describe('Topic Configuration', () => {
-  test('exactly 6 unique topic env vars', () => {
+  test('exactly 7 unique topic env vars', () => {
     const uniqueTopics = new Set(Object.values(TOPIC_MAP));
-    assertEqual(uniqueTopics.size, 6, 'Should have exactly 6 unique topic env vars');
+    assertEqual(uniqueTopics.size, 7, 'Should have exactly 7 unique topic env vars');
   });
 
   test('topic env vars match expected names', () => {
@@ -585,6 +602,7 @@ describe('Topic Configuration', () => {
       'TG_TOPIC_EXECUTOR',
       'TG_TOPIC_ALERTS',
       'TG_TOPIC_SYSTEM',
+      'TG_TOPIC_OBSERVER',
       'TG_TOPIC_PORTFOLIO',
     ]);
     const actual = new Set(Object.values(TOPIC_MAP));

@@ -568,7 +568,8 @@ Alerts are routed to a Telegram supergroup with per-topic threads. Each agent se
 | `TG_TOPIC_SENTINEL` | Sentinel | Stop-loss, take-profit, rug detection, LP alerts |
 | `TG_TOPIC_EXECUTOR` | Executor | Execution receipts, transaction confirmations |
 | `TG_TOPIC_ALERTS` | All | Critical alerts (model failure, emergency mode, rug warning) |
-| `TG_TOPIC_SYSTEM` | System, Observer | Health checks, startup, errors, observer triage results |
+| `TG_TOPIC_SYSTEM` | System | Health checks, startup, recovered, heartbeat summary |
+| `TG_TOPIC_OBSERVER` | Observer | Observer triage results, system health checks |
 | `TG_TOPIC_PORTFOLIO` | System | Daily portfolio report |
 
 ### Security

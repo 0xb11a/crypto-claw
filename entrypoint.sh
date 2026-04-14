@@ -420,12 +420,13 @@ fi
 if [ "${ENABLE_CHANNELS:-false}" = "true" ] && [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
   # Build per-topic agent routing if topic env vars are set
   TOPIC_CONFIG='{}'
-  if [ -n "${TG_TOPIC_RESEARCH:-}" ] || [ -n "${TG_TOPIC_SENTINEL:-}" ] || [ -n "${TG_TOPIC_EXECUTOR:-}" ]; then
+  if [ -n "${TG_TOPIC_RESEARCH:-}" ] || [ -n "${TG_TOPIC_SENTINEL:-}" ] || [ -n "${TG_TOPIC_EXECUTOR:-}" ] || [ -n "${TG_TOPIC_OBSERVER:-}" ]; then
     TOPIC_CONFIG=$(node -e "
       const t = {};
       if (process.env.TG_TOPIC_RESEARCH) t[process.env.TG_TOPIC_RESEARCH] = {agentId:'research'};
       if (process.env.TG_TOPIC_SENTINEL) t[process.env.TG_TOPIC_SENTINEL] = {agentId:'sentinel'};
       if (process.env.TG_TOPIC_EXECUTOR) t[process.env.TG_TOPIC_EXECUTOR] = {agentId:'executor'};
+      if (process.env.TG_TOPIC_OBSERVER) t[process.env.TG_TOPIC_OBSERVER] = {agentId:'observer'};
       console.log(JSON.stringify(t));
     ")
   fi
@@ -641,8 +642,8 @@ ensure_cron_jobs() {
   # --- Observer cycle (cron-based, replaces background loop) ---
   if [ -n "${OBSERVER_ISSUES_REPO:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then
     OBSERVER_CRON_DELIVERY="--no-deliver"
-    if [ -n "${TG_TOPIC_SYSTEM:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
-      OBSERVER_CRON_DELIVERY="--announce --channel telegram --to ${TELEGRAM_CHAT_ID}:topic:${TG_TOPIC_SYSTEM}"
+    if [ -n "${TG_TOPIC_OBSERVER:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+      OBSERVER_CRON_DELIVERY="--announce --channel telegram --to ${TELEGRAM_CHAT_ID}:topic:${TG_TOPIC_OBSERVER}"
     fi
 
     add_if_missing "observer-cycle" \

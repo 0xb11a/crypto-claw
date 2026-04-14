@@ -86,6 +86,7 @@ async function main() {
       console.log('  TG_TOPIC_EXECUTOR=<id>');
       console.log('  TG_TOPIC_ALERTS=<id>');
       console.log('  TG_TOPIC_SYSTEM=<id>');
+      console.log('  TG_TOPIC_OBSERVER=<id>');
       console.log('  TG_TOPIC_PORTFOLIO=<id>');
     } else {
       console.log('Found topics:');
@@ -114,6 +115,7 @@ async function main() {
     console.log('  TG_TOPIC_EXECUTOR=<id>');
     console.log('  TG_TOPIC_ALERTS=<id>');
     console.log('  TG_TOPIC_SYSTEM=<id>');
+    console.log('  TG_TOPIC_OBSERVER=<id>');
     console.log('  TG_TOPIC_PORTFOLIO=<id>');
   }
 
