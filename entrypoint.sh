@@ -47,6 +47,10 @@ if [ "$AUTO_APPROVE_BUY" = "true" ] && [ "$PAPER_MODE" != "true" ]; then
   echo "[entrypoint] *** AUTO-APPROVE BUY enabled — buys will not require human approval ***"
 fi
 
+# Workaround: OpenClaw's bundled QQBot plugin crashes if its data dir doesn't exist,
+# even when QQBot is not configured. Create it to suppress the unhandled rejection.
+mkdir -p "$HOME/.openclaw/qqbot/data"
+
 # ============================================================
 # 1. Sync research workspace (persistent volume)
 # ============================================================
