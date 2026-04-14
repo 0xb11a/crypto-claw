@@ -554,7 +554,7 @@ ensure_cron_jobs() {
   GATEWAY_READY=false
   for i in $(seq 1 60); do
     HEALTH_OUTPUT=$(timeout -k 3 5 openclaw gateway health 2>&1) && HEALTH_EXIT=0 || HEALTH_EXIT=$?
-    if [ $HEALTH_EXIT -eq 0 ]; then
+    if [ $HEALTH_EXIT -eq 0 ] || echo "$HEALTH_OUTPUT" | grep -q "Health OK"; then
       echo "[cron-setup] Gateway healthy after ${i}s"
       # Extra wait for cron subsystem to load existing jobs from disk
       sleep 5
