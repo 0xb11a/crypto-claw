@@ -886,10 +886,39 @@ run_portfolio_report_loop() {
 }
 
 # ============================================================
+# 5h. Telegram approval bot (optional — requires separate bot token)
+#     Long-polls getUpdates for callback_query (inline button presses).
+#     Handles Approve/Reject for pending buy trade proposals.
+# ============================================================
+
+run_approval_bot() {
+  if [ -z "${TELEGRAM_APPROVAL_BOT_TOKEN:-}" ]; then
+    return  # approval bot not configured — skip silently
+  fi
+  if [ -z "${TELEGRAM_OWNER_ID:-}" ]; then
+    echo "[approval-bot] Skipped — TELEGRAM_OWNER_ID required for button approval"
+    return
+  fi
+  sleep 30  # wait for gateway + DB initialization
+  echo "[approval-bot] Starting Telegram approval bot..."
+  while true; do
+    SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" \
+      TELEGRAM_APPROVAL_BOT_TOKEN="$TELEGRAM_APPROVAL_BOT_TOKEN" \
+      TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}" \
+      TELEGRAM_OWNER_ID="${TELEGRAM_OWNER_ID:-}" \
+      TG_TOPIC_RESEARCH="${TG_TOPIC_RESEARCH:-}" \
+      node "$RESEARCH_WS/scripts/approval-bot.js" 2>&1 | \
+      sed 's/^/[approval-bot] /'
+    echo "[approval-bot] Process exited, restarting in 5s..."
+    sleep 5
+  done
+}
+
+# ============================================================
 # 6. Start OpenClaw gateway
 #    Launch cron setup, memory backup, wallet scoring, executor
-#    loop, sentinel loop, and portfolio report in background,
-#    then exec the gateway as PID 1.
+#    loop, sentinel loop, portfolio report, and approval bot in
+#    background, then exec the gateway as PID 1.
 # ============================================================
 echo "[entrypoint] Starting OpenClaw gateway..."
 run_memory_backup_loop &
@@ -898,6 +927,7 @@ run_multisig_tracker_loop &
 run_executor_loop &
 run_sentinel_loop &
 run_portfolio_report_loop &
+run_approval_bot &
 ensure_cron_jobs &
 
 # Ensure Node.js heap limit is set for the gateway process (default V8 limit is ~2GB).

@@ -196,11 +196,15 @@ node scripts/db-query.js add-order --json '{
 
 **After writing an order, always notify the human:**
 ```bash
-# If pending (manual approval needed):
-node scripts/send-alert.js --type trade_proposal --agent research --message "BUY $TOKEN on <CHAIN> — $500 (4% moonshot) — score: 76. Reply to approve or reject."
-# If auto-approved (AUTO_APPROVE_BUY=true):
-node scripts/send-alert.js --type trade_proposal --agent research --message "BUY $TOKEN on <CHAIN> — $500 (4% moonshot) — score: 76. [AUTO-APPROVED] Executor will process on next cycle."
+# Text notification (all orders — pending and auto-approved):
+node scripts/send-alert.js --type trade_proposal --agent research --message "BUY $TOKEN on <CHAIN> — $500 (4% moonshot) — score: 76"
 ```
+
+**For pending orders, also send interactive approval buttons:**
+```bash
+node scripts/send-approval.js --order-id trade-<timestamp>
+```
+This sends the trade proposal to Telegram with inline Approve/Reject buttons. Only works when `TELEGRAM_APPROVAL_BOT_TOKEN` is configured (gracefully skips otherwise). Human can also approve via chat (orders skill) or CLI as before.
 
 The human approves or rejects via chat (orders skill). The Executor agent polls for approved orders every minute, validates independently, builds the Safe wallet transaction, signs, and submits. You do NOT execute trades directly — the Executor handles all wallet operations.
 

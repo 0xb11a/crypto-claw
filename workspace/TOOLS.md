@@ -677,6 +677,15 @@ node scripts/send-alert.js --type heartbeat_summary --agent executor --message "
 node scripts/send-alert.js --type portfolio_daily --agent system --message "Daily P&L report"
 ```
 
+### Telegram Approval Buttons
+```bash
+# Send interactive Approve/Reject buttons for a pending buy order via the approval bot
+# Requires TELEGRAM_APPROVAL_BOT_TOKEN (separate bot from main OpenClaw bot)
+# Gracefully skips if not configured
+node scripts/send-approval.js --order-id trade-001
+# → {"status":"sent","order_id":"trade-001","message_id":12345}
+```
+
 ## Configuration
 
 | Variable | Default | Purpose |

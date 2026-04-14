@@ -880,6 +880,12 @@ const migrations = [
       INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('observer', 'triage');
     `,
   },
+  {
+    name: '022_approval_bot',
+    sql: `
+      ALTER TABLE orders ADD COLUMN tg_message_id INTEGER;
+    `,
+  },
 ];
 
 export default { getDb, close };

@@ -97,6 +97,10 @@ services:
       - TG_TOPIC_PORTFOLIO=${TG_TOPIC_PORTFOLIO:-}
       - PORTFOLIO_REPORT_HOUR=${PORTFOLIO_REPORT_HOUR:-0}
 
+      # Telegram approval bot — inline Approve/Reject buttons for buy orders
+      # Create a separate bot via @BotFather, add it to your supergroup
+      - TELEGRAM_APPROVAL_BOT_TOKEN=${TELEGRAM_APPROVAL_BOT_TOKEN:-}
+
       # 1inch Swap API (Executor Agent — EVM swaps)
       - ONEINCH_API_KEY=${ONEINCH_API_KEY:-}
 

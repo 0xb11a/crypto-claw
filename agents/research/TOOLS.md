@@ -266,6 +266,14 @@ node scripts/heartbeat-check.js --agent sentinel
 # → {"agent":"sentinel","skip":false,"open_positions":3}
 ```
 
+### Telegram Approval Buttons
+```bash
+# Send interactive Approve/Reject buttons for a pending buy order
+# Only works when TELEGRAM_APPROVAL_BOT_TOKEN is set (gracefully skips otherwise)
+node scripts/send-approval.js --order-id trade-001
+# → {"status":"sent","order_id":"trade-001","message_id":12345}
+```
+
 ## Configuration
 
 | Variable | Default | Purpose |

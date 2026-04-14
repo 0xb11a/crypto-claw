@@ -612,4 +612,217 @@ describe('Topic Configuration', () => {
   });
 });
 
+// ============================================================
+// 6. Approval Bot — Message Formatting
+// ============================================================
+
+function formatApprovalMessage(order, safeId) {
+  const SEP_LINE = '\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015';
+  const lines = [];
+  lines.push(`\uD83D\uDCCA TRADE PROPOSAL`);
+  lines.push(SEP_LINE);
+  lines.push(`BUY $${order.symbol} on ${order.chain}`);
+
+  const pct = order.percent_of_portfolio
+    ? ` (${order.percent_of_portfolio}% ${order.tier})`
+    : order.tier
+      ? ` (${order.tier})`
+      : '';
+  const score = order.analysis_score != null ? ` \u2014 score: ${order.analysis_score}/100` : '';
+  lines.push(`$${order.amount}${pct}${score}`);
+
+  lines.push('');
+  if (order.entry_price != null) lines.push(`Entry: $${order.entry_price}`);
+  if (order.stop_loss != null) lines.push(`Stop Loss: ${order.stop_loss}%`);
+
+  if (order.take_profit_levels) {
+    try {
+      const tps =
+        typeof order.take_profit_levels === 'string' ? JSON.parse(order.take_profit_levels) : order.take_profit_levels;
+      if (Array.isArray(tps) && tps.length > 0) {
+        const tpStr = tps
+          .map((tp) => `${tp.price || tp.target || tp.level}x (sell ${tp.sellPercent || tp.sell_percent}%)`)
+          .join(', ');
+        lines.push(`Take Profit: ${tpStr}`);
+      }
+    } catch {}
+  }
+
+  if (order.risk_score != null) lines.push(`Risk: ${order.risk_score}/100`);
+
+  if (order.reasoning) {
+    lines.push('');
+    const reason = order.reasoning.length > 200 ? order.reasoning.slice(0, 200) + '...' : order.reasoning;
+    lines.push(reason);
+  }
+
+  lines.push(SEP_LINE);
+  lines.push(`Fund: ${safeId}`);
+  return lines.join('\n');
+}
+
+describe('Approval Bot — Message Formatting', () => {
+  const sampleOrder = {
+    id: 'trade-1713000000',
+    symbol: 'PEPE',
+    chain: 'base',
+    amount: 500,
+    percent_of_portfolio: 4,
+    tier: 'moonshot',
+    entry_price: 0.001,
+    stop_loss: -45,
+    analysis_score: 76,
+    risk_score: 20,
+    take_profit_levels: '[{"price":2,"sellPercent":50},{"price":3,"sellPercent":100}]',
+    reasoning: 'Strong AI narrative with growing community',
+  };
+
+  test('approval message includes all key fields', () => {
+    const msg = formatApprovalMessage(sampleOrder, 'fund-1');
+    assert(msg.includes('TRADE PROPOSAL'), 'Should have title');
+    assert(msg.includes('$PEPE'), 'Should include symbol');
+    assert(msg.includes('base'), 'Should include chain');
+    assert(msg.includes('$500'), 'Should include amount');
+    assert(msg.includes('4% moonshot'), 'Should include tier and percent');
+    assert(msg.includes('score: 76/100'), 'Should include analysis score');
+    assert(msg.includes('Entry: $0.001'), 'Should include entry price');
+    assert(msg.includes('Stop Loss: -45%'), 'Should include stop loss');
+    assert(msg.includes('Take Profit:'), 'Should include take profit levels');
+    assert(msg.includes('Risk: 20/100'), 'Should include risk score');
+    assert(msg.includes('Strong AI narrative'), 'Should include reasoning');
+    assert(msg.includes('Fund: fund-1'), 'Should have fund footer');
+  });
+
+  test('approval message has separator lines', () => {
+    const msg = formatApprovalMessage(sampleOrder, 'fund-1');
+    const sepCount = (msg.match(/\u2015{16}/g) || []).length;
+    assert(sepCount >= 2, 'Should have at least 2 separator lines');
+  });
+
+  test('approval message truncates long reasoning', () => {
+    const longOrder = { ...sampleOrder, reasoning: 'A'.repeat(300) };
+    const msg = formatApprovalMessage(longOrder, 'fund-1');
+    assert(msg.includes('...'), 'Should truncate with ellipsis');
+    assert(!msg.includes('A'.repeat(300)), 'Should not include full 300-char reasoning');
+  });
+
+  test('approval message handles missing optional fields', () => {
+    const minimalOrder = { symbol: 'TOKEN', chain: 'solana', amount: 200 };
+    const msg = formatApprovalMessage(minimalOrder, 'fund-1');
+    assert(msg.includes('$TOKEN'), 'Should include symbol');
+    assert(msg.includes('solana'), 'Should include chain');
+    assert(msg.includes('$200'), 'Should include amount');
+    assert(msg.includes('Fund: fund-1'), 'Should have fund footer');
+    assert(!msg.includes('Entry:'), 'Should not have entry without entry_price');
+    assert(!msg.includes('Take Profit:'), 'Should not have TP without levels');
+    assert(!msg.includes('Risk:'), 'Should not have risk without score');
+  });
+
+  test('approval message parses take profit levels from JSON string', () => {
+    const msg = formatApprovalMessage(sampleOrder, 'fund-1');
+    assert(msg.includes('2x (sell 50%)'), 'Should parse first TP level');
+    assert(msg.includes('3x (sell 100%)'), 'Should parse second TP level');
+  });
+});
+
+// ============================================================
+// 7. Approval Bot — Callback Data
+// ============================================================
+
+describe('Approval Bot — Callback Data', () => {
+  test('callback_data format is correct', () => {
+    const orderId = 'trade-1713000000';
+    const approveData = `approve:${orderId}`;
+    const rejectData = `reject:${orderId}`;
+    assert(approveData === 'approve:trade-1713000000', 'Approve callback format');
+    assert(rejectData === 'reject:trade-1713000000', 'Reject callback format');
+  });
+
+  test('callback_data stays under 64 bytes', () => {
+    // Telegram limits callback_data to 64 bytes
+    const longId = 'trade-' + '9'.repeat(20);
+    const data = `approve:${longId}`;
+    assert(Buffer.byteLength(data, 'utf8') <= 64, `callback_data too long: ${data.length} bytes`);
+  });
+
+  test('callback_data can be parsed back', () => {
+    const data = 'approve:trade-1713000000';
+    const colonIdx = data.indexOf(':');
+    const action = data.slice(0, colonIdx);
+    const orderId = data.slice(colonIdx + 1);
+    assertEqual(action, 'approve');
+    assertEqual(orderId, 'trade-1713000000');
+  });
+
+  test('inline keyboard structure is valid', () => {
+    const orderId = 'trade-001';
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '\u2705 Approve', callback_data: `approve:${orderId}` },
+          { text: '\u274C Reject', callback_data: `reject:${orderId}` },
+        ],
+      ],
+    };
+    assertEqual(keyboard.inline_keyboard.length, 1, 'Should have 1 row');
+    assertEqual(keyboard.inline_keyboard[0].length, 2, 'Row should have 2 buttons');
+    assert(keyboard.inline_keyboard[0][0].text.includes('Approve'), 'First button is Approve');
+    assert(keyboard.inline_keyboard[0][1].text.includes('Reject'), 'Second button is Reject');
+  });
+});
+
+// ============================================================
+// 8. Approval Bot — Message Editing
+// ============================================================
+
+function buildEditedText(originalText, action, timestamp) {
+  const statusLabel = action === 'approve' ? 'APPROVED \u2705' : 'REJECTED \u274C';
+  const byLine = action === 'approve' ? `Approved by human at ${timestamp}` : `Rejected by human at ${timestamp}`;
+
+  const SEP_LINE = '\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015';
+  const edited = originalText.replace(
+    /\uD83D\uDCCA TRADE PROPOSAL/,
+    `\uD83D\uDCCA TRADE PROPOSAL \u2014 ${statusLabel}`,
+  );
+
+  return edited.replace(new RegExp(`(${SEP_LINE}\nFund: .*)$`), `${SEP_LINE}\n${byLine}\nFund: unknown`);
+}
+
+describe('Approval Bot — Message Editing', () => {
+  const originalMsg = formatApprovalMessage(
+    {
+      symbol: 'PEPE',
+      chain: 'base',
+      amount: 500,
+      percent_of_portfolio: 4,
+      tier: 'moonshot',
+      analysis_score: 76,
+      entry_price: 0.001,
+      stop_loss: -45,
+    },
+    'fund-1',
+  );
+
+  test('edited message shows APPROVED status', () => {
+    const edited = buildEditedText(originalMsg, 'approve', '2026-04-14 15:30:00 UTC');
+    assert(edited.includes('APPROVED'), 'Should show APPROVED');
+    assert(edited.includes('\u2705'), 'Should have check emoji');
+    assert(edited.includes('Approved by human at 2026-04-14 15:30:00 UTC'), 'Should show timestamp');
+  });
+
+  test('edited message shows REJECTED status', () => {
+    const edited = buildEditedText(originalMsg, 'reject', '2026-04-14 15:30:00 UTC');
+    assert(edited.includes('REJECTED'), 'Should show REJECTED');
+    assert(edited.includes('\u274C'), 'Should have X emoji');
+    assert(edited.includes('Rejected by human at 2026-04-14 15:30:00 UTC'), 'Should show timestamp');
+  });
+
+  test('edited message preserves original content', () => {
+    const edited = buildEditedText(originalMsg, 'approve', '2026-04-14 15:30:00 UTC');
+    assert(edited.includes('$PEPE'), 'Should preserve symbol');
+    assert(edited.includes('base'), 'Should preserve chain');
+    assert(edited.includes('$500'), 'Should preserve amount');
+  });
+});
+
 summary();

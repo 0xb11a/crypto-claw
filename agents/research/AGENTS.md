@@ -136,8 +136,16 @@ node scripts/db-query.js get-alerts --unprocessed
   - Paper mode: auto-approved (`status: 'approved'`, `approved_by: 'paper_mode'`)
   - Real mode + `AUTO_APPROVE_BUY=true`: auto-approved (`status: 'approved'`, `approved_by: 'auto'`)
   - Real mode (default): pending human approval (`status: 'pending'`)
-- **After writing an order (pending or auto-approved), notify human: `node scripts/send-alert.js --type trade_proposal --agent research --message "..."`** (routes to Research topic in Telegram supergroup)
-- **Human approves/rejects via chat (orders skill) or CLI**
+- **After writing an order, notify human:**
+  ```bash
+  node scripts/send-alert.js --type trade_proposal --agent research --message "BUY $TOKEN on <CHAIN> — $500 (4% moonshot) — score: 76"
+  ```
+- **For pending orders, also send interactive Telegram approval buttons:**
+  ```bash
+  node scripts/send-approval.js --order-id <order-id>
+  ```
+  (Only works when `TELEGRAM_APPROVAL_BOT_TOKEN` is configured — gracefully skips otherwise)
+- **Human approves/rejects via Telegram buttons, chat (orders skill), or CLI**
 - **The Executor agent picks up approved orders and executes via Safe wallet**
 - **SELL proposals → Sentinel writes sell order to DB (auto-approved), Executor executes**
 - Log proposal + outcome to daily memory
