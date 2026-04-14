@@ -7,6 +7,10 @@ RUN apt-get update -qq && apt-get install -y -qq jq > /dev/null 2>&1 && rm -rf /
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list && \
     apt-get update -qq && apt-get install -y -qq gh > /dev/null 2>&1 && rm -rf /var/lib/apt/lists/*
 
+# Workaround: OpenClaw's bundled QQBot plugin crashes if its data dir doesn't exist,
+# even when QQBot is not configured. Must be created as root since /home/node is read-only at runtime.
+RUN mkdir -p /home/node/.openclaw/qqbot/data && chown -R 1000:1000 /home/node/.openclaw
+
 # Run as non-root for security
 USER 1000:1000
 
