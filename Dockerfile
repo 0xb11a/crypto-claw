@@ -1,4 +1,4 @@
-FROM ghcr.io/openclaw/openclaw:latest
+FROM ghcr.io/openclaw/openclaw:2026.4.12
 
 # Install jq (agents use it to parse JSON script output) and gh (GitHub CLI for Observer agent)
 USER root
