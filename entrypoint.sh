@@ -646,7 +646,7 @@ ensure_cron_jobs() {
     fi
 
     add_if_missing "observer-cycle" \
-      --every "60m" --agent observer --model "$OBSERVER_MODEL" --session isolated \
+      --every "120m" --agent observer --model "$OBSERVER_MODEL" --session isolated \
       $OBSERVER_CRON_DELIVERY \
       --message "OVERLAP GUARD: First run openclaw cron list --json to find the observer-cycle job ID, then run openclaw cron runs --id <that-id> --limit 5. The output has an entries array. Skip the most recent entry (that is you). If any other entry has action other than finished, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Run the triage skill now: read system logs, query DB for failures, analyze, and take action (create issues or send alerts). Check heartbeat state: node scripts/db-query.js get-heartbeat --agent observer. Update heartbeat when done. If nothing to report, reply HEARTBEAT_OK."
   else

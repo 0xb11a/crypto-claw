@@ -4,7 +4,7 @@
 Analyze system logs and database error data, classify problems, and take appropriate action: create GitHub issues for code bugs, send Telegram alerts for operational issues, or skip noise.
 
 ## Trigger
-Every heartbeat cycle (60 minutes). Activated by the observer-cycle cron job.
+Every heartbeat cycle (120 minutes). Activated by the observer-cycle cron job.
 
 ## Procedure
 
@@ -12,17 +12,27 @@ Every heartbeat cycle (60 minutes). Activated by the observer-cycle cron job.
 
 Read the system log for recent errors:
 ```bash
-tail -200 /tmp/openclaw/system.log 2>/dev/null || echo "(system.log not found — no script has logged yet this cycle)"
+tail -200 /tmp/openclaw/system.log
 ```
-If `system.log` does not exist, that is normal after rotation or container restart — proceed to database queries.
+If `system.log` does not exist or the command fails, that is normal after rotation or container restart — proceed to database queries.
 
 Query the database for structured error data:
 ```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status tx_failed --limit 20
+```
+```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status validation_failed --limit 10
+```
+```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status reverted --limit 10
+```
+```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-orders --status failed --limit 20
+```
+```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-executor-log --limit 20
+```
+```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-sentinel-log --limit 20
 ```
 
@@ -104,6 +114,9 @@ node scripts/send-alert.js --type system_health --agent observer --message "<con
 
 ```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js add-observer-log --json '{"errors_analyzed": <N>, "issues_created": <N>, "alerts_sent": <N>, "summary": "<one line>", "status": "ok"}'
+```
+
+```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js update-heartbeat --agent observer --check triage
 ```
 

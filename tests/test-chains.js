@@ -419,7 +419,7 @@ async function runTests() {
   describe('Signer Thresholds', () => {
     test('base has signerThreshold configured', () => {
       const cfg = chains.getChain('base');
-      assertEqual(cfg.signerThreshold, 0.002);
+      assertEqual(cfg.signerThreshold, 0.001);
     });
 
     test('ethereum has higher signerThreshold than base', () => {
@@ -434,8 +434,8 @@ async function runTests() {
     });
 
     test('getSignerThreshold returns per-chain value', () => {
-      assertEqual(chains.getSignerThreshold('base'), 0.002);
-      assertEqual(chains.getSignerThreshold('ethereum'), 0.01);
+      assertEqual(chains.getSignerThreshold('base'), 0.001);
+      assertEqual(chains.getSignerThreshold('ethereum'), 0.005);
       assertEqual(chains.getSignerThreshold('solana'), 0.05);
     });
 

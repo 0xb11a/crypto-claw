@@ -87,7 +87,7 @@ flowchart TD
         E["7. EXECUTE\nRead orders\nValidate independently\nBuild Safe/Squads tx → sign → submit\nWrite receipts → update positions"]
     end
 
-    subgraph Observer["OBSERVER AGENT · 60m heartbeat"]
+    subgraph Observer["OBSERVER AGENT · 120m heartbeat"]
         O["8. OBSERVE\nRead system logs + DB\nTriage failures\n→ GitHub issues for code bugs\n→ Telegram alerts for ops issues"]
     end
 
@@ -109,7 +109,7 @@ flowchart TD
 | | Research | Sentinel | Executor | Observer |
 |---|---|---|---|---|
 | **Model** | GPT-5.4 | GPT-5.4 | GPT-5.4 | GPT-5.4 |
-| **Heartbeat** | 30 min | 15 min | 1 min | 60 min |
+| **Heartbeat** | 30 min | 15 min | 1 min | 120 min |
 | **Reads** | positions, receipts, portfolio_meta, analysis_cache, tracked_wallets | positions/paper_positions, liquidity_snapshots, tracked_wallets | orders | receipts, orders, executor_log, sentinel_log, positions |
 | **Writes** | orders, trades, watchlist, tracked_wallets, analysis_cache, sentinel_alerts | orders, sentinel_alerts, liquidity_snapshots, sentinel_log | receipts, positions/paper_positions, executor_log, portfolio_meta | observer_log (+ GitHub issues, Telegram alerts) |
 | **Checks** | Token safety, holder distribution, narrative strength, market regime, portfolio concentration | Price vs stops/TPs, LP changes, tracked wallet activity | Order staleness, price drift, slippage limits, balance sufficiency | Execution failures, model errors, system log errors |
@@ -201,7 +201,7 @@ flowchart LR
 
 ## Key Design Decisions
 
-**Four agents, clear separation.** Research thinks deeply (GPT-5.4, handles all analysis/risk directly, 30m heartbeat). Sentinel reacts fast (GPT-5.4, 15m). Executor handles wallet operations (GPT-5.4, 1m). Observer monitors system health (GPT-5.4, 60m).
+**Four agents, clear separation.** Research thinks deeply (GPT-5.4, handles all analysis/risk directly, 30m heartbeat). Sentinel reacts fast (GPT-5.4, 15m). Executor handles wallet operations (GPT-5.4, 1m). Observer monitors system health (GPT-5.4, 120m).
 
 **Single model, flat fee.** All four agents run on GPT-5.4 via OpenAI Codex OAuth (ChatGPT subscription — flat fee, no per-token billing). Research handles all skills directly — no sub-agent spawning needed.
 
@@ -624,7 +624,7 @@ crypto-claw/
 |   +-- observer/                    # OBSERVER AGENT
 |       +-- AGENTS.md                # Triage rules + issue creation logic
 |       +-- SOUL.md                  # Watchful persona
-|       +-- HEARTBEAT.md             # 60min triage cycle
+|       +-- HEARTBEAT.md             # 120min triage cycle
 |       +-- TOOLS.md                 # Per-agent CLI usage guide
 |       +-- skills/
 |           +-- triage/SKILL.md      # Log analysis + GitHub issues

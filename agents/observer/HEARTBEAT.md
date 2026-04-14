@@ -1,13 +1,13 @@
 # HEARTBEAT.md — Observer Agent Schedule
 
 ## Schedule
-Every 60 minutes, triggered by the observer-cycle cron job.
+Every 120 minutes, triggered by the observer-cycle cron job.
 
 ## Procedure
 
 ### 1. Read System Logs
 ```bash
-tail -200 /tmp/openclaw/system.log 2>/dev/null || echo "(system.log not found — no script has logged yet this cycle)"
+tail -200 /tmp/openclaw/system.log
 ```
 Look for `[error]` and `[critical]` entries since your last run. Note patterns: same error repeating, correlated failures across scripts.
 
@@ -16,9 +16,17 @@ If `system.log` does not exist or is empty, that means no scripts have logged si
 ### 2. Query Database for Failures
 ```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status tx_failed --limit 20
+```
+```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status validation_failed --limit 10
+```
+```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status reverted --limit 10
+```
+```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-executor-log --limit 20
+```
+```bash
 SAFE_ID="$SAFE_ID" node scripts/db-query.js get-sentinel-log --limit 20
 ```
 

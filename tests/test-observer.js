@@ -180,9 +180,9 @@ describe('Observer Agent — File Structure', () => {
     assert(content.includes('list-issues.js'), 'Should reference dedup via list-issues');
   });
 
-  test('HEARTBEAT.md specifies 60-minute cycle', () => {
+  test('HEARTBEAT.md specifies 120-minute cycle', () => {
     const content = readFileSync(resolve(AGENTS_DIR, 'HEARTBEAT.md'), 'utf-8');
-    assert(content.includes('60 minutes'), 'Should specify 60-minute cycle');
+    assert(content.includes('120 minutes'), 'Should specify 120-minute cycle');
   });
 });
 

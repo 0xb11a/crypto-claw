@@ -3,6 +3,7 @@
 ## General Notes
 - All scripts output JSON to stdout. Parse with `jq` or read directly.
 - Errors go to stderr.
+- **Run one command per exec call.** Never chain commands with `&&`, `||`, or `;`. If you need multiple commands, make separate exec calls for each.
 - Always set `SAFE_ID` env var when running database commands.
 
 ## Database CLI (`db-query.js`)

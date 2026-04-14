@@ -51,7 +51,7 @@ const CHAINS = {
       { symbol: 'cbBTC', address: '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf', decimals: 8 },
     ],
     portfolio: { provider: 'debank', apiKeyEnv: 'DEBANK_API_KEY' },
-    signerThreshold: 0.002, // ETH — L2 gas is cheap
+    signerThreshold: 0.001, // ETH — L2 gas is cheap
     rules: {}, // Base uses all global defaults
   },
   ethereum: {
@@ -81,7 +81,7 @@ const CHAINS = {
       { symbol: 'WBTC', address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599', decimals: 8 },
     ],
     portfolio: { provider: 'debank', apiKeyEnv: 'DEBANK_API_KEY' },
-    signerThreshold: 0.01, // ETH — mainnet gas is expensive
+    signerThreshold: 0.005, // ETH — mainnet gas is expensive
     rules: {}, // Ethereum uses all global defaults (same as Base)
   },
   solana: {
