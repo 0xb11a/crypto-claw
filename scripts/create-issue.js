@@ -11,6 +11,7 @@
  * Applies final redaction pass before posting.
  */
 
+import 'dotenv/config';
 import { execFileSync } from 'child_process';
 import { redact } from './redact.js';
 import { log } from './log.js';

@@ -10,6 +10,7 @@
  * Output: JSON array of issues with { number, title, state, labels, body, url }
  */
 
+import 'dotenv/config';
 import { execFileSync } from 'child_process';
 import { log } from './log.js';
 
