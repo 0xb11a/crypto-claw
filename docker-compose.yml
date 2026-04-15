@@ -121,7 +121,7 @@ services:
       - MEMORY_GIT_REMOTE=${MEMORY_GIT_REMOTE:-}
 
       # Observer agent — GitHub integration (private repo for issue tracking)
-      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GH_PAT=${GH_PAT:-}
       - OBSERVER_ISSUES_REPO=${OBSERVER_ISSUES_REPO:-}
 
       # OpenClaw config

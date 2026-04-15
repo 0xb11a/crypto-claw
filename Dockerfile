@@ -9,7 +9,8 @@ RUN apt-get update -qq && apt-get install -y -qq jq > /dev/null 2>&1 && rm -rf /
 
 # Install node-llama-cpp for local embeddings (memory search)
 # Must be done as root since /app is owned by root in the base image
-RUN cd /app && npm install node-llama-cpp --no-save 2>&1 | tail -5
+# --cache /tmp/npm-cache avoids writing to read-only /home/node/.npm
+RUN cd /app && npm install node-llama-cpp@3.18.1 --no-save --cache /tmp/npm-cache && rm -rf /tmp/npm-cache
 
 # Workaround: OpenClaw's bundled QQBot plugin crashes if its data dir doesn't exist,
 # even when QQBot is not configured. Must be created as root since /home/node is read-only at runtime.

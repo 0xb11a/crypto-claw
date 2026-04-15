@@ -104,5 +104,5 @@ SAFE_ID="$SAFE_ID" node scripts/db-query.js get-chains
 |---|---|
 | `SAFE_ID` | Fund identifier — determines which database |
 | `PAPER_MODE` | `true` for paper trading data |
-| `GITHUB_TOKEN` | GitHub API authentication |
+| `GH_PAT` | GitHub API authentication |
 | `OBSERVER_ISSUES_REPO` | Private repo for issues (e.g., `owner/crypto-claw-issues`) |

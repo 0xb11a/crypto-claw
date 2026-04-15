@@ -777,7 +777,7 @@ node tests/test-observer.js      # Observer agent + redaction + GitHub integrati
 - **Cron jobs** (research 30m, observer 60m) with overlap guards prevent concurrent runs
 - Scripts handle ALL API calls — LLM never fetches data directly
 - Sentinel/Executor context stays minimal when portfolio is healthy or no orders pending
-- Observer only runs when `OBSERVER_ISSUES_REPO` and `GITHUB_TOKEN` are configured
+- Observer only runs when `OBSERVER_ISSUES_REPO` and `GH_PAT` are configured
 
 ## License
 

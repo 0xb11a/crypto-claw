@@ -203,7 +203,7 @@ SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup sy
 - **SAFE_ID** env var determines which database file is used. One DB per fund/wallet.
 - **Solana wallet config:** `SQUADS_VAULT_ADDRESS` (direct vault) takes priority over `SQUADS_MULTISIG_ADDRESS` (vault derived from multisig PDA). Set at least one for Solana.
 - **OLLAMA_API_KEY** env var authenticates with Ollama Cloud model access.
-- **Observer agent** requires `GITHUB_TOKEN` and `OBSERVER_ISSUES_REPO` (private repo, e.g., `owner/crypto-claw-issues`) to create GitHub issues. Without these, the observer cron job is not created.
+- **Observer agent** requires `GH_PAT` and `OBSERVER_ISSUES_REPO` (private repo, e.g., `owner/crypto-claw-issues`) to create GitHub issues. Without these, the observer cron job is not created. Note: we use `GH_PAT` instead of `GITHUB_TOKEN` because OpenClaw's gateway strips well-known credential env vars (`GITHUB_TOKEN`, `GH_TOKEN`) from agent exec contexts.
 - **OpenAI auth** supports two methods (priority order): (1) OpenAI Codex OAuth via ChatGPT subscription (flat fee, `openai-codex/` prefix) — setup: `docker compose exec crypto-claw openclaw models auth login --provider openai-codex`, (2) `OPENAI_API_KEY` static API key (per-token billing, `openai/` prefix).
 
 ## Safety Rules (Do Not Weaken)
