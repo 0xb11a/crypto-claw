@@ -339,7 +339,7 @@ if [ ! -f "$STATE_DIR/openclaw.json" ]; then
   # --- Memory: compaction flush + search ---
   openclaw config set 'agents.defaults.compaction.reserveTokensFloor' 80000
   openclaw config set 'agents.defaults.compaction.memoryFlush' '{"enabled":true,"softThresholdTokens":8000,"systemPrompt":"Session nearing compaction. Store durable memories now.","prompt":"Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."}' --strict-json
-  openclaw config set 'agents.defaults.memorySearch' '{"enabled":true,"provider":"openai","query":{"hybrid":{"enabled":true,"vectorWeight":0.7,"textWeight":0.3}},"cache":{"enabled":true}}' --strict-json
+  openclaw config set 'agents.defaults.memorySearch' '{"enabled":true,"provider":"local","local":{"modelPath":"hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf"},"query":{"hybrid":{"enabled":true,"vectorWeight":0.7,"textWeight":0.3}},"cache":{"enabled":true}}' --strict-json
   openclaw config set 'agents.defaults.contextPruning' '{"mode":"cache-ttl","ttl":"5m"}' --strict-json
   openclaw config set 'agents.defaults.sandbox.mode' 'off'
   # Telegram channel config is applied after this block (section 5a) on every startup
@@ -355,6 +355,13 @@ else
     openclaw config set 'agents.defaults.compaction.reserveTokensFloor' 80000
     openclaw config set 'agents.defaults.compaction.memoryFlush.softThresholdTokens' 8000
     echo "[entrypoint] Migrated compaction settings for larger context windows"
+  fi
+
+  # --- Migrate memorySearch from openai provider to local embeddings ---
+  CURRENT_SEARCH_PROVIDER=$(openclaw config get 'agents.defaults.memorySearch.provider' 2>/dev/null || echo "")
+  if [ "$CURRENT_SEARCH_PROVIDER" = "openai" ]; then
+    openclaw config set 'agents.defaults.memorySearch' '{"enabled":true,"provider":"local","local":{"modelPath":"hf:ggml-org/embeddinggemma-300m-qat-q8_0-GGUF/embeddinggemma-300m-qat-Q8_0.gguf"},"query":{"hybrid":{"enabled":true,"vectorWeight":0.7,"textWeight":0.3}},"cache":{"enabled":true}}' --strict-json
+    echo "[entrypoint] Migrated memorySearch from openai to local embeddings"
   fi
 
   # --- Ensure exec config for headless mode (security=full, ask=off, host=gateway) ---

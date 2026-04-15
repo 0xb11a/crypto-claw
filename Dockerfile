@@ -16,6 +16,8 @@ USER 1000:1000
 
 # Set workspace directory
 ENV OPENCLAW_HOME=/home/openclaw/.openclaw
+# node-llama-cpp defaults to /home/node which isn't writable as UID 1000
+ENV NODE_LLAMA_CPP_CACHE=/home/openclaw/.node-llama-cpp
 WORKDIR /home/openclaw
 
 # Copy CryptoClaw project
