@@ -103,8 +103,8 @@ scripts/                  # Node.js scripts
   send-alert.js           # Telegram alerts via openclaw message send (topic routing)
   redact.js               # Sensitive data redaction (shared module)
   log.js                  # Structured logging helper (writes to system.log + stderr)
-  create-issue.js         # GitHub issue creation (Observer agent)
-  list-issues.js          # GitHub issue listing (Observer dedup check)
+  create-issue.js         # GitHub issue creation (standalone, not deployed to observer)
+  list-issues.js          # GitHub issue listing (standalone, not deployed to observer)
   telegram-get-topics.js  # Setup helper: discover supergroup topic thread IDs
   memory-backup.sh        # Git auto-commit for agent memory
   codex-login.sh          # One-time Codex OAuth login (ChatGPT subscription)
@@ -127,7 +127,7 @@ setup.sh                  # Bare-metal installer (deploys agents into OpenClaw d
 | `scripts/db-query.js` | 35+ CLI commands for agents to interact with wallet data |
 | `scripts/chains.js` | Centralized chain config — Safe/Squads env vars, portfolio rules, cash tokens |
 | `agents/{name}/TOOLS.md` | Per-agent CLI usage guide — each agent gets only the commands/scripts it uses |
-| `scripts/redact.js` | Sensitive data redaction — used by log.js and create-issue.js (3-layer defense) |
+| `scripts/redact.js` | Sensitive data redaction — used by log.js (2-layer defense) |
 | `scripts/log.js` | Structured logging — writes redacted entries to /tmp/openclaw/system.log + stderr |
 | `workspace/TOOLS.md` | Full tool reference (not deployed) — check this for the complete picture |
 | `scripts/process-order.js` | Atomic order processing — validates, executes, updates status, writes receipts |
@@ -203,7 +203,7 @@ SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup sy
 - **SAFE_ID** env var determines which database file is used. One DB per fund/wallet.
 - **Solana wallet config:** `SQUADS_VAULT_ADDRESS` (direct vault) takes priority over `SQUADS_MULTISIG_ADDRESS` (vault derived from multisig PDA). Set at least one for Solana.
 - **OLLAMA_API_KEY** env var authenticates with Ollama Cloud model access.
-- **Observer agent** requires `GH_PAT` and `OBSERVER_ISSUES_REPO` (private repo, e.g., `owner/crypto-claw-issues`) to create GitHub issues. Without these, the observer cron job is not created. Note: we use `GH_PAT` instead of `GITHUB_TOKEN` because OpenClaw's gateway strips well-known credential env vars (`GITHUB_TOKEN`, `GH_TOKEN`) from agent exec contexts.
+- **Observer agent** requires `GH_PAT` and `OBSERVER_ISSUES_REPO` (private repo, e.g., `owner/crypto-claw-issues`) to create GitHub issues. Without these, the observer cron job is not created. `GH_PAT` is used at container startup to run `gh auth login`, storing credentials in `~/.config/gh/hosts.yml`. Agents use `gh` CLI directly — no token env var needed at runtime (OpenClaw's gateway strips env vars whose values match GitHub token patterns).
 - **OpenAI auth** supports two methods (priority order): (1) OpenAI Codex OAuth via ChatGPT subscription (flat fee, `openai-codex/` prefix) — setup: `docker compose exec crypto-claw openclaw models auth login --provider openai-codex`, (2) `OPENAI_API_KEY` static API key (per-token billing, `openai/` prefix).
 
 ## Safety Rules (Do Not Weaken)

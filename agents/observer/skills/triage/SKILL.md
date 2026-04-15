@@ -69,11 +69,14 @@ For each error or failure found, determine:
 ### Step 3: Check for Duplicates
 
 ```bash
-node scripts/list-issues.js --label observer-auto --state open
+gh issue list --repo "$OBSERVER_ISSUES_REPO" --label observer-auto --state open --limit 20 --json number,title,body
 ```
 
 Compare each problem's root cause against existing open issues. If a match exists, either:
-- Add a comment with new occurrence details: `node scripts/create-issue.js --update-issue <N> --body "..."`
+- Add a comment with new occurrence details:
+```bash
+gh issue comment <NUMBER> --repo "$OBSERVER_ISSUES_REPO" --body "Recurrence: ..."
+```
 - Skip if no new information
 
 ### Step 4: Create Issues (max 3 per cycle)
@@ -81,9 +84,7 @@ Compare each problem's root cause against existing open issues. If a match exist
 For each unique code bug, create a well-structured issue:
 
 ```bash
-node scripts/create-issue.js \
-  --title "fix: <concise description>" \
-  --body "## Summary
+gh issue create --repo "$OBSERVER_ISSUES_REPO" --title "fix: <concise description>" --label "observer-auto,execution" --body "## Summary
 <one sentence: what broke, what's the impact>
 
 ## Error Details
@@ -99,9 +100,10 @@ node scripts/create-issue.js \
 ## Suggested Investigation
 - File: scripts/<name>.js
 - Area: <function name or error handling section>
-- Pattern: <what likely needs to change>" \
-  --labels "observer-auto,execution"
+- Pattern: <what likely needs to change>"
 ```
+
+**Security:** Never include wallet addresses, private keys, API keys, or transaction hashes in issue titles or bodies. Replace with `[REDACTED]`.
 
 ### Step 5: Send Alerts
 

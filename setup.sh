@@ -206,8 +206,8 @@ for script in execute-trade-evm.js check-safe-status.js execute-trade-solana.js 
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$EXECUTOR_DIR/workspace/scripts/"
 
-# Observer gets db access + GitHub integration + alerting + logging
-for script in db.js db-query.js chains.js create-issue.js list-issues.js send-alert.js check-signer-balances.js redact.js log.js; do
+# Observer gets db access + alerting + logging (GitHub via gh CLI, not custom scripts)
+for script in db.js db-query.js chains.js send-alert.js check-signer-balances.js redact.js log.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$OBSERVER_DIR/workspace/scripts/"
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$OBSERVER_DIR/workspace/scripts/"

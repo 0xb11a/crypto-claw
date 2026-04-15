@@ -41,16 +41,20 @@ SAFE_ID="$SAFE_ID" node scripts/db-query.js update-heartbeat --agent observer --
 
 ## GitHub Integration
 
+Uses the `gh` CLI (authenticated at container startup via `gh auth login`).
+
 ```bash
 # List open issues (check for duplicates before creating)
-node scripts/list-issues.js --label observer-auto --state open
+gh issue list --repo "$OBSERVER_ISSUES_REPO" --label observer-auto --state open --limit 20 --json number,title,body
 
 # Create a new issue
-node scripts/create-issue.js --title "fix: Safe proposeTransaction 429 rate limit" --body "## Summary\n..." --labels "observer-auto,execution"
+gh issue create --repo "$OBSERVER_ISSUES_REPO" --title "fix: Safe proposeTransaction 429 rate limit" --label "observer-auto,execution" --body "## Summary\n..."
 
 # Comment on existing issue (for recurrences)
-node scripts/create-issue.js --update-issue 42 --body "Recurrence observed: ..."
+gh issue comment 42 --repo "$OBSERVER_ISSUES_REPO" --body "Recurrence observed: ..."
 ```
+
+**Security:** The `gh` CLI does NOT redact sensitive data. Always manually replace wallet addresses, keys, and hashes with `[REDACTED]` before creating issues or comments.
 
 ## Telegram Alerts
 
@@ -104,5 +108,4 @@ SAFE_ID="$SAFE_ID" node scripts/db-query.js get-chains
 |---|---|
 | `SAFE_ID` | Fund identifier — determines which database |
 | `PAPER_MODE` | `true` for paper trading data |
-| `GH_PAT` | GitHub API authentication |
 | `OBSERVER_ISSUES_REPO` | Private repo for issues (e.g., `owner/crypto-claw-issues`) |

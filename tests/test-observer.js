@@ -177,7 +177,7 @@ describe('Observer Agent — File Structure', () => {
 
   test('AGENTS.md has deduplication guidance', () => {
     const content = readFileSync(resolve(AGENTS_DIR, 'AGENTS.md'), 'utf-8');
-    assert(content.includes('list-issues.js'), 'Should reference dedup via list-issues');
+    assert(content.includes('gh issue list'), 'Should reference dedup via gh issue list');
   });
 
   test('HEARTBEAT.md specifies 120-minute cycle', () => {
@@ -187,17 +187,9 @@ describe('Observer Agent — File Structure', () => {
 });
 
 // ============================================================
-// GitHub Integration Scripts Exist
+// GitHub Integration (gh CLI, authenticated at container startup)
 // ============================================================
-describe('GitHub Integration Scripts', () => {
-  test('create-issue.js exists', () => {
-    assert(existsSync(resolve(SCRIPTS_DIR, 'create-issue.js')), 'create-issue.js must exist');
-  });
-
-  test('list-issues.js exists', () => {
-    assert(existsSync(resolve(SCRIPTS_DIR, 'list-issues.js')), 'list-issues.js must exist');
-  });
-
+describe('GitHub Integration', () => {
   test('redact.js exists', () => {
     assert(existsSync(resolve(SCRIPTS_DIR, 'redact.js')), 'redact.js must exist');
   });

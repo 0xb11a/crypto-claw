@@ -204,10 +204,10 @@ echo "[entrypoint] Setting up symlinks..."
 
 mkdir -p "$DB_DIR"
 
-# Memory dir: sentinel/executor → research (shared daily logs)
-# This symlink architecture means all three agents' memory writes land in
+# Memory dir: sentinel/executor/observer → research (shared daily logs)
+# This symlink architecture means all four agents' memory writes land in
 # research's workspace. The single memory-backup loop covers everything.
-for ws in "$SENTINEL_WS" "$EXECUTOR_WS"; do
+for ws in "$SENTINEL_WS" "$EXECUTOR_WS" "$OBSERVER_WS"; do
   target="$ws/memory"
   if [ ! -L "$target" ]; then
     rm -rf "$target"
@@ -216,7 +216,7 @@ for ws in "$SENTINEL_WS" "$EXECUTOR_WS"; do
 done
 
 # Data dir: all agents get access to shared DB
-for ws in "$RESEARCH_WS" "$SENTINEL_WS" "$EXECUTOR_WS"; do
+for ws in "$RESEARCH_WS" "$SENTINEL_WS" "$EXECUTOR_WS" "$OBSERVER_WS"; do
   target="$ws/data"
   if [ ! -L "$target" ]; then
     rm -rf "$target"
@@ -529,6 +529,20 @@ if [ -n "${OLLAMA_API_KEY:-}" ]; then
   OLLAMA_CONFIG="{\"baseUrl\":\"https://ollama.com\",\"api\":\"ollama\",\"apiKey\":\"$OLLAMA_API_KEY\",\"models\":[{\"id\":\"deepseek-v3.1:671b-cloud\",\"name\":\"DeepSeek V3.1 Cloud\"}]}"
   openclaw config set 'models.providers.ollama' "$OLLAMA_CONFIG" --strict-json
   echo "[entrypoint] Ollama Cloud provider configured"
+fi
+
+# ============================================================
+# 5c¾. Authenticate gh CLI (every startup — token may change)
+#       Stores auth in ~/.config/gh/hosts.yml so agents can use gh
+#       without needing the token in their exec environment (OpenClaw
+#       strips well-known credential values from agent env vars).
+# ============================================================
+if [ -n "${GH_PAT:-}" ]; then
+  echo "$GH_PAT" | gh auth login --with-token 2>/dev/null && \
+    echo "[entrypoint] GitHub CLI authenticated" || \
+    echo "[entrypoint] WARNING: gh auth login failed"
+else
+  echo "[entrypoint] GitHub CLI: GH_PAT not set, skipping auth"
 fi
 
 # ============================================================
