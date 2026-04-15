@@ -630,7 +630,7 @@ ensure_cron_jobs() {
   fi
 
   # Force recreate observer-cycle if it exists (picks up --model flag)
-  if [ -n "${OBSERVER_ISSUES_REPO:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then
+  if [ -n "${OBSERVER_ISSUES_REPO:-}" ] && [ -n "${GH_PAT:-}" ]; then
     if echo "$EXISTING" | grep -q '"name".*"observer-cycle"'; then
       remove_by_name "observer-cycle"
     fi
@@ -652,7 +652,7 @@ ensure_cron_jobs() {
     --message "OVERLAP GUARD: First run openclaw cron list --json to find the research-cycle job ID, then run openclaw cron runs --id <that-id> --limit 5. The output has an entries array. Skip the most recent entry (that is you). If any other entry has action other than finished, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. If the check produces discoveries, run the FULL pipeline autonomously: analysis, risk assessment, trade proposal. Do not stop after scanning — you decide what to buy. Update timestamps via db-query.js. Log results to daily memory and database (add-research-log). ALWAYS end with a short work summary: what check ran, what was found, counts (scanned/analyzed/proposed)."
 
   # --- Observer cycle (cron-based, replaces background loop) ---
-  if [ -n "${OBSERVER_ISSUES_REPO:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then
+  if [ -n "${OBSERVER_ISSUES_REPO:-}" ] && [ -n "${GH_PAT:-}" ]; then
     OBSERVER_CRON_DELIVERY="--no-deliver"
     if [ -n "${TG_TOPIC_OBSERVER:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
       OBSERVER_CRON_DELIVERY="--announce --channel telegram --to ${TELEGRAM_CHAT_ID}:topic:${TG_TOPIC_OBSERVER}"
@@ -663,7 +663,7 @@ ensure_cron_jobs() {
       $OBSERVER_CRON_DELIVERY \
       --message "OVERLAP GUARD: First run openclaw cron list --json to find the observer-cycle job ID, then run openclaw cron runs --id <that-id> --limit 5. The output has an entries array. Skip the most recent entry (that is you). If any other entry has action other than finished, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Run the triage skill now: read system logs, query DB for failures, analyze, and take action (create issues or send alerts). Check heartbeat state: node scripts/db-query.js get-heartbeat --agent observer. Update heartbeat when done. If nothing to report, reply HEARTBEAT_OK."
   else
-    echo "[cron-setup] Observer skipped — OBSERVER_ISSUES_REPO or GITHUB_TOKEN not set"
+    echo "[cron-setup] Observer skipped — OBSERVER_ISSUES_REPO or GH_PAT not set"
   fi
 
   echo "[cron-setup] Done"
