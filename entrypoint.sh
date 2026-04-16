@@ -538,13 +538,17 @@ fi
 #       strips well-known credential values from agent env vars).
 # ============================================================
 if [ -n "${GH_TOKEN:-}" ]; then
-  # Redirect gh config to /tmp (writable tmpfs) — the image filesystem is
-  # read-only at runtime (docker-compose read_only: true).
-  export GH_CONFIG_DIR="/tmp/gh"
-  mkdir -p "$GH_CONFIG_DIR"
-  echo "$GH_TOKEN" | gh auth login --with-token 2>/dev/null && \
-    echo "[entrypoint] GitHub CLI authenticated" || \
-    echo "[entrypoint] WARNING: gh auth login failed"
+  # Write hosts.yml directly — gh auth login refuses to write it when
+  # GH_TOKEN env var is present (uses it in-memory instead).
+  # /home/node/.config/gh is a writable tmpfs mount (docker-compose.yml).
+  GH_HOSTS="/home/node/.config/gh/hosts.yml"
+  cat > "$GH_HOSTS" <<GHEOF
+github.com:
+  oauth_token: ${GH_TOKEN}
+  git_protocol: https
+GHEOF
+  chmod 600 "$GH_HOSTS"
+  echo "[entrypoint] GitHub CLI authenticated (hosts.yml written)"
 else
   echo "[entrypoint] GitHub CLI: GH_TOKEN not set, skipping auth"
 fi
