@@ -14,9 +14,10 @@ RUN npm install -g node-llama-cpp@3.18.1 --cache /tmp/npm-cache && \
     ln -s "$(npm root -g)/node-llama-cpp" /app/node_modules/node-llama-cpp && \
     rm -rf /tmp/npm-cache
 
-# Workaround: OpenClaw's bundled QQBot plugin crashes if its data dir doesn't exist,
-# even when QQBot is not configured. Must be created as root since /home/node is read-only at runtime.
-RUN mkdir -p /home/node/.openclaw/qqbot/data && chown -R 1000:1000 /home/node/.openclaw
+# Workaround: /home/node is read-only at runtime. Pre-create dirs that tools need:
+# - QQBot plugin crashes without its data dir (even when unconfigured)
+# - gh CLI needs ~/.config/gh/ to store auth tokens
+RUN mkdir -p /home/node/.openclaw/qqbot/data /home/node/.config/gh && chown -R 1000:1000 /home/node/.openclaw /home/node/.config
 
 # Run as non-root for security
 USER 1000:1000
