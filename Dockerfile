@@ -16,10 +16,10 @@ RUN npm install -g node-llama-cpp@3.18.1 --cache /tmp/npm-cache && \
 
 # Workaround: /home/node is read-only at runtime. Pre-create dirs that tools need:
 # - QQBot plugin crashes without its data dir (even when unconfigured)
-# - gh CLI needs ~/.config/gh/ to store auth tokens
 # - node-llama-cpp uses os.homedir()/.node-llama-cpp (hardcoded, no env override)
-RUN mkdir -p /home/node/.openclaw/qqbot/data /home/node/.config/gh /home/node/.node-llama-cpp /home/openclaw/.config && \
-    chown -R 1000:1000 /home/node/.openclaw /home/node/.config /home/node/.node-llama-cpp /home/openclaw/.config
+# Note: gh CLI config is redirected to /tmp via GH_CONFIG_DIR in entrypoint.sh
+RUN mkdir -p /home/node/.openclaw/qqbot/data /home/node/.node-llama-cpp && \
+    chown -R 1000:1000 /home/node/.openclaw /home/node/.node-llama-cpp
 
 # Run as non-root for security
 USER 1000:1000

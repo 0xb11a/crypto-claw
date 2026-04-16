@@ -30,7 +30,8 @@ services:
       - /home/openclaw/.openclaw/agents/executor/agent:size=10M,uid=1000,gid=1000
       - /home/openclaw/.openclaw/agents/observer/agent:size=10M,uid=1000,gid=1000
       # node-llama-cpp cache (embedding model for memory search)
-      - /home/openclaw/.node-llama-cpp:size=500M,uid=1000,gid=1000
+      # Library uses os.homedir()/.node-llama-cpp (ignores NODE_LLAMA_CPP_CACHE env var)
+      - /home/node/.node-llama-cpp:size=500M,uid=1000,gid=1000
     volumes:
       # Persistent: research workspace (MEMORY.md, daily logs, skills, scripts, git)
       - crypto-claw-memory:/home/openclaw/.openclaw/agents/research/workspace

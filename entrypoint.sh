@@ -538,16 +538,13 @@ fi
 #       strips well-known credential values from agent env vars).
 # ============================================================
 if [ -n "${GH_TOKEN:-}" ]; then
+  # Redirect gh config to /tmp (writable tmpfs) — the image filesystem is
+  # read-only at runtime (docker-compose read_only: true).
+  export GH_CONFIG_DIR="/tmp/gh"
+  mkdir -p "$GH_CONFIG_DIR"
   echo "$GH_TOKEN" | gh auth login --with-token 2>/dev/null && \
     echo "[entrypoint] GitHub CLI authenticated" || \
     echo "[entrypoint] WARNING: gh auth login failed"
-  # Symlink gh config to /home/openclaw so agents find it regardless of
-  # which HOME OpenClaw's exec tool resolves (base image HOME is /home/node,
-  # but WORKDIR and env set /home/openclaw).
-  if [ -d "$HOME/.config/gh" ] && [ "$HOME" != "/home/openclaw" ]; then
-    mkdir -p /home/openclaw/.config
-    ln -sf "$HOME/.config/gh" /home/openclaw/.config/gh
-  fi
 else
   echo "[entrypoint] GitHub CLI: GH_TOKEN not set, skipping auth"
 fi
