@@ -5,7 +5,7 @@
  * Usage:
  *   node scripts/create-issue.js --title "..." --body "..." [--labels "observer-auto,execution"] [--update-issue 42]
  *
- * Env vars: GH_PAT, OBSERVER_ISSUES_REPO
+ * Env vars: GH_TOKEN, OBSERVER_ISSUES_REPO
  *
  * Output: JSON with { ok, issue_number, url } or { ok: false, error }
  * Applies final redaction pass before posting.
@@ -27,7 +27,7 @@ function main() {
   const labels = getArg('labels') || 'observer-auto';
   const updateIssue = getArg('update-issue');
   const repo = process.env.OBSERVER_ISSUES_REPO;
-  const token = process.env.GH_PAT;
+  const token = process.env.GH_TOKEN;
 
   if (!title && !updateIssue) {
     log('error', 'create-issue', 'Missing --title argument');
@@ -42,8 +42,8 @@ function main() {
   }
 
   if (!token) {
-    log('error', 'create-issue', 'GH_PAT not set');
-    console.log(JSON.stringify({ ok: false, error: 'GH_PAT env var not set' }));
+    log('error', 'create-issue', 'GH_TOKEN not set');
+    console.log(JSON.stringify({ ok: false, error: 'GH_TOKEN env var not set' }));
     process.exit(1);
   }
 

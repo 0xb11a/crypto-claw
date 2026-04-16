@@ -5,7 +5,7 @@
  * Usage:
  *   node scripts/list-issues.js [--label "observer-auto"] [--state open] [--limit 20]
  *
- * Env vars: GH_PAT, OBSERVER_ISSUES_REPO
+ * Env vars: GH_TOKEN, OBSERVER_ISSUES_REPO
  *
  * Output: JSON array of issues with { number, title, state, labels, body, url }
  */
@@ -24,7 +24,7 @@ function main() {
   const state = getArg('state', 'open');
   const limit = getArg('limit', '20');
   const repo = process.env.OBSERVER_ISSUES_REPO;
-  const token = process.env.GH_PAT;
+  const token = process.env.GH_TOKEN;
 
   if (!repo) {
     log('error', 'list-issues', 'OBSERVER_ISSUES_REPO not set');
@@ -33,8 +33,8 @@ function main() {
   }
 
   if (!token) {
-    log('error', 'list-issues', 'GH_PAT not set');
-    console.log(JSON.stringify({ ok: false, error: 'GH_PAT env var not set' }));
+    log('error', 'list-issues', 'GH_TOKEN not set');
+    console.log(JSON.stringify({ ok: false, error: 'GH_TOKEN env var not set' }));
     process.exit(1);
   }
 
