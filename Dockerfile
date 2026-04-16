@@ -17,15 +17,14 @@ RUN npm install -g node-llama-cpp@3.18.1 --cache /tmp/npm-cache && \
 # Workaround: /home/node is read-only at runtime. Pre-create dirs that tools need:
 # - QQBot plugin crashes without its data dir (even when unconfigured)
 # - gh CLI needs ~/.config/gh/ to store auth tokens
-RUN mkdir -p /home/node/.openclaw/qqbot/data /home/node/.config/gh && chown -R 1000:1000 /home/node/.openclaw /home/node/.config
+# - node-llama-cpp uses os.homedir()/.node-llama-cpp (hardcoded, no env override)
+RUN mkdir -p /home/node/.openclaw/qqbot/data /home/node/.config/gh /home/node/.node-llama-cpp && chown -R 1000:1000 /home/node/.openclaw /home/node/.config /home/node/.node-llama-cpp
 
 # Run as non-root for security
 USER 1000:1000
 
 # Set workspace directory
 ENV OPENCLAW_HOME=/home/openclaw/.openclaw
-# node-llama-cpp defaults to /home/node which isn't writable as UID 1000
-ENV NODE_LLAMA_CPP_CACHE=/home/openclaw/.node-llama-cpp
 WORKDIR /home/openclaw
 
 # Copy CryptoClaw project
@@ -57,7 +56,7 @@ RUN chmod +x /home/openclaw/crypto-claw/build-templates.sh && \
     /home/openclaw/crypto-claw/build-templates.sh
 
 # Pre-create the OpenClaw state dir so Docker volumes inherit UID 1000 ownership
-RUN mkdir -p ${OPENCLAW_HOME}/.openclaw ${NODE_LLAMA_CPP_CACHE}
+RUN mkdir -p ${OPENCLAW_HOME}/.openclaw
 
 # Runtime entrypoint: syncs templates, registers agents, runs DB migrations, starts gateway
 COPY --chown=1000:1000 entrypoint.sh /home/openclaw/entrypoint.sh
