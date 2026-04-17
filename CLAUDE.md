@@ -13,7 +13,7 @@ Four agents communicate through a shared SQLite database:
 - **Research Agent** (`agents/research/`) — Runs on GPT-5.4 via Codex OAuth, 30-minute heartbeat. Handles discovery, market checks, trade proposals. Handles all skills directly (analysis, risk, portfolio). Has 5 skills: discovery, analyst, risk, portfolio, orders.
 - **Sentinel Agent** (`agents/sentinel/`) — Runs on GPT-5.4 via Codex OAuth, 15-minute heartbeat. Monitors positions, detects stop-loss/take-profit/rug conditions, writes sell orders to the unified orders table. Has 1 skill: sentinel.
 - **Executor Agent** (`agents/executor/`) — Runs on GPT-5.4 via Codex OAuth, 1-minute heartbeat. Reads orders (buy and sell), validates, builds Safe wallet transactions, signs, and submits. Has 1 skill: executor.
-- **Observer Agent** (`agents/observer/`) — Runs on GPT-5.4 via Codex OAuth, 120-minute heartbeat. Monitors system logs and DB for execution failures, creates GitHub issues in a private repo for Claude Code to fix, sends Telegram alerts for operational issues. Has 1 skill: triage. Read-only access to DB. Part of the self-improvement loop.
+- **Observer Agent** (`agents/observer/`) — Runs on GPT-5.4 via Codex OAuth, 120-minute heartbeat. Monitors system logs and DB for execution failures, creates GitHub issues in a private repo for Claude Code to fix, sends Telegram alerts for operational issues. Has 2 skills: triage, create-gh-issue. Read-only access to DB. Part of the self-improvement loop.
 - **Ollama Cloud** — Some agents might use Ollama Cloud's API (`https://ollama.com/api/chat`). No sidecar needed — OpenClaw's built-in Ollama provider sends `OLLAMA_API_KEY` as a Bearer token directly.
 - **Model Routing** — All agents default to OpenAI Codex OAuth provider (ChatGPT subscription, flat fee): all four agents on GPT-5.4. Configured via `RESEARCH_MODEL`/`SENTINEL_MODEL`/`EXECUTOR_MODEL`/`OBSERVER_MODEL` env vars with `openai-codex/` prefix. Falls back to OpenAI API (`openai/` prefix + `OPENAI_API_KEY`) if Codex OAuth not configured. Research handles all skills directly (no sub-agent spawning).
 
@@ -103,8 +103,6 @@ scripts/                  # Node.js scripts
   send-alert.js           # Telegram alerts via openclaw message send (topic routing)
   redact.js               # Sensitive data redaction (shared module)
   log.js                  # Structured logging helper (writes to system.log + stderr)
-  create-issue.js         # GitHub issue creation (standalone, not deployed to observer)
-  list-issues.js          # GitHub issue listing (standalone, not deployed to observer)
   telegram-get-topics.js  # Setup helper: discover supergroup topic thread IDs
   memory-backup.sh        # Git auto-commit for agent memory
   codex-login.sh          # One-time Codex OAuth login (ChatGPT subscription)
@@ -203,7 +201,7 @@ SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup sy
 - **SAFE_ID** env var determines which database file is used. One DB per fund/wallet.
 - **Solana wallet config:** `SQUADS_VAULT_ADDRESS` (direct vault) takes priority over `SQUADS_MULTISIG_ADDRESS` (vault derived from multisig PDA). Set at least one for Solana.
 - **OLLAMA_API_KEY** env var authenticates with Ollama Cloud model access.
-- **Observer agent** requires `GH_TOKEN` and `OBSERVER_ISSUES_REPO` (private repo, e.g., `owner/crypto-claw-issues`) to create GitHub issues. Without these, the observer cron job is not created. `GH_TOKEN` is used at container startup to run `gh auth login`, storing credentials in `~/.config/gh/hosts.yml`. Agents use `gh` CLI directly — no token env var needed at runtime (OpenClaw's gateway strips env vars whose values match GitHub token patterns).
+- **Observer agent** requires `GH_TOKEN` and `OBSERVER_ISSUES_REPO` (private repo, e.g., `owner/crypto-claw-issues`) to create GitHub issues. Without these, the observer cron job is not created. `GH_TOKEN` is written to `~/.config/gh/hosts.yml` at container startup (writable tmpfs mount). Agents use `gh` CLI directly — no token env var needed at runtime (OpenClaw's gateway strips env vars whose values match GitHub token patterns).
 - **OpenAI auth** supports two methods (priority order): (1) OpenAI Codex OAuth via ChatGPT subscription (flat fee, `openai-codex/` prefix) — setup: `docker compose exec crypto-claw openclaw models auth login --provider openai-codex`, (2) `OPENAI_API_KEY` static API key (per-token billing, `openai/` prefix).
 
 ## Safety Rules (Do Not Weaken)

@@ -63,47 +63,17 @@ For each error or failure found, determine:
 3. **Is it transient noise?** (e.g., single 429 that self-resolved, network blip)
    → Skip
 
-4. **Is it a repeat of something already reported?**
-   → Comment on existing issue or skip
+### Step 3: Create Issues (max 3 per cycle)
 
-### Step 3: Check for Duplicates
+For each code bug identified in Step 2, use the **create-gh-issue** skill. That skill handles duplicate checking automatically — it fetches all open issues and compares before creating.
 
-```bash
-gh issue list --repo "$OBSERVER_ISSUES_REPO" --label observer-auto --state open --limit 20 --json number,title,body
-```
+Provide the skill with:
+- **Title** — prefixed with `fix: `, concise description of the problem
+- **Body** — structured with Summary, Error Details, System State, Suggested Investigation
+- **Source script** — which `.js` file produced the error
+- **Chain** — which chain is affected (if applicable)
 
-Compare each problem's root cause against existing open issues. If a match exists, either:
-- Add a comment with new occurrence details:
-```bash
-gh issue comment <NUMBER> --repo "$OBSERVER_ISSUES_REPO" --body "Recurrence: ..."
-```
-- Skip if no new information
-
-### Step 4: Create Issues (max 3 per cycle)
-
-For each unique code bug, create a well-structured issue:
-
-```bash
-gh issue create --repo "$OBSERVER_ISSUES_REPO" --title "fix: <concise description>" --label "observer-auto,execution" --body "## Summary
-<one sentence: what broke, what's the impact>
-
-## Error Details
-- **Source:** scripts/<name>.js
-- **Error:** <error message from logs>
-- **Chain:** <chain>
-- **Frequency:** <count since first seen>
-
-## System State
-- Executor: <ok/emergency>
-- Recent failures: <summary>
-
-## Suggested Investigation
-- File: scripts/<name>.js
-- Area: <function name or error handling section>
-- Pattern: <what likely needs to change>"
-```
-
-**Security:** Never include wallet addresses, private keys, API keys, or transaction hashes in issue titles or bodies. Replace with `[REDACTED]`.
+**Security:** Never include wallet addresses, private keys, API keys, or transaction hashes. Replace with `[REDACTED]`.
 
 ### Step 5: Send Alerts
 
@@ -138,6 +108,6 @@ Vague description without actionable details.
 
 ## Constraints
 - Maximum 3 issues per cycle
-- Always check duplicates first
+- Always use the create-gh-issue skill for issue creation — it handles duplicate checking
 - Never include sensitive data (addresses, keys, hashes)
 - If no errors found, log a clean run and finish quickly

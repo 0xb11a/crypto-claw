@@ -41,17 +41,16 @@ SAFE_ID="$SAFE_ID" node scripts/db-query.js update-heartbeat --agent observer --
 
 ## GitHub Integration
 
-Uses the `gh` CLI (authenticated at container startup via `gh auth login`).
+Uses the `gh` CLI (authenticated at container startup via `hosts.yml` written by entrypoint).
+
+**Issue creation** goes through the **create-gh-issue** skill, which handles duplicate checking automatically. Do not use `gh issue create` directly.
 
 ```bash
-# List open issues (check for duplicates before creating)
-gh issue list --repo "$OBSERVER_ISSUES_REPO" --label observer-auto --state open --limit 20 --json number,title,body
+# List open issues (for context or manual inspection)
+gh issue list --repo "$OBSERVER_ISSUES_REPO" --state open --limit 50 --json number,title,body,url
 
-# Create a new issue
-gh issue create --repo "$OBSERVER_ISSUES_REPO" --title "fix: Safe proposeTransaction 429 rate limit" --label "observer-auto,execution" --body "## Summary\n..."
-
-# Comment on existing issue (for recurrences)
-gh issue comment 42 --repo "$OBSERVER_ISSUES_REPO" --body "Recurrence observed: ..."
+# Comment on existing issue (used by create-gh-issue skill for recurrences)
+gh issue comment <NUMBER> --repo "$OBSERVER_ISSUES_REPO" --body "Recurrence observed: ..."
 ```
 
 **Security:** The `gh` CLI does NOT redact sensitive data. Always manually replace wallet addresses, keys, and hashes with `[REDACTED]` before creating issues or comments.

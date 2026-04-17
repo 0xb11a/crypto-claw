@@ -10,11 +10,12 @@ You are auditing CryptoClaw's agent instruction files for consistency against so
 ## Files to Read
 
 ### Source-of-Truth Files
-- `scripts/db-query.js` — extract all valid command names (look for the command dispatch/switch)
+- `scripts/db-query.js` — extract all valid command names (look for the command dispatch/switch) AND the `HEARTBEAT_CADENCES` object (minutes per check per agent)
 - `scripts/chains.js` — portfolio rules, chain config, numeric constants
 - `scripts/` directory listing — all valid script filenames
 - `build-templates.sh` — which scripts get deployed to which agent (Docker path)
 - `setup.sh` — which scripts get deployed to which agent (bare-metal path)
+- `entrypoint.sh` — cron schedules (`--every <interval>` per agent) and per-agent config overrides (tools, permissions, memory)
 
 ### Instruction Files to Audit
 - `agents/research/AGENTS.md`
@@ -24,6 +25,7 @@ You are auditing CryptoClaw's agent instruction files for consistency against so
 - `agents/research/skills/analyst/SKILL.md`
 - `agents/research/skills/risk/SKILL.md`
 - `agents/research/skills/portfolio/SKILL.md`
+- `agents/research/skills/orders/SKILL.md`
 - `agents/sentinel/AGENTS.md`
 - `agents/sentinel/SOUL.md`
 - `agents/sentinel/HEARTBEAT.md`
@@ -36,6 +38,7 @@ You are auditing CryptoClaw's agent instruction files for consistency against so
 - `agents/observer/SOUL.md`
 - `agents/observer/HEARTBEAT.md`
 - `agents/observer/skills/triage/SKILL.md`
+- `agents/observer/skills/create-gh-issue/SKILL.md`
 - `agents/research/TOOLS.md`
 - `agents/sentinel/TOOLS.md`
 - `agents/executor/TOOLS.md`
@@ -65,6 +68,19 @@ You are auditing CryptoClaw's agent instruction files for consistency against so
 3. **Flag as CRITICAL** any mismatch between a markdown-stated value and the corresponding `chains.js` value — the code will enforce the `chains.js` value regardless of what the instructions say.
 4. Check that regime adjustment tables (if present in multiple files) are identical across all files that contain them.
 5. **Flag as WARNING** any regime table discrepancy.
+
+### Pass 3b: Heartbeat Cadence Alignment (mechanical)
+
+Three sources must agree on heartbeat timing:
+- `HEARTBEAT_CADENCES` object in `scripts/db-query.js` (minutes per check per agent, used by `get-overdue-checks`)
+- Cron `--every <interval>` values in `entrypoint.sh` (when the agent is actually invoked)
+- Stated heartbeat interval in each `agents/<agent>/HEARTBEAT.md` (human-facing docs)
+
+1. For each agent, extract its cron interval from `entrypoint.sh` (look for `add_if_missing` / `--every` lines).
+2. Compare to the stated interval at the top of `agents/<agent>/HEARTBEAT.md` ("runs every N minutes"). **Flag as WARNING** any mismatch.
+3. For every check key in `HEARTBEAT_CADENCES.<agent>`, the cadence (minutes) must be ≥ the cron interval. A cadence less than the cron interval means `get-overdue-checks` will always mark that check as overdue, making the cadence gate meaningless. **Flag as WARNING** any cadence < cron interval (example: observer cron = 120m but `triage: 60` means triage is perpetually overdue).
+4. Extract every check_type referenced in `agents/<agent>/HEARTBEAT.md` (e.g. `update-heartbeat --agent sentinel --check <check_type>`, or names in the rotating-checks table). Compare against the keys in `HEARTBEAT_CADENCES.<agent>`. **Flag as CRITICAL** any check_type used in HEARTBEAT.md that is not a key in `HEARTBEAT_CADENCES` — `get-overdue-checks` will silently ignore it. **Flag as INFO** any key in `HEARTBEAT_CADENCES` that the agent's HEARTBEAT.md never references.
+5. For each row in a HEARTBEAT.md cadence/rotating-checks table with a human-readable cadence ("every 30 min", "every 2 hours"), verify the minutes match the `HEARTBEAT_CADENCES` entry for that check_type. **Flag as WARNING** any mismatch.
 
 ### Pass 4: Cross-File Behavioral Consistency (semantic)
 

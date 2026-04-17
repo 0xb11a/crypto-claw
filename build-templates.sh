@@ -71,12 +71,13 @@ done
 cp "$SCRIPTS_DIR/package.json" "$AGENT_TPL/executor/scripts/"
 
 # --- Observer ---
-mkdir -p "$AGENT_TPL/observer/skills/triage" "$AGENT_TPL/observer/scripts"
+mkdir -p "$AGENT_TPL/observer/skills/triage" "$AGENT_TPL/observer/skills/create-gh-issue" "$AGENT_TPL/observer/scripts"
 cp "$SRC/agents/observer/AGENTS.md"     "$AGENT_TPL/observer/AGENTS.md"
 cp "$SRC/agents/observer/SOUL.md"       "$AGENT_TPL/observer/SOUL.md"
 cp "$SRC/agents/observer/HEARTBEAT.md"  "$AGENT_TPL/observer/HEARTBEAT.md"
 cp "$SRC/agents/observer/TOOLS.md"      "$AGENT_TPL/observer/TOOLS.md"
 cp "$SRC/agents/observer/skills/triage/SKILL.md" "$AGENT_TPL/observer/skills/triage/SKILL.md"
+cp "$SRC/agents/observer/skills/create-gh-issue/SKILL.md" "$AGENT_TPL/observer/skills/create-gh-issue/SKILL.md"
 
 # Observer scripts: db access + alerting + logging (GitHub via gh CLI, not custom scripts)
 for script in db.js db-query.js chains.js send-alert.js check-signer-balances.js redact.js log.js; do

@@ -169,6 +169,23 @@ describe('Observer Agent — File Structure', () => {
     assert(existsSync(resolve(AGENTS_DIR, 'skills/triage/SKILL.md')), 'triage skill must exist');
   });
 
+  test('skills/create-gh-issue/SKILL.md exists', () => {
+    assert(existsSync(resolve(AGENTS_DIR, 'skills/create-gh-issue/SKILL.md')), 'create-gh-issue skill must exist');
+  });
+
+  test('create-gh-issue skill has mandatory duplicate check', () => {
+    const content = readFileSync(resolve(AGENTS_DIR, 'skills/create-gh-issue/SKILL.md'), 'utf-8');
+    assert(content.includes('NEVER skip the duplicate check'), 'Should enforce mandatory dedup');
+    assert(content.includes('gh issue list'), 'Should fetch open issues before creating');
+    assert(content.includes('gh issue comment'), 'Should comment on duplicates instead of creating');
+  });
+
+  test('triage skill delegates to create-gh-issue', () => {
+    const content = readFileSync(resolve(AGENTS_DIR, 'skills/triage/SKILL.md'), 'utf-8');
+    assert(content.includes('create-gh-issue'), 'Should reference create-gh-issue skill');
+    assert(!content.includes('gh issue create'), 'Should not use gh issue create directly');
+  });
+
   test('AGENTS.md contains security rules', () => {
     const content = readFileSync(resolve(AGENTS_DIR, 'AGENTS.md'), 'utf-8');
     assert(content.includes('NEVER include wallet addresses'), 'Should have security rules');

@@ -32,7 +32,7 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 4. If any OTHER entry has `action` other than `"finished"` (e.g. `"running"`, `"started"`): reply `HEARTBEAT_SKIP: previous run still active (run <sessionId>)` and stop immediately
 5. If any command fails or the output format is unexpected, proceed normally (don't block on guard failure)
 6. If no other run is active → continue to the steps below
-§
+
 ## How to Run
 
 1. Run overlap guard (see above)

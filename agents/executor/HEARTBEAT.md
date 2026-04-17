@@ -9,7 +9,7 @@ Executor heartbeat runs every 1 minute. Keep processing fast and mechanical.
 ```bash
 echo "PAPER_MODE=${PAPER_MODE:-false}"
 ```
-If `PAPER_MODE=false` AND no `SAFE_SIGNER_KEY` env var → alert human, reply HEARTBEAT_OK.
+If `PAPER_MODE=false` AND neither `SAFE_SIGNER_KEY` nor `SQUADS_SIGNER_KEY` is set → alert human, reply HEARTBEAT_OK. If only one is set, proceed — orders on the chain without a matching signer key will fail per-order.
 
 ### Step 1: Load approved orders (sells first, then buys)
 ```bash

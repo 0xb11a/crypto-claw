@@ -141,7 +141,7 @@ const HEARTBEAT_CADENCES = {
     process_orders: 0,
   },
   observer: {
-    triage: 60,
+    triage: 120,
   },
 };
 

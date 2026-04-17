@@ -149,8 +149,10 @@ cp "$SCRIPT_DIR/agents/observer/AGENTS.md"     "$OBSERVER_DIR/workspace/AGENTS.m
 cp "$SCRIPT_DIR/agents/observer/SOUL.md"        "$OBSERVER_DIR/workspace/SOUL.md"
 cp "$SCRIPT_DIR/agents/observer/HEARTBEAT.md"   "$OBSERVER_DIR/workspace/HEARTBEAT.md"
 
-# Per-agent skill
+# Per-agent skills
+mkdir -p "$OBSERVER_DIR/workspace/skills/create-gh-issue"
 cp "$SCRIPT_DIR/agents/observer/skills/triage/SKILL.md" "$OBSERVER_DIR/workspace/skills/triage/SKILL.md"
+cp "$SCRIPT_DIR/agents/observer/skills/create-gh-issue/SKILL.md" "$OBSERVER_DIR/workspace/skills/create-gh-issue/SKILL.md"
 
 # Shared workspace files
 cp "$SCRIPT_DIR/agents/observer/TOOLS.md"      "$OBSERVER_DIR/workspace/TOOLS.md"
