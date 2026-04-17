@@ -257,6 +257,7 @@ CryptoClaw sends alerts to a Telegram supergroup with per-topic routing. Each ag
 - `TG_TOPIC_SYSTEM` — Thread ID for system health messages (recovered, heartbeat summary)
 - `TG_TOPIC_OBSERVER` — Thread ID for observer agent messages (system health checks)
 - `TG_TOPIC_PORTFOLIO` — Thread ID for daily portfolio reports
+- `TG_TOPIC_APPROVALS` — Thread ID for interactive approve/reject buttons (falls back to `TG_TOPIC_RESEARCH`)
 
 ### Security
 - `TELEGRAM_OWNER_ID` — Restricts owner-only commands (approve/reject) to a single Telegram user ID.

@@ -98,6 +98,7 @@ services:
       - TG_TOPIC_SYSTEM=${TG_TOPIC_SYSTEM:-}
       - TG_TOPIC_OBSERVER=${TG_TOPIC_OBSERVER:-}
       - TG_TOPIC_PORTFOLIO=${TG_TOPIC_PORTFOLIO:-}
+      - TG_TOPIC_APPROVALS=${TG_TOPIC_APPROVALS:-}
       - PORTFOLIO_REPORT_HOUR=${PORTFOLIO_REPORT_HOUR:-0}
 
       # Telegram approval bot — inline Approve/Reject buttons for buy orders

@@ -571,6 +571,7 @@ Alerts are routed to a Telegram supergroup with per-topic threads. Each agent se
 | `TG_TOPIC_SYSTEM` | System | Health checks, startup, recovered, heartbeat summary |
 | `TG_TOPIC_OBSERVER` | Observer | Observer triage results, system health checks |
 | `TG_TOPIC_PORTFOLIO` | System | Daily portfolio report |
+| `TG_TOPIC_APPROVALS` | Approval Bot | Interactive approve/reject buttons for buy orders |
 
 ### Security
 

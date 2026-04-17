@@ -612,6 +612,19 @@ describe('Topic Configuration', () => {
   });
 });
 
+describe('Approval Topic Routing', () => {
+  test('TG_TOPIC_APPROVALS takes priority over TG_TOPIC_RESEARCH', () => {
+    // Simulates the fallback logic in send-approval.js:
+    //   process.env.TG_TOPIC_APPROVALS || process.env.TG_TOPIC_RESEARCH || null
+    const resolve = (approvals, research) => approvals || research || null;
+
+    assertEqual(resolve('111', '222'), '111', 'Should prefer TG_TOPIC_APPROVALS when set');
+    assertEqual(resolve(undefined, '222'), '222', 'Should fall back to TG_TOPIC_RESEARCH');
+    assertEqual(resolve(undefined, undefined), null, 'Should be null when neither is set');
+    assertEqual(resolve('', '222'), '222', 'Should fall back when APPROVALS is empty string');
+  });
+});
+
 // ============================================================
 // 6. Approval Bot — Message Formatting
 // ============================================================

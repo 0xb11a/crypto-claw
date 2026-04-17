@@ -88,6 +88,7 @@ async function main() {
       console.log('  TG_TOPIC_SYSTEM=<id>');
       console.log('  TG_TOPIC_OBSERVER=<id>');
       console.log('  TG_TOPIC_PORTFOLIO=<id>');
+      console.log('  TG_TOPIC_APPROVALS=<id>');
     } else {
       console.log('Found topics:');
       console.log('─'.repeat(50));
@@ -117,6 +118,7 @@ async function main() {
     console.log('  TG_TOPIC_SYSTEM=<id>');
     console.log('  TG_TOPIC_OBSERVER=<id>');
     console.log('  TG_TOPIC_PORTFOLIO=<id>');
+    console.log('  TG_TOPIC_APPROVALS=<id>');
   }
 
   console.log(JSON.stringify({ status: 'ok', chat_id: CHAT_ID, title: chat.title, is_forum: chat.is_forum }));

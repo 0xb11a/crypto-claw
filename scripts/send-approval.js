@@ -12,7 +12,7 @@
  * Env vars:
  *   TELEGRAM_APPROVAL_BOT_TOKEN — Bot token for the approval bot (@BotFather)
  *   TELEGRAM_CHAT_ID            — Supergroup/chat ID
- *   TG_TOPIC_RESEARCH           — Forum topic thread ID for Research (optional)
+ *   TG_TOPIC_APPROVALS          — Forum topic thread ID for Approvals (optional, falls back to TG_TOPIC_RESEARCH)
  *   SAFE_ID                     — Fund identifier (included in message)
  *
  * Exits 0 even on failure (alerting should never block the main loop).
@@ -25,7 +25,7 @@ import { log } from './log.js';
 
 const BOT_TOKEN = process.env.TELEGRAM_APPROVAL_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const THREAD_ID = process.env.TG_TOPIC_RESEARCH || null;
+const THREAD_ID = process.env.TG_TOPIC_APPROVALS || process.env.TG_TOPIC_RESEARCH || null;
 const SAFE_ID = process.env.SAFE_ID || 'unknown';
 
 const SEP = '\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015';

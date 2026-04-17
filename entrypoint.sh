@@ -940,6 +940,7 @@ run_approval_bot() {
       TELEGRAM_APPROVAL_BOT_TOKEN="$TELEGRAM_APPROVAL_BOT_TOKEN" \
       TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}" \
       TELEGRAM_OWNER_ID="${TELEGRAM_OWNER_ID:-}" \
+      TG_TOPIC_APPROVALS="${TG_TOPIC_APPROVALS:-}" \
       TG_TOPIC_RESEARCH="${TG_TOPIC_RESEARCH:-}" \
       node "$RESEARCH_WS/scripts/approval-bot.js" 2>&1 | \
       sed 's/^/[approval-bot] /'
