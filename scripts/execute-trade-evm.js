@@ -34,23 +34,40 @@ function stepLog(ctx, msg) {
   log('info', 'execute-trade-evm', `${tag}${msg}`);
 }
 
-async function withStep(label, ctx, fn) {
+function is429(err) {
+  const status = err?.status || err?.response?.status || err?.code;
+  if (status === 429) return true;
+  const msg = String(err?.message || '');
+  return msg.includes('Too Many Requests') || msg.includes('429');
+}
+
+async function withStep(label, ctx, fn, { retries = 0, baseDelay = 1000 } = {}) {
   const start = Date.now();
-  try {
-    return await fn();
-  } catch (err) {
-    const status = err.status || err.response?.status || err.code || '';
-    const body = err.response?.data ?? err.response?.body ?? err.data ?? '';
-    const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-    const detailParts = [status ? `HTTP ${status}` : '', bodyStr ? bodyStr.slice(0, 300) : ''].filter(Boolean);
-    const detail = detailParts.length ? ` [${detailParts.join(' ')}]` : '';
-    const msg = `${label}: ${err.message}${detail}`;
-    stepLog(ctx, `ERROR ${msg} (${Date.now() - start}ms)`);
-    const wrapped = new Error(msg);
-    wrapped.cause = err;
-    throw wrapped;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (is429(err) && attempt < retries) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        stepLog(ctx, `${label} 429 retry ${attempt + 1}/${retries + 1} backoff=${delay}ms`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      const status = err.status || err.response?.status || err.code || '';
+      const body = err.response?.data ?? err.response?.body ?? err.data ?? '';
+      const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+      const detailParts = [status ? `HTTP ${status}` : '', bodyStr ? bodyStr.slice(0, 500) : ''].filter(Boolean);
+      const detail = detailParts.length ? ` [${detailParts.join(' ')}]` : '';
+      const msg = `${label}: ${err.message}${detail}`;
+      stepLog(ctx, `ERROR ${msg} (${Date.now() - start}ms)`);
+      const wrapped = new Error(msg);
+      wrapped.cause = err;
+      throw wrapped;
+    }
   }
 }
+
+const SAFE_RETRY = { retries: 5, baseDelay: 1000 };
 
 // ============================================================
 // Constants
@@ -296,7 +313,7 @@ async function buildAndSubmitSafeTx(env, transactions, { dryRun = false, ctx } =
   const apiKit = new SafeApiKit({ chainId: BigInt(env.chainId) });
 
   // Use getNextNonce for correct nonce including pending txs
-  const nonce = await withStep('getNextNonce', ctx, () => apiKit.getNextNonce(env.safeAddress));
+  const nonce = await withStep('getNextNonce', ctx, () => apiKit.getNextNonce(env.safeAddress), SAFE_RETRY);
   stepLog(ctx, `nonce=${nonce}`);
 
   const safeTransaction = await withStep('createTransaction', ctx, () =>
@@ -325,37 +342,23 @@ async function buildAndSubmitSafeTx(env, transactions, { dryRun = false, ctx } =
 
   stepLog(ctx, `proposing to safe_tx_service`);
   const proposeStart = Date.now();
-  try {
-    await apiKit.proposeTransaction({
-      safeAddress: env.safeAddress,
-      safeTransactionData: signedTx.data,
-      safeTxHash,
-      senderAddress: signerAccount.address,
-      senderSignature: signedTx.signatures.values().next().value.data,
-    });
-    stepLog(ctx, `proposed ok (${Date.now() - proposeStart}ms)`);
-  } catch (proposeErr) {
-    const status = proposeErr.status || proposeErr.response?.status || proposeErr.code || '';
-    const body =
-      proposeErr.response?.data ||
-      proposeErr.response?.body ||
-      (typeof proposeErr.data === 'object' ? JSON.stringify(proposeErr.data) : proposeErr.data) ||
-      '';
-    const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-    const detail = [
-      'Safe proposeTransaction failed',
-      status ? `(HTTP ${status})` : '',
-      bodyStr ? `: ${bodyStr.slice(0, 500)}` : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
-    stepLog(ctx, `ERROR proposeTransaction: ${detail || proposeErr.message} (${Date.now() - proposeStart}ms)`);
-    log('error', 'execute-trade-evm', `Safe proposeTransaction failed: ${detail || proposeErr.message}`);
-    throw new Error(detail || proposeErr.message);
-  }
+  await withStep(
+    'proposeTransaction',
+    ctx,
+    () =>
+      apiKit.proposeTransaction({
+        safeAddress: env.safeAddress,
+        safeTransactionData: signedTx.data,
+        safeTxHash,
+        senderAddress: signerAccount.address,
+        senderSignature: signedTx.signatures.values().next().value.data,
+      }),
+    SAFE_RETRY,
+  );
+  stepLog(ctx, `proposed ok (${Date.now() - proposeStart}ms)`);
 
   // Check if threshold is met (threshold == 1 means we can execute immediately)
-  const safeInfo = await withStep('getSafeInfo', ctx, () => apiKit.getSafeInfo(env.safeAddress));
+  const safeInfo = await withStep('getSafeInfo', ctx, () => apiKit.getSafeInfo(env.safeAddress), SAFE_RETRY);
   stepLog(ctx, `safe_info: threshold=${safeInfo.threshold} owners=${safeInfo.owners?.length ?? '?'}`);
 
   if (safeInfo.threshold === 1) {

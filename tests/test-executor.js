@@ -594,38 +594,35 @@ describe('Executor — Close Position P&L (Partial Exit)', () => {
 // Error Enrichment Tests
 // ============================================================
 describe('Executor — Error Enrichment', () => {
-  test('proposeTransaction error includes HTTP status and response body', () => {
-    // Simulate the error enrichment logic from buildAndSubmitSafeTx
+  test('withStep error includes label, HTTP status and response body', () => {
+    // Mirror the error enrichment from withStep() in execute-trade-evm.js
+    const label = 'proposeTransaction';
     const mockErr = {
       message: 'Unprocessable Content',
       status: 422,
       response: { data: '{"nonFieldErrors":["nonce already used"]}' },
     };
-    const status = mockErr.status || '';
-    const body = mockErr.response?.data || '';
+    const status = mockErr.status || mockErr.response?.status || mockErr.code || '';
+    const body = mockErr.response?.data ?? mockErr.response?.body ?? mockErr.data ?? '';
     const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-    const detail = ['Safe proposeTransaction failed', `(HTTP ${status})`, `: ${bodyStr.slice(0, 500)}`]
-      .filter(Boolean)
-      .join(' ');
-    assert(detail.includes('422'), 'Should include HTTP status');
-    assert(detail.includes('nonce already used'), 'Should include response body detail');
-    assert(detail.startsWith('Safe proposeTransaction failed'), 'Should identify the failing API call');
+    const detailParts = [status ? `HTTP ${status}` : '', bodyStr ? bodyStr.slice(0, 500) : ''].filter(Boolean);
+    const detail = detailParts.length ? ` [${detailParts.join(' ')}]` : '';
+    const msg = `${label}: ${mockErr.message}${detail}`;
+    assert(msg.includes('422'), 'Should include HTTP status');
+    assert(msg.includes('nonce already used'), 'Should include response body detail');
+    assert(msg.startsWith('proposeTransaction:'), 'Should identify the failing call by label');
   });
 
-  test('error enrichment handles missing response gracefully', () => {
+  test('withStep error handles missing response gracefully', () => {
+    const label = 'proposeTransaction';
     const mockErr = { message: 'Network error' };
     const status = mockErr.status || mockErr.response?.status || mockErr.code || '';
-    const body = mockErr.response?.data || mockErr.response?.body || mockErr.data || '';
+    const body = mockErr.response?.data ?? mockErr.response?.body ?? mockErr.data ?? '';
     const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-    const detail = [
-      'Safe proposeTransaction failed',
-      status ? `(HTTP ${status})` : '',
-      bodyStr ? `: ${bodyStr.slice(0, 500)}` : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
-    // Falls back to just the prefix when no HTTP detail available
-    assertEqual(detail, 'Safe proposeTransaction failed', 'Should still produce a message without HTTP detail');
+    const detailParts = [status ? `HTTP ${status}` : '', bodyStr ? bodyStr.slice(0, 500) : ''].filter(Boolean);
+    const detail = detailParts.length ? ` [${detailParts.join(' ')}]` : '';
+    const msg = `${label}: ${mockErr.message}${detail}`;
+    assertEqual(msg, 'proposeTransaction: Network error', 'Should still produce label+message without HTTP detail');
   });
 
   test('swap response validation detects missing tx fields', () => {
