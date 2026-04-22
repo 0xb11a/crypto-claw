@@ -30,6 +30,12 @@ const STALE_PRICE_THRESHOLD = 0.1; // 10% drift = stale
 const MAX_RETRIES = 3;
 const TRANSIENT_ERRORS = ['Too Many Requests', '429', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'socket hang up'];
 
+function plog(order, msg) {
+  const tag = order ? `[${order.action} ${order.chain}/${order.symbol}] ` : '';
+  const tail = order?.id ? ` (order ${order.id})` : '';
+  log('info', 'process-order', `${tag}${msg}${tail}`);
+}
+
 // ============================================================
 // CLI
 // ============================================================
@@ -168,23 +174,45 @@ function executeTrade(order, action) {
     args.push('--tier', order.tier);
   }
 
+  plog(order, `spawn: ${scriptName} ${args.join(' ')}`);
+  const start = Date.now();
   try {
     const raw = execSync(`node ${scriptPath} ${args.join(' ')}`, {
       encoding: 'utf-8',
       timeout: 120_000,
       env: process.env,
       cwd: __dirname,
+      stdio: ['ignore', 'pipe', 'inherit'],
     });
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    plog(
+      order,
+      `spawn returned status=${parsed.status} safeHash=${parsed.safeHash || ''} txHash=${parsed.txHash || parsed.txSignature || ''} error=${parsed.error || ''} (${Date.now() - start}ms)`,
+    );
+    return parsed;
   } catch (err) {
     // execute-trade-evm.js exits 1 on failure but still outputs JSON
     if (err.stdout) {
       try {
-        return JSON.parse(err.stdout);
+        const parsed = JSON.parse(err.stdout);
+        plog(
+          order,
+          `spawn returned (non-zero exit) status=${parsed.status} error=${parsed.error || ''} (${Date.now() - start}ms)`,
+        );
+        return parsed;
       } catch {
-        // fall through
+        log(
+          'error',
+          'process-order',
+          `[${order.action} ${order.chain}/${order.symbol}] spawn non-JSON stdout: ${String(err.stdout).slice(0, 500)} (order ${order.id})`,
+        );
       }
     }
+    log(
+      'error',
+      'process-order',
+      `[${order.action} ${order.chain}/${order.symbol}] spawn crashed: ${err.message} (${Date.now() - start}ms) (order ${order.id})`,
+    );
     return { status: 'failed', error: err.message || 'execute-trade crashed' };
   }
 }
@@ -297,6 +325,10 @@ function syncPortfolio(chain) {
 
 async function processBuy(db, order) {
   const result = { ok: false, order_id: order.id, action: 'buy', symbol: order.symbol, chain: order.chain };
+  plog(
+    order,
+    `order_loaded tier=${order.tier} amount=${order.amount} entry_price=${order.entry_price} stop_loss=${order.stop_loss} paper=${isPaper}`,
+  );
 
   // 1. Validate cash
   const cash = getCash(db, order.chain);
@@ -313,9 +345,11 @@ async function processBuy(db, order) {
     sendAlert('trade_failed', `BUY $${order.symbol}: ${reason}`);
     return { ...result, status: 'failed', error: reason, receipt_id: receiptId };
   }
+  plog(order, `cash_ok: have $${cash.toFixed(2)} need $${amount}`);
 
   // 2. Validate price not stale
   const currentPrice = await fetchCurrentPrice(order.address, order.chain);
+  plog(order, `price_fetched: current=${currentPrice} proposed=${order.entry_price}`);
   if (currentPrice && order.entry_price) {
     const drift = Math.abs(currentPrice - order.entry_price) / order.entry_price;
     if (drift > STALE_PRICE_THRESHOLD) {
@@ -333,6 +367,10 @@ async function processBuy(db, order) {
   }
 
   const execPrice = currentPrice || order.entry_price;
+  if (currentPrice && order.entry_price) {
+    const drift = Math.abs(currentPrice - order.entry_price) / order.entry_price;
+    plog(order, `price_check_ok drift=${(drift * 100).toFixed(2)}% exec_price=$${execPrice}`);
+  }
 
   // 3. Validate we have a usable price
   if (!execPrice || execPrice <= 0) {
@@ -360,7 +398,9 @@ async function processBuy(db, order) {
       amount,
       proposedPrice: order.entry_price,
     };
+    plog(order, `paper_executed price=$${execPrice} quantity=${quantity}`);
   } else {
+    plog(order, `execute invoking execute-trade for BUY amount=$${amount}`);
     tradeResult = executeTrade(order, 'buy');
   }
 
@@ -428,6 +468,10 @@ async function processBuy(db, order) {
     // Deduct cash — funds are committed to the multisig transaction
     setCash(db, order.chain, cash - amount);
     markExecuted(db, order.id);
+    plog(
+      order,
+      `queued draft_position=${positionId} est_price=$${estPrice} est_qty=${estQty} cash $${cash.toFixed(2)}→$${(cash - amount).toFixed(2)} receipt=${receiptId}`,
+    );
     sendAlert('trade_executed', `BUY $${order.symbol} queued (${tradeResult.status}) — draft position created`);
     return { ...result, ok: true, status: tradeResult.status, receipt_id: receiptId, position_id: positionId };
   }
@@ -456,13 +500,19 @@ async function processBuy(db, order) {
   );
 
   const receiptId = writeReceipt(db, order, tradeResult, 'buy', positionId);
+  plog(order, `position_created id=${positionId} price=$${finalPrice} qty=${quantity} receipt=${receiptId}`);
 
   // Update cash
   const newCash = cash - amount;
   setCash(db, order.chain, newCash);
+  plog(order, `cash_updated $${cash.toFixed(2)} → $${newCash.toFixed(2)}`);
 
   markExecuted(db, order.id);
   clearRetryCount(db, order.id);
+  plog(
+    order,
+    `executed safeHash=${tradeResult.safeHash || ''} txHash=${tradeResult.txHash || tradeResult.txSignature || ''}`,
+  );
   sendAlert('trade_executed', `BUY $${order.symbol} on ${order.chain} — $${amount} at $${finalPrice}`);
   syncPortfolio(order.chain);
 
@@ -484,6 +534,7 @@ async function processBuy(db, order) {
 
 async function processSell(db, order) {
   const result = { ok: false, order_id: order.id, action: 'sell', symbol: order.symbol, chain: order.chain };
+  plog(order, `order_loaded amount=${order.amount} reason=${order.reason || ''} paper=${isPaper}`);
 
   // 1. Validate position exists
   const position = getPosition(db, order.address, order.chain);
@@ -500,6 +551,11 @@ async function processSell(db, order) {
     return { ...result, status: 'failed', error: reason, receipt_id: receiptId };
   }
 
+  plog(
+    order,
+    `position_found id=${position.id} qty=${position.quantity} entry=$${position.entry_price} tier=${position.tier}`,
+  );
+
   // 2. Calculate sell quantity
   let sellQty = position.quantity;
   const amountStr = String(order.amount);
@@ -508,6 +564,7 @@ async function processSell(db, order) {
     sellQty = position.quantity * pct;
   }
   const isPartial = sellQty < position.quantity;
+  plog(order, `sell_qty=${sellQty}/${position.quantity} partial=${isPartial}`);
 
   // 3. Execute
   let tradeResult;
@@ -527,9 +584,14 @@ async function processSell(db, order) {
       pnlUsd: parseFloat(pnlUsd.toFixed(2)),
       pnlPercent: parseFloat(pnlPercent.toFixed(2)),
     };
+    plog(
+      order,
+      `paper_executed price=$${exitPrice} proceeds=$${saleProceeds.toFixed(2)} pnl=${pnlPercent.toFixed(2)}%`,
+    );
   } else {
     // Real mode: pass actual quantity for partial sells
     const sellOrder = { ...order, amount: isPartial ? String(sellQty) : 'all' };
+    plog(order, `execute invoking execute-trade for SELL amount=${sellOrder.amount}`);
     tradeResult = executeTrade(sellOrder, 'sell');
   }
 
@@ -579,6 +641,7 @@ async function processSell(db, order) {
     );
     const receiptId = writeReceipt(db, order, tradeResult, 'sell', position.id);
     markExecuted(db, order.id);
+    plog(order, `queued position=${position.id} status=pending_exit receipt=${receiptId}`);
     sendAlert('trade_executed', `SELL $${order.symbol} queued (${tradeResult.status}) — pending confirmation`);
     return { ...result, ok: true, status: tradeResult.status, receipt_id: receiptId, position_id: position.id };
   }
@@ -586,6 +649,7 @@ async function processSell(db, order) {
   // Status: executed
   const exitPrice = tradeResult.executedPrice || tradeResult.price || position.current_price;
   const posTable = isPaper ? 'paper_positions' : 'positions';
+  plog(order, `executing_settlement exit_price=$${exitPrice} partial=${isPartial}`);
 
   if (isPartial) {
     // Partial close: reduce quantity
@@ -663,6 +727,10 @@ async function processSell(db, order) {
 
   markExecuted(db, order.id);
   clearRetryCount(db, order.id);
+  plog(
+    order,
+    `executed exit=$${exitPrice} qty=${sellQty} pnl_usd=${tradeResult.pnlUsd ?? ''} pnl_pct=${tradeResult.pnlPercent ?? ''} receipt=${receiptId} position=${position.id}`,
+  );
   sendAlert('trade_executed', `SELL $${order.symbol} on ${order.chain} — ${amountStr} at $${exitPrice}`);
   syncPortfolio(order.chain);
 

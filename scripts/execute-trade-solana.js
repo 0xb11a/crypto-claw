@@ -29,6 +29,39 @@ import bs58 from 'bs58';
 import { log } from './log.js';
 
 // ============================================================
+// Logging helpers
+// ============================================================
+
+const shortAddr = (a) => {
+  if (!a) return '';
+  const s = typeof a === 'string' ? a : a.toString?.() || '';
+  return s.length > 10 ? `${s.slice(0, 6)}...${s.slice(-4)}` : s;
+};
+
+function stepLog(ctx, msg) {
+  const tag = ctx ? `[${ctx.action} ${ctx.chain}/${ctx.symbol}] ` : '';
+  log('info', 'execute-trade-solana', `${tag}${msg}`);
+}
+
+async function withStep(label, ctx, fn) {
+  const start = Date.now();
+  try {
+    return await fn();
+  } catch (err) {
+    const status = err.status || err.response?.status || err.code || '';
+    const body = err.response?.data ?? err.response?.body ?? err.data ?? '';
+    const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+    const detailParts = [status ? `HTTP ${status}` : '', bodyStr ? bodyStr.slice(0, 300) : ''].filter(Boolean);
+    const detail = detailParts.length ? ` [${detailParts.join(' ')}]` : '';
+    const msg = `${label}: ${err.message}${detail}`;
+    stepLog(ctx, `ERROR ${msg} (${Date.now() - start}ms)`);
+    const wrapped = new Error(msg);
+    wrapped.cause = err;
+    throw wrapped;
+  }
+}
+
+// ============================================================
 // Constants
 // ============================================================
 
@@ -149,20 +182,27 @@ function resolveConfig(chainName) {
 // SPL Token Helpers
 // ============================================================
 
-async function detectTokenProgram(connection, mint) {
-  const accountInfo = await connection.getAccountInfo(mint);
+async function detectTokenProgram(connection, mint, ctx) {
+  const accountInfo = await withStep('rpc getAccountInfo(mint)', ctx, () => connection.getAccountInfo(mint));
   if (!accountInfo) throw new Error(`Mint account not found: ${mint.toString()}`);
   if (accountInfo.owner.equals(TOKEN_2022_PROGRAM_ID)) return TOKEN_2022_PROGRAM_ID;
   return TOKEN_PROGRAM_ID;
 }
 
-async function getTokenBalance(connection, mint, owner) {
+async function getTokenBalance(connection, mint, owner, ctx) {
   try {
-    const programId = await detectTokenProgram(connection, mint);
+    const programId = await detectTokenProgram(connection, mint, ctx);
     const ata = await getAssociatedTokenAddress(mint, owner, true, programId);
-    const account = await getAccount(connection, ata, undefined, programId);
+    const account = await withStep('rpc getAccount(ata)', ctx, () => getAccount(connection, ata, undefined, programId));
     return account.amount;
-  } catch {
+  } catch (err) {
+    // ATA missing or closed is a legitimate "no balance" case; anything else is surfaced
+    const msg = String(err?.message || err);
+    if (msg.includes('TokenAccountNotFoundError') || msg.includes('could not find account')) {
+      stepLog(ctx, `token_balance=0 (ata not found for mint=${shortAddr(mint)})`);
+      return 0n;
+    }
+    stepLog(ctx, `WARN getTokenBalance swallowed: ${msg} — treating as 0`);
     return 0n;
   }
 }
@@ -171,7 +211,7 @@ async function getTokenBalance(connection, mint, owner) {
 // Jupiter API
 // ============================================================
 
-async function getJupiterQuote(inputMint, outputMint, amount, slippageBps) {
+async function getJupiterQuote(inputMint, outputMint, amount, slippageBps, ctx) {
   const params = new URLSearchParams({
     inputMint: inputMint.toString(),
     outputMint: outputMint.toString(),
@@ -184,6 +224,7 @@ async function getJupiterQuote(inputMint, outputMint, amount, slippageBps) {
     maxAccounts: '15',
   });
 
+  const start = Date.now();
   const res = await fetch(`${JUPITER_API}/quote?${params}`);
   if (!res.ok) {
     const text = await res.text();
@@ -195,14 +236,17 @@ async function getJupiterQuote(inputMint, outputMint, amount, slippageBps) {
     } catch {
       /* use raw text */
     }
+    stepLog(ctx, `jupiter quote status=${res.status} (${Date.now() - start}ms) detail=${detail}`);
     const errMsg = `Jupiter quote error (${res.status}): ${detail}`;
     log('error', 'execute-trade-solana', errMsg);
     throw new Error(errMsg);
   }
+  stepLog(ctx, `jupiter quote ok (${Date.now() - start}ms)`);
   return res.json();
 }
 
-async function getJupiterSwapInstructions(quoteResponse, userPublicKey) {
+async function getJupiterSwapInstructions(quoteResponse, userPublicKey, ctx) {
+  const start = Date.now();
   const res = await fetch(`${JUPITER_API}/swap-instructions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -223,10 +267,12 @@ async function getJupiterSwapInstructions(quoteResponse, userPublicKey) {
     } catch {
       /* use raw text */
     }
+    stepLog(ctx, `jupiter swap-instructions status=${res.status} (${Date.now() - start}ms) detail=${detail}`);
     const errMsg = `Jupiter swap-instructions error (${res.status}): ${detail}`;
     log('error', 'execute-trade-solana', errMsg);
     throw new Error(errMsg);
   }
+  stepLog(ctx, `jupiter swap-instructions ok (${Date.now() - start}ms)`);
   return res.json();
 }
 
@@ -250,16 +296,24 @@ function deserializeInstruction(ix) {
 // Squads Transaction Building
 // ============================================================
 
-async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false } = {}) {
+async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false, ctx } = {}) {
   const { connection, multisigPda, vaultPda, signer, vaultIndex } = env;
+  stepLog(
+    ctx,
+    `squads_init: multisig=${shortAddr(multisigPda)} vault=${shortAddr(vaultPda)} vaultIndex=${vaultIndex} instructions=${instructions.length}`,
+  );
 
   // Get current multisig state for transaction index
-  const multisigAccount = await multisig.accounts.Multisig.fromAccountAddress(connection, multisigPda);
+  const multisigAccount = await withStep('rpc multisig.fromAccountAddress', ctx, () =>
+    multisig.accounts.Multisig.fromAccountAddress(connection, multisigPda),
+  );
   const transactionIndex = Number(multisigAccount.transactionIndex) + 1;
   const transactionIndexBN = BigInt(transactionIndex);
+  stepLog(ctx, `multisig_state: txIndex=${transactionIndex} threshold=${Number(multisigAccount.threshold)}`);
 
   // Build transaction message from Jupiter instructions
-  const blockhash = await connection.getLatestBlockhash();
+  const blockhash = await withStep('rpc getLatestBlockhash (inner)', ctx, () => connection.getLatestBlockhash());
+  stepLog(ctx, `blockhash(inner)=${shortAddr(blockhash.blockhash)} lastValidBlock=${blockhash.lastValidBlockHeight}`);
   const txMessage = new TransactionMessage({
     payerKey: vaultPda,
     recentBlockhash: blockhash.blockhash,
@@ -308,12 +362,16 @@ async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false } = {}
   } catch (serErr) {
     const totalDataBytes = instructions.reduce((sum, ix) => sum + ix.data.length, 0);
     const errMsg = `Squads transaction build failed (${instructions.length} instructions, ${totalDataBytes} bytes data): ${serErr.message}`;
+    stepLog(ctx, `ERROR meta_compile: ${errMsg}`);
     log('error', 'execute-trade-solana', errMsg);
     throw new Error(errMsg);
   }
+  const metaSize = metaTx.serialize().length;
+  stepLog(ctx, `meta_tx signed signer=${shortAddr(signer.publicKey)} size=${metaSize}B (create+propose+approve)`);
 
   // Dry run: return signed tx data without broadcasting
   if (dryRun) {
+    stepLog(ctx, `dry_run: returning without send`);
     return {
       status: 'dry_run',
       squadsTransactionIndex: transactionIndex,
@@ -321,31 +379,46 @@ async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false } = {}
       vaultAddress: vaultPda.toString(),
       instructionCount: instructions.length,
       threshold: Number(multisigAccount.threshold),
-      serializedTxLength: metaTx.serialize().length,
+      serializedTxLength: metaSize,
     };
   }
 
-  const metaSig = await connection.sendTransaction(metaTx, {
-    skipPreflight: false,
-  });
-  await connection.confirmTransaction({
-    signature: metaSig,
-    blockhash: blockhash.blockhash,
-    lastValidBlockHeight: blockhash.lastValidBlockHeight,
-  });
+  stepLog(ctx, `sending meta tx to RPC`);
+  const metaSig = await withStep('rpc sendTransaction(meta)', ctx, () =>
+    connection.sendTransaction(metaTx, { skipPreflight: false }),
+  );
+  stepLog(ctx, `meta_sent sig=${shortAddr(metaSig)}, confirming`);
+  await withStep('rpc confirmTransaction(meta)', ctx, () =>
+    connection.confirmTransaction({
+      signature: metaSig,
+      blockhash: blockhash.blockhash,
+      lastValidBlockHeight: blockhash.lastValidBlockHeight,
+    }),
+  );
+  stepLog(ctx, `meta_confirmed sig=${shortAddr(metaSig)}`);
 
   // 4. Check threshold — if met, execute
   const threshold = Number(multisigAccount.threshold);
   if (threshold <= 1) {
+    stepLog(ctx, `executing on-chain (threshold=${threshold})`);
+    const execStart = Date.now();
     try {
-      const { instruction: executeTxIx, lookupTableAccounts } = await multisig.instructions.vaultTransactionExecute({
-        connection,
-        multisigPda,
-        transactionIndex: transactionIndexBN,
-        member: signer.publicKey,
-      });
+      const { instruction: executeTxIx, lookupTableAccounts } = await withStep(
+        'rpc vaultTransactionExecute (build)',
+        ctx,
+        () =>
+          multisig.instructions.vaultTransactionExecute({
+            connection,
+            multisigPda,
+            transactionIndex: transactionIndexBN,
+            member: signer.publicKey,
+          }),
+      );
+      stepLog(ctx, `exec instruction built lookup_tables=${lookupTableAccounts?.length ?? 0}`);
 
-      const execBlockhash = await connection.getLatestBlockhash();
+      const execBlockhash = await withStep('rpc getLatestBlockhash (exec)', ctx, () => connection.getLatestBlockhash());
+      stepLog(ctx, `blockhash(exec)=${shortAddr(execBlockhash.blockhash)}`);
+
       const execMessage = new TransactionMessage({
         payerKey: signer.publicKey,
         recentBlockhash: execBlockhash.blockhash,
@@ -354,15 +427,20 @@ async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false } = {}
 
       const execTx = new VersionedTransaction(execMessage);
       execTx.sign([signer]);
+      stepLog(ctx, `exec_tx signed size=${execTx.serialize().length}B, sending`);
 
-      const execSig = await connection.sendTransaction(execTx, {
-        skipPreflight: false,
-      });
-      await connection.confirmTransaction({
-        signature: execSig,
-        blockhash: execBlockhash.blockhash,
-        lastValidBlockHeight: execBlockhash.lastValidBlockHeight,
-      });
+      const execSig = await withStep('rpc sendTransaction(exec)', ctx, () =>
+        connection.sendTransaction(execTx, { skipPreflight: false }),
+      );
+      stepLog(ctx, `exec_sent sig=${shortAddr(execSig)}, confirming`);
+      await withStep('rpc confirmTransaction(exec)', ctx, () =>
+        connection.confirmTransaction({
+          signature: execSig,
+          blockhash: execBlockhash.blockhash,
+          lastValidBlockHeight: execBlockhash.lastValidBlockHeight,
+        }),
+      );
+      stepLog(ctx, `executed sig=${execSig} (${Date.now() - execStart}ms)`);
 
       return {
         status: 'executed',
@@ -370,6 +448,10 @@ async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false } = {}
         squadsTransactionIndex: transactionIndex,
       };
     } catch (execErr) {
+      stepLog(
+        ctx,
+        `ERROR execute: ${execErr.message} (${Date.now() - execStart}ms) — keeping as queued tx#${transactionIndex}`,
+      );
       log(
         'warn',
         'execute-trade-solana',
@@ -384,6 +466,7 @@ async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false } = {}
     }
   }
 
+  stepLog(ctx, `queued_in_squads tx#${transactionIndex} threshold=${threshold} confirmations=1`);
   return {
     status: 'queued_in_squads',
     txSignature: metaSig,
@@ -398,12 +481,18 @@ async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false } = {}
 // ============================================================
 
 async function executeBuy(args, env, { dryRun = false } = {}) {
+  const ctx = { action: 'buy', chain: args.chain, symbol: args.symbol };
+  stepLog(
+    ctx,
+    `started amount=${args.amount} tier=${args.tier} slippage=${args.maxSlippage}% mint=${shortAddr(args.address)} dry_run=${dryRun}`,
+  );
   const tokenMint = new PublicKey(args.address);
   const buyAmountUsd = parseFloat(args.amount);
 
   // Check vault's USDC balance
-  const usdcBalance = await getTokenBalance(env.connection, USDC_MINT, env.vaultPda);
+  const usdcBalance = await getTokenBalance(env.connection, USDC_MINT, env.vaultPda, ctx);
   const usdcBalanceFormatted = Number(usdcBalance) / 10 ** USDC_DECIMALS;
+  stepLog(ctx, `usdc_balance: have ${usdcBalanceFormatted}, need ${buyAmountUsd}`);
 
   if (usdcBalanceFormatted < buyAmountUsd) {
     log(
@@ -422,12 +511,15 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
 
   // Slippage in basis points
   const slippageBps = Math.round(parseFloat(args.maxSlippage) * 100);
+  stepLog(ctx, `quote_request: src=USDC dst=${shortAddr(tokenMint)} amount=${usdcLamports} slippageBps=${slippageBps}`);
 
   // Get Jupiter quote
-  const quote = await getJupiterQuote(USDC_MINT, tokenMint, usdcLamports, slippageBps);
+  const quote = await getJupiterQuote(USDC_MINT, tokenMint, usdcLamports, slippageBps, ctx);
+  stepLog(ctx, `quote_ok: outAmount=${quote.outAmount} route_plan_len=${quote.routePlan?.length ?? '?'}`);
 
   // Get swap instructions for the vault
-  const swapData = await getJupiterSwapInstructions(quote, env.vaultPda);
+  stepLog(ctx, `swap_instructions_request`);
+  const swapData = await getJupiterSwapInstructions(quote, env.vaultPda, ctx);
 
   // Validate Jupiter response before deserialization
   if (!swapData?.swapInstruction) {
@@ -457,6 +549,7 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
       allInstructions.push(deserializeInstruction(swapData.cleanupInstruction));
     }
   } catch (deserErr) {
+    stepLog(ctx, `ERROR deserialize: ${deserErr.message}`);
     log(
       'error',
       'execute-trade-solana',
@@ -470,8 +563,16 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
       chain: args.chain,
     };
   }
+  stepLog(
+    ctx,
+    `instructions_built: total=${allInstructions.length} setup=${swapData.setupInstructions?.length ?? 0} swap=1 cleanup=${swapData.cleanupInstruction ? 1 : 0}`,
+  );
 
-  const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun });
+  const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun, ctx });
+  stepLog(
+    ctx,
+    `buy done status=${result.status} sig=${result.txSignature || ''} txIndex=${result.squadsTransactionIndex || ''}`,
+  );
 
   return {
     ...result,
@@ -490,10 +591,16 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
 // ============================================================
 
 async function executeSell(args, env, { dryRun = false } = {}) {
+  const ctx = { action: 'sell', chain: args.chain, symbol: args.symbol };
+  stepLog(
+    ctx,
+    `started amount=${args.amount} slippage=${args.maxSlippage}% mint=${shortAddr(args.address)} dry_run=${dryRun}`,
+  );
   const tokenMint = new PublicKey(args.address);
 
   // Get vault's token balance
-  const tokenBalance = await getTokenBalance(env.connection, tokenMint, env.vaultPda);
+  const tokenBalance = await getTokenBalance(env.connection, tokenMint, env.vaultPda, ctx);
+  stepLog(ctx, `token_balance=${tokenBalance}`);
 
   if (tokenBalance === 0n) {
     return {
@@ -514,15 +621,19 @@ async function executeSell(args, env, { dryRun = false } = {}) {
       };
     }
   }
+  stepLog(ctx, `sell_amount=${sellAmount} (${args.amount === 'all' ? 'full' : 'partial'})`);
 
   // Slippage in basis points
   const slippageBps = Math.round(parseFloat(args.maxSlippage) * 100);
+  stepLog(ctx, `quote_request: src=${shortAddr(tokenMint)} dst=USDC amount=${sellAmount} slippageBps=${slippageBps}`);
 
   // Get Jupiter quote (token → USDC)
-  const quote = await getJupiterQuote(tokenMint, USDC_MINT, sellAmount, slippageBps);
+  const quote = await getJupiterQuote(tokenMint, USDC_MINT, sellAmount, slippageBps, ctx);
+  stepLog(ctx, `quote_ok: outAmount=${quote.outAmount} route_plan_len=${quote.routePlan?.length ?? '?'}`);
 
   // Get swap instructions for the vault
-  const swapData = await getJupiterSwapInstructions(quote, env.vaultPda);
+  stepLog(ctx, `swap_instructions_request`);
+  const swapData = await getJupiterSwapInstructions(quote, env.vaultPda, ctx);
 
   // Validate Jupiter response before deserialization
   if (!swapData?.swapInstruction) {
@@ -552,6 +663,7 @@ async function executeSell(args, env, { dryRun = false } = {}) {
       allInstructions.push(deserializeInstruction(swapData.cleanupInstruction));
     }
   } catch (deserErr) {
+    stepLog(ctx, `ERROR deserialize: ${deserErr.message}`);
     log(
       'error',
       'execute-trade-solana',
@@ -565,8 +677,16 @@ async function executeSell(args, env, { dryRun = false } = {}) {
       chain: args.chain,
     };
   }
+  stepLog(
+    ctx,
+    `instructions_built: total=${allInstructions.length} setup=${swapData.setupInstructions?.length ?? 0} swap=1 cleanup=${swapData.cleanupInstruction ? 1 : 0}`,
+  );
 
-  const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun });
+  const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun, ctx });
+  stepLog(
+    ctx,
+    `sell done status=${result.status} sig=${result.txSignature || ''} txIndex=${result.squadsTransactionIndex || ''}`,
+  );
 
   const expectedUsdc = Number(quote.outAmount) / 10 ** USDC_DECIMALS;
 

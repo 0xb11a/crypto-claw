@@ -24,6 +24,35 @@ const SafeApiKit = SafeApiKitModule.default || SafeApiKitModule;
 import { log } from './log.js';
 
 // ============================================================
+// Logging helpers
+// ============================================================
+
+const shortAddr = (a) => (a ? `${a.slice(0, 6)}...${a.slice(-4)}` : '');
+
+function stepLog(ctx, msg) {
+  const tag = ctx ? `[${ctx.action} ${ctx.chain}/${ctx.symbol}] ` : '';
+  log('info', 'execute-trade-evm', `${tag}${msg}`);
+}
+
+async function withStep(label, ctx, fn) {
+  const start = Date.now();
+  try {
+    return await fn();
+  } catch (err) {
+    const status = err.status || err.response?.status || err.code || '';
+    const body = err.response?.data ?? err.response?.body ?? err.data ?? '';
+    const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+    const detailParts = [status ? `HTTP ${status}` : '', bodyStr ? bodyStr.slice(0, 300) : ''].filter(Boolean);
+    const detail = detailParts.length ? ` [${detailParts.join(' ')}]` : '';
+    const msg = `${label}: ${err.message}${detail}`;
+    stepLog(ctx, `ERROR ${msg} (${Date.now() - start}ms)`);
+    const wrapped = new Error(msg);
+    wrapped.cause = err;
+    throw wrapped;
+  }
+}
+
+// ============================================================
 // Constants
 // ============================================================
 
@@ -155,20 +184,25 @@ export function build1inchUrl(chainId, params) {
   return url.toString();
 }
 
-async function get1inchSwap(chainId, params, apiKey) {
+async function get1inchSwap(chainId, params, apiKey, ctx) {
   const url = build1inchUrl(chainId, params);
   const MAX_RETRIES = 4;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const start = Date.now();
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     });
 
-    if (res.ok) return res.json();
+    if (res.ok) {
+      stepLog(ctx, `1inch attempt=${attempt + 1}/${MAX_RETRIES + 1} ok (${Date.now() - start}ms)`);
+      return res.json();
+    }
 
     if (res.status === 429 && attempt < MAX_RETRIES) {
       // Exponential backoff: 2s, 4s, 8s, 16s
       const delay = 2000 * Math.pow(2, attempt);
+      stepLog(ctx, `1inch attempt=${attempt + 1}/${MAX_RETRIES + 1} status=429 backoff=${delay}ms`);
       await new Promise((r) => setTimeout(r, delay));
       continue;
     }
@@ -182,6 +216,7 @@ async function get1inchSwap(chainId, params, apiKey) {
     } catch {
       /* use raw text */
     }
+    stepLog(ctx, `1inch attempt=${attempt + 1}/${MAX_RETRIES + 1} status=${res.status} giving_up: ${detail}`);
     log('error', 'execute-trade-evm', `1inch API error (${res.status}): ${detail}`);
     throw new Error(`1inch API error (${res.status}): ${detail}`);
   }
@@ -244,32 +279,41 @@ export function checkSlippage(quoteReturn, expectedAmount, maxSlippagePct) {
 // Safe Transaction Building
 // ============================================================
 
-async function buildAndSubmitSafeTx(env, transactions, { dryRun = false } = {}) {
+async function buildAndSubmitSafeTx(env, transactions, { dryRun = false, ctx } = {}) {
+  stepLog(
+    ctx,
+    `safe_init: chainId=${env.chainId} safe=${shortAddr(env.safeAddress)} bundle_size=${transactions.length}`,
+  );
   const SafeInit = Safe.init || Safe.default?.init || Safe;
-  const protocolKit = await SafeInit({
-    provider: env.rpcUrl,
-    signer: env.signerKey,
-    safeAddress: env.safeAddress,
-  });
+  const protocolKit = await withStep('safe_init', ctx, () =>
+    SafeInit({
+      provider: env.rpcUrl,
+      signer: env.signerKey,
+      safeAddress: env.safeAddress,
+    }),
+  );
 
   const apiKit = new SafeApiKit({ chainId: BigInt(env.chainId) });
 
   // Use getNextNonce for correct nonce including pending txs
-  const nonce = await apiKit.getNextNonce(env.safeAddress);
+  const nonce = await withStep('getNextNonce', ctx, () => apiKit.getNextNonce(env.safeAddress));
+  stepLog(ctx, `nonce=${nonce}`);
 
-  const safeTransaction = await protocolKit.createTransaction({
-    transactions,
-    options: { nonce },
-  });
+  const safeTransaction = await withStep('createTransaction', ctx, () =>
+    protocolKit.createTransaction({ transactions, options: { nonce } }),
+  );
+  stepLog(ctx, `tx_created: nonce=${nonce} bundle_size=${transactions.length}`);
 
-  const signedTx = await protocolKit.signTransaction(safeTransaction);
-  const safeTxHash = await protocolKit.getTransactionHash(signedTx);
+  const signedTx = await withStep('signTransaction', ctx, () => protocolKit.signTransaction(safeTransaction));
+  const safeTxHash = await withStep('getTransactionHash', ctx, () => protocolKit.getTransactionHash(signedTx));
 
   // Derive signer address from private key (not Safe address)
   const signerAccount = privateKeyToAccount(env.signerKey.startsWith('0x') ? env.signerKey : `0x${env.signerKey}`);
+  stepLog(ctx, `tx_signed: signer=${shortAddr(signerAccount.address)} safeTxHash=${safeTxHash}`);
 
   // Dry run: return signed tx data without proposing or executing
   if (dryRun) {
+    stepLog(ctx, `dry_run: returning without propose`);
     return {
       status: 'dry_run',
       safeHash: safeTxHash,
@@ -279,6 +323,8 @@ async function buildAndSubmitSafeTx(env, transactions, { dryRun = false } = {}) 
     };
   }
 
+  stepLog(ctx, `proposing to safe_tx_service`);
+  const proposeStart = Date.now();
   try {
     await apiKit.proposeTransaction({
       safeAddress: env.safeAddress,
@@ -287,6 +333,7 @@ async function buildAndSubmitSafeTx(env, transactions, { dryRun = false } = {}) 
       senderAddress: signerAccount.address,
       senderSignature: signedTx.signatures.values().next().value.data,
     });
+    stepLog(ctx, `proposed ok (${Date.now() - proposeStart}ms)`);
   } catch (proposeErr) {
     const status = proposeErr.status || proposeErr.response?.status || proposeErr.code || '';
     const body =
@@ -302,23 +349,32 @@ async function buildAndSubmitSafeTx(env, transactions, { dryRun = false } = {}) 
     ]
       .filter(Boolean)
       .join(' ');
+    stepLog(ctx, `ERROR proposeTransaction: ${detail || proposeErr.message} (${Date.now() - proposeStart}ms)`);
     log('error', 'execute-trade-evm', `Safe proposeTransaction failed: ${detail || proposeErr.message}`);
     throw new Error(detail || proposeErr.message);
   }
 
   // Check if threshold is met (threshold == 1 means we can execute immediately)
-  const safeInfo = await apiKit.getSafeInfo(env.safeAddress);
+  const safeInfo = await withStep('getSafeInfo', ctx, () => apiKit.getSafeInfo(env.safeAddress));
+  stepLog(ctx, `safe_info: threshold=${safeInfo.threshold} owners=${safeInfo.owners?.length ?? '?'}`);
+
   if (safeInfo.threshold === 1) {
+    stepLog(ctx, `executing on-chain (threshold=1)`);
+    const execStart = Date.now();
     try {
       const executionResult = await protocolKit.executeTransaction(signedTx);
+      stepLog(ctx, `execution submitted, waiting for receipt`);
       const receipt = await executionResult.transactionResponse?.wait();
+      const txHash = receipt?.hash || executionResult.hash;
+      stepLog(ctx, `executed: txHash=${txHash} block=${receipt?.blockNumber ?? '?'} (${Date.now() - execStart}ms)`);
       return {
         status: 'executed',
         safeHash: safeTxHash,
-        txHash: receipt?.hash || executionResult.hash,
+        txHash,
       };
     } catch (execErr) {
       // Execution failed but tx is proposed
+      stepLog(ctx, `ERROR executeTransaction: ${execErr.message} (${Date.now() - execStart}ms) — keeping as queued`);
       log('warn', 'execute-trade-evm', `Safe execution failed, queued: ${execErr.message} [safeHash=${safeTxHash}]`);
       return {
         status: 'queued_in_safe',
@@ -328,6 +384,7 @@ async function buildAndSubmitSafeTx(env, transactions, { dryRun = false } = {}) 
     }
   }
 
+  stepLog(ctx, `queued_in_safe: threshold=${safeInfo.threshold} confirmations=1`);
   return {
     status: 'queued_in_safe',
     safeHash: safeTxHash,
@@ -341,13 +398,21 @@ async function buildAndSubmitSafeTx(env, transactions, { dryRun = false } = {}) 
 // ============================================================
 
 async function executeBuy(args, env, { dryRun = false } = {}) {
+  const ctx = { action: 'buy', chain: args.chain, symbol: args.symbol };
+  stepLog(
+    ctx,
+    `started amount=${args.amount} tier=${args.tier} slippage=${args.maxSlippage}% address=${shortAddr(args.address)} dry_run=${dryRun}`,
+  );
   const client = createPublicClient({ transport: http(env.rpcUrl) });
 
   // Check Safe's USDC balance
   const usdcDecimals = env.usdcDecimals;
-  const usdcBalance = await getTokenBalance(client, env.usdcAddress, env.safeAddress);
+  const usdcBalance = await withStep('rpc balanceOf(USDC)', ctx, () =>
+    getTokenBalance(client, env.usdcAddress, env.safeAddress),
+  );
   const usdcBalanceFormatted = parseFloat(formatUnits(usdcBalance, usdcDecimals));
   const buyAmount = parseFloat(args.amount);
+  stepLog(ctx, `usdc_balance: have ${usdcBalanceFormatted}, need ${buyAmount}`);
 
   if (usdcBalanceFormatted < buyAmount) {
     log(
@@ -362,10 +427,12 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
   }
 
   // Get token decimals
-  const tokenDecimals = await getTokenDecimals(client, args.address);
+  const tokenDecimals = await withStep('rpc decimals(token)', ctx, () => getTokenDecimals(client, args.address));
+  stepLog(ctx, `token_decimals=${tokenDecimals}`);
 
   // Convert buy amount to USDC wei
   const amountWei = parseUnits(args.amount, usdcDecimals).toString();
+  stepLog(ctx, `quote_request: 1inch src=USDC dst=${shortAddr(args.address)} amount_wei=${amountWei}`);
 
   // Get 1inch swap quote
   const swap = await get1inchSwap(
@@ -378,6 +445,7 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
       slippage: args.maxSlippage,
     },
     env.oneInchApiKey,
+    ctx,
   );
 
   // Validate swap response before building Safe tx
@@ -396,12 +464,21 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
     };
   }
 
+  stepLog(
+    ctx,
+    `quote_ok: dstAmount=${swap.dstAmount} expected=${formatUnits(BigInt(swap.dstAmount), tokenDecimals)} ${args.symbol} router=${shortAddr(swap.tx.to)}`,
+  );
+
   // Build Safe transactions: approve + swap
   const transactions = [];
 
   // Check if approval is needed
-  const currentAllowance = await getAllowance(client, env.usdcAddress, env.safeAddress, ONEINCH_ROUTER);
-  if (currentAllowance < BigInt(amountWei)) {
+  const currentAllowance = await withStep('rpc allowance(USDC→1inch)', ctx, () =>
+    getAllowance(client, env.usdcAddress, env.safeAddress, ONEINCH_ROUTER),
+  );
+  const approveNeeded = currentAllowance < BigInt(amountWei);
+  stepLog(ctx, `allowance: current=${currentAllowance} needed=${amountWei} approve_needed=${approveNeeded}`);
+  if (approveNeeded) {
     transactions.push({
       to: env.usdcAddress,
       value: '0',
@@ -415,8 +492,10 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
     value: swap.tx.value || '0',
     data: swap.tx.data,
   });
+  stepLog(ctx, `tx_built: ${transactions.length} transaction(s) (approve=${approveNeeded}, swap=true)`);
 
-  const result = await buildAndSubmitSafeTx(env, transactions, { dryRun });
+  const result = await buildAndSubmitSafeTx(env, transactions, { dryRun, ctx });
+  stepLog(ctx, `buy done status=${result.status} safeHash=${result.safeHash || ''} txHash=${result.txHash || ''}`);
 
   return {
     ...result,
@@ -435,13 +514,22 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
 // ============================================================
 
 async function executeSell(args, env, { dryRun = false } = {}) {
+  const ctx = { action: 'sell', chain: args.chain, symbol: args.symbol };
+  stepLog(
+    ctx,
+    `started amount=${args.amount} slippage=${args.maxSlippage}% address=${shortAddr(args.address)} dry_run=${dryRun}`,
+  );
   const client = createPublicClient({ transport: http(env.rpcUrl) });
 
   // Get token balance and decimals
   const [tokenBalance, tokenDecimals] = await Promise.all([
-    getTokenBalance(client, args.address, env.safeAddress),
-    getTokenDecimals(client, args.address),
+    withStep('rpc balanceOf(token)', ctx, () => getTokenBalance(client, args.address, env.safeAddress)),
+    withStep('rpc decimals(token)', ctx, () => getTokenDecimals(client, args.address)),
   ]);
+  stepLog(
+    ctx,
+    `token_balance: have ${formatUnits(tokenBalance, tokenDecimals)} ${args.symbol} decimals=${tokenDecimals}`,
+  );
 
   let sellAmountWei;
   if (args.amount === 'all') {
@@ -449,6 +537,7 @@ async function executeSell(args, env, { dryRun = false } = {}) {
   } else {
     sellAmountWei = parseUnits(args.amount, tokenDecimals);
   }
+  stepLog(ctx, `sell_amount_wei=${sellAmountWei} (${formatUnits(sellAmountWei, tokenDecimals)} ${args.symbol})`);
 
   if (sellAmountWei === 0n || tokenBalance < sellAmountWei) {
     log(
@@ -462,6 +551,8 @@ async function executeSell(args, env, { dryRun = false } = {}) {
     };
   }
 
+  stepLog(ctx, `quote_request: 1inch src=${shortAddr(args.address)} dst=USDC amount_wei=${sellAmountWei}`);
+
   // Get 1inch swap quote
   const swap = await get1inchSwap(
     env.chainId,
@@ -473,6 +564,7 @@ async function executeSell(args, env, { dryRun = false } = {}) {
       slippage: args.maxSlippage,
     },
     env.oneInchApiKey,
+    ctx,
   );
 
   // Validate swap response before building Safe tx
@@ -491,11 +583,20 @@ async function executeSell(args, env, { dryRun = false } = {}) {
     };
   }
 
+  stepLog(
+    ctx,
+    `quote_ok: dstAmount=${swap.dstAmount} expected=${formatUnits(BigInt(swap.dstAmount), env.usdcDecimals)} USDC router=${shortAddr(swap.tx.to)}`,
+  );
+
   // Build Safe transactions: approve (if needed) + swap
   const transactions = [];
 
-  const currentAllowance = await getAllowance(client, args.address, env.safeAddress, ONEINCH_ROUTER);
-  if (currentAllowance < sellAmountWei) {
+  const currentAllowance = await withStep('rpc allowance(token→1inch)', ctx, () =>
+    getAllowance(client, args.address, env.safeAddress, ONEINCH_ROUTER),
+  );
+  const approveNeeded = currentAllowance < sellAmountWei;
+  stepLog(ctx, `allowance: current=${currentAllowance} needed=${sellAmountWei} approve_needed=${approveNeeded}`);
+  if (approveNeeded) {
     transactions.push({
       to: args.address,
       value: '0',
@@ -508,8 +609,10 @@ async function executeSell(args, env, { dryRun = false } = {}) {
     value: swap.tx.value || '0',
     data: swap.tx.data,
   });
+  stepLog(ctx, `tx_built: ${transactions.length} transaction(s) (approve=${approveNeeded}, swap=true)`);
 
-  const result = await buildAndSubmitSafeTx(env, transactions, { dryRun });
+  const result = await buildAndSubmitSafeTx(env, transactions, { dryRun, ctx });
+  stepLog(ctx, `sell done status=${result.status} safeHash=${result.safeHash || ''} txHash=${result.txHash || ''}`);
 
   const usdcDecimals = env.usdcDecimals;
   return {
