@@ -7,6 +7,15 @@
 - **Do NOT use web_search or browser tools.** They are disabled. All market data comes from the scripts below — they call the APIs directly.
 - **Run one command per exec call.** Never chain commands with `&&`, `||`, or `;`. If you need multiple commands, make separate exec calls for each.
 
+## Logging Severity Rubric
+`scripts/log.js` levels — Observer's detection depends on the right level:
+- `info` — routine step completed. Never actionable.
+- `warn` — degraded but self-healing (retry succeeded, cache miss, fallback used).
+- `error` — an operation did not complete (DB write failed, pipeline aborted, order not created). **Each instance is actionable.**
+- `critical` — safety/integrity violation (key leak, emergency mode, data corruption). **Immediate Observer alert.**
+
+If an unhandled exception kills a step, log it at `error` or `critical` — never `warn`. Observer samples warns but treats them as self-healing per-instance.
+
 ## Database CLI (db-query.js)
 
 All wallet data (positions, trades, orders, alerts, receipts) lives in a SQLite database. Interact with it through `db-query.js` — never access the DB file directly.
@@ -157,6 +166,7 @@ node scripts/db-query.js add-paper-receipt --json '{"id":"pt-001","order_id":"tr
 node scripts/db-query.js get-paper-receipts
 node scripts/db-query.js get-paper-receipts --limit 10
 node scripts/db-query.js get-paper-stats
+node scripts/db-query.js get-paper-stats --chain <CHAIN>
 ```
 
 ### Portfolio Sync (On-Chain — Real Mode Only)
@@ -273,6 +283,18 @@ node scripts/heartbeat-check.js --agent sentinel
 node scripts/send-approval.js --order-id trade-001
 # → {"status":"sent","order_id":"trade-001","message_id":12345}
 ```
+
+### Send Alert
+```bash
+# Alerts route to the correct Telegram supergroup topic automatically
+# trade_proposal → Research topic | model_failure → Alerts topic | rebalance_event → Portfolio topic
+node scripts/send-alert.js --type trade_proposal --agent research --message "BUY $TOKEN on <CHAIN> — $500 (4% moonshot) — score: 76"
+node scripts/send-alert.js --type model_failure --agent research --message "<check_type> failed: <reason>"
+node scripts/send-alert.js --type rebalance_event --agent research --message "Rebalance proposed on <CHAIN>: sell overweight <TIER>, buy underweight <TIER>"
+node scripts/send-alert.js --type recovered --agent research --message "Research pipeline recovered"
+```
+
+Per AGENTS.md § Error Self-Reporting: use `model_failure` whenever a pipeline step (memory_search, discovery, analyst, risk, portfolio, orders, market_regime, narrative, portfolio_sync) exits non-zero, throws, or returns malformed JSON. A failed step with no log row + alert is itself a bug (Observer detects this as a silent crash).
 
 ## Configuration
 

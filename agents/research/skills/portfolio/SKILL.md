@@ -244,3 +244,9 @@ Apply regime-adjusted limits using `min(chainRule, regimeLimit)` for maximums an
 - Minimum risk:reward ratio of 3:1
 - Log every decision to daily memory
 - The best trade is sometimes NO trade
+
+## Error Handling
+Per AGENTS.md § Error Self-Reporting:
+- If `get-portfolio` / `get-cash` / `get-chain-config` fails: log `status: "error"` to research_log, fire `send-alert.js --type model_failure --agent research`, halt the proposal. You cannot size safely without current allocation state.
+- If `add-order` fails: log `status: "error"` and alert immediately — a proposal that was analyzed but never written to the orders table is the orphan case Observer looks for.
+- If `send-approval.js` errors (approval bot misconfigured or offline), treat as `warn`, not `error` — the order is still in the DB and can be approved via chat or CLI.

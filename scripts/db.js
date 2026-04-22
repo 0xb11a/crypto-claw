@@ -886,6 +886,12 @@ const migrations = [
       ALTER TABLE orders ADD COLUMN tg_message_id INTEGER;
     `,
   },
+  {
+    name: '023_memory_backup_heartbeat',
+    sql: `
+      INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('system', 'memory-backup');
+    `,
+  },
 ];
 
 export default { getDb, close };

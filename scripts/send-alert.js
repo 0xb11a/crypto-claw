@@ -274,6 +274,7 @@ async function main() {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
+    log('info', 'send-alert', `sent type=${type} agent=${agent} topic=${threadId || 'default'}`);
     console.log(JSON.stringify({ status: 'sent', type, agent, topic: threadId || 'default' }));
   } catch (err) {
     log('warn', 'send-alert', `Failed to send via openclaw (type=${type}, agent=${agent}): ${err.message}`);

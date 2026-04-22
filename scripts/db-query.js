@@ -25,7 +25,7 @@
  *   set-meta --key <key> --value <value>
  *
  *   # Orders (unified: buys + sells)
- *   get-orders [--pending] [--action buy|sell] [--status <status>]
+ *   get-orders [--pending] [--action buy|sell] [--status <status>] [--limit <n>]
  *   get-order --id <id>
  *   get-order-history [--limit 20] [--status <status>]
  *   add-order --json '<json>'
@@ -116,6 +116,8 @@ import { getAllChains, getActiveChains, getChain, isSolana, getPortfolioRules } 
 
 // Cadence in minutes for each agent's heartbeat checks.
 // Used by get-overdue-checks to compute which checks are due server-side.
+// A value of 0 means "runs every cycle, never rate-limited" for in-agent rotation;
+// get-heartbeats substitutes AGENT_HEARTBEAT_INTERVALS so dead-agent detection works.
 const HEARTBEAT_CADENCES = {
   research: {
     sentinel_alerts: 30,
@@ -143,6 +145,22 @@ const HEARTBEAT_CADENCES = {
   observer: {
     triage: 120,
   },
+  // 'system' is a pseudo-agent for background-loop heartbeats (no LLM invocation).
+  // Observer reads these via get-heartbeats to detect stopped background loops.
+  system: {
+    'memory-backup': 15,
+  },
+};
+
+// Outer loop interval (minutes) for each agent. Must match the cron / background
+// loop cadence in entrypoint.sh: research 30m cron, sentinel 15-min loop (900s),
+// executor 1-min loop (60s), observer 120m cron. Used as the effective cadence
+// for dead-agent detection when a check's HEARTBEAT_CADENCES value is 0.
+const AGENT_HEARTBEAT_INTERVALS = {
+  research: 30,
+  sentinel: 15,
+  executor: 1,
+  observer: 120,
 };
 
 function cashKey(chain, paper = false) {
@@ -540,6 +558,7 @@ function handle(db, cmd) {
       const action = getArg('action');
       const approved = hasFlag('approved');
       const statusFilter = getArg('status');
+      const limitArg = getArg('limit');
       const conditions = [];
       const params = [];
       if (pending) conditions.push("status IN ('pending', 'approved')");
@@ -554,7 +573,11 @@ function handle(db, cmd) {
       }
       const where = conditions.length ? ' WHERE ' + conditions.join(' AND ') : '';
       const order = pending ? ' ORDER BY created_at ASC' : ' ORDER BY created_at DESC';
-      const sql = `SELECT * FROM orders${where}${order}`;
+      let sql = `SELECT * FROM orders${where}${order}`;
+      if (limitArg) {
+        sql += ' LIMIT ?';
+        params.push(parseInt(limitArg, 10));
+      }
       const rows = db.prepare(sql).all(...params);
       output(
         rows.map((r) => (r.take_profit_levels ? { ...r, take_profit_levels: JSON.parse(r.take_profit_levels) } : r)),
@@ -1065,6 +1088,33 @@ function handle(db, cmd) {
       const agent = getArg('agent');
       if (!agent) error('Missing --agent');
       output(db.prepare('SELECT * FROM heartbeat_state WHERE agent = ?').all(agent));
+      break;
+    }
+    case 'get-heartbeats': {
+      const agent = getArg('agent');
+      const rows = agent
+        ? db.prepare('SELECT * FROM heartbeat_state WHERE agent = ?').all(agent)
+        : db.prepare('SELECT * FROM heartbeat_state').all();
+      const now = Date.now();
+      const result = rows.map((row) => {
+        let seconds_since = null;
+        if (row.last_run) {
+          const ts = row.last_run.endsWith('Z') ? row.last_run : row.last_run + 'Z';
+          seconds_since = Math.round((now - Date.parse(ts)) / 1000);
+        }
+        const cadenceMin = HEARTBEAT_CADENCES[row.agent]?.[row.check_type] ?? null;
+        // 0 means "runs every outer cycle" — substitute the agent's loop interval
+        // so dead-agent detection (seconds_since > 2 × expected) works.
+        const effectiveMin = cadenceMin === 0 ? (AGENT_HEARTBEAT_INTERVALS[row.agent] ?? null) : cadenceMin;
+        return {
+          agent: row.agent,
+          check: row.check_type,
+          last_run_at: row.last_run,
+          seconds_since,
+          expected_cadence_seconds: effectiveMin === null ? null : effectiveMin * 60,
+        };
+      });
+      output(result);
       break;
     }
     case 'update-heartbeat': {

@@ -6,6 +6,15 @@
 - **Do NOT use web_search or browser tools.** They are disabled.
 - **Run one command per exec call.** Never chain commands with `&&`, `||`, or `;`. If you need multiple commands, make separate exec calls for each.
 
+## Logging Severity Rubric
+`scripts/log.js` levels — Observer's detection depends on the right level:
+- `info` — routine step completed. Never actionable.
+- `warn` — degraded but self-healing (retry succeeded, RPC fallback used).
+- `error` — an operation did not complete (get-orders failed, process-order returned no JSON, add-executor-log failed). **Each instance is actionable.**
+- `critical` — safety/integrity violation (signer key missing, heartbeat stuck, data corruption). **Immediate Observer alert.**
+
+A silent DB failure looks like a quiet cycle — that is the single worst Executor path. When in doubt, log at `error` or `critical`, never `warn`.
+
 ## Chain Discovery
 ```bash
 # List all active chains
@@ -31,7 +40,8 @@ node scripts/db-query.js get-meta --key my_key
 node scripts/db-query.js set-meta --key my_key --value my_value
 ```
 
-### Positions
+### Positions (Human Interaction Only)
+**Not used during the heartbeat.** Position lifecycle is owned by `process-order.js`, which handles validation, execution, receipts, positions, and cash atomically. The commands below exist so you can answer ad-hoc human questions ("what positions are open?", "close this one manually") — never call them as part of autonomous order processing.
 ```bash
 node scripts/db-query.js get-positions
 node scripts/db-query.js get-positions --status open
@@ -77,24 +87,30 @@ node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":1,"bu
 ```
 
 ### Paper Mode
-Paper commands mirror real-mode equivalents with `paper-` prefix and identical flags:
+Paper commands mirror real-mode equivalents with `paper-` prefix and identical flags. During the heartbeat, `process-order.js` handles paper positions, receipts, and cash atomically — same as real mode — so the mutation commands below are **for ad-hoc human interaction only** (diagnostics, manual adjustments) and must not be used as part of autonomous order processing.
+
+**Read-only (safe to use for reporting):**
 ```bash
 node scripts/db-query.js get-paper-portfolio
 node scripts/db-query.js get-paper-cash
 node scripts/db-query.js get-paper-cash --chain <CHAIN>
-node scripts/db-query.js set-paper-cash --chain <CHAIN> --amount 10000
 node scripts/db-query.js get-paper-positions
 node scripts/db-query.js get-paper-positions --status open
 node scripts/db-query.js get-paper-positions --symbol TOKEN
+node scripts/db-query.js get-paper-receipts
+node scripts/db-query.js get-paper-receipts --limit 10
+node scripts/db-query.js get-paper-stats
+```
+
+**Mutations (human interaction only — never during heartbeat):**
+```bash
+node scripts/db-query.js set-paper-cash --chain <CHAIN> --amount 10000
 # add-paper-position: same fields as add-position + value_usd. Auto-deducts from paper_cash, auto-calculates quantity.
 node scripts/db-query.js add-paper-position --json '{"id":"pp-001","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","tier":"moonshot","entry_price":0.001,"value_usd":10,"stop_loss":0.0005,"take_profit_levels":[{"level":1,"price":0.002,"sellPercent":50}]}'
 node scripts/db-query.js update-paper-position --id pp-001 --json '{"current_price": 0.0015, "value_usd": 15}'
 node scripts/db-query.js close-paper-position --id pp-001 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
 node scripts/db-query.js close-paper-position --id pp-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
 node scripts/db-query.js add-paper-receipt --json '{"id":"pt-001","order_id":"trade-001","action":"buy","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","tier":"moonshot","proposed_price":0.001,"quantity":10000,"amount":500}'
-node scripts/db-query.js get-paper-receipts
-node scripts/db-query.js get-paper-receipts --limit 10
-node scripts/db-query.js get-paper-stats
 ```
 
 ### Portfolio Sync (On-Chain — Real Mode Only)
@@ -178,13 +194,17 @@ node scripts/emergency-executor.js
 
 ### Send Alert
 ```bash
-# Alerts route to the correct Telegram supergroup topic automatically
-# trade_executed/trade_failed → Executor topic | model_failure/emergency_mode → Alerts topic
+# Alerts route to the correct Telegram supergroup topic automatically:
+# trade_executed/trade_failed → Executor topic | model_failure/emergency_mode → Alerts topic | system_health → Observer topic | recovered → System topic
 node scripts/send-alert.js --type trade_executed --agent executor --message "BUY executed: TOKEN"
+node scripts/send-alert.js --type trade_failed --agent executor --message "Order fetch failed: <reason>"
 node scripts/send-alert.js --type model_failure --agent executor --message "Agent failed"
 node scripts/send-alert.js --type emergency_mode --agent executor --message "Emergency mode active"
+node scripts/send-alert.js --type system_health --agent executor --message "log/heartbeat write failed: <reason>"
 node scripts/send-alert.js --type recovered --agent executor --message "Back to normal"
 ```
+
+Every successful `send-alert.js` invocation also writes an `[info] [send-alert]` entry to `/tmp/openclaw/system.log` — this is Observer's correlation signal for silent-crash detection. When you fire an alert after a failure, Observer sees the system.log line near the matching `status:"error"` log row and knows the agent self-reported (no GitHub issue). If the log row has no matching send-alert line nearby, Observer treats it as a silent crash.
 
 ## Configuration
 

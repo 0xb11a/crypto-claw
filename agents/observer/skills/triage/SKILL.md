@@ -18,22 +18,40 @@ If `system.log` does not exist or the command fails, that is normal after rotati
 
 Query the database for structured error data:
 ```bash
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status tx_failed --limit 20
+node scripts/db-query.js get-receipts --status tx_failed --limit 20
 ```
 ```bash
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status validation_failed --limit 10
+node scripts/db-query.js get-receipts --status validation_failed --limit 30
 ```
 ```bash
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status reverted --limit 10
+node scripts/db-query.js get-receipts --status reverted --limit 10
 ```
 ```bash
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-orders --status failed --limit 20
+node scripts/db-query.js get-orders --status failed --limit 20
 ```
 ```bash
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-executor-log --limit 20
+node scripts/db-query.js get-executor-log --limit 30
 ```
 ```bash
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-sentinel-log --limit 20
+node scripts/db-query.js get-sentinel-log --limit 30
+```
+```bash
+node scripts/db-query.js get-research-log --limit 30
+```
+```bash
+node scripts/db-query.js get-alerts
+```
+```bash
+node scripts/db-query.js get-heartbeats
+```
+```bash
+node scripts/db-query.js get-orders --status approved --limit 20
+```
+```bash
+node scripts/db-query.js get-orders --status queued_in_safe --limit 20
+```
+```bash
+node scripts/db-query.js get-orders --status queued_in_squads --limit 20
 ```
 
 ### Step 1b: Check Signer Balances
@@ -52,16 +70,32 @@ This is always an operational issue (not a code bug). Do not create a GitHub iss
 
 ### Step 2: Classify Each Problem
 
-For each error or failure found, determine:
+For each error or failure found, run through the full signal catalogue below and decide what to do. The goal is to catch every category of suspicious behavior — not just tx failures.
 
-1. **Is it a code bug?** (e.g., missing error handling, wrong API endpoint, logic error)
-   → GitHub issue
+**A. Code bugs (→ GitHub issue via create-gh-issue skill)**
+1. Execution failures: `tx_failed`, `validation_failed`, `reverted` receipts with a reproducible cause (not just transient 429).
+2. Silent crashes: an agent's log table has `status: "error"` but no matching `send-alert.js` call in system.log near that timestamp. The agent tried to record a failure but the alerting path itself broke.
+3. Orphan approved trades: Research `research_log` row shows `trades_proposed: N` but fewer than N matching `orders` rows created in the following 10 min — the handoff dropped trades.
+4. Stuck-token loops: the same token has >3 `validation_failed` receipts in the last 2 h — discovery/dedup is stuck re-proposing a bad token.
+5. Warn pattern: the same warn shape (same source + same message pattern) fired >5 times in a 30-min window — "self-healing" is masking a real bug.
+6. Repeated transient errors on the same script across multiple cycles.
 
-2. **Is it an operational issue?** (e.g., model provider down, config missing, API key expired)
-   → Telegram alert
+**B. Operational issues (→ Telegram alert via `send-alert.js`)**
+1. Stale orders: `approved` > 15 min, `queued_in_safe`/`queued_in_squads` > 30 min, `pending` > 2 h — use `system_health`.
+2. Dead agents: `get-heartbeats` shows `seconds_since > 2 × expected_cadence_seconds` — use `emergency_mode`.
+3. Memory-backup loop stopped: `system/memory-backup` heartbeat stale > 30 min — use `system_health`.
+4. Alert storms: `sentinel_alerts` has >3 identical `symbol + alert_type` entries in 10 min — use `system_health`.
+5. Model failure / emergency mode activation.
+6. Configuration drift (env var missing, wrong model, OpenClaw version regression).
+7. Signer balance below threshold (Step 1b already handles this).
 
-3. **Is it transient noise?** (e.g., single 429 that self-resolved, network blip)
-   → Skip
+**C. Transient noise (→ Skip)**
+- Single 429 that self-resolved.
+- Single `[warn]` entry without a pattern.
+- Single network blip with successful retry.
+
+**D. Redaction failure** (→ Stop, do NOT file — log + alert)
+- If any log row or receipt you're about to include in an issue still contains an unredacted address/key/hash after the create-gh-issue skill's redaction audit, STOP. Write `observer_log` with `status: "error"` and `send-alert.js --type system_health` describing the redaction failure. Fixing the leak takes priority over reporting the original bug.
 
 ### Step 3: Create Issues (max 3 per cycle)
 
@@ -85,11 +119,11 @@ node scripts/send-alert.js --type system_health --agent observer --message "<con
 ### Step 6: Log the Cycle
 
 ```bash
-SAFE_ID="$SAFE_ID" node scripts/db-query.js add-observer-log --json '{"errors_analyzed": <N>, "issues_created": <N>, "alerts_sent": <N>, "summary": "<one line>", "status": "ok"}'
+node scripts/db-query.js add-observer-log --json '{"errors_analyzed": <N>, "issues_created": <N>, "alerts_sent": <N>, "summary": "<one line>", "status": "ok"}'
 ```
 
 ```bash
-SAFE_ID="$SAFE_ID" node scripts/db-query.js update-heartbeat --agent observer --check triage
+node scripts/db-query.js update-heartbeat --agent observer --check triage
 ```
 
 ## Examples

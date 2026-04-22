@@ -177,6 +177,9 @@ The Executor agent polls for approved orders every heartbeat and executes them t
 - Do NOT send `heartbeat_summary` or any Telegram alert after a quiet heartbeat where no sells were triggered and no notable events occurred
 - Quiet cycle = no sells, no notable events → zero Telegram messages
 
+## Error Handling
+Per AGENTS.md § Error Self-Reporting: every tool crash must produce both a sentinel_log row (`status: "error"`) and a Telegram alert via `send-alert.js` — the "quiet heartbeat" exception never applies to failed checks. If `add-alert` or `add-order` itself fails, escalate with the strongest alert (`sell_triggered` for failed sell-writes, `rug_warning` for failed monitoring) — capital is unprotected until the operator intervenes.
+
 ## Paper Mode
 
 When `PAPER_MODE=true`, the entire workflow above applies but position queries use paper commands:

@@ -33,12 +33,22 @@ function loadPositions(db) {
   return chainFilter ? db.prepare(query).all(chainFilter) : db.prepare(query).all();
 }
 
-function getPreviousSnapshot(db, address, chain) {
+function getOldestInWindow(db, address, chain, hours) {
   return (
     db
-      .prepare('SELECT * FROM liquidity_snapshots WHERE address = ? AND chain = ? ORDER BY checked_at DESC LIMIT 1')
-      .get(address, chain) || null
+      .prepare(
+        `SELECT * FROM liquidity_snapshots
+         WHERE address = ? AND chain = ?
+           AND checked_at >= datetime('now', ?)
+         ORDER BY checked_at ASC LIMIT 1`,
+      )
+      .get(address, chain, `-${hours} hours`) || null
   );
+}
+
+function pctChange(current, previous) {
+  if (!previous || previous <= 0) return null;
+  return ((current - previous) / previous) * 100;
 }
 
 function writeSnapshot(db, address, chain, liquidityUsd) {
@@ -106,44 +116,61 @@ async function main() {
       continue;
     }
 
-    const prev = getPreviousSnapshot(db, pos.address, pos.chain);
-    const change = prev ? ((current.liquidity - prev.liquidity_usd) / prev.liquidity_usd) * 100 : 0;
+    const ref1h = getOldestInWindow(db, pos.address, pos.chain, 1);
+    const ref24h = getOldestInWindow(db, pos.address, pos.chain, 24);
+    const change1h = ref1h ? pctChange(current.liquidity, ref1h.liquidity_usd) : null;
+    const change24h = ref24h ? pctChange(current.liquidity, ref24h.liquidity_usd) : null;
 
-    // Write new snapshot to DB
     writeSnapshot(db, pos.address, pos.chain, current.liquidity);
 
     updates[pos.address] = {
       symbol: current.symbol ?? pos.symbol,
       chain: pos.chain,
       liquidity: current.liquidity,
-      previousLiquidity: prev?.liquidity_usd ?? null,
-      changePercent: parseFloat(change.toFixed(2)),
+      reference1h: ref1h
+        ? {
+            liquidity: ref1h.liquidity_usd,
+            checkedAt: ref1h.checked_at,
+            changePercent: change1h !== null ? parseFloat(change1h.toFixed(2)) : null,
+          }
+        : null,
+      reference24h: ref24h
+        ? {
+            liquidity: ref24h.liquidity_usd,
+            checkedAt: ref24h.checked_at,
+            changePercent: change24h !== null ? parseFloat(change24h.toFixed(2)) : null,
+          }
+        : null,
       lastChecked: new Date().toISOString(),
     };
 
-    if (change < -30) {
+    if (change1h !== null && change1h < -30) {
       alerts.push({
         address: pos.address,
         symbol: current.symbol ?? pos.symbol,
         chain: pos.chain,
         severity: 'CRITICAL',
         type: 'LIQUIDITY_DRAIN',
+        window: '1h',
         currentLiquidity: current.liquidity,
-        previousLiquidity: prev?.liquidity_usd,
-        changePercent: parseFloat(change.toFixed(2)),
-        message: `Liquidity dropped ${Math.abs(change).toFixed(1)}% — possible rug`,
+        referenceLiquidity: ref1h.liquidity_usd,
+        referenceCheckedAt: ref1h.checked_at,
+        changePercent: parseFloat(change1h.toFixed(2)),
+        message: `Liquidity dropped ${Math.abs(change1h).toFixed(1)}% in 1h — possible rug`,
       });
-    } else if (change < -15) {
+    } else if (change24h !== null && change24h < -15) {
       alerts.push({
         address: pos.address,
         symbol: current.symbol ?? pos.symbol,
         chain: pos.chain,
         severity: 'HIGH',
         type: 'LIQUIDITY_DECLINING',
+        window: '24h',
         currentLiquidity: current.liquidity,
-        previousLiquidity: prev?.liquidity_usd,
-        changePercent: parseFloat(change.toFixed(2)),
-        message: `Liquidity dropped ${Math.abs(change).toFixed(1)}%`,
+        referenceLiquidity: ref24h.liquidity_usd,
+        referenceCheckedAt: ref24h.checked_at,
+        changePercent: parseFloat(change24h.toFixed(2)),
+        message: `Liquidity dropped ${Math.abs(change24h).toFixed(1)}% in 24h`,
       });
     }
 

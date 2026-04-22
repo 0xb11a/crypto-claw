@@ -190,3 +190,6 @@ For each passing token, create a discovery entry:
 - Every discovery must have a clear "reason" — never just list metrics
 - Cross-reference against recent memory to avoid duplicates
 - Be skeptical — false positives waste the entire pipeline's time
+
+## Error Handling
+Per AGENTS.md § Error Self-Reporting: if any scan or dedup step fails (scan-tokens.js crash, `check-token-status` error, narrative-deep-scan timeout, holder-distribution error) — log `add-research-log` with `status: "error"` and fire `send-alert.js --type model_failure --agent research`. Do not silently drop the affected tokens; a scan that returned no candidates is different from a scan that crashed.

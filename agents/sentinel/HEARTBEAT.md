@@ -4,6 +4,10 @@
 Sentinel heartbeat runs every 15 minutes. ALL checks run every heartbeat (not rotating).
 Keep checks fast and mechanical.
 
+> **Note on `check_type` naming.** Two different tables use a `check_type` column, and they follow different conventions:
+> - `add-sentinel-log --json '{"check_type":"price",...}'` writes to `sentinel_log.check_type`, which is a free-form descriptor (bare form: `price`, `liquidity`, `wallet`, `contract`, `all`, `emergency`). Used by Observer when citing log rows.
+> - `update-heartbeat --check price_check` writes to `heartbeat_state.check_type`, which MUST match a `HEARTBEAT_CADENCES.sentinel` key (`_check`-suffixed form). Unknown keys are silently ignored by `get-overdue-checks`.
+
 ## Every Heartbeat — Run ALL:
 
 **Multi-chain:** Run position checks for ALL active chains. Positions have a `chain` field — iterate and check each chain's positions separately.
@@ -15,10 +19,15 @@ Keep checks fast and mechanical.
 #   Paper mode: node scripts/db-query.js get-paper-positions --status open
 node scripts/check-positions.js
 ```
+```bash
+node scripts/db-query.js update-heartbeat --agent sentinel --check price_check
+```
 - Compare current prices against stop-loss and take-profit levels
 - If stop-loss hit → write sell order: `node scripts/db-query.js add-order --json '{"action":"sell",...}'`, alert human
 - If take-profit hit → write partial sell order, inform human
 - If price dropped >20% since last check → write alert
+- **If `check-positions.js` exits non-zero or returns no JSON:** log `add-sentinel-log --json '{"check_type":"price","status":"error","summary":"<reason>"}'` AND `send-alert.js --type rug_warning --agent sentinel --message "price check failed — positions unmonitored: <reason>"`. Do not proceed to evaluate stops against stale data. (See AGENTS.md § Error Self-Reporting.)
+- **If `add-order` for a sell fails:** `send-alert.js --type sell_triggered --agent sentinel --message "SELL ORDER WRITE FAILED for <symbol>: <reason>"`. The worst failure mode Sentinel has.
 
 ### 2. Liquidity Check (CRITICAL)
 ```bash
@@ -27,10 +36,12 @@ node scripts/check-liquidity.js
 ```bash
 node scripts/db-query.js update-heartbeat --agent sentinel --check liquidity_check
 ```
-- Compare current liquidity against previous snapshot from DB
-- If dropped >30% → CRITICAL: write sell-all order, alert human
-- If dropped >15% → HIGH: write alert
+- Compares current liquidity against the **oldest snapshot inside each window** (1h and 24h) — catches slow bleeds the per-check delta misses
+- If dropped >30% in 1h → CRITICAL: write sell-all order, alert human
+- If dropped >15% in 24h → HIGH: write alert
+- If no snapshot exists inside a window (fresh position), that band is skipped for this cycle
 - Save new snapshot: `node scripts/db-query.js add-liquidity-snapshot --address ... --chain ... --liquidity ...`
+- **If `check-liquidity.js` exits non-zero or returns no JSON:** log `add-sentinel-log --json '{"check_type":"liquidity","status":"error","summary":"<reason>"}'` AND `send-alert.js --type rug_warning --agent sentinel --message "liquidity check failed — rug detection blind: <reason>"`. A failed liquidity check means you cannot detect a rug this cycle.
 
 ### 3. Wallet Check (if positions exist)
 ```bash
@@ -42,6 +53,7 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check wallet_check
 - Check dev/deployer wallets for sells
 - Check large holders for dumps
 - If dev selling → write sell-all order, alert human
+- **If `check-wallets.js` exits non-zero or returns no JSON:** log `add-sentinel-log --json '{"check_type":"wallet","status":"error","summary":"<reason>"}'` AND `send-alert.js --type rug_warning --agent sentinel --message "wallet check failed — dev/whale activity unknown this cycle: <reason>"`.
 
 ### 4. Contract Check (max 2x per hour)
 ```bash
@@ -58,15 +70,13 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check contract_chec
 - If became honeypot/pausable/blacklisted/proxy changed → CRITICAL: write sell-all order, alert human
 - If owner changed, tax increased >5%, became mintable → HIGH: write alert
 - First run per token stores baseline snapshot (no alerts)
+- **If `check-contract.js` exits non-zero or returns no JSON:** log `add-sentinel-log --json '{"check_type":"contract","status":"error","summary":"<reason>"}'` AND `send-alert.js --type rug_warning --agent sentinel --message "contract check failed — can't detect proxy/pausable/blacklist changes: <reason>"`.
 
 ### 5. Log Results
 ```bash
 node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"sells_executed":0,"status":"ok"}'
 ```
 Use status: `"ok"` if nothing happened, `"notable"` if Tier 2 events occurred, `"alert"` if sell orders were written.
-```bash
-node scripts/db-query.js update-heartbeat --agent sentinel --check price_check
-```
 
 ### 6. Summary Decision (ONLY after logging)
 Decide whether to send a periodic summary. Do NOT send alerts for quiet heartbeats.

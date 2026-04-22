@@ -7,6 +7,24 @@
 - Errors go to stderr. Exit code 0 = success, 1 = failure.
 - **Do NOT use web_search or browser tools.** They are disabled. All market data comes from the scripts below — they call the APIs directly.
 
+## Logging Severity Rubric (canonical)
+
+`scripts/log.js` supports four levels. Every script and agent uses them with this meaning — Observer's detection rules depend on it.
+
+| Level | Meaning | Example | Observer response |
+|-------|---------|---------|-------------------|
+| `info` | Routine step completed. Never actionable. | `scan complete: 30 tokens` | Ignored |
+| `warn` | **Degraded but self-healing.** One retry succeeded, cache miss, fallback source used. | `birdeye 429 — fell back to dexscreener` | Sampled for patterns (>5 same warn / 30 min = GitHub issue) |
+| `error` | **An operation did not complete.** A DB write failed, a pipeline aborted, an order was not created. | `add-order failed: SQLITE_LOCKED` | Each instance is actionable — Observer correlates and files a GitHub issue |
+| `critical` | **Safety/integrity violation.** Possible key leak, emergency-mode trigger, signer drained, data corruption, stuck heartbeat. | `SAFE_SIGNER_KEY missing; refusing execution` | Immediate Telegram alert on next Observer cycle |
+
+**Rule of thumb for agents and script authors:**
+- If the work still finished correctly after a retry/fallback → `warn`.
+- If the work didn't finish, or was skipped without producing the expected artifact (order, receipt, log row) → `error`.
+- If the failure threatens capital or exposes a secret → `critical`.
+
+Never log an unhandled exception at `warn` — Observer will not treat it as actionable per-instance, and the failure will go invisible.
+
 ## Database CLI (db-query.js)
 
 All wallet data (positions, trades, orders, alerts, receipts) lives in a SQLite database. Interact with it through `db-query.js` — never access the DB file directly.

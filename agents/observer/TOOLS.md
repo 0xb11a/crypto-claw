@@ -4,7 +4,16 @@
 - All scripts output JSON to stdout. Parse with `jq` or read directly.
 - Errors go to stderr.
 - **Run one command per exec call.** Never chain commands with `&&`, `||`, or `;`. If you need multiple commands, make separate exec calls for each.
-- Always set `SAFE_ID` env var when running database commands.
+- `SAFE_ID` is exported by entrypoint.sh — db-query.js picks it up automatically, no need to prefix commands.
+
+## Logging Severity Rubric (what you're scanning for in /tmp/openclaw/system.log)
+`scripts/log.js` produces four levels. Your detection rules use all but `info`:
+- `info` — routine step completed. Never actionable. **Skip.**
+- `warn` — degraded but self-healing. **Sample for patterns:** if the same warn (same source+message shape) fires >5 times within 30 min, treat as an `error`-equivalent and open a GitHub issue.
+- `error` — an operation did not complete. **Each instance is actionable** — correlate with DB state and file a GitHub issue unless a duplicate already exists.
+- `critical` — safety/integrity violation. **Immediate Telegram alert** (`send-alert.js --type system_health` or `emergency_mode`).
+
+If an agent's log table (research_log/sentinel_log/executor_log) has a `status:"error"` row and system.log has no matching `send-alert` call near that timestamp, that is a **silent crash** — file a GitHub issue. The agent tried to report but something upstream broke.
 
 ## Database CLI (`db-query.js`)
 
@@ -12,31 +21,45 @@ Read-only access to wallet data:
 
 ```bash
 # Recent failed receipts
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status tx_failed --limit 20
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status validation_failed --limit 10
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-receipts --status reverted --limit 10
+node scripts/db-query.js get-receipts --status tx_failed --limit 20
+node scripts/db-query.js get-receipts --status validation_failed --limit 10
+node scripts/db-query.js get-receipts --status reverted --limit 10
 
 # Recent orders (failed)
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-orders --status failed --limit 20
+node scripts/db-query.js get-orders --status failed --limit 20
 
-# Agent cycle logs
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-executor-log --limit 20
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-sentinel-log --limit 20
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-observer-log --limit 20
+# Agent cycle logs — status:"error" rows are silent-crash signals
+node scripts/db-query.js get-executor-log --limit 30
+node scripts/db-query.js get-sentinel-log --limit 30
+node scripts/db-query.js get-research-log --limit 30
+node scripts/db-query.js get-observer-log --limit 20
+
+# Stale-order detection (compute age from created_at)
+node scripts/db-query.js get-orders --status approved --limit 20
+node scripts/db-query.js get-orders --status queued_in_safe --limit 20
+node scripts/db-query.js get-orders --status queued_in_squads --limit 20
+node scripts/db-query.js get-orders --status pending --limit 20
+
+# Alert-storm detection (omit --unprocessed; returns last 100 newest-first)
+node scripts/db-query.js get-alerts
+
+# Dead-agent + cadence-drift detection
+node scripts/db-query.js get-heartbeats
+node scripts/db-query.js get-heartbeats --agent system
 
 # Positions and portfolio
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-positions --status open
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-portfolio
+node scripts/db-query.js get-positions --status open
+node scripts/db-query.js get-portfolio
 
 # Paper mode variants
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-paper-receipts --limit 20
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-paper-positions --status open
+node scripts/db-query.js get-paper-receipts --limit 20
+node scripts/db-query.js get-paper-positions --status open
 
 # Observer logging
-SAFE_ID="$SAFE_ID" node scripts/db-query.js add-observer-log --json '{"errors_analyzed": 5, "issues_created": 1, "alerts_sent": 0, "summary": "Created issue for Safe rate limit", "status": "ok"}'
+node scripts/db-query.js add-observer-log --json '{"errors_analyzed": 5, "issues_created": 1, "alerts_sent": 0, "summary": "Created issue for Safe rate limit", "status": "ok"}'
 
 # Heartbeat tracking
-SAFE_ID="$SAFE_ID" node scripts/db-query.js update-heartbeat --agent observer --check triage
+node scripts/db-query.js update-heartbeat --agent observer --check triage
 ```
 
 ## GitHub Integration
@@ -58,11 +81,19 @@ gh issue comment <NUMBER> --repo "$OBSERVER_ISSUES_REPO" --body "Recurrence obse
 ## Telegram Alerts
 
 ```bash
-# System health alert
-node scripts/send-alert.js --type system_health --agent observer --message "Model failure detected..."
+# Operational issues, stale orders, alert storms, config drift, model failure, memory-backup stale
+node scripts/send-alert.js --type system_health --agent observer --message "Observer: stale approved order for <symbol> (<N> min old)"
 
-# Available alert types for Observer:
-#   system_health → TG_TOPIC_OBSERVER
+# Dead-agent detection (heartbeat stale > 2× cadence)
+node scripts/send-alert.js --type emergency_mode --agent observer --message "Agent <X>/<check> heartbeat stale: last run <N> min ago"
+
+# Low signer gas balance
+node scripts/send-alert.js --type signer_low_balance --agent observer --message "Signer on <chain> has <balance> <symbol> — below threshold <threshold>"
+
+# Alert type → topic routing for Observer-initiated alerts:
+#   system_health      → TG_TOPIC_OBSERVER
+#   emergency_mode     → TG_TOPIC_ALERTS
+#   signer_low_balance → TG_TOPIC_ALERTS
 ```
 
 ## Signer Balance Monitoring
@@ -98,7 +129,7 @@ tail -100 /tmp/openclaw/openclaw.log
 
 ```bash
 # List active chains
-SAFE_ID="$SAFE_ID" node scripts/db-query.js get-chains
+node scripts/db-query.js get-chains
 ```
 
 ## Configuration

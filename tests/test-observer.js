@@ -250,4 +250,207 @@ describe('Signer Balance Monitoring', () => {
 });
 
 // ============================================================
+// Instruction Alignment — severity rubric + Error Self-Reporting
+// ============================================================
+describe('Instruction Alignment — Severity Rubric and Error Self-Reporting', () => {
+  const WORKSPACE_DIR = resolve(process.cwd(), 'workspace');
+  const AGENTS_ROOT = resolve(process.cwd(), 'agents');
+
+  test('workspace/TOOLS.md has Logging Severity Rubric', () => {
+    const content = readFileSync(resolve(WORKSPACE_DIR, 'TOOLS.md'), 'utf-8');
+    assert(content.includes('## Logging Severity Rubric'), 'Should have canonical rubric section');
+    assert(
+      content.includes('`info`') &&
+        content.includes('`warn`') &&
+        content.includes('`error`') &&
+        content.includes('`critical`'),
+      'Should document all four levels',
+    );
+  });
+
+  test('each agent TOOLS.md mirrors the rubric', () => {
+    for (const agent of ['research', 'sentinel', 'executor', 'observer']) {
+      const content = readFileSync(resolve(AGENTS_ROOT, agent, 'TOOLS.md'), 'utf-8');
+      assert(content.includes('Logging Severity Rubric'), `${agent}/TOOLS.md should have severity rubric`);
+    }
+  });
+
+  test('all four AGENTS.md have grep-auditable self-reporting sentence', () => {
+    const sentence = 'Silent failure is the worst failure';
+    for (const agent of ['research', 'sentinel', 'executor', 'observer']) {
+      const content = readFileSync(resolve(AGENTS_ROOT, agent, 'AGENTS.md'), 'utf-8');
+      assert(content.includes(sentence), `${agent}/AGENTS.md should contain the canonical self-reporting sentence`);
+    }
+  });
+
+  test('Observer AGENTS.md has new decision framework rows', () => {
+    const content = readFileSync(resolve(AGENTS_ROOT, 'observer/AGENTS.md'), 'utf-8');
+    assert(content.includes('Silent crash'), 'Should have silent-crash decision row');
+    assert(content.includes('Stale approved order'), 'Should have stale-order decision row');
+    assert(content.includes('Dead agent'), 'Should have dead-agent decision row');
+    assert(content.includes('Orphan approved trade'), 'Should have orphan-trade decision row');
+    assert(content.includes('Memory-backup heartbeat stale'), 'Should have memory-backup decision row');
+  });
+
+  test('Observer HEARTBEAT.md scans [warn] [error] [critical]', () => {
+    const content = readFileSync(resolve(AGENTS_ROOT, 'observer/HEARTBEAT.md'), 'utf-8');
+    assert(
+      content.includes('[warn]') && content.includes('[error]') && content.includes('[critical]'),
+      'Should document all three levels',
+    );
+  });
+
+  test('Observer HEARTBEAT.md has new scan steps (silent-crash, stale-order, dead-agent, stuck-token)', () => {
+    const content = readFileSync(resolve(AGENTS_ROOT, 'observer/HEARTBEAT.md'), 'utf-8');
+    assert(content.includes('Silent-Crash Scan'), 'Should have silent-crash scan step');
+    assert(content.includes('Stale-Order Scan'), 'Should have stale-order scan step');
+    assert(content.includes('Dead-Agent') || content.includes('dead agent'), 'Should have dead-agent scan step');
+    assert(content.includes('Stuck-Token'), 'Should have stuck-token scan step');
+    assert(content.includes('get-heartbeats'), 'Should use get-heartbeats command');
+    assert(content.includes('get-research-log'), 'Should query research_log');
+  });
+
+  test('create-gh-issue skill has mandatory Redaction Audit', () => {
+    const content = readFileSync(resolve(AGENTS_ROOT, 'observer/skills/create-gh-issue/SKILL.md'), 'utf-8');
+    assert(content.includes('Redaction Audit'), 'Should have redaction audit step');
+    assert(content.includes('NEVER skip the redaction audit'), 'Should mark it mandatory');
+    assert(content.includes('base58'), 'Should include base58 pattern');
+  });
+
+  test('Sentinel HEARTBEAT.md has error handling for each check', () => {
+    const content = readFileSync(resolve(AGENTS_ROOT, 'sentinel/HEARTBEAT.md'), 'utf-8');
+    for (const check of ['price', 'liquidity', 'wallet', 'contract']) {
+      const hasCheckErrorHandling = content.includes(`"check_type":"${check}","status":"error"`);
+      assert(hasCheckErrorHandling, `Should have error-handling log for ${check} check`);
+    }
+  });
+
+  test('Executor HEARTBEAT.md has get-orders failure handling', () => {
+    const content = readFileSync(resolve(AGENTS_ROOT, 'executor/HEARTBEAT.md'), 'utf-8');
+    assert(
+      content.includes('get-orders') && content.includes('trade_failed'),
+      'Should handle get-orders failure with trade_failed alert',
+    );
+    assert(content.includes('"status":"error"'), 'Should log status:error on fetch failure');
+  });
+
+  test('Research HEARTBEAT.md strengthens error-logging mandate', () => {
+    const content = readFileSync(resolve(AGENTS_ROOT, 'research/HEARTBEAT.md'), 'utf-8');
+    assert(content.includes('model_failure'), 'Should require model_failure alert on check failure');
+    assert(
+      content.includes('A failed check with no log row') || content.includes('silent crash'),
+      'Should call out silent-crash as a bug',
+    );
+  });
+
+  test('send-alert.js logs success to system.log (for Observer correlation)', () => {
+    const content = readFileSync(resolve(SCRIPTS_DIR, 'send-alert.js'), 'utf-8');
+    assert(
+      content.includes("log('info', 'send-alert'"),
+      'send-alert.js should log at info on success so Observer has a system.log trail',
+    );
+  });
+
+  test('Executor AGENTS.md + HEARTBEAT.md no longer prescribe log.js CLI invocation', () => {
+    const agentsMd = readFileSync(resolve(AGENTS_ROOT, 'executor/AGENTS.md'), 'utf-8');
+    const heartbeatMd = readFileSync(resolve(AGENTS_ROOT, 'executor/HEARTBEAT.md'), 'utf-8');
+    assert(
+      !/log at .\[?critical\]? via .?scripts\/log\.js/i.test(agentsMd),
+      'AGENTS.md should not prescribe log.js CLI invocation (log.js is a module)',
+    );
+    assert(!/Log via .?scripts\/log\.js/.test(heartbeatMd), 'HEARTBEAT.md should not prescribe log.js CLI invocation');
+  });
+
+  test('Executor TOOLS.md documents trade_failed and system_health examples', () => {
+    const content = readFileSync(resolve(AGENTS_ROOT, 'executor/TOOLS.md'), 'utf-8');
+    assert(content.includes('--type trade_failed --agent executor'), 'Should have concrete trade_failed example');
+    assert(content.includes('--type system_health --agent executor'), 'Should have concrete system_health example');
+  });
+});
+
+// ============================================================
+// get-heartbeats command (used by Observer for dead-agent detection)
+// ============================================================
+describe('get-heartbeats — Dead-Agent Detection', () => {
+  const dbQuery = (cmd) => {
+    return execSync(`SAFE_ID=test-observer-hb node ${resolve(SCRIPTS_DIR, 'db-query.js')} ${cmd}`, {
+      encoding: 'utf-8',
+      cwd: process.cwd(),
+      timeout: 10_000,
+    }).trim();
+  };
+
+  test('get-heartbeats returns an array with expected shape', () => {
+    // First update one heartbeat so there's a row with last_run_at
+    dbQuery('update-heartbeat --agent observer --check triage');
+    const rows = JSON.parse(dbQuery('get-heartbeats'));
+    assert(Array.isArray(rows), 'Should return an array');
+    assert(rows.length > 0, 'Should have at least one heartbeat row (seeded by migrations)');
+    const sample = rows[0];
+    assert('agent' in sample, 'Should have agent field');
+    assert('check' in sample, 'Should have check field');
+    assert('last_run_at' in sample, 'Should have last_run_at field');
+    assert('seconds_since' in sample, 'Should have seconds_since field');
+    assert('expected_cadence_seconds' in sample, 'Should have expected_cadence_seconds field');
+  });
+
+  test('get-heartbeats --agent filter works', () => {
+    const rows = JSON.parse(dbQuery('get-heartbeats --agent observer'));
+    assert(Array.isArray(rows), 'Should return an array');
+    assert(
+      rows.every((r) => r.agent === 'observer'),
+      'Should only return observer rows',
+    );
+  });
+
+  test('seeded system/memory-backup row exists with 15-min cadence', () => {
+    const rows = JSON.parse(dbQuery('get-heartbeats --agent system'));
+    const backup = rows.find((r) => r.check === 'memory-backup');
+    assert(backup, 'Should have system/memory-backup heartbeat row seeded');
+    assertEqual(backup.expected_cadence_seconds, 15 * 60, 'memory-backup cadence should be 15 minutes');
+  });
+
+  test('seconds_since computed correctly after update', () => {
+    dbQuery('update-heartbeat --agent observer --check triage');
+    const rows = JSON.parse(dbQuery('get-heartbeats --agent observer'));
+    const triage = rows.find((r) => r.check === 'triage');
+    assert(triage, 'Should find triage row');
+    assert(
+      triage.seconds_since !== null && triage.seconds_since < 10,
+      'seconds_since should be near zero after fresh update',
+    );
+  });
+
+  test('0-cadence sentinel checks inherit 15-min agent loop interval', () => {
+    const rows = JSON.parse(dbQuery('get-heartbeats --agent sentinel'));
+    for (const name of ['price_check', 'liquidity_check', 'wallet_check']) {
+      const row = rows.find((r) => r.check === name);
+      assert(row, `Should have sentinel/${name} heartbeat row`);
+      assertEqual(row.expected_cadence_seconds, 15 * 60, `sentinel/${name} should fall back to sentinel loop (15 min)`);
+    }
+  });
+
+  test('non-zero sentinel contract_check keeps its own cadence', () => {
+    const rows = JSON.parse(dbQuery('get-heartbeats --agent sentinel'));
+    const contract = rows.find((r) => r.check === 'contract_check');
+    assert(contract, 'Should have sentinel/contract_check heartbeat row');
+    assertEqual(contract.expected_cadence_seconds, 30 * 60, 'contract_check should keep its 30-min cadence');
+  });
+
+  test('0-cadence executor process_orders inherits 1-min loop interval', () => {
+    const rows = JSON.parse(dbQuery('get-heartbeats --agent executor'));
+    const row = rows.find((r) => r.check === 'process_orders');
+    assert(row, 'Should have executor/process_orders heartbeat row');
+    assertEqual(row.expected_cadence_seconds, 60, 'executor/process_orders should fall back to executor loop (1 min)');
+  });
+
+  test('cleanup get-heartbeats test database', () => {
+    try {
+      unlinkSync(resolve(process.cwd(), 'data', 'test-observer-hb.db'));
+    } catch {}
+    assert(true, 'cleanup done');
+  });
+});
+
+// ============================================================
 summary();

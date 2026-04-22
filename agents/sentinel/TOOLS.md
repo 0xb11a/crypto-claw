@@ -6,6 +6,15 @@
 - **Do NOT use web_search or browser tools.** They are disabled. All market data comes from the scripts below.
 - **Run one command per exec call.** Never chain commands with `&&`, `||`, or `;`. If you need multiple commands, make separate exec calls for each.
 
+## Logging Severity Rubric
+`scripts/log.js` levels — Observer's detection depends on the right level:
+- `info` — routine step completed. Never actionable.
+- `warn` — degraded but self-healing (retry succeeded, cache miss, fallback used).
+- `error` — an operation did not complete (check-positions crashed, add-order failed, sell order not written). **Each instance is actionable.**
+- `critical` — safety/integrity violation (positions unmonitored, signer drained, data corruption). **Immediate Observer alert.**
+
+A failed monitoring check with no `error` log row is itself a bug — an unmonitored position is a silent emergency.
+
 ## Chain Discovery
 ```bash
 # List all active chains
@@ -55,6 +64,9 @@ node scripts/db-query.js add-order --json '{"id":"sell-001","action":"sell","sym
 ### Receipts (Read-Only — written by Executor)
 ```bash
 node scripts/db-query.js get-receipts --limit 10
+```
+```bash
+node scripts/db-query.js get-trade-stats
 ```
 
 ### Sentinel Alerts
@@ -136,12 +148,15 @@ node scripts/emergency-sentinel.js
 ### Send Alert
 ```bash
 # Alerts route to the correct Telegram supergroup topic automatically
-# sell_triggered → Sentinel topic | model_failure/emergency_mode → Alerts topic
+# sell_triggered → Sentinel topic | rug_warning/model_failure/emergency_mode → Alerts topic
 node scripts/send-alert.js --type sell_triggered --agent sentinel --message "Stop-loss triggered for TOKEN"
+node scripts/send-alert.js --type rug_warning --agent sentinel --message "Liquidity drain or failed monitoring check — capital exposed"
 node scripts/send-alert.js --type model_failure --agent sentinel --message "Agent failed"
 node scripts/send-alert.js --type emergency_mode --agent sentinel --message "Emergency mode active"
 node scripts/send-alert.js --type recovered --agent sentinel --message "Back to normal"
 ```
+
+Use `rug_warning` when a monitoring script (`check-positions`, `check-liquidity`, `check-wallets`, `check-contract`) exits non-zero or returns no JSON — an unmonitored position is an emergency. Use `sell_triggered` when a sell order was successfully written (or when a sell-order write FAILED — see AGENTS.md § Error Self-Reporting).
 
 ## Configuration
 

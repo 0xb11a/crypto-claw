@@ -71,7 +71,7 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
    - Write one `add-research-log` call for EACH check that ran this cycle
    - `tokens_scanned`: tokens that passed initial filters. `tokens_analyzed`: those that went through the full pipeline.
    - `summary`: one human-readable sentence for that specific check
-   - Set `status` to `"error"` if the check failed partway through
+   - **If a check failed partway through (script crash, malformed JSON, DB error, memory_search error, etc.):** you MUST log `status: "error"` AND fire `node scripts/send-alert.js --type model_failure --agent research --message "<check_type> failed: <reason>"`. A failed check with no log row — or with a log row but no alert — is itself a bug (Observer detects this as a silent crash). See AGENTS.md § Error Self-Reporting.
 
 ## Check Details
 

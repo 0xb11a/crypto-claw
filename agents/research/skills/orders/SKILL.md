@@ -123,3 +123,6 @@ If no pending orders, say "No pending orders."
 - For "approve all", require explicit YES confirmation
 - Terminal states (rejected, cancelled, executed, expired) cannot be changed
 - If human tries an invalid transition, explain the correct command to use
+
+## Error Handling
+Per AGENTS.md § Error Self-Reporting: if `approve-order`, `reject-order`, `cancel-order`, or `retry-order` returns non-zero, log `add-research-log` with `status: "error"` and fire `send-alert.js --type model_failure --agent research`. The human thought they approved/rejected something; a silent failure leaves the order in the wrong state and the operator misinformed.
