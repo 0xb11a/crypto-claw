@@ -35,7 +35,7 @@ Positions, trades, orders, alerts, receipts — everything tied to a specific Sa
 - Database path: `data/<SAFE_ID>.db`
 - Access via CLI: `node scripts/db-query.js <command> [--flags]`
 - Schema managed by auto-migrations in `scripts/db.js`
-- 20 tables: positions, trades, orders, receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_positions, paper_receipts, analysis_cache, portfolio_sync, contract_snapshots, research_log, observer_log, _migrations
+- 21 tables: positions, trades, orders, receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_positions, paper_receipts, analysis_cache, portfolio_sync, contract_snapshots, research_log, observer_log, smart_money_signals, _migrations
 
 ### Why Two Layers?
 The project can be deployed multiple times managing different Safe wallets/funds. Agent memory (patterns, lessons) is universal knowledge shared across all deployments. Wallet data (positions, cash, orders) is specific to one fund and must be isolated.
@@ -55,6 +55,73 @@ Sentinel → orders                          → Executor → paper_receipts + p
 ```
 
 All agent-to-agent communication goes through the database via `db-query.js`.
+
+## Wallet Pipeline (smart-money signal flow)
+
+Smart-money tracking is a four-role pipeline. Each role has a bounded contract; bugs that violate a contract surface as the failure mode listed.
+
+```
+┌─────────────────┐     ┌──────────────────────┐     ┌────────────────────────┐     ┌──────────────────────────────┐
+│ 1. PROPOSAL     │ ──▶ │ 2. CLASSIFICATION    │ ──▶ │ 3. ACTIVITY POLLING    │ ──▶ │ 4. SIGNAL CONSUMPTION         │
+│ status=proposed │     │ status=scored/failed │     │ smart_money_signals    │     │ Research → BUY signals        │
+│ (free, async)   │     │ (heavy, throttled)   │     │ (per-swap rows, 24h)   │     │ Sentinel → SELL on positions  │
+└─────────────────┘     └──────────────────────┘     └────────────────────────┘     └──────────────────────────────┘
+   harvest.js              score-wallets-bg.js          activity-wallets-bg.js        Research/Sentinel heartbeats
+   propose-wallet           (every 10 min)               (every 30 min)                via db-query.js
+   holder-distribution     batch=10, 30s/wallet         batch=10 by oldest             get-smart-money-signals
+   token top traders         calls 3 APIs in parallel    last_checked_at, fail-fast
+```
+
+**Role 1 — Proposal** (cheap, on-demand)
+- Anyone in the system inserts wallets with `status='proposed'` via `harvest.js`, `propose-wallet`, `holder-distribution --propose`
+- Sources: Birdeye leaderboards, token top traders, position deployer/holder extraction, agent manual
+- Unbounded growth allowed. Dedup via `INSERT OR IGNORE` on `(address, chain)` PK.
+
+**Role 2 — Classification** (heavy, bounded, throttled)
+- `score-wallets-bg.js` background loop, every 10 min (`entrypoint.sh:run_wallet_scoring_loop`)
+- Picks 10 `proposed` wallets per cycle; spawns `score-wallet.js` with **30 s execFileSync timeout**
+- Each wallet: 3 parallel API calls (Birdeye trader, Birdeye token-traders, Zerion PnL)
+- Result: `status='scored'` with type `smart_money` (75+) / `whale` (55-74), or `status='failed'` with `retry_count++` (max 3 retries)
+- Self-seeds Birdeye top-10 gainers per chain every 60 min (gated by `portfolio_meta.last_birdeye_harvest_at`)
+- **Bounded:** ≤ 5.5 min per cycle, ≤ 600 wallets/day throughput
+- Health: `portfolio_meta.last_score_wallets_bg_at` (written every cycle). Observer alerts via `system_health` if > 30 min stale. Failure mode: stuck wallets fall to `failed` state, loop continues.
+
+**Role 3 — Activity polling** (medium, bounded, rotated)
+- `activity-wallets-bg.js` background loop, every 30 min (`entrypoint.sh:run_activity_wallets_loop`)
+- Picks **10 wallets per cycle** WHERE `type='smart_money' AND status='scored'`, ORDER BY `last_checked_at ASC NULLS FIRST` (rotation)
+- Per wallet: fetches recent transfers (EVM `tokentx`) or parsed transactions (Solana Helius). **Per-fetch hard cap 10 s** via `AbortSignal.timeout`. **Per-chain fail-fast at 5 consecutive timeouts** → skip remainder of that chain this cycle.
+- Groups transfers by `tx_hash`, identifies swap legs (one stable/native + one subject side), emits one signal per swap
+- `INSERT OR IGNORE` into `smart_money_signals` (UNIQUE on `tx_hash, wallet_address, action, token_address`)
+- Updates `tracked_wallets.last_checked_at` for every wallet processed (success OR failure — rotation always advances; a permanently dead wallet doesn't block the queue)
+- Prunes signals older than 24 h at start of each cycle
+- **Bounded:** ≤ ~5 min per cycle worst case (10 × 10 s timeout + 9 × 250 ms delays per chain, parallel chains)
+- Health: `portfolio_meta.last_activity_wallets_bg_at`. Observer alerts via `system_health` if > 90 min stale.
+- **Worst-case detection lag for any single wallet:** `ceil(M_smart_money / 10) × 30 min`
+
+**Role 4 — Signal consumption** (cheap, agent-owned)
+- **Research** heartbeat (`smart_money_signals` check, every 30 min):
+  ```
+  db-query.js get-smart-money-signals --since 35m --action buy --group-by token --min-wallets 2
+  ```
+  Returns tokens where ≥2 distinct smart_money wallets bought in last 35 min. Pipes into discovery → analysis → risk → trade proposal.
+- **Sentinel** heartbeat (`smart_money_exits` check, every 15 min):
+  ```
+  db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
+  ```
+  Returns held tokens that smart_money is dumping. **Informational only** (no auto-sell) — alerts the operator. Sentinel's separate `wallet_check` (via `check-wallets.js --positions`) handles unambiguous dev-wallet selling and does write sell orders.
+- 35 min sliding window absorbs 5 min of heartbeat-jitter overlap; same signal may be returned by 2 consecutive heartbeat cycles. Consumers tolerate this (Research dedups via `check-token-status` cache).
+
+**Failure boundaries:**
+| Component | Failure | Detected by | Surface |
+|---|---|---|---|
+| Wallet scoring API down | `score-wallets-bg` marks wallets `failed`, retries up to 3× | `last_score_wallets_bg_at` staleness | Observer `system_health` alert |
+| Activity polling API down | `activity-wallets-bg` per-chain fail-fast, signal table grows stale | `last_activity_wallets_bg_at` staleness | Observer `system_health` alert |
+| Heartbeat consumer query empty | Research/Sentinel reports "no signals" | implicit (no signals ≠ no activity) | Observer correlates with bg health row |
+
+**Known limitations (accepted):**
+- Wallets routing through multisigs/intent solvers may be miscounted (swap appears under router/safe address)
+- Native ETH ↔ TOKEN swaps without WETH wrap aren't detected on EVM (only ERC-20 ↔ ERC-20)
+- Multi-hop swaps with multiple OUTs and one IN are skipped
 
 ## Project Structure
 
@@ -81,6 +148,7 @@ scripts/                  # Node.js scripts
   check-wallets.js        # Wallet activity tracking (multi-chain, reads from SQLite)
   score-wallet.js         # Smart money scoring via Birdeye/Zerion PnL
   score-wallets-bg.js     # Background wallet scoring pipeline (runs one cycle, exits)
+  activity-wallets-bg.js  # Background smart-money activity poller — writes per-swap rows to smart_money_signals (one cycle, exits)
   market-overview.js      # BTC dominance, fear/greed
   market-regime.js        # Market regime classification + parameter adjustment
   heartbeat-check.js      # Pre-check for sentinel/executor background loops

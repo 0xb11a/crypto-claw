@@ -75,7 +75,7 @@ node scripts/check-liquidity.js
 | LP increased significantly | INFO | Log as positive signal |
 | LP provider count dropping | MEDIUM | Watch closely |
 
-### Wallet Activity
+### Wallet Activity (direct dev/deployer polling)
 ```bash
 node scripts/check-wallets.js --positions
 ```
@@ -86,6 +86,19 @@ node scripts/check-wallets.js --positions
 | Whale selling >3% of supply | HIGH | Write sell-50% order + alert Research |
 | Multiple early buyers exiting | MEDIUM | Alert Research |
 | Smart money accumulating | INFO | Log as positive signal |
+
+### Smart-Money Exit Signals (consume bg signal table)
+```bash
+node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
+```
+
+| Condition | Severity | Action |
+|-----------|----------|--------|
+| ≥2 distinct smart_money wallets sold a held token in 30 min | HIGH | `send-alert.js --type sell_triggered --agent sentinel --message "Smart money exiting $TOKEN — N wallets sold in 30m, consider tightening stops"`. Informational — do NOT auto-write a sell order. |
+| 1 smart_money sell on a held token | NOTABLE | Log to sentinel_log with status:"notable". No Telegram. |
+| 0 sells | OK | Silent. |
+
+Why no auto-sell: smart-money "sells" can be wallet-to-wallet rotations or bridges misclassified as swaps. Dev/whale direct polling above writes sell orders because dev selling is unambiguous; smart-money exit clusters are a heads-up for Research/operator to act on.
 
 ### Contract Monitoring
 ```bash

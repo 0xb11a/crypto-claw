@@ -55,6 +55,23 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check wallet_check
 - If dev selling → write sell-all order, alert human
 - **If `check-wallets.js` exits non-zero or returns no JSON:** log `add-sentinel-log --json '{"check_type":"wallet","status":"error","summary":"<reason>"}'` AND `send-alert.js --type rug_warning --agent sentinel --message "wallet check failed — dev/whale activity unknown this cycle: <reason>"`.
 
+### 3b. Smart-Money Exit Signals (if positions exist)
+Read SELL signals on tokens we currently hold, written by the activity-wallets-bg loop:
+```bash
+node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
+```
+```bash
+node scripts/db-query.js update-heartbeat --agent sentinel --check smart_money_exits
+```
+
+| Condition | Severity | Action |
+|-----------|----------|--------|
+| ≥ 2 distinct smart_money wallets sold a held token in last 30 min | HIGH | Alert via `send-alert.js --type sell_triggered --agent sentinel --message "Smart money exiting $TOKEN — N wallets sold in 30m, consider tightening stops"`. Do NOT auto-write a sell order — informational only. |
+| 1 smart_money sell on a held token | NOTABLE | Log to `sentinel_log` with `status:"notable"`. No Telegram alert. |
+| 0 sells | OK | Silent. |
+
+Why no auto-sell: smart-money "sells" can be wallet-to-wallet rotations, bridges, or misclassified swaps. The dev-wallet check (Step 3) writes sell orders directly because dev selling is unambiguous. Smart-money exit clusters are a heads-up for Research / the operator to decide.
+
 ### 4. Contract Check (max 2x per hour)
 ```bash
 node scripts/db-query.js get-overdue-checks --agent sentinel

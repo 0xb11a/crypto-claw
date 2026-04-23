@@ -724,6 +724,24 @@ run_wallet_scoring_loop() {
 }
 
 # ============================================================
+# 5e2. Smart-money activity background loop
+#      Runs activity-wallets-bg.js every 30 minutes. Polls a
+#      rotating slice of 10 smart_money wallets for recent swaps
+#      and writes per-swap rows to smart_money_signals (24 h
+#      retention, pruned each cycle). Research and Sentinel read
+#      the table via db-query.js get-smart-money-signals.
+# ============================================================
+run_activity_wallets_loop() {
+  sleep 180  # wait for startup + first scoring cycle
+  while true; do
+    SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" \
+      node "$RESEARCH_WS/scripts/activity-wallets-bg.js" 2>&1 | \
+      sed 's/^/[activity-wallets-bg] /'
+    sleep 1800  # 30 minutes
+  done
+}
+
+# ============================================================
 # 5f. Multisig transaction tracker (real mode only)
 #     Monitors queued Safe/Squads transactions every 5 minutes.
 #     Confirms or reverts draft/pending_exit positions.
@@ -958,6 +976,7 @@ run_approval_bot() {
 echo "[entrypoint] Starting OpenClaw gateway..."
 run_memory_backup_loop &
 run_wallet_scoring_loop &
+run_activity_wallets_loop &
 run_multisig_tracker_loop &
 run_executor_loop &
 run_sentinel_loop &

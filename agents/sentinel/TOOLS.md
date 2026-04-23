@@ -96,6 +96,18 @@ node scripts/db-query.js get-sentinel-log --limit 12
 node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"sells_executed":0,"status":"ok"}'
 ```
 
+### Smart-Money Exit Signals (Read-Only)
+Per-swap signals written by the activity-wallets-bg loop (every 30 min, 24 h retention).
+Sentinel consumes SELL signals on tokens we currently hold.
+```bash
+# Heartbeat use — aggregate sells on held tokens
+node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
+
+# Per-position raw sell rows for a deeper look
+node scripts/db-query.js get-smart-money-signals --since 1h --action sell --tokens-in-positions --limit 50
+```
+The `--tokens-in-positions` flag joins against `positions` (or `paper_positions` when `PAPER_MODE=true`) with status in `open|partial_exit|draft|pending_exit`. Empty result = no smart-money exits on held tokens.
+
 ### Paper Mode
 Paper commands mirror real-mode equivalents with `paper-` prefix and identical flags:
 ```bash

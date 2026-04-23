@@ -53,6 +53,15 @@ node scripts/db-query.js get-orders --status queued_in_safe --limit 20
 ```bash
 node scripts/db-query.js get-orders --status queued_in_squads --limit 20
 ```
+```bash
+node scripts/db-query.js get-meta --key last_activity_wallets_bg_at
+```
+```bash
+node scripts/db-query.js get-meta --key last_score_wallets_bg_at
+```
+```bash
+node scripts/db-query.js get-smart-money-signals --since 2h --limit 1
+```
 
 ### Step 1b: Check Signer Balances
 
@@ -85,9 +94,11 @@ For each error or failure found, run through the full signal catalogue below and
 2. Dead agents: `get-heartbeats` shows `seconds_since > 2 × expected_cadence_seconds` — use `emergency_mode`.
 3. Memory-backup loop stopped: `system/memory-backup` heartbeat stale > 30 min — use `system_health`.
 4. Alert storms: `sentinel_alerts` has >3 identical `symbol + alert_type` entries in 10 min — use `system_health`.
-5. Model failure / emergency mode activation.
-6. Configuration drift (env var missing, wrong model, OpenClaw version regression).
-7. Signer balance below threshold (Step 1b already handles this).
+5. Background-loop stale: `last_activity_wallets_bg_at` missing or older than 90 min (3× 30-min cadence) → signal feed stalled; `last_score_wallets_bg_at` missing or older than 30 min (3× 10-min cadence) → proposed-wallet queue not draining. Use `system_health`.
+6. Silent signal regression: `get-smart-money-signals --since 2h` returns `[]` AND `last_activity_wallets_bg_at` is fresh (loop running but producing zero swaps — possible upstream API regression). Skip if Step B.5 already fired on `last_activity_wallets_bg_at`. Use `system_health`.
+7. Model failure / emergency mode activation.
+8. Configuration drift (env var missing, wrong model, OpenClaw version regression).
+9. Signer balance below threshold (Step 1b already handles this).
 
 **C. Transient noise (→ Skip)**
 - Single 429 that self-resolved.

@@ -67,6 +67,11 @@
  *   get-unscored-wallets [--limit 5]           # proposed + failed (retry<3)
  *   update-wallet-score --address <addr> --chain <chain> --json '<json>'
  *
+ *   # Smart-money signals (read-only; producer = activity-wallets-bg.js)
+ *   get-smart-money-signals [--since 35m] [--action buy|sell] [--chain <chain>]
+ *                           [--group-by token] [--min-wallets <n>]
+ *                           [--tokens-in-positions] [--limit <n>]
+ *
  *   # Heartbeat
  *   get-heartbeat --agent <name>
  *   update-heartbeat --agent <name> --check <type>
@@ -122,7 +127,7 @@ const HEARTBEAT_CADENCES = {
   research: {
     sentinel_alerts: 30,
     market_regime: 60,
-    smart_money: 60,
+    smart_money_signals: 30,
     watchlist_check: 60,
     token_scan: 120,
     narrative_check: 240,
@@ -137,6 +142,7 @@ const HEARTBEAT_CADENCES = {
     price_check: 0,
     liquidity_check: 0,
     wallet_check: 0,
+    smart_money_exits: 15,
     contract_check: 30,
   },
   executor: {
@@ -1078,6 +1084,76 @@ function handle(db, cmd) {
       if (!address || !chain) error('Missing --address or --chain');
       db.prepare('DELETE FROM tracked_wallets WHERE address = ? AND chain = ?').run(address, chain);
       output({ ok: true });
+      break;
+    }
+
+    // ============================================================
+    // Smart-money signals (read-only)
+    // Producer: scripts/activity-wallets-bg.js
+    // Consumers:
+    //   Research → --action buy --group-by token --min-wallets 2 (entry signals)
+    //   Sentinel → --action sell --tokens-in-positions (exit signals on held tokens)
+    // ============================================================
+    case 'get-smart-money-signals': {
+      const since = getArg('since') || '35m';
+      const action = getArg('action'); // 'buy' | 'sell' | null (both)
+      const chain = getArg('chain');
+      const groupBy = getArg('group-by'); // 'token' | null
+      const minWallets = parseInt(getArg('min-wallets') || '0', 10);
+      const limit = parseInt(getArg('limit') || '100', 10);
+      const tokensInPositions = hasFlag('tokens-in-positions');
+
+      const m = since.match(/^(\d+)([mhd])$/);
+      if (!m) error(`Invalid --since format: ${since}. Use Nm, Nh, or Nd.`);
+      const unit = m[2] === 'm' ? 'minutes' : m[2] === 'h' ? 'hours' : 'days';
+      const sinceClause = `-${m[1]} ${unit}`;
+
+      const where = ["created_at > datetime('now', ?)"];
+      const params = [sinceClause];
+      if (action) {
+        if (action !== 'buy' && action !== 'sell') error('--action must be buy or sell');
+        where.push('action = ?');
+        params.push(action);
+      }
+      if (chain) {
+        where.push('chain = ?');
+        params.push(chain);
+      }
+      if (tokensInPositions) {
+        const posTable = process.env.PAPER_MODE === 'true' ? 'paper_positions' : 'positions';
+        where.push(`(token_address, chain) IN (
+          SELECT address, chain FROM ${posTable}
+          WHERE status IN ('open', 'partial_exit', 'draft', 'pending_exit')
+        )`);
+      }
+
+      if (groupBy === 'token') {
+        const sql = `
+          SELECT token_address, chain, token_symbol,
+            COUNT(*) AS signal_count,
+            COUNT(DISTINCT wallet_address) AS n_wallets,
+            ROUND(AVG(wallet_score), 1) AS avg_score,
+            SUM(CASE WHEN action='buy' THEN 1 ELSE 0 END) AS buys,
+            SUM(CASE WHEN action='sell' THEN 1 ELSE 0 END) AS sells,
+            MIN(tx_timestamp) AS first_seen,
+            MAX(tx_timestamp) AS last_seen
+          FROM smart_money_signals
+          WHERE ${where.join(' AND ')}
+          GROUP BY token_address, chain
+          ${minWallets > 0 ? 'HAVING n_wallets >= ' + minWallets : ''}
+          ORDER BY n_wallets DESC, signal_count DESC
+          LIMIT ?
+        `;
+        output(db.prepare(sql).all(...params, limit));
+      } else {
+        const sql = `
+          SELECT * FROM smart_money_signals
+          WHERE ${where.join(' AND ')}
+          ORDER BY created_at DESC
+          LIMIT ?
+        `;
+        output(db.prepare(sql).all(...params, limit));
+      }
       break;
     }
 

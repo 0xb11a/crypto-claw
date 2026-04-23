@@ -892,6 +892,72 @@ const migrations = [
       INSERT OR IGNORE INTO heartbeat_state (agent, check_type) VALUES ('system', 'memory-backup');
     `,
   },
+  {
+    name: '024_smart_money_signals',
+    sql: `
+      -- Per-swap signals from smart_money wallet activity.
+      -- Producer: scripts/activity-wallets-bg.js (background loop, every 30 min).
+      -- Consumer: Research heartbeat reads aggregated view via get-smart-money-signals.
+      -- Retention: 24 h, pruned by the producer at the start of each cycle.
+      CREATE TABLE smart_money_signals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tx_hash TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        wallet_address TEXT NOT NULL,
+        wallet_score INTEGER,
+        wallet_label TEXT,
+        action TEXT NOT NULL CHECK (action IN ('buy', 'sell')),
+        token_address TEXT NOT NULL,
+        token_symbol TEXT,
+        counter_token_address TEXT,
+        counter_token_symbol TEXT,
+        amount_token TEXT,
+        tx_timestamp TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        UNIQUE (tx_hash, wallet_address, action, token_address)
+      );
+      CREATE INDEX idx_smart_money_signals_created_at ON smart_money_signals(created_at);
+      CREATE INDEX idx_smart_money_signals_token ON smart_money_signals(token_address, chain, created_at);
+      CREATE INDEX idx_smart_money_signals_chain ON smart_money_signals(chain, created_at);
+
+      -- Rotation cursor: when each wallet was last polled by activity-wallets-bg
+      ALTER TABLE tracked_wallets ADD COLUMN last_checked_at TEXT;
+
+      -- Rename the Research heartbeat row from 'smart_money' to 'smart_money_signals'
+      -- to reflect the new signal-driven implementation.
+      UPDATE heartbeat_state
+        SET check_type = 'smart_money_signals'
+        WHERE agent = 'research' AND check_type = 'smart_money';
+
+      -- Seed for fresh DBs that never had the old row
+      INSERT OR IGNORE INTO heartbeat_state (agent, check_type)
+        VALUES ('research', 'smart_money_signals');
+
+      -- Sentinel consumer: smart-money SELL signals on tokens we hold
+      INSERT OR IGNORE INTO heartbeat_state (agent, check_type)
+        VALUES ('sentinel', 'smart_money_exits');
+
+      -- Note: bg-loop health is tracked via portfolio_meta.last_activity_wallets_bg_at
+      -- (mirroring score-wallets-bg's last_score_wallets_bg_at), NOT heartbeat_state.
+      -- Observer reads portfolio_meta directly for staleness checks.
+    `,
+  },
+  {
+    name: '025_split_harvest_and_health_keys',
+    sql: `
+      -- Split portfolio_meta keys for score-wallets-bg into two purposes:
+      --   last_birdeye_harvest_at  — gate for the 60-min Birdeye leaderboard sub-step
+      --                              (renamed from last_harvest_at; semantics preserved)
+      --   last_score_wallets_bg_at — per-cycle liveness marker (NEW), parallel to
+      --                              last_activity_wallets_bg_at; written at end of every
+      --                              score-wallets-bg cycle so Observer can detect a stalled loop.
+      INSERT OR IGNORE INTO portfolio_meta (key, value)
+        SELECT 'last_birdeye_harvest_at', value FROM portfolio_meta WHERE key = 'last_harvest_at';
+      DELETE FROM portfolio_meta WHERE key = 'last_harvest_at';
+      -- last_score_wallets_bg_at is created on the next successful cycle (no seed needed,
+      -- mirroring activity-wallets-bg's pattern).
+    `,
+  },
 ];
 
 export default { getDb, close };

@@ -106,7 +106,7 @@ From the raw results, apply these filters:
 
 **Strong Positive Signals:**
 - Buy:sell ratio > 1.5
-- Smart money wallets entering (check `scripts/check-wallets.js`)
+- Smart money wallets entering — check the heartbeat-aggregated view (`db-query.js get-smart-money-signals --action buy --chain <CHAIN> --group-by token --min-wallets 2`)
 - Fits an active narrative (26 tracked — AI infra, AI agents, DeFi, restaking, LST, RWA, L2, ZK, modular, DePIN, memecoins, gaming, etc.)
 - Dev wallet < 10% of supply
 - Liquidity locked or burned

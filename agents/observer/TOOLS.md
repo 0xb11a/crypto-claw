@@ -47,6 +47,17 @@ node scripts/db-query.js get-alerts
 node scripts/db-query.js get-heartbeats
 node scripts/db-query.js get-heartbeats --agent system
 
+# Background-loop liveness (written by score-wallets-bg.js / activity-wallets-bg.js
+# at the end of every cycle — staler than 3× cadence means the loop has stalled)
+node scripts/db-query.js get-meta --key last_activity_wallets_bg_at
+node scripts/db-query.js get-meta --key last_score_wallets_bg_at
+
+# Smart-money signal volume (silent-API-regression scan)
+# Empty result over a 2 h window while last_activity_wallets_bg_at is fresh
+# means the loop is running but producing nothing — likely upstream API
+# returning 200 OK with empty results, or schema drift.
+node scripts/db-query.js get-smart-money-signals --since 2h --limit 1
+
 # Positions and portfolio
 node scripts/db-query.js get-positions --status open
 node scripts/db-query.js get-portfolio

@@ -90,6 +90,7 @@ if (dbAvailable) {
       'paper_positions',
       'analysis_cache',
       'contract_snapshots',
+      'smart_money_signals',
     ];
 
     for (const table of expectedTables) {
@@ -157,7 +158,7 @@ if (dbAvailable) {
       for (const check of [
         'sentinel_alerts',
         'token_scan',
-        'smart_money',
+        'smart_money_signals',
         'narrative_check',
         'narrative_deep_scan',
         'rebalance_review',
@@ -166,12 +167,14 @@ if (dbAvailable) {
       ]) {
         assert(checks.includes(check), `research must have ${check}`);
       }
+      // The legacy smart_money row was renamed to smart_money_signals in migration 024.
+      assert(!checks.includes('smart_money'), 'legacy smart_money row must be renamed by migration 024');
     });
 
     test('sentinel agent has all check types', () => {
       const rows = db.prepare("SELECT check_type FROM heartbeat_state WHERE agent = 'sentinel'").all();
       const checks = rows.map((r) => r.check_type);
-      for (const check of ['price_check', 'liquidity_check', 'wallet_check', 'contract_check']) {
+      for (const check of ['price_check', 'liquidity_check', 'wallet_check', 'smart_money_exits', 'contract_check']) {
         assert(checks.includes(check), `sentinel must have ${check}`);
       }
     });
@@ -444,6 +447,7 @@ if (dbAvailable) {
         'score_error',
         'retry_count',
         'source',
+        'last_checked_at',
       ]) {
         assert(cols.includes(col), `tracked_wallets must have column '${col}'`);
       }

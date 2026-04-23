@@ -47,17 +47,25 @@ async function main() {
     process.exit(1);
   }
 
-  // 0. Self-seed: fetch Birdeye leaderboards (every 60 min, skip if too soon)
+  // Health marker: written at end of every cycle so Observer can detect a stalled loop.
+  // Mirrors activity-wallets-bg's last_activity_wallets_bg_at.
+  const setBgHealthStmt = db.prepare(
+    "INSERT OR REPLACE INTO portfolio_meta (key, value) VALUES ('last_score_wallets_bg_at', ?)",
+  );
+
+  // 0. Self-seed: fetch Birdeye leaderboards (every 60 min, skip if too soon).
+  // Uses a separate gate key (last_birdeye_harvest_at) — not tied to the loop's
+  // overall liveness signal.
   let totalHarvested = 0;
   try {
-    const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'last_harvest_at'").get();
+    const row = db.prepare("SELECT value FROM portfolio_meta WHERE key = 'last_birdeye_harvest_at'").get();
     const lastHarvest = row ? new Date(row.value).getTime() : 0;
     const elapsed = Date.now() - lastHarvest;
 
     if (elapsed >= HARVEST_INTERVAL_MS) {
       const harvest = await harvestBirdeyeLeaderboards();
       totalHarvested = harvest.totalHarvested;
-      db.prepare("INSERT OR REPLACE INTO portfolio_meta (key, value) VALUES ('last_harvest_at', ?)").run(
+      db.prepare("INSERT OR REPLACE INTO portfolio_meta (key, value) VALUES ('last_birdeye_harvest_at', ?)").run(
         new Date().toISOString(),
       );
       if (totalHarvested > 0) {
@@ -86,6 +94,7 @@ async function main() {
       .all(BATCH_SIZE);
 
     if (wallets.length === 0) {
+      setBgHealthStmt.run(new Date().toISOString());
       console.log(
         JSON.stringify({
           status: 'ok',
@@ -198,6 +207,7 @@ async function main() {
       }
     }
 
+    setBgHealthStmt.run(new Date().toISOString());
     console.log(JSON.stringify({ status: 'ok', scored, failed, skipped, harvested: totalHarvested }));
   } finally {
     close();

@@ -17,6 +17,8 @@ import { getDb, close } from './db.js';
 import { getChain, isEVM, isSolana, getAllChains } from './chains.js';
 import { log } from './log.js';
 
+const FETCH_TIMEOUT_MS = 10_000;
+
 // ============================================================
 // CLI args
 // ============================================================
@@ -66,7 +68,7 @@ async function checkEvmWallet(address, chain) {
 
   try {
     const url = `${chainCfg.explorer.baseUrl}?module=account&action=tokentx&address=${address}&page=1&offset=10&sort=desc&apikey=${apiKey}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     const data = await res.json();
 
     if (data.status !== '1' || !Array.isArray(data.result)) {
@@ -120,7 +122,10 @@ async function checkSolanaWallet(address) {
 async function checkSolanaViaSolscan(address, apiKey) {
   try {
     const url = `${getChain('solana').solana.solscan.baseUrl}/account/transactions?address=${address}&page_size=10`;
-    const res = await fetch(url, { headers: { token: apiKey } });
+    const res = await fetch(url, {
+      headers: { token: apiKey },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
     const data = await res.json();
 
     if (!data.success || !Array.isArray(data.data)) {
@@ -150,7 +155,7 @@ async function checkSolanaViaSolscan(address, apiKey) {
 async function checkSolanaViaHelius(address, apiKey) {
   try {
     const url = `https://api.helius.xyz/v0/addresses/${address}/transactions?api-key=${apiKey}&limit=10`;
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     const data = await res.json();
 
     if (!Array.isArray(data)) {

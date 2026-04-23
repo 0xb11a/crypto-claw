@@ -486,12 +486,13 @@ node scripts/portfolio-load-solana.js --chain solana
 node scripts/portfolio-load-solana.js --chain solana --trigger post_trade
 ```
 
-### Wallet Tracking
+### Wallet Tracking (Ad-Hoc)
+`check-wallets.js` is the ad-hoc wallet inspector. Sentinel uses `--positions` in its heartbeat for dev/deployer activity around held positions; the broader smart_money activity feed is now produced by the `activity-wallets-bg` background loop and consumed via `get-smart-money-signals` (see Smart-Money Signals below). Each `fetch` has a 10 s `AbortSignal.timeout` so this script can't hang.
 ```bash
 # Check all tracked wallets for recent activity (reads from SQLite)
 node scripts/check-wallets.js
 
-# Check wallets related to open positions (dev/deployer wallets)
+# Check wallets related to open positions (dev/deployer wallets) — Sentinel heartbeat use
 node scripts/check-wallets.js --positions
 
 # Filter to a specific chain
@@ -520,6 +521,28 @@ node scripts/score-wallet.js --address <WALLET_ADDRESS> --chain <CHAIN> --add --
 ```
 Uses Birdeye (Solana + EVM) and Zerion (EVM fallback) to analyze wallet PnL.
 Classifications: `smart_money` (75+), `whale` (55-74), `trader` (35-54), `retail` (0-34).
+
+### Smart-Money Signals (Background-Produced, DB-Consumed)
+
+The full signal pipeline:
+
+1. **Producer** — `scripts/activity-wallets-bg.js` (background loop in entrypoint.sh, every 30 min).
+   - Picks 10 wallets WHERE `type='smart_money' AND status='scored'` ORDER BY `last_checked_at ASC NULLS FIRST` (rotation).
+   - Per wallet: fetches recent token transfers (EVM `tokentx`) or parsed transactions (Solana Helius). Per-fetch hard cap 10 s. Per-chain fail-fast at 5 consecutive timeouts.
+   - Groups transfers by `tx_hash`; emits one signal per detected swap (one stable/native side + one subject side). Skips airdrops, one-sided transfers, dust.
+   - `INSERT OR IGNORE` into `smart_money_signals` (UNIQUE on `tx_hash, wallet_address, action, token_address`).
+   - Updates `tracked_wallets.last_checked_at` for every wallet processed (success or failure — rotation always advances).
+   - Prunes signals older than 24 h at the start of each cycle.
+   - Writes `portfolio_meta.last_activity_wallets_bg_at` after each successful cycle (Observer monitors this for staleness).
+
+2. **Consumers** — read via `db-query.js get-smart-money-signals`:
+   - **Research** (heartbeat, every 30 min): `--since 35m --action buy --group-by token --min-wallets 2` → conviction BUY signals
+   - **Sentinel** (heartbeat, every 15 min): `--since 30m --action sell --tokens-in-positions --group-by token` → SELL signals on held tokens (informational, no auto-sell)
+
+Known limitations (accepted):
+- Wallets that route trades through multisigs or intent solvers may be miscounted (the swap appears under the router/safe address, not the smart_money wallet).
+- Native-only swaps (raw ETH ↔ TOKEN with no WETH wrap) are not detected on EVM — only ERC-20 ↔ ERC-20 (which is what 1inch and most aggregators emit).
+- Multi-hop swaps where wallet has multiple OUTs and one IN are skipped (only single-OUT/single-IN matched).
 
 ### Market Data
 ```bash

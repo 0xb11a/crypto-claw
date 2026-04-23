@@ -11,7 +11,7 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 | Market regime check | every 1 hour | 24/7 | quick |
 | New token scan | every 2 hours | 24/7 | pipeline |
 | Conviction token scan | every 6 hours | 24/7 | pipeline |
-| Smart money wallet activity | every 1 hour | 24/7 | quick |
+| Smart money buy signals | every 30 min | 24/7 | quick |
 | Narrative trend check | every 4 hours | 24/7 | quick |
 | Narrative deep scan | every 4 hours | 24/7 | pipeline |
 | Portfolio rebalance review | every 12 hours | 24/7 | quick |
@@ -39,7 +39,7 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 2. Run `node scripts/db-query.js get-overdue-checks --agent research` — returns checks that are due (cadence computed server-side, do NOT override or add extra checks).
 3. Read the `overdue` array from the output. If empty, skip to step 7.
 4. Split overdue checks into two groups using the Type column above:
-   - **Quick checks**: `sentinel_alerts`, `market_regime`, `smart_money`, `narrative_check`, `rebalance_review`, `daily_summary`, `watchlist_check`, `portfolio_sync`, `base_rebalance`
+   - **Quick checks**: `sentinel_alerts`, `market_regime`, `smart_money_signals`, `narrative_check`, `rebalance_review`, `daily_summary`, `watchlist_check`, `portfolio_sync`, `base_rebalance`
    - **Pipeline checks**: `token_scan`, `conviction_scan`, `narrative_deep_scan`
 5. Run ALL overdue quick checks, in the order they appear in the table (highest-cadence first). After each, update its timestamp:
    `node scripts/db-query.js update-heartbeat --agent research --check <check_type>`
@@ -59,9 +59,9 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
      - market_regime: Unchanged (neutral)
      - token_scan: Scanned 30 trending on base+solana, analyzed 2 (AERO, VIRTUAL). Proposed 1 BUY (AERO moonshot)
      Scanned: 30 | Analyzed: 2 | Proposed: 1
-   - **Research Heartbeat** — sentinel_alerts, smart_money, watchlist_check
+   - **Research Heartbeat** — sentinel_alerts, smart_money_signals, watchlist_check
      - sentinel_alerts: 1 alert processed (LP drop on $TOKEN)
-     - smart_money: No new activity
+     - smart_money_signals: No conviction signals (need ≥2 distinct wallets per token)
      - watchlist_check: 0 tokens hit target entry
      Scanned: 0 | Analyzed: 0 | Proposed: 0
 9. **REQUIRED — Log to database** (one entry PER check that ran — do NOT skip this step):
@@ -86,14 +86,19 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 - Log discoveries to daily memory
 - **For each promising token: immediately run the full pipeline** (analysis → risk → trade proposal). Do NOT stop after scanning — proceed through every stage until you either propose a trade or reject the token. This is autonomous operation.
 
-**Smart Money** (quick)
-- Run `node scripts/check-wallets.js` (only checks scored wallets)
-- Log new activity, flag if smart money enters a watched token
-- Wallet harvesting is self-seeding: the background scorer fetches Birdeye top 100 gainers for every active chain once per hour (~300 wallets/harvest). Scoring runs every 10 min, harvesting every 60 min (Birdeye free tier budget). No manual seeding needed.
+**Smart Money Signals** (quick)
+- Read aggregated BUY signals from the smart_money signal table:
+  ```bash
+  node scripts/db-query.js get-smart-money-signals --since 35m --action buy --group-by token --min-wallets 2
+  ```
+- Each row is a token where ≥2 distinct smart_money wallets bought in the last 35 min — a conviction signal worth investigating
+- For each token returned, run dedup (`check-token-status`) then full pipeline (analysis → risk → trade proposal). Treat these like high-urgency discoveries
+- The signal table is populated by `scripts/activity-wallets-bg.js` (background loop, every 30 min, 24 h retention). You don't run that script — you only consume its output
 - For deployer wallets from check-contract.js, propose manually:
   `node scripts/db-query.js propose-wallet --json '{"address":"<ADDR>","chain":"<CHAIN>","label":"<LABEL>","source_token":"<TOKEN_ADDR>"}'`
-- Background scorer runs every 10 min (batch size 10, 3s delay) — wallets scoring 55+ auto-classified as whale/smart_money
+- Background scorer (`score-wallets-bg.js`) runs every 10 min (batch size 10, 3s delay) — wallets scoring 55+ auto-classified as whale/smart_money. Self-seeds Birdeye top 100 gainers per chain every 60 min.
 - For urgent wallets (multi-token overlap), score inline: `node scripts/score-wallet.js --address <ADDR> --chain <CHAIN> --add`
+- Ad-hoc wallet inspection (still available, used outside heartbeat path): `node scripts/check-wallets.js --type smart_money --chain <CHAIN>`
 
 **Conviction Token Scan** (pipeline)
 - Run `node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30`
@@ -111,8 +116,8 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 **Base Tier Rebalance Check** (quick)
 - **First:** read market regime from DB: `node scripts/db-query.js get-meta --key market_regime`
 - If regime is `bearish` or `crisis` (`baseBuyingEnabled: false`): log "Base tier buying paused — market regime: {regime}" and skip
-- Check current base allocation vs 50% target
-- If base < 40%: propose buying the most underweight base asset per chain (query `get-chain-config --chain <CHAIN>` for `baseTierTokens`) — only for chains where `base` is in `tiersEnabled`
+- For each chain where `base` is in `tiersEnabled` (from `get-chain-config --chain <CHAIN>`), use `maxBasePosition` from that config as the cap (see `agents/research/AGENTS.md` "Base Tier Rebalancing")
+- If a base position drops below `maxBasePosition / 2`: propose buying that asset up to the target (`maxBasePosition − 10%`); pick the most underweight per chain from `baseTierTokens`
 - Use `node scripts/token-metrics.js --address <BASE_TOKEN_ADDRESS> --chain <CHAIN>` to get current prices for sizing
 - Base buys skip discovery/analysis pipeline — go straight to risk check + trade proposal
 - Risk check for base tokens is simplified: verify liquidity, check portfolio limits, confirm price isn't at extreme (>20% above 7d avg)

@@ -86,7 +86,31 @@ For each row, compare `seconds_since` against `expected_cadence_seconds`:
 - `seconds_since > 2 × expected_cadence_seconds` → **dead agent**. Alert via `send-alert.js --type emergency_mode --agent observer --message "Agent <X>/<check> heartbeat stale: last run N min ago, cadence M min"`.
 - Also check the `system/memory-backup` heartbeat — if stale > 30 min, the backup loop stopped and memory is no longer being persisted. Alert via `system_health`.
 
-### 2g. Stuck-Token Loop Scan
+Background-loop bg health (not in `heartbeat_state` — checked via `portfolio_meta`):
+```bash
+node scripts/db-query.js get-meta --key last_activity_wallets_bg_at
+```
+- This timestamp is written by `activity-wallets-bg.js` after each successful cycle (cadence 30 min).
+- If the row is missing OR the timestamp is older than 90 min (3× cadence), the smart-money signal feed has stalled. Both Research's `smart_money_signals` heartbeat check and Sentinel's `smart_money_exits` will silently return empty signal sets, masking the problem.
+- Alert via `send-alert.js --type system_health --agent observer --message "activity-wallets-bg stale: last cycle N min ago, cadence 30 min — Research and Sentinel signal queries returning empty"`.
+
+```bash
+node scripts/db-query.js get-meta --key last_score_wallets_bg_at
+```
+- This timestamp is written by `score-wallets-bg.js` after each successful cycle (cadence 10 min).
+- If missing OR older than 30 min (3× cadence), the wallet scoring loop has stalled. New `proposed` wallets stop getting classified, the queue grows unbounded, and downstream activity polling sees no new smart_money entries.
+- Alert via `send-alert.js --type system_health --agent observer --message "score-wallets-bg stale: last cycle N min ago, cadence 10 min — proposed-wallet queue not draining"`.
+
+### 2g. Smart-Money Signal Volume (silent-API-regression scan)
+The activity-wallets-bg loop can stay healthy (timestamp fresh, no warns) while silently producing zero swap signals — e.g., if the upstream API starts returning 200 OK with empty results, or every fetched wallet went inactive. Loop liveness alone misses this.
+```bash
+node scripts/db-query.js get-smart-money-signals --since 2h --limit 1
+```
+- If response is `[]` (zero signals in the last 2 h) AND `last_activity_wallets_bg_at` is fresh (Step 2f passed), the loop is running but producing nothing useful. At BATCH_SIZE=10 wallets × 4 cycles in 2 h = 40 wallet-checks expected to yield ≥ a handful of swaps; a clean zero is suspicious.
+- Alert via `send-alert.js --type system_health --agent observer --message "smart_money_signals empty for 2h+ while activity-wallets-bg is healthy — possible silent API regression (Etherscan/Helius returning empty results, or schema drift)"`.
+- Skip this check if `last_activity_wallets_bg_at` is already stale (Step 2f handled it).
+
+### 2h. Stuck-Token Loop Scan
 ```bash
 node scripts/db-query.js get-receipts --status validation_failed --limit 30
 ```

@@ -136,6 +136,25 @@ node scripts/db-query.js update-wallet-score --address 0x... --chain <CHAIN> --j
 Background scorer (`score-wallets-bg.js`) runs every 10 min. Self-seeds by fetching Birdeye top 100 gainers for every active chain every 60 min (~300 wallets/harvest), then scores up to 10 wallets from the queue per cycle. Failed wallets retry up to 3 times.
 Source values: `agent`, `leaderboard`, `token_traders`, `holder_extraction`.
 
+### Smart-Money Signals (Read-Only)
+
+Per-swap signals from smart_money wallet activity. Producer is `activity-wallets-bg.js` (background loop, every 30 min, polls 10 wallets per cycle by oldest `last_checked_at`, 24 h retention).
+
+```bash
+# Heartbeat use — aggregated BUY signals with conviction threshold
+node scripts/db-query.js get-smart-money-signals --since 35m --action buy --group-by token --min-wallets 2
+
+# All recent signals on a specific token (for analyst investigation)
+node scripts/db-query.js get-smart-money-signals --since 1h --chain <CHAIN> --limit 50
+
+# Token-level aggregate (any action), single chain
+node scripts/db-query.js get-smart-money-signals --since 35m --chain base --group-by token
+```
+
+Aggregated row shape (`--group-by token`): `{token_address, chain, token_symbol, signal_count, n_wallets, avg_score, buys, sells, first_seen, last_seen}`. Sorted by `n_wallets DESC, signal_count DESC`.
+
+Raw row shape (no grouping): full signal record including `tx_hash`, `wallet_address`, `wallet_score`, `action`, `counter_token_*`, `amount_token`, `tx_timestamp`.
+
 ### Heartbeat & Logs
 ```bash
 node scripts/db-query.js get-heartbeat --agent <agent_name>

@@ -30,7 +30,6 @@ If `add-order` (sell order write) fails, escalate to the strongest alert: `send-
 - Monitor contract changes (proxy upgrades, fee changes)
 - Write sell orders to database for Executor to process
 - Alert human + research agent on critical events
-- When checking cash levels for alerts, use per-chain cash: `get-cash --chain <chain>`
 
 ## What You DON'T Do
 - Discover new tokens
