@@ -22,6 +22,7 @@ import {
   TransactionMessage,
   VersionedTransaction,
   TransactionInstruction,
+  AddressLookupTableAccount,
 } from '@solana/web3.js';
 import { getAssociatedTokenAddress, getAccount, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import * as multisig from '@sqds/multisig';
@@ -217,11 +218,10 @@ async function getJupiterQuote(inputMint, outputMint, amount, slippageBps, ctx) 
     outputMint: outputMint.toString(),
     amount: amount.toString(),
     slippageBps: slippageBps.toString(),
-    // Limit accounts to fit within Squads vault transaction size limits.
-    // Squads wraps the inner swap message inside vaultTransactionCreate,
-    // so the meta-tx (create + propose + approve) must stay under 1232 bytes.
-    // 15 accounts × 32 bytes = 480 bytes for keys, leaving ~750 bytes headroom.
-    maxAccounts: '15',
+    // Accounts referenced by Jupiter LUTs take 1 byte inside the Squads meta-tx
+    // instead of 32, so we can use Jupiter's default account budget. Keep a
+    // modest cap as headroom against Squads' own meta-tx account overhead.
+    maxAccounts: '30',
   });
 
   const start = Date.now();
@@ -292,15 +292,35 @@ function deserializeInstruction(ix) {
   });
 }
 
+// Resolve Jupiter-provided LUT addresses into AddressLookupTableAccount objects.
+// These let vaultTransactionCreate compress the inner message: accounts present
+// in a LUT take 1 byte (index) instead of 32 bytes (pubkey), which is what keeps
+// the Squads meta-tx under Solana's 1232-byte limit.
+async function resolveLookupTables(connection, addresses, ctx) {
+  if (!Array.isArray(addresses) || addresses.length === 0) return [];
+  const start = Date.now();
+  const results = await Promise.all(
+    addresses.map((addr) =>
+      connection
+        .getAddressLookupTable(new PublicKey(addr))
+        .then((r) => r?.value ?? null)
+        .catch(() => null),
+    ),
+  );
+  const resolved = results.filter((r) => r instanceof AddressLookupTableAccount);
+  stepLog(ctx, `lookup_tables resolved=${resolved.length}/${addresses.length} (${Date.now() - start}ms)`);
+  return resolved;
+}
+
 // ============================================================
 // Squads Transaction Building
 // ============================================================
 
-async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false, ctx } = {}) {
+async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false, ctx, lookupTableAccounts = [] } = {}) {
   const { connection, multisigPda, vaultPda, signer, vaultIndex } = env;
   stepLog(
     ctx,
-    `squads_init: multisig=${shortAddr(multisigPda)} vault=${shortAddr(vaultPda)} vaultIndex=${vaultIndex} instructions=${instructions.length}`,
+    `squads_init: multisig=${shortAddr(multisigPda)} vault=${shortAddr(vaultPda)} vaultIndex=${vaultIndex} instructions=${instructions.length} luts=${lookupTableAccounts.length}`,
   );
 
   // Get current multisig state for transaction index
@@ -325,6 +345,9 @@ async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false, ctx }
   const ephemeralSigners = 0;
 
   // 1. Create vault transaction
+  // addressLookupTableAccounts is what compresses the inner swap message:
+  // without it, every Jupiter-referenced account costs 32 bytes inside the
+  // meta-tx and routes like $YzY overflow the 1232-byte limit.
   const createTxIx = multisig.instructions.vaultTransactionCreate({
     multisigPda,
     transactionIndex: transactionIndexBN,
@@ -332,6 +355,7 @@ async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false, ctx }
     vaultIndex,
     ephemeralSigners,
     transactionMessage: txMessage,
+    addressLookupTableAccounts: lookupTableAccounts,
   });
 
   // 2. Create proposal
@@ -568,7 +592,9 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
     `instructions_built: total=${allInstructions.length} setup=${swapData.setupInstructions?.length ?? 0} swap=1 cleanup=${swapData.cleanupInstruction ? 1 : 0}`,
   );
 
-  const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun, ctx });
+  const lookupTableAccounts = await resolveLookupTables(env.connection, swapData.addressLookupTableAddresses, ctx);
+
+  const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun, ctx, lookupTableAccounts });
   stepLog(
     ctx,
     `buy done status=${result.status} sig=${result.txSignature || ''} txIndex=${result.squadsTransactionIndex || ''}`,
@@ -682,7 +708,9 @@ async function executeSell(args, env, { dryRun = false } = {}) {
     `instructions_built: total=${allInstructions.length} setup=${swapData.setupInstructions?.length ?? 0} swap=1 cleanup=${swapData.cleanupInstruction ? 1 : 0}`,
   );
 
-  const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun, ctx });
+  const lookupTableAccounts = await resolveLookupTables(env.connection, swapData.addressLookupTableAddresses, ctx);
+
+  const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun, ctx, lookupTableAccounts });
   stepLog(
     ctx,
     `sell done status=${result.status} sig=${result.txSignature || ''} txIndex=${result.squadsTransactionIndex || ''}`,
