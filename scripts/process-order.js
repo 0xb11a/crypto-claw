@@ -243,8 +243,8 @@ function writeReceipt(db, order, tradeResult, action, positionId) {
     );
   } else {
     db.prepare(
-      `INSERT INTO receipts (id, order_id, action, symbol, address, chain, amount, quantity, expected_price, executed_price, slippage, status, safe_tx_hash, onchain_tx_hash, error, position_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO receipts (id, order_id, action, symbol, address, chain, amount, quantity, expected_price, executed_price, slippage, status, safe_tx_hash, onchain_tx_hash, safe_nonce, error, position_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       receiptId,
       order.id,
@@ -260,6 +260,7 @@ function writeReceipt(db, order, tradeResult, action, positionId) {
       tradeResult.status || 'executed',
       tradeResult.safeHash || null,
       tradeResult.txHash || tradeResult.txSignature || null,
+      tradeResult.squadsTransactionIndex ?? tradeResult.safeNonce ?? null,
       tradeResult.error || null,
       positionId || null,
     );
