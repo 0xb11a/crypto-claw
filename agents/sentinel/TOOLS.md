@@ -138,7 +138,9 @@ node scripts/check-wallets.js
 node scripts/check-wallets.js --positions
 node scripts/check-wallets.js --chain <CHAIN>
 node scripts/check-wallets.js --type smart_money
+node scripts/check-wallets.js --limit <N>
 ```
+Caps at 10 wallets per chain by default (override with `--limit N` or `CHECK_WALLETS_LIMIT_PER_CHAIN`). Fail-fast on 3 consecutive errors per chain. `skippedByCap` in JSON output reports how many wallets were not checked this cycle.
 
 ### Contract Safety Monitoring
 ```bash
@@ -185,7 +187,7 @@ Use `rug_warning` when a monitoring script (`check-positions`, `check-liquidity`
 - Scripts cache responses for 60 seconds to avoid redundant API calls
 - The database auto-creates and auto-migrates on first query
 
-#### Position Statuses
+### Position Statuses
 | Status | Meaning |
 |--------|---------|
 | `open` | Active, monitored by Sentinel |

@@ -98,7 +98,7 @@ node scripts/db-query.js mark-alert-processed --id alert-001
 ### Watchlist
 ```bash
 node scripts/db-query.js get-watchlist
-node scripts/db-query.js add-to-watchlist --json '{"symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","reason":"Smart money accumulation","target_entry":0.001}'
+node scripts/db-query.js add-to-watchlist --json '{"symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","reason":"Smart-money accumulation","target_entry":0.001}'
 node scripts/db-query.js update-watchlist --id <id> --json '{"target_entry":0.0008,"reason":"Updated after dip"}'
 node scripts/db-query.js remove-from-watchlist --id <id>
 ```
@@ -249,12 +249,13 @@ node scripts/check-wallets.js
 node scripts/check-wallets.js --positions
 node scripts/check-wallets.js --chain <CHAIN>
 node scripts/check-wallets.js --type smart_money
+node scripts/check-wallets.js --limit <N>
 node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 # Check holders AND auto-propose top 5 non-contract holders for wallet scoring
 node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN> --propose
 ```
 
-### Wallet Scoring (Smart Money Detection)
+### Wallet Scoring (Smart-Money Detection)
 ```bash
 node scripts/score-wallet.js --address <WALLET_ADDRESS> --chain <CHAIN>
 node scripts/score-wallet.js --address <WALLET_ADDRESS> --chain <CHAIN> --add

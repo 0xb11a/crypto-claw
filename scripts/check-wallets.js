@@ -17,7 +17,10 @@ import { getDb, close } from './db.js';
 import { getChain, isEVM, isSolana, getAllChains } from './chains.js';
 import { log } from './log.js';
 
-const FETCH_TIMEOUT_MS = 10_000;
+const FETCH_TIMEOUT_MS = Number(process.env.CHECK_WALLETS_FETCH_TIMEOUT_MS) || 5_000;
+const DEFAULT_LIMIT_PER_CHAIN = Number(process.env.CHECK_WALLETS_LIMIT_PER_CHAIN) || 10;
+const FAIL_FAST_CONSECUTIVE = 3;
+const PER_CHAIN_DELAY_MS = 250;
 
 // ============================================================
 // CLI args
@@ -25,7 +28,7 @@ const FETCH_TIMEOUT_MS = 10_000;
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const config = { positions: false, chain: null, type: null };
+  const config = { positions: false, chain: null, type: null, limit: DEFAULT_LIMIT_PER_CHAIN };
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--positions':
@@ -36,6 +39,9 @@ function parseArgs() {
         break;
       case '--type':
         config.type = args[++i];
+        break;
+      case '--limit':
+        config.limit = Math.max(1, Number(args[++i]) || DEFAULT_LIMIT_PER_CHAIN);
         break;
     }
   }
@@ -211,23 +217,75 @@ function getPositionRelatedWallets(db, allWallets) {
   const positions = getPositionTokens(db);
   if (positions.length === 0) return [];
 
-  // Match tracked wallets whose notes reference a position's token address or symbol
+  // Match dev/deployer wallets whose notes reference a position's address or symbol,
+  // AND that are on the same chain as the referenced position (cheap pre-filter).
   return allWallets.filter((w) => {
-    if (w.type === 'dev' || w.type === 'deployer') {
-      return positions.some(
-        (p) =>
-          (w.notes && w.notes.toLowerCase().includes(p.address.toLowerCase())) ||
-          (w.notes && w.notes.toLowerCase().includes(p.symbol.toLowerCase())) ||
-          w.chain === p.chain,
-      );
-    }
-    return false;
+    if (w.type !== 'dev' && w.type !== 'deployer') return false;
+    if (!w.notes) return false;
+    const notes = w.notes.toLowerCase();
+    return positions.some(
+      (p) => w.chain === p.chain && (notes.includes(p.address.toLowerCase()) || notes.includes(p.symbol.toLowerCase())),
+    );
   });
 }
 
 // ============================================================
 // Main
 // ============================================================
+
+// ============================================================
+// Signal handling — emit partial JSON + structured log on SIGTERM
+// so the operator knows what the script was doing when it was killed
+// rather than seeing a bare "terminated by SIGTERM" in sentinel alerts.
+// ============================================================
+
+const RUN_STATE = {
+  startedAt: Date.now(),
+  totalScheduled: 0,
+  byChainScheduled: {},
+  byChainCompleted: {},
+  currentByChain: {}, // chain -> { address, label, startedAt }
+  results: [],
+};
+
+function emitTerminationJson(signal) {
+  const elapsedMs = Date.now() - RUN_STATE.startedAt;
+  const inflight = Object.entries(RUN_STATE.currentByChain).map(([chain, w]) => ({
+    chain,
+    address: w.address,
+    label: w.label,
+    elapsedMs: Date.now() - w.startedAt,
+  }));
+  log(
+    'error',
+    'check-wallets',
+    `terminated by ${signal} after ${elapsedMs}ms — scheduled=${RUN_STATE.totalScheduled} ` +
+      `completed=${RUN_STATE.results.length} inflight=${JSON.stringify(inflight)} ` +
+      `byChain=${JSON.stringify(RUN_STATE.byChainCompleted)}/${JSON.stringify(RUN_STATE.byChainScheduled)}`,
+  );
+  try {
+    console.log(
+      JSON.stringify({
+        status: 'error',
+        error: `terminated by ${signal} after ${elapsedMs}ms`,
+        scheduled: RUN_STATE.totalScheduled,
+        completed: RUN_STATE.results.length,
+        inflight,
+        byChainScheduled: RUN_STATE.byChainScheduled,
+        byChainCompleted: RUN_STATE.byChainCompleted,
+        wallets: RUN_STATE.results,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+  } catch {}
+  try {
+    close();
+  } catch {}
+  process.exit(1);
+}
+
+process.on('SIGTERM', () => emitTerminationJson('SIGTERM'));
+process.on('SIGINT', () => emitTerminationJson('SIGINT'));
 
 async function main() {
   const config = parseArgs();
@@ -243,6 +301,7 @@ async function main() {
   try {
     // Load scored wallets from SQLite (skip proposed/failed — not yet classified)
     let wallets = db.prepare("SELECT * FROM tracked_wallets WHERE status = 'scored' ORDER BY created_at DESC").all();
+    const totalScored = wallets.length;
 
     // Apply filters
     if (config.chain) {
@@ -257,14 +316,46 @@ async function main() {
     if (config.positions) {
       const related = getPositionRelatedWallets(db, wallets);
       positionRelated = related.map((w) => ({ address: w.address, chain: w.chain, label: w.label, type: w.type }));
-      // If --positions, only check position-related wallets
       if (related.length > 0) {
         const relatedKeys = new Set(related.map((w) => `${w.address}:${w.chain}`));
         wallets = wallets.filter((w) => relatedKeys.has(`${w.address}:${w.chain}`));
+      } else {
+        wallets = [];
       }
     }
 
-    if (wallets.length === 0) {
+    // Group by chain and cap per-chain count to keep total wall time bounded.
+    const byChain = {};
+    for (const w of wallets) {
+      (byChain[w.chain] ??= []).push(w);
+    }
+    const cappedByChain = {};
+    let skippedByCap = 0;
+    for (const [chain, list] of Object.entries(byChain)) {
+      if (list.length > config.limit) {
+        skippedByCap += list.length - config.limit;
+        cappedByChain[chain] = list.slice(0, config.limit);
+      } else {
+        cappedByChain[chain] = list;
+      }
+    }
+
+    const scheduledTotal = Object.values(cappedByChain).reduce((n, l) => n + l.length, 0);
+    RUN_STATE.totalScheduled = scheduledTotal;
+    for (const [chain, list] of Object.entries(cappedByChain)) {
+      RUN_STATE.byChainScheduled[chain] = list.length;
+      RUN_STATE.byChainCompleted[chain] = 0;
+    }
+
+    log(
+      'info',
+      'check-wallets',
+      `start scored=${totalScored} filtered=${wallets.length} scheduled=${scheduledTotal} ` +
+        `skippedByCap=${skippedByCap} positions=${config.positions} chain=${config.chain ?? 'all'} ` +
+        `type=${config.type ?? 'all'} limitPerChain=${config.limit} fetchTimeoutMs=${FETCH_TIMEOUT_MS}`,
+    );
+
+    if (scheduledTotal === 0) {
       console.log(
         JSON.stringify({
           status: 'ok',
@@ -278,28 +369,66 @@ async function main() {
       return;
     }
 
-    // Group by chain for per-chain rate limiting
-    const byChain = {};
-    for (const w of wallets) {
-      (byChain[w.chain] ??= []).push(w);
-    }
-
-    // Check all chains concurrently, wallets within a chain sequentially (rate limit)
+    // Check all chains concurrently; wallets within a chain sequential (rate limit)
+    // with per-chain fail-fast after FAIL_FAST_CONSECUTIVE consecutive errors/timeouts.
     const chainResults = await Promise.all(
-      Object.entries(byChain).map(async ([chain, chainWallets]) => {
+      Object.entries(cappedByChain).map(async ([chain, chainWallets]) => {
         const results = [];
-        for (const wallet of chainWallets) {
+        let consecutiveFailures = 0;
+        const chainStart = Date.now();
+
+        for (let i = 0; i < chainWallets.length; i++) {
+          const wallet = chainWallets[i];
+
+          if (consecutiveFailures >= FAIL_FAST_CONSECUTIVE) {
+            log(
+              'warn',
+              'check-wallets',
+              `${chain}: fail-fast after ${consecutiveFailures} consecutive errors — ` +
+                `skipping ${chainWallets.length - i} remaining wallet(s)`,
+            );
+            break;
+          }
+
+          const walletStart = Date.now();
+          RUN_STATE.currentByChain[chain] = { address: wallet.address, label: wallet.label, startedAt: walletStart };
+          log(
+            'info',
+            'check-wallets',
+            `${chain}: [${i + 1}/${chainWallets.length}] ${wallet.label ?? wallet.address} start`,
+          );
+
           const activity = await checkWallet(wallet.address, chain);
-          results.push({
-            label: wallet.label,
-            type: wallet.type,
-            ...activity,
-          });
-          // Rate limit: 250ms between calls to same chain's API
-          if (chainWallets.indexOf(wallet) < chainWallets.length - 1) {
-            await new Promise((r) => setTimeout(r, 250));
+          const duration = Date.now() - walletStart;
+
+          results.push({ label: wallet.label, type: wallet.type, ...activity });
+          RUN_STATE.results.push({ label: wallet.label, type: wallet.type, ...activity });
+          RUN_STATE.byChainCompleted[chain] = (RUN_STATE.byChainCompleted[chain] ?? 0) + 1;
+          delete RUN_STATE.currentByChain[chain];
+
+          if (activity.status === 'error' || activity.status === 'no_api_key') {
+            consecutiveFailures++;
+          } else {
+            consecutiveFailures = 0;
+          }
+
+          log(
+            'info',
+            'check-wallets',
+            `${chain}: [${i + 1}/${chainWallets.length}] ${wallet.label ?? wallet.address} ` +
+              `done status=${activity.status} duration=${duration}ms`,
+          );
+
+          if (i < chainWallets.length - 1) {
+            await new Promise((r) => setTimeout(r, PER_CHAIN_DELAY_MS));
           }
         }
+
+        log(
+          'info',
+          'check-wallets',
+          `${chain}: finished ${results.length}/${chainWallets.length} wallet(s) in ${Date.now() - chainStart}ms`,
+        );
         return results;
       }),
     );
@@ -314,11 +443,20 @@ async function main() {
       }),
     );
 
+    log(
+      'info',
+      'check-wallets',
+      `done total=${Date.now() - RUN_STATE.startedAt}ms completed=${results.length}/${scheduledTotal} ` +
+        `recentActivity=${noteworthy.length} skippedByCap=${skippedByCap}`,
+    );
+
     console.log(
       JSON.stringify(
         {
           status: 'ok',
-          tracked: wallets.length,
+          tracked: results.length,
+          scheduled: scheduledTotal,
+          skippedByCap,
           recentActivity: noteworthy.length,
           wallets: results,
           ...(positionRelated !== null ? { positionRelated } : {}),
