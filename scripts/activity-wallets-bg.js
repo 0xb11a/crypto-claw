@@ -381,18 +381,14 @@ async function main() {
     );
 
     console.log(
-      JSON.stringify(
-        {
-          status: 'ok',
-          checked: totalChecked,
-          signals_written: totalSignals,
-          pruned,
-          chains: chainResults,
-          timestamp: new Date().toISOString(),
-        },
-        null,
-        2,
-      ),
+      JSON.stringify({
+        status: 'ok',
+        checked: totalChecked,
+        signals_written: totalSignals,
+        pruned,
+        chains: chainResults,
+        timestamp: new Date().toISOString(),
+      }),
     );
   } finally {
     close();
