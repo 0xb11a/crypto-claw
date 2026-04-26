@@ -743,8 +743,6 @@ node scripts/send-approval.js --order-id trade-001
 | `GOPLUS_API_KEY` | GoPlus | Contract security scanning |
 | `ETHERSCAN_API_KEY` | Etherscan | Ethereum wallet tracking + contract verification (also used for Ethereum chain) |
 | `BASESCAN_API_KEY` | Basescan | Base L2 wallet tracking |
-| `ARBISCAN_API_KEY` | Arbiscan | Arbitrum L2 wallet tracking |
-| `OPTIMISM_API_KEY` | OP Etherscan | Optimism L2 wallet tracking |
 | `BIRDEYE_API_KEY` | Birdeye | Wallet PnL scoring (Solana + EVM) + token data |
 | `ZERION_API_KEY` | Zerion | Wallet PnL scoring (EVM fallback, free 3k/day) |
 | `SOLSCAN_API_KEY` | Solscan | Solana wallet tracking + contract data |

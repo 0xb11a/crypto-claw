@@ -17,8 +17,6 @@ const SafeApiKit = SafeApiKitModule.default || SafeApiKitModule;
 const SAFE_TX_SERVICE_URLS = {
   1: 'https://safe-transaction-mainnet.safe.global',
   8453: 'https://safe-transaction-base.safe.global',
-  42161: 'https://safe-transaction-arbitrum.safe.global',
-  10: 'https://safe-transaction-optimism.safe.global',
 };
 
 // USDC address resolved per-chain from chains.js
