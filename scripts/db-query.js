@@ -1241,10 +1241,17 @@ function handle(db, cmd) {
       const l = parseJson();
       db.prepare(
         `
-        INSERT INTO sentinel_log (check_type, positions_checked, alerts_generated, sells_executed, status)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO sentinel_log (check_type, positions_checked, alerts_generated, sells_executed, status, summary)
+        VALUES (?, ?, ?, ?, ?, ?)
       `,
-      ).run(l.check_type, l.positions_checked || 0, l.alerts_generated || 0, l.sells_executed || 0, l.status || 'ok');
+      ).run(
+        l.check_type,
+        l.positions_checked || 0,
+        l.alerts_generated || 0,
+        l.sells_executed || 0,
+        l.status || 'ok',
+        l.summary || null,
+      );
       output({ ok: true });
       break;
     }
@@ -1253,8 +1260,8 @@ function handle(db, cmd) {
       db.prepare(
         `
         INSERT INTO executor_log (sell_orders_processed, buy_orders_processed, pending_checked,
-          success_count, fail_count, queued_count, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+          success_count, fail_count, queued_count, status, summary)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `,
       ).run(
         l.sell_orders_processed || 0,
@@ -1264,6 +1271,7 @@ function handle(db, cmd) {
         l.fail_count || 0,
         l.queued_count || 0,
         l.status || 'ok',
+        l.summary || null,
       );
       output({ ok: true });
       break;

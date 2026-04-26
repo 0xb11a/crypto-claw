@@ -958,6 +958,19 @@ const migrations = [
       -- mirroring activity-wallets-bg's pattern).
     `,
   },
+  {
+    name: '026_log_summary_columns',
+    sql: `
+      -- Error-trail contract: sentinel/executor HEARTBEAT.md instruct the agent to write
+      -- add-{sentinel,executor}-log --json '{"status":"error","summary":"<reason>"}' when a
+      -- check fails, and Observer correlates that row with the paired send-alert Telegram
+      -- message. Previously the summary field was silently dropped at insert time (no column),
+      -- so the row's context was lost. Align with research_log/observer_log which both carry
+      -- summary TEXT.
+      ALTER TABLE sentinel_log ADD COLUMN summary TEXT;
+      ALTER TABLE executor_log ADD COLUMN summary TEXT;
+    `,
+  },
 ];
 
 export default { getDb, close };

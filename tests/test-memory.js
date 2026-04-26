@@ -869,6 +869,40 @@ if (dbAvailable) {
     });
   });
 
+  describe('Wallet Database — Error Self-Reporting Trail', () => {
+    test('sentinel_log has summary column', () => {
+      const cols = db
+        .prepare('PRAGMA table_info(sentinel_log)')
+        .all()
+        .map((c) => c.name);
+      assert(cols.includes('summary'), 'sentinel_log must carry the error reason written by add-sentinel-log');
+    });
+
+    test('executor_log has summary column', () => {
+      const cols = db
+        .prepare('PRAGMA table_info(executor_log)')
+        .all()
+        .map((c) => c.name);
+      assert(cols.includes('summary'), 'executor_log must carry the error reason written by add-executor-log');
+    });
+
+    test('sentinel_log summary round-trips through insert', () => {
+      db.prepare(
+        `INSERT INTO sentinel_log (check_type, status, summary) VALUES ('price', 'error', 'check-positions.js exit 1')`,
+      ).run();
+      const row = db.prepare("SELECT summary FROM sentinel_log WHERE check_type = 'price' AND status = 'error'").get();
+      assertEqual(row.summary, 'check-positions.js exit 1', 'summary must persist');
+      db.prepare("DELETE FROM sentinel_log WHERE check_type = 'price' AND status = 'error'").run();
+    });
+
+    test('executor_log summary round-trips through insert', () => {
+      db.prepare(`INSERT INTO executor_log (status, summary) VALUES ('error', 'get-orders failed')`).run();
+      const row = db.prepare("SELECT summary FROM executor_log WHERE status = 'error'").get();
+      assertEqual(row.summary, 'get-orders failed', 'summary must persist');
+      db.prepare("DELETE FROM executor_log WHERE status = 'error'").run();
+    });
+  });
+
   // Close DB
   const { close } = await import('../scripts/db.js');
   close();
