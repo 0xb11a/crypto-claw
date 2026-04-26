@@ -7,8 +7,9 @@
  *
  * Types:
  *   model_failure, emergency_mode, recovered, trade_proposal, trade_executed,
- *   trade_failed, sell_triggered, rug_warning, signer_low_balance,
- *   system_health, heartbeat_summary, portfolio_daily, rebalance_event
+ *   trade_failed, sell_triggered, sentinel_alert_followup, rug_warning,
+ *   signer_low_balance, system_health, heartbeat_summary, portfolio_daily,
+ *   rebalance_event
  *
  * Env vars:
  *   TELEGRAM_CHAT_ID      — Supergroup/chat ID for alerts
@@ -41,6 +42,7 @@ function getArg(name) {
 // Alert type → topic env var mapping
 const TOPIC_MAP = {
   trade_proposal: 'TG_TOPIC_RESEARCH',
+  sentinel_alert_followup: 'TG_TOPIC_RESEARCH',
   sell_triggered: 'TG_TOPIC_SENTINEL',
   trade_executed: 'TG_TOPIC_EXECUTOR',
   trade_failed: 'TG_TOPIC_EXECUTOR',
@@ -63,6 +65,7 @@ const EMOJI_MAP = {
   trade_failed: '\u274C',
   trade_retry: '\uD83D\uDD04',
   sell_triggered: '\uD83D\uDEA8',
+  sentinel_alert_followup: '\uD83D\uDCDD',
   model_failure: '\u26A0\uFE0F',
   emergency_mode: '\u26A0\uFE0F',
   rug_warning: '\uD83D\uDEA8',
@@ -81,6 +84,7 @@ const TYPE_LABELS = {
   trade_retry: 'RETRY',
   trade_proposal: 'TRADE PROPOSAL',
   sell_triggered: 'SELL TRIGGERED',
+  sentinel_alert_followup: 'SENTINEL FOLLOW-UP',
   model_failure: 'MODEL FAILURE',
   emergency_mode: 'EMERGENCY MODE',
   recovered: 'RECOVERED',
@@ -222,6 +226,7 @@ const FORMATTERS = {
   trade_retry: (emoji, _type, _agent, message, safeId) => formatTradeRetry(emoji, message, safeId),
   trade_proposal: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
   sell_triggered: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
+  sentinel_alert_followup: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
   model_failure: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
   emergency_mode: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),
   recovered: (emoji, type, _agent, message, safeId) => formatPassthrough(emoji, type, message, safeId),

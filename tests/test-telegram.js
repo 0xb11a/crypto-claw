@@ -14,6 +14,7 @@ import { describe, test, assert, assertEqual, summary } from './test-helpers.js'
 
 const TOPIC_MAP = {
   trade_proposal: 'TG_TOPIC_RESEARCH',
+  sentinel_alert_followup: 'TG_TOPIC_RESEARCH',
   sell_triggered: 'TG_TOPIC_SENTINEL',
   trade_executed: 'TG_TOPIC_EXECUTOR',
   trade_failed: 'TG_TOPIC_EXECUTOR',
@@ -33,6 +34,7 @@ describe('Topic Mapping', () => {
   test('all alert types have a topic mapping', () => {
     const types = [
       'trade_proposal',
+      'sentinel_alert_followup',
       'sell_triggered',
       'trade_executed',
       'trade_failed',
@@ -116,6 +118,7 @@ const EMOJI_MAP = {
   trade_failed: '\u274C',
   trade_retry: '\uD83D\uDD04',
   sell_triggered: '\uD83D\uDEA8',
+  sentinel_alert_followup: '\uD83D\uDCDD',
   model_failure: '\u26A0\uFE0F',
   emergency_mode: '\u26A0\uFE0F',
   rug_warning: '\uD83D\uDEA8',
@@ -232,6 +235,7 @@ const TYPE_LABELS = {
   trade_retry: 'RETRY',
   trade_proposal: 'TRADE PROPOSAL',
   sell_triggered: 'SELL TRIGGERED',
+  sentinel_alert_followup: 'SENTINEL FOLLOW-UP',
   model_failure: 'MODEL FAILURE',
   emergency_mode: 'EMERGENCY MODE',
   recovered: 'RECOVERED',
