@@ -1,3 +1,12 @@
+---
+name: create-gh-issue
+description: Create or update a GitHub issue with mandatory duplicate check and redaction audit — owns the full issue lifecycle
+triggers:
+  - create github issue
+  - file issue
+  - report bug
+---
+
 # SKILL.md — Create GitHub Issue
 
 ## Purpose
@@ -38,24 +47,9 @@ Compare the proposed issue against EVERY open issue returned in Step 2. An issue
 
 If you are unsure whether two issues describe the same problem, treat them as duplicates. It is better to comment on an existing issue than to create a duplicate.
 
-### Step 4a: If Duplicate Found — Comment
+### Step 4: Redaction Audit (MANDATORY — NEVER SKIP)
 
-Add a recurrence comment to the existing issue:
-
-```bash
-gh issue comment <NUMBER> --repo "$OBSERVER_ISSUES_REPO" --body "**Recurrence detected**
-
-- **When:** <timestamp>
-- **Error:** <latest error message>
-- **Frequency:** <count since last comment or creation>
-- **New details:** <anything different from the original report>"
-```
-
-After commenting, STOP. Do not create a new issue.
-
-### Step 3b: Redaction Audit (MANDATORY — NEVER SKIP)
-
-Before sending any string to `gh issue create` or `gh issue comment`, audit the title AND body for patterns that indicate an unredacted secret slipped through `log.js`'s write-time redaction. `gh` does NOT redact; you are the last line of defense.
+Before sending any string to `gh issue create` OR `gh issue comment`, audit the title AND body for patterns that indicate an unredacted secret slipped through `log.js`'s write-time redaction. `gh` does NOT redact; you are the last line of defense. This step applies to BOTH the comment path (Step 5) and the create path (Step 6).
 
 Scan for these regex patterns:
 - `0x[a-fA-F0-9]{40}` — EVM addresses
@@ -72,7 +66,22 @@ Scan for these regex patterns:
 
 Refusing to post is correct behavior. It is far worse to leak a key than to miss filing one issue.
 
-### Step 4b: If No Duplicate — Create Issue
+### Step 5: If Duplicate Found — Comment
+
+Add a recurrence comment to the existing issue:
+
+```bash
+gh issue comment <NUMBER> --repo "$OBSERVER_ISSUES_REPO" --body "**Recurrence detected**
+
+- **When:** <timestamp>
+- **Error:** <latest error message>
+- **Frequency:** <count since last comment or creation>
+- **New details:** <anything different from the original report>"
+```
+
+After commenting, STOP. Do not create a new issue. Skip to Step 7.
+
+### Step 6: If No Duplicate — Create Issue
 
 First, get the OpenClaw version:
 ```bash
@@ -105,7 +114,7 @@ gh issue create --repo "$OBSERVER_ISSUES_REPO" --title "fix: <concise descriptio
 - Pattern: <what likely needs to change>"
 ```
 
-### Step 5: Report Result
+### Step 7: Report Result
 
 After creating or commenting, report what you did:
 - Action taken: `created` or `commented`
@@ -114,9 +123,9 @@ After creating or commenting, report what you did:
 
 ## Constraints
 - **NEVER skip the duplicate check** — Step 3 is mandatory for every issue
-- **NEVER skip the redaction audit** — Step 3b is mandatory for every issue
+- **NEVER skip the redaction audit** — Step 4 is mandatory for BOTH the comment path and the create path
 - **NEVER create an issue without first running Step 2** to fetch all open issues
 - Maximum 3 issues created per triage cycle
-- **Security:** NEVER include wallet addresses, private keys, API keys, or transaction hashes. Replace with `[REDACTED]`. The redaction audit in Step 3b is the enforcement mechanism.
+- **Security:** NEVER include wallet addresses, private keys, API keys, or transaction hashes. Replace with `[REDACTED]`. The redaction audit in Step 4 is the enforcement mechanism.
 - If `gh issue list` fails (network error, auth issue), log the failure and skip issue creation for this cycle — do not create issues blind without the dedup check
 - If the redaction audit fails twice, STOP and alert — do not post

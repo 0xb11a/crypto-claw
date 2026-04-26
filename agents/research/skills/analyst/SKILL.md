@@ -25,14 +25,19 @@ Evaluate every token discovery on fundamentals, tokenomics, social sentiment, na
 ## Process
 
 ### Step 1: Gather Deep Data
+
+Get full token metrics:
 ```bash
-# Get full token metrics
 node scripts/token-metrics.js --address <TOKEN_ADDRESS> --chain <CHAIN>
+```
 
-# Check contract safety
+Check contract safety:
+```bash
 node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN>
+```
 
-# Check holder distribution
+Check holder distribution:
+```bash
 node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN> --propose
 ```
 
@@ -89,7 +94,7 @@ node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN> --
 | Narrative cooling down | 30-50 |
 | No clear narrative | 0-20 |
 
-Apply tier affinity boost from Step 3b.3 on top of the base score (cap at 100).
+Apply the tier affinity boost from the "Narrative score modifier" subsection of Step 4 on top of the base score (cap at 100).
 
 **Timing (Weight: 10%)**
 | Signal | Points |
@@ -106,19 +111,19 @@ overall = (contract * 0.25) + (tokenomics * 0.20) + (liquidity * 0.20) +
           (social * 0.15) + (narrative * 0.10) + (timing * 0.10)
 ```
 
-### Step 3b: Assign Tier
+### Step 4: Assign Tier
 
 Based on token characteristics AND narrative context, assign the appropriate portfolio tier.
 
-**Step 3b.1 — Base tier check (unchanged):**
+#### Base tier check
 
 | Criteria | Tier |
 |----------|------|
 | Token address matches any entry in `baseTierTokens` from `get-chain-config --chain <CHAIN>` AND `base` is in the chain's `tiersEnabled` | `base` |
 
-**Base tier is a closed set.** ONLY the tokens listed in `baseTierTokens` from `get-chain-config` can be base tier. No other token — regardless of liquidity, age, market cap, or how underweight the base allocation is — may be classified as base. If a token is not in `baseTierTokens`, or if `base` is not in the chain's `tiersEnabled`, skip to Step 3b.2.
+**Base tier is a closed set.** ONLY the tokens listed in `baseTierTokens` from `get-chain-config` can be base tier. No other token — regardless of liquidity, age, market cap, or how underweight the base allocation is — may be classified as base. If a token is not in `baseTierTokens`, or if `base` is not in the chain's `tiersEnabled`, proceed to the narrative-aware assignment below.
 
-**Step 3b.2 — Narrative-aware tier assignment:**
+#### Narrative-aware tier assignment
 
 Each narrative has a tier affinity (defined in `scripts/narrative-config.js`). Use this decision tree:
 
@@ -146,7 +151,7 @@ Does token meet conviction criteria?
   NO → moonshot
 ```
 
-**Step 3b.3 — Narrative score modifier:**
+#### Narrative score modifier
 
 When narrative is hot or warming, apply a boost to the narrative fit dimension score:
 
@@ -159,7 +164,7 @@ When narrative is hot or warming, apply a boost to the narrative fit dimension s
 
 The tier determines position limits, stop-loss levels, and slippage tolerance.
 
-### Step 4: Recommendation
+### Step 5: Recommendation
 | Score | Recommendation |
 |-------|---------------|
 | 71-100 | `strong_buy` — high conviction, act soon |
@@ -167,7 +172,7 @@ The tier determines position limits, stop-loss levels, and slippage tolerance.
 | 31-50 | `watch` — interesting, wait for better entry |
 | 0-30 | `avoid` — too many red flags |
 
-### Step 5: Output Format
+### Step 6: Output Format
 ```json
 {
   "tokenAddress": "string",
@@ -193,7 +198,7 @@ The tier determines position limits, stop-loss levels, and slippage tolerance.
 }
 ```
 
-### Step 6: Log & Handoff
+### Step 7: Log & Handoff
 - Write to `memory/YYYY-MM-DD.md` with `[ANALYSIS]` tag
 - Check MEMORY.md for similar past analyses and their outcomes
 - If recommendation is buy or strong_buy → proceed to risk skill
@@ -212,3 +217,6 @@ The tier determines position limits, stop-loss levels, and slippage tolerance.
 - Acknowledge uncertainty — if you can't verify something, adjust score down
 - Compare against alternatives in the same narrative
 - Always suggest a specific entry price, not just "buy"
+
+## Promotion
+If an analysis pattern (e.g., a scoring heuristic, token archetype, or recurring outcome correlation between metrics and post-trade results) recurs 3+ times across daily logs, promote it to `MEMORY.md` using the template in `AGENTS.md § MEMORY.md Updates`.

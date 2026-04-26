@@ -134,7 +134,7 @@ node scripts/db-query.js add-order --json '{
   "tier": "moonshot",
   "entry_price": 0.001,
   "stop_loss": 0.0005,
-  "take_profit_levels": "[{\"level\":1,\"price\":0.002,\"sellPercent\":50}]",
+  "take_profit_levels": [{"level":1,"price":0.002,"sellPercent":50}],
   "reasoning": "Strong AI narrative play"
 }'
 

@@ -103,12 +103,12 @@ Smart-money tracking is a four-role pipeline. Each role has a bounded contract; 
   ```
   db-query.js get-smart-money-signals --since 35m --action buy --group-by token --min-wallets 2
   ```
-  Returns tokens where ≥2 distinct smart_money wallets bought in last 35 min. Pipes into discovery → analysis → risk → trade proposal.
+  Returns tokens where ≥2 distinct `smart_money` wallets bought in last 35 min. Pipes into discovery → analysis → risk → trade proposal.
 - **Sentinel** heartbeat (`smart_money_exits` check, every 15 min):
   ```
   db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
   ```
-  Returns held tokens that smart_money is dumping. **Informational only** (no auto-sell) — alerts the operator. Sentinel's separate `wallet_check` (via `check-wallets.js --positions`) handles unambiguous dev-wallet selling and does write sell orders.
+  Returns held tokens that `smart_money` wallets are dumping. **Informational only** (no auto-sell) — alerts the operator. Sentinel's separate `wallet_check` (via `check-wallets.js --positions`) handles unambiguous dev-wallet selling and does write sell orders.
 - 35 min sliding window absorbs 5 min of heartbeat-jitter overlap; same signal may be returned by 2 consecutive heartbeat cycles. Consumers tolerate this (Research dedups via `check-token-status` cache).
 
 **Failure boundaries:**
@@ -146,7 +146,8 @@ scripts/                  # Node.js scripts
   check-positions.js      # Current prices vs stops/TPs
   check-liquidity.js      # LP change detection
   check-wallets.js        # Wallet activity tracking (multi-chain, reads from SQLite)
-  score-wallet.js         # Smart money scoring via Birdeye/Zerion PnL
+  harvest.js              # Wallet harvesting — proposes wallets from Birdeye/holders/top traders into tracked_wallets (status='proposed')
+  score-wallet.js         # Smart-money scoring via Birdeye/Zerion PnL
   score-wallets-bg.js     # Background wallet scoring pipeline (runs one cycle, exits)
   activity-wallets-bg.js  # Background smart-money activity poller — writes per-swap rows to smart_money_signals (one cycle, exits)
   market-overview.js      # BTC dominance, fear/greed
@@ -160,6 +161,8 @@ scripts/                  # Node.js scripts
   execute-trade-solana.js # Squads/Jupiter swap execution (Solana)
   check-safe-status.js    # Safe wallet status check (EVM)
   check-squads-status.js  # Squads multisig status check (Solana)
+  check-signer-balances.js # Signer-key gas/SOL balance check (used by Observer triage and entrypoint health)
+  backfill-squads-nonce.js # One-off recovery: matches stuck Squads receipts to their transactionIndex and writes safe_nonce
   narrative-check.js      # Narrative momentum
   narrative-config.js     # Narrative definitions and tier affinities
   narrative-deep-scan.js  # Deep narrative analysis
@@ -169,12 +172,16 @@ scripts/                  # Node.js scripts
   emergency-executor.js   # Emergency executor activation on repeated model failures
   track-multisig.js       # Multisig approval workflow tracking
   send-alert.js           # Telegram alerts via openclaw message send (topic routing)
+  send-approval.js        # Telegram approval-request message with inline approve/reject buttons (research/portfolio)
+  approval-bot.js         # Long-running Telegram bot — handles approve/reject button callbacks (background loop in entrypoint)
   redact.js               # Sensitive data redaction (shared module)
   log.js                  # Structured logging helper (writes to system.log + stderr)
   telegram-get-topics.js  # Setup helper: discover supergroup topic thread IDs
+  pre-commit-check.js     # Secret scanner wired into .git/hooks/pre-commit (blocks commits containing keys)
+  test-solana-tx-size.js  # Standalone diagnostic — proves the Squads LUT fix keeps the meta-tx under 1232 bytes
   memory-backup.sh        # Git auto-commit for agent memory
   codex-login.sh          # One-time Codex OAuth login (ChatGPT subscription)
-tests/                    # 14 test suites + runner + helpers
+tests/                    # 18 test suites + runner + helpers
 Dockerfile                # Based on ghcr.io/openclaw/openclaw:latest
 docker-compose.yml        # One-command deployment
 build-templates.sh        # Docker build-time template assembly (replaces setup.sh in Docker)
@@ -225,6 +232,9 @@ node tests/test-telegram.js     # Telegram alerts + topic routing
 node tests/test-scripts.js      # Script output format (needs network)
 node tests/test-process-order.js # Order processing lifecycle (needs network)
 node tests/test-observer.js     # Observer agent, redaction, logging, GitHub integration
+node tests/test-harvest.js      # Wallet harvesting — INSERT OR IGNORE, dedup, exclusions
+node tests/test-activity-bg.js  # activity-wallets-bg producer + smart_money_signals schema/dedup/rotation/pruning
+node tests/test-backfill-squads-nonce.js # backfill-squads-nonce matcher and applyBackfill
 
 # Database queries (from project root)
 SAFE_ID=my-fund node scripts/db-query.js get-portfolio
@@ -276,14 +286,14 @@ SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup sy
 
 These limits are intentionally strict and must not be relaxed:
 
-- Max moonshot position: 5% of portfolio
+- Max moonshot position: 5% of chain portfolio (Solana: 7% — see `scripts/chains.js`)
 - Max conviction position: 10%
 - Max base position: 30%
 - Max total moonshot allocation: 30%
 - Min cash reserve: 10%
 - Max same-narrative positions: 3
 - Auto-reject: honeypot, top holder >30%, liquidity <$5k, known scam deployers, pausable contracts
-- Slippage limits: 5% moonshot, 2% conviction/base
+- Slippage limits: 5% moonshot, 2% conviction/base (enforced in `scripts/process-order.js:171`)
 - Stale order protection: reject if price drifted >10% from proposal
 
 ## Paper Mode
@@ -344,7 +354,7 @@ Configure `PORTFOLIO_REPORT_HOUR` (0-23, default: 0) to receive automated daily 
 - **Adding a new script:** Add it to `scripts/`, document it in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md` (per-agent reference), add output validation to `tests/test-scripts.js`, add it to the appropriate agent's copy list in `setup.sh` and `build-templates.sh`, and add it to the agent's shell allowlist in `entrypoint.sh` (see per-agent `agents.list[N]` overrides).
 - **Adding a new DB table:** Add a migration in `scripts/db.js` (increment migration number), add CLI commands in `db-query.js`, add schema tests to `tests/test-memory.js`, document commands in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md`.
 - **Changing safety rules:** Update `agents/research/AGENTS.md` AND `agents/executor/AGENTS.md` (if execution-related) AND `tests/test-safety.js` AND `tests/test-executor.js` — tests enforce the exact limits.
-- **Adding a fourth agent:** Follow the pattern in `agents/executor/` — create a directory with AGENTS.md, SOUL.md, HEARTBEAT.md, and skills/. Add per-agent config overrides on `agents.list[N]` in `entrypoint.sh` (tools, permissions, memory, compaction — follow least privilege). Add directory creation, file copy, and symlink logic to `setup.sh` and `build-templates.sh`. Add heartbeat_state seeds in the db.js migration. Update `docker-compose.yml` if it needs different resources.
+- **Adding a new agent:** Follow the pattern in `agents/observer/` (the most recently added agent) — create a directory with AGENTS.md, SOUL.md, HEARTBEAT.md, and skills/. Add per-agent config overrides on `agents.list[N]` in `entrypoint.sh` (tools, permissions, memory, compaction — follow least privilege). Add directory creation, file copy, and symlink logic to `setup.sh` and `build-templates.sh`. Add heartbeat_state seeds in the db.js migration. Add the agent name to `HEARTBEAT_CADENCES` and `AGENT_HEARTBEAT_INTERVALS` in `scripts/db-query.js`. Update `docker-compose.yml` if it needs different resources.
 - **Changing agent tool/permission config:** OpenClaw global config applies to all agents — per-agent tool restriction is enforced by **script deployment** (which .js files each agent gets in its workspace) and **skills directories** (each agent only sees its own skills). Edit `entrypoint.sh` for global settings, `build-templates.sh`/`setup.sh` for per-agent script deployment.
 - **Modifying the pipeline:** Update `tests/test-pipeline.js` to verify the new data flow between stages.
 - **Changing Safe wallet config:** Update `.env.example`, `docker-compose.yml`, and `agents/executor/AGENTS.md`. Never put keys in files.

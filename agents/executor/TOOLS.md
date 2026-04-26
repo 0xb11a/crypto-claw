@@ -223,7 +223,7 @@ Every successful `send-alert.js` invocation also writes an `[info] [send-alert]`
 - Slippage limits: 5% moonshot, 2% conviction/base
 - Stale order protection: reject if price drifted >10% from proposal
 
-#### Position Statuses
+### Position Statuses
 | Status | Meaning |
 |--------|---------|
 | `open` | Active, monitored by Sentinel |

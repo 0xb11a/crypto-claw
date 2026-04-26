@@ -6,7 +6,7 @@ Keep checks fast and mechanical.
 
 > **Note on `check_type` naming.** Two different tables use a `check_type` column, and they follow different conventions:
 > - `add-sentinel-log --json '{"check_type":"price",...}'` writes to `sentinel_log.check_type`, which is a free-form descriptor (bare form: `price`, `liquidity`, `wallet`, `contract`, `all`, `emergency`). Used by Observer when citing log rows.
-> - `update-heartbeat --check price_check` writes to `heartbeat_state.check_type`, which MUST match a `HEARTBEAT_CADENCES.sentinel` key (`_check`-suffixed form). Unknown keys are silently ignored by `get-overdue-checks`.
+> - `update-heartbeat --check <name>` writes to `heartbeat_state.check_type`, which MUST match a literal `HEARTBEAT_CADENCES.sentinel` key. The current keys are: `price_check`, `liquidity_check`, `wallet_check`, `smart_money_exits`, `contract_check` — note that `smart_money_exits` has no `_check` suffix. Unknown keys are silently ignored by `get-overdue-checks`.
 
 ## Every Heartbeat — Run ALL:
 
@@ -55,7 +55,7 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check wallet_check
 - If dev selling → write sell-all order, alert human
 - **If `check-wallets.js` exits non-zero or returns no JSON:** log `add-sentinel-log --json '{"check_type":"wallet","status":"error","summary":"<reason>"}'` AND `send-alert.js --type rug_warning --agent sentinel --message "wallet check failed — dev/whale activity unknown this cycle: <reason>"`.
 
-### 3b. Smart-Money Exit Signals (if positions exist)
+### 4. Smart-Money Exit Signals (if positions exist)
 Read SELL signals on tokens we currently hold, written by the activity-wallets-bg loop:
 ```bash
 node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
@@ -66,13 +66,13 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check smart_money_e
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
-| ≥ 2 distinct smart_money wallets sold a held token in last 30 min | HIGH | Alert via `send-alert.js --type sell_triggered --agent sentinel --message "Smart money exiting $TOKEN — N wallets sold in 30m, consider tightening stops"`. Do NOT auto-write a sell order — informational only. |
-| 1 smart_money sell on a held token | NOTABLE | Log to `sentinel_log` with `status:"notable"`. No Telegram alert. |
-| 0 sells | OK | Silent. |
+| ≥ 2 distinct `smart_money` wallets sold a held token in last 30 min | HIGH | Alert via `send-alert.js --type sell_triggered --agent sentinel --message "Smart-money exiting $TOKEN — N wallets sold in 30m, consider tightening stops"`. Do NOT auto-write a sell order — informational only. |
+| 1 `smart_money` sell on a held token | NOTABLE | Log to `sentinel_log` with `status:"notable"`. No Telegram alert. |
+| 0 sells | INFO | Silent. |
 
 Why no auto-sell: smart-money "sells" can be wallet-to-wallet rotations, bridges, or misclassified swaps. The dev-wallet check (Step 3) writes sell orders directly because dev selling is unambiguous. Smart-money exit clusters are a heads-up for Research / the operator to decide.
 
-### 4. Contract Check (max 2x per hour)
+### 5. Contract Check (max 2x per hour)
 ```bash
 node scripts/db-query.js get-overdue-checks --agent sentinel
 ```
@@ -89,13 +89,13 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check contract_chec
 - First run per token stores baseline snapshot (no alerts)
 - **If `check-contract.js` exits non-zero or returns no JSON:** log `add-sentinel-log --json '{"check_type":"contract","status":"error","summary":"<reason>"}'` AND `send-alert.js --type rug_warning --agent sentinel --message "contract check failed — can't detect proxy/pausable/blacklist changes: <reason>"`.
 
-### 5. Log Results
+### 6. Log Results
 ```bash
 node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"sells_executed":0,"status":"ok"}'
 ```
-Use status: `"ok"` if nothing happened, `"notable"` if Tier 2 events occurred, `"alert"` if sell orders were written.
+Use status: `"ok"` if nothing happened or sell orders were written cleanly, `"notable"` if Tier 2 events occurred (price >20% drop without sell, liquidity 15-30%, tax >5%, mintable), `"error"` if a check crashed (see AGENTS.md § Error Self-Reporting). Do not use values outside this set — Observer correlates on these literals.
 
-### 6. Summary Decision (ONLY after logging)
+### 7. Summary Decision (ONLY after logging)
 Decide whether to send a periodic summary. Do NOT send alerts for quiet heartbeats.
 
 1. **Did you write sell orders this cycle?** → Immediate `sell_triggered` alert already sent in the skill. Done.
@@ -118,7 +118,6 @@ node scripts/send-alert.js --type heartbeat_summary --agent sentinel --message "
 ## Rules
 - Run ALL checks every heartbeat, not just one
 - Never skip a check to save tokens — your whole job is checking
-- **Only use `node scripts/db-query.js` for database access. Never use `sqlite3` or any other database tool.**
 - **Run `echo "PAPER_MODE=${PAPER_MODE:-false}"` at the start of every heartbeat.** Read the output. Use `get-paper-positions` if `true`, `get-positions` if `false`/unset. Reference this for every command in the cycle.
 - If no open positions in DB → reply HEARTBEAT_OK immediately
 - Keep total response under 500 tokens when nothing is wrong

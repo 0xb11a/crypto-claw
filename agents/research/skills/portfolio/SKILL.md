@@ -44,12 +44,12 @@ Before sizing, run `get-chain-config --chain <CHAIN>` and read `tiersEnabled`. O
 
 | Tier | Target (all tiers) | Target (no base tier) | Range |
 |------|--------------------|-----------------------|-------|
-| Conviction | 30% | 35% | 25-40% |
-| Moonshot | 25% | 30% | 20-35% |
-| Base | 25% | — | 20-30% |
-| Cash | 15% | 30% | 10-35% |
+| Conviction | 30% | 35% | 25–30% |
+| Moonshot | 25% | 30% | 20–30% |
+| Base | 25% | — | 20–30% |
+| Cash | 15% | 30% | ≥ chain `minCashReserve` |
 
-All allocation percentages are per-chain. If `tiersEnabled` doesn't include the proposed tier, reject the trade.
+All allocation percentages are per-chain. Tier ranges are bounded above by the chain's `maxMoonshotAllocation` / `maxConvictionPosition` × position-count caps from `get-chain-config` — never propose past those. If `tiersEnabled` doesn't include the proposed tier, reject the trade.
 
 ## Entry Strategy — Scale In, Never Ape
 
@@ -62,47 +62,16 @@ All allocation percentages are per-chain. If `tiersEnabled` doesn't include the 
 ## Exit Strategy
 
 ### Moonshot Take-Profit & Stop-Loss
-| Level | Target | Sell % | Purpose |
-|-------|--------|--------|---------|
-| TP1 | 2x | 50% | Recover entire initial capital |
-| TP2 | 4x | 25% | Lock meaningful profit |
-| TP3 | 8x | 15% | Capture outsized move |
-| Moonbag | — | 10% | Free ride, no stop-loss |
-| **SL** | **-45%** | sell all | Wide enough for volatility |
-| **Time Stop** | **5 days** | sell all | Dead moonshots don't recover |
-
-After TP1 → move SL to breakeven. After TP2 → activate 30% trailing stop.
+See AGENTS.md § Moonshot Take-Profit & Stop-Loss for the canonical table (TP1 2x/50%, TP2 4x/25%, TP3 8x/15%, moonbag 10%, SL -45%, time stop 5d). After TP1 → move SL to breakeven. After TP2 → activate 30% trailing stop.
 
 ### Conviction Take-Profit & Stop-Loss
-| Level | Target | Sell % | Purpose |
-|-------|--------|--------|---------|
-| TP1 | 1.5x | 35% | First profit at strong outcome |
-| TP2 | 2.5x | 35% | Lock majority of profit |
-| TP3 | 4x | 20% | Bull market gains |
-| Moonbag | — | 10% | Long-term hold |
-| **SL** | **-25%** | sell all | Thesis broken |
-| **Time Stop** | **10 days** | reassess | Check thesis before cutting |
-
-After TP1 → move SL to breakeven. After TP2 → activate 20% trailing stop.
+See AGENTS.md § Conviction Take-Profit & Stop-Loss for the canonical table (TP1 1.5x/35%, TP2 2.5x/35%, TP3 4x/20%, moonbag 10%, SL -25%, time stop 10d reassess). After TP1 → move SL to breakeven. After TP2 → activate 20% trailing stop.
 
 ### Base Tier (Rebalancing, NOT TP/SL)
-
-Use `maxBasePosition` from `get-chain-config --chain <CHAIN>` as the cap.
-
-| Trigger | Action |
-|---------|--------|
-| Position exceeds `maxBasePosition` | Sell excess to `maxBasePosition` − 5% target |
-| Position below `maxBasePosition / 2` | Buy up to `maxBasePosition` − 10% target |
-| Drops -25% from peak | Alert human |
-| Rises +40% from entry | Sell 15% to cash |
+See `AGENTS.md § Base Tier Rebalancing` for the canonical trigger/action table. Use `maxBasePosition` from `get-chain-config --chain <CHAIN>` as the cap.
 
 ### Regime Exit Adjustments (apply at order creation)
-| Parameter | Bullish | Neutral | Bearish | Crisis |
-|-----------|---------|---------|---------|--------|
-| TP target multiplier | 1.2x | 1.0x | 0.8x | 0.6x |
-| SL tighten % | 0% | 0% | 10% | 20% |
-| Sell % adjustment | -10% | 0% | +5% | +10% |
-| Time stop days | +2 | 0 | -1 | -2 |
+See `AGENTS.md § Regime Exit Adjustments` for the multiplier table. Apply at order creation; existing positions keep their stored levels.
 
 ### Immediate Exit Triggers
 - Sentinel alerts: rug warning, liquidity drain
@@ -187,7 +156,7 @@ node scripts/db-query.js add-order --json '{
   "tier": "moonshot",
   "entry_price": 0.001,
   "stop_loss": 0.0005,
-  "take_profit_levels": "[{\"level\":1,\"price\":0.002,\"sellPercent\":50}]",
+  "take_profit_levels": [{"level":1,"price":0.002,"sellPercent":50}],
   "analysis_score": 76,
   "risk_score": 20,
   "reasoning": "..."
@@ -221,17 +190,7 @@ Before sizing any position, read the current market regime:
 node scripts/db-query.js get-meta --key market_regime
 ```
 
-Apply regime-adjusted limits using `min(chainRule, regimeLimit)` for maximums and `max(chainRule, regimeLimit)` for minimums:
-
-| Parameter | Bullish/Neutral | Bearish | Crisis |
-|-----------|----------------|---------|--------|
-| Min cash reserve | (chain default) | 25% | 40% |
-| Base tier buying | Enabled | **Paused** | **Paused** |
-| Max moonshot position | (chain default) | 3% | 0% (no new) |
-| Max conviction position | (chain default) | 7% | 5% |
-| Max base position | (chain default) | 30% | 30% |
-| Max moonshot allocation | (chain default) | 20% | 10% |
-| Min buy score | 50 | 65 | 80 |
+Apply regime-adjusted limits using `min(chainRule, regimeLimit)` for maximums and `max(chainRule, regimeLimit)` for minimums. See `AGENTS.md § Market Regime Adjustments` for the full parameter table.
 
 - In `bearish` or `crisis`: skip base tier rebalance buys entirely
 - In `crisis`: reject all new moonshot positions (max = 0%)
@@ -239,11 +198,14 @@ Apply regime-adjusted limits using `min(chainRule, regimeLimit)` for maximums an
 
 ## Rules
 - NEVER execute trades directly — the Executor agent handles all wallet operations
-- NEVER exceed chain-specific position limits (from `getPortfolioRules(chain)`) — regime may lower these further
+- NEVER exceed chain-specific position limits (read `rules` from `get-chain-config --chain <CHAIN>`) — regime may lower these further
 - NEVER let cash drop below regime-adjusted minimum (chain `minCashReserve` bullish/neutral, 25% bearish, 40% crisis)
-- Minimum risk:reward ratio of 3:1
+- Minimum reward:risk ratio: enforce per `AGENTS.md § Per-Trade Hard Floor — Reward:Risk Ratio` (3:1, applies to all tiers in all regimes).
 - Log every decision to daily memory
-- The best trade is sometimes NO trade
+- Prefer no trade over a marginal one — if both the analysis score and the risk verdict land in borderline territory (analysis 50–55, risk 40–50), log to watchlist and move on instead of proposing
+
+## Promotion
+If a portfolio pattern (e.g., a regime-specific outcome, recurring rebalance trigger, or sizing decision that consistently helps or hurts P&L) recurs 3+ times across daily logs, promote it to `MEMORY.md` using the template in `AGENTS.md § MEMORY.md Updates`.
 
 ## Error Handling
 Per AGENTS.md § Error Self-Reporting:

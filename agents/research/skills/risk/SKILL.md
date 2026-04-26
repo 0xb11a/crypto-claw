@@ -95,7 +95,7 @@ If ANY of these are true → immediate REJECT, no exceptions:
 5. Known scam deployer address
 6. Owner can pause transfers
 
-### Step 3.5: Market Regime Risk Modifier
+### Step 4: Regime Risk-Score Penalty
 Read the current market regime: `node scripts/db-query.js get-meta --key market_regime`
 
 Apply regime-based risk score adjustments (base tier tokens are exempt — their buying is gated separately in the heartbeat):
@@ -110,7 +110,7 @@ Add the modifier to the overall risk score calculated in Step 2. This makes it h
 
 In `crisis` regime: if tier is `moonshot`, auto-reject (max position = 0%).
 
-### Step 4: Portfolio-Level Checks
+### Step 5: Portfolio-Level Checks
 Check `PAPER_MODE` env var. Use `get-paper-portfolio --chain <chain>` / `get-paper-positions` if paper mode, otherwise `get-portfolio --chain <chain>` / `get-positions`.
 
 Read the target chain's portfolio rules via `get-chain-config --chain <CHAIN>`. All checks below use the chain-specific limits, not global defaults.
@@ -122,7 +122,7 @@ Read the target chain's portfolio rules via `get-chain-config --chain <CHAIN>`. 
 - Is the proposed tier in the chain's `tiersEnabled`? If not, reject.
 - **For base tier:** Simplified risk check — established assets skip contract/social/narrative risk scoring. Focus on portfolio allocation limits and entry timing (reject if price >20% above 7-day average).
 
-### Step 5: Verdict & Position Sizing
+### Step 6: Verdict & Position Sizing
 
 Load the chain's `rules` from `get-chain-config --chain <CHAIN>` and use `maxMoonshotPosition` / `maxConvictionPosition` as the tier cap for that chain.
 
@@ -137,7 +137,7 @@ Cap `maxPositionPercent` at the regime-adjusted limit for the token's tier:
 - Moonshot: `min(maxPositionPercent, regimeMaxMoonshot)` — chain `maxMoonshotPosition` bullish/neutral, 3% bearish, 0% crisis
 - Conviction: `min(maxPositionPercent, regimeMaxConviction)` — chain `maxConvictionPosition` bullish/neutral, 7% bearish, 5% crisis
 
-### Step 6: Output
+### Step 7: Output
 ```json
 {
   "tokenAddress": "string",
@@ -159,10 +159,13 @@ Cap `maxPositionPercent` at the regime-adjusted limit for the token's tier:
 }
 ```
 
-### Step 7: Log & Handoff
+### Step 8: Log & Handoff
 - Write to `memory/YYYY-MM-DD.md` with `[RISK]` tag
 - If verdict is not reject → pass to portfolio skill for trade proposal
 - If verdict is reject → cache the rejection and end:
   ```bash
   node scripts/db-query.js cache-analysis --json '{"address":"<TOKEN_ADDRESS>","chain":"<CHAIN>","symbol":"<SYMBOL>","analysis_score":<ANALYSIS_SCORE>,"risk_score":<RISK_SCORE>,"verdict":"risk_rejected","reasoning":"<REASON>"}'
   ```
+
+## Promotion
+If a risk pattern (e.g., a recurring red-flag combination, deployer signature, or contract behavior that consistently precedes losses) recurs 3+ times across daily logs, promote it to `MEMORY.md` using the template in `AGENTS.md § MEMORY.md Updates`.

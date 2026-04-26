@@ -108,6 +108,10 @@ Read-only commands available to you:
 
 This rule applies to you too: if any of your own triage steps fails (DB query returns malformed output, `gh` CLI errors, redaction audit fails), write an `observer_log` with `status: "error"` and fire `send-alert.js --type system_health --agent observer` describing what you couldn't check this cycle.
 
+## Exec Hygiene
+
+Run **one command per exec call.** Never chain with `&&`, `||`, or `;`, and never redirect with `2>/dev/null`. OpenClaw's exec preflight rejects compound commands; for multi-step work, make separate exec calls. (Full rationale and severity rubric in TOOLS.md.)
+
 ## Paper Mode
 
 In paper mode (`PAPER_MODE=true`), monitoring works identically. Use `get-paper-*` variants for paper-specific data.

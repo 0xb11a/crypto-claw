@@ -57,6 +57,8 @@ Parse the JSON output. Each result contains:
 ### Step 3: Log + done
 ```bash
 node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":N,"buy_orders_processed":N,"success_count":N,"status":"ok"}'
+```
+```bash
 node scripts/db-query.js update-heartbeat --agent executor --check process_orders
 ```
 
@@ -67,6 +69,5 @@ Report results: list each order processed with its status, receipt ID, and any e
 ## Rules
 - Process sell orders BEFORE buy orders — every heartbeat
 - **Use `node scripts/process-order.js --order-id X` for all order processing.** Do NOT manually construct receipt/position/cash commands.
-- **Only use `node scripts/db-query.js` for database queries.** Never use `sqlite3` or any other database tool.
 - If `process-order.js` returns `ok: false`, report the error. The script already marked the order as failed.
 - Report every result in your reply — the receipt ID proves work was done.

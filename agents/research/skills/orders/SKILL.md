@@ -20,28 +20,50 @@ Give humans full control over trade orders via chat. List pending orders, approv
 
 ## Commands Reference
 
+Run one command per exec call. Pick the variant that matches the human's request.
+
+List pending buys awaiting approval:
 ```bash
-# List pending orders (buys awaiting approval + approved awaiting execution)
 node scripts/db-query.js get-orders --pending --action buy
+```
+
+List pending sells awaiting execution:
+```bash
 node scripts/db-query.js get-orders --pending --action sell
+```
 
-# Single order detail
+Single order detail:
+```bash
 node scripts/db-query.js get-order --id <id>
+```
 
-# Approve a pending buy order
+Approve a pending buy order:
+```bash
 node scripts/db-query.js approve-order --id <id> --by human
+```
 
-# Reject a pending order (never approved — bad idea)
+Reject a pending order (never approved — bad idea):
+```bash
 node scripts/db-query.js reject-order --id <id> --reason "<reason>" --by human
+```
 
-# Cancel an approved or failed order (was approved, changed mind)
+Cancel an approved or failed order (was approved, changed mind):
+```bash
 node scripts/db-query.js cancel-order --id <id> --reason "<reason>" --by human
+```
 
-# Retry a failed sell order (re-queue for execution)
+Retry a failed sell order (re-queue for execution):
+```bash
 node scripts/db-query.js retry-order --id <id> --by human
+```
 
-# Order history (all statuses)
+Order history (all statuses):
+```bash
 node scripts/db-query.js get-order-history --limit 20
+```
+
+Order history filtered by status:
+```bash
 node scripts/db-query.js get-order-history --status rejected --limit 10
 ```
 

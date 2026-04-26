@@ -85,7 +85,7 @@ node scripts/check-wallets.js --positions
 | Dev wallet selling ANY amount | HIGH | Write sell-all order + alert Research |
 | Whale selling >3% of supply | HIGH | Write sell-50% order + alert Research |
 | Multiple early buyers exiting | MEDIUM | Alert Research |
-| Smart money accumulating | INFO | Log as positive signal |
+| Smart-money accumulating | INFO | Log as positive signal |
 
 ### Smart-Money Exit Signals (consume bg signal table)
 ```bash
@@ -94,18 +94,21 @@ node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tok
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
-| ≥2 distinct smart_money wallets sold a held token in 30 min | HIGH | `send-alert.js --type sell_triggered --agent sentinel --message "Smart money exiting $TOKEN — N wallets sold in 30m, consider tightening stops"`. Informational — do NOT auto-write a sell order. |
-| 1 smart_money sell on a held token | NOTABLE | Log to sentinel_log with status:"notable". No Telegram. |
-| 0 sells | OK | Silent. |
+| ≥2 distinct `smart_money` wallets sold a held token in 30 min | HIGH | `send-alert.js --type sell_triggered --agent sentinel --message "Smart-money exiting $TOKEN — N wallets sold in 30m, consider tightening stops"`. Informational — do NOT auto-write a sell order. |
+| 1 `smart_money` sell on a held token | NOTABLE | Log to sentinel_log with status:"notable". No Telegram. |
+| 0 sells | INFO | Silent. |
 
 Why no auto-sell: smart-money "sells" can be wallet-to-wallet rotations or bridges misclassified as swaps. Dev/whale direct polling above writes sell orders because dev selling is unambiguous; smart-money exit clusters are a heads-up for Research/operator to act on.
 
 ### Contract Monitoring
-```bash
-# Scan all open positions for contract changes (heartbeat usage)
-node scripts/check-contract.js --changes
 
-# Scan a specific token
+Scan all open positions for contract changes (heartbeat usage):
+```bash
+node scripts/check-contract.js --changes
+```
+
+Scan a specific token:
+```bash
 node scripts/check-contract.js --changes --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```
 
@@ -192,6 +195,19 @@ The Executor agent polls for approved orders every heartbeat and executes them t
 
 ## Error Handling
 Per AGENTS.md § Error Self-Reporting: every tool crash must produce both a sentinel_log row (`status: "error"`) and a Telegram alert via `send-alert.js` — the "quiet heartbeat" exception never applies to failed checks. If `add-alert` or `add-order` itself fails, escalate with the strongest alert (`sell_triggered` for failed sell-writes, `rug_warning` for failed monitoring) — capital is unprotected until the operator intervenes.
+
+## Promotion
+If an exit pattern (e.g., a recurring rug signature, LP-drain precursor, or false-alarm condition) recurs 3+ times across daily logs, promote it to the shared `MEMORY.md` using this template:
+
+```markdown
+### [Pattern Name] (confidence: X%, seen: N times)
+- Signal: what triggers this pattern
+- Action: what to do
+- Last seen: YYYY-MM-DD
+- Record: W wins / L losses
+```
+
+`MEMORY.md` is symlinked across all four agents.
 
 ## Paper Mode
 

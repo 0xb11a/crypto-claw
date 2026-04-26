@@ -1,3 +1,13 @@
+---
+name: triage
+description: Analyze system logs and DB error data, classify problems, and take action — GitHub issue for code bugs, Telegram alert for operational issues, skip noise
+triggers:
+  - observer triage
+  - run triage
+  - triage errors
+  - check system health
+---
+
 # SKILL.md — Triage Skill
 
 ## Purpose
@@ -63,7 +73,7 @@ node scripts/db-query.js get-meta --key last_score_wallets_bg_at
 node scripts/db-query.js get-smart-money-signals --since 2h --limit 1
 ```
 
-### Step 1b: Check Signer Balances
+### Step 2: Check Signer Balances
 
 ```bash
 node scripts/check-signer-balances.js
@@ -77,7 +87,7 @@ node scripts/send-alert.js --type signer_low_balance --agent observer --message 
 
 This is always an operational issue (not a code bug). Do not create a GitHub issue for it.
 
-### Step 2: Classify Each Problem
+### Step 3: Classify Each Problem
 
 For each error or failure found, run through the full signal catalogue below and decide what to do. The goal is to catch every category of suspicious behavior — not just tx failures.
 
@@ -98,7 +108,7 @@ For each error or failure found, run through the full signal catalogue below and
 6. Silent signal regression: `get-smart-money-signals --since 2h` returns `[]` AND `last_activity_wallets_bg_at` is fresh (loop running but producing zero swaps — possible upstream API regression). Skip if Step B.5 already fired on `last_activity_wallets_bg_at`. Use `system_health`.
 7. Model failure / emergency mode activation.
 8. Configuration drift (env var missing, wrong model, OpenClaw version regression).
-9. Signer balance below threshold (Step 1b already handles this).
+9. Signer balance below threshold (Step 2 already handles this).
 
 **C. Transient noise (→ Skip)**
 - Single 429 that self-resolved.
@@ -108,9 +118,9 @@ For each error or failure found, run through the full signal catalogue below and
 **D. Redaction failure** (→ Stop, do NOT file — log + alert)
 - If any log row or receipt you're about to include in an issue still contains an unredacted address/key/hash after the create-gh-issue skill's redaction audit, STOP. Write `observer_log` with `status: "error"` and `send-alert.js --type system_health` describing the redaction failure. Fixing the leak takes priority over reporting the original bug.
 
-### Step 3: Create Issues (max 3 per cycle)
+### Step 4: Create Issues (max 3 per cycle)
 
-For each code bug identified in Step 2, use the **create-gh-issue** skill. That skill handles duplicate checking automatically — it fetches all open issues and compares before creating.
+For each code bug identified in Step 3, use the **create-gh-issue** skill. That skill handles duplicate checking automatically — it fetches all open issues and compares before creating.
 
 Provide the skill with:
 - **Title** — prefixed with `fix: `, concise description of the problem
@@ -136,6 +146,19 @@ node scripts/db-query.js add-observer-log --json '{"errors_analyzed": <N>, "issu
 ```bash
 node scripts/db-query.js update-heartbeat --agent observer --check triage
 ```
+
+## Promotion
+If a failure mode (e.g., a recurring API error, retry-exhaustion signature, or systemic timeout pattern) recurs 3+ times across daily logs, promote it to `MEMORY.md` using this template:
+
+```markdown
+### [Pattern Name] (confidence: X%, seen: N times)
+- Signal: what triggers this pattern
+- Action: what to do
+- Last seen: YYYY-MM-DD
+- Record: W wins / L losses
+```
+
+Observer writes to the same `MEMORY.md` as Research — the workspace is symlinked across agents.
 
 ## Examples
 
