@@ -1,4 +1,4 @@
-FROM ghcr.io/openclaw/openclaw:2026.4.12
+FROM ghcr.io/openclaw/openclaw:2026.4.24
 
 # Install jq (agents use it to parse JSON script output) and gh (GitHub CLI for Observer agent)
 USER root
@@ -13,6 +13,12 @@ RUN apt-get update -qq && apt-get install -y -qq jq > /dev/null 2>&1 && rm -rf /
 RUN npm install -g node-llama-cpp@3.18.1 --cache /tmp/npm-cache && \
     ln -s "$(npm root -g)/node-llama-cpp" /app/node_modules/node-llama-cpp && \
     rm -rf /tmp/npm-cache
+
+# OpenClaw 2026.4.24+ spawns `npx @zed-industries/codex-acp@^0.11.1` for its
+# embedded ACP runtime probe. `npx <pkg>@<version>` always re-validates against
+# the registry (it ignores globally installed versions), so pre-installing
+# globally doesn't help. The fix lives in docker-compose.yml: NPM_CONFIG_CACHE
+# is redirected to /tmp/npm-cache (writable tmpfs) so the cache writes succeed.
 
 # Workaround: /home/node is read-only at runtime. Pre-create dirs that tools need:
 # - QQBot plugin crashes without its data dir (even when unconfigured)

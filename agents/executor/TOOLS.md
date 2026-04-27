@@ -41,16 +41,9 @@ node scripts/db-query.js set-meta --key my_key --value my_value
 ```
 
 ### Positions (Human Interaction Only)
-**Not used during the heartbeat.** Position lifecycle is owned by `process-order.js`, which handles validation, execution, receipts, positions, and cash atomically. The commands below exist so you can answer ad-hoc human questions ("what positions are open?", "close this one manually") — never call them as part of autonomous order processing.
-```bash
-node scripts/db-query.js get-positions
-node scripts/db-query.js get-positions --status open
-node scripts/db-query.js get-positions --symbol TOKEN
-node scripts/db-query.js add-position --json '{"id":"pos-001","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","tier":"moonshot","entry_price":0.001,"quantity":10000,"stop_loss":0.0005,"take_profit_levels":[{"level":1,"price":0.002,"sellPercent":50}]}'
-node scripts/db-query.js update-position --id pos-001 --json '{"current_price": 0.0015}'
-node scripts/db-query.js close-position --id pos-001 --json '{"exit_price": 0.002, "exit_reason": "stop_loss"}'
-node scripts/db-query.js close-position --id pos-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "take_profit_partial"}'
-```
+**Not used during the heartbeat.** Position lifecycle is owned by `process-order.js` — validation, execution, receipts, positions, and cash all run atomically there. The commands below exist for ad-hoc human queries; never call them as part of autonomous order processing.
+- Read: `db-query.js get-positions [--status open] [--symbol TOKEN]`.
+- Mutate (human only): `add-position`, `update-position --id <ID> --json '{current_price,…}'`, `close-position --id <ID> [--quantity <N>] --json '{exit_price, exit_reason}'`. Position schema: `{id, symbol, address, chain, tier, entry_price, quantity, stop_loss, take_profit_levels:[{level,price,sellPercent}]}`.
 
 ### Order Processing (Atomic)
 ```bash
@@ -74,10 +67,8 @@ node scripts/db-query.js mark-order-executed --id trade-001 --status failed --re
 ```
 
 ### Receipts
-```bash
-node scripts/db-query.js get-receipts --limit 10
-node scripts/db-query.js add-receipt --json '{"id":"rcpt-001","order_id":"trade-001","action":"buy","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","status":"executed","safe_tx_hash":"0x...","onchain_tx_hash":"0x...","executed_price":0.00098,"slippage":0.02}'
-```
+- `db-query.js get-receipts [--limit N]`.
+- `db-query.js add-receipt --json '<Receipt>'` — schema: `{id, order_id, action, symbol, address, chain, status, safe_tx_hash?, onchain_tx_hash?, executed_price, slippage}`.
 
 ### Heartbeat & Logs
 ```bash
@@ -103,15 +94,11 @@ node scripts/db-query.js get-paper-stats
 ```
 
 **Mutations (human interaction only — never during heartbeat):**
-```bash
-node scripts/db-query.js set-paper-cash --chain <CHAIN> --amount 10000
-# add-paper-position: same fields as add-position + value_usd. Auto-deducts from paper_cash, auto-calculates quantity.
-node scripts/db-query.js add-paper-position --json '{"id":"pp-001","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","tier":"moonshot","entry_price":0.001,"value_usd":10,"stop_loss":0.0005,"take_profit_levels":[{"level":1,"price":0.002,"sellPercent":50}]}'
-node scripts/db-query.js update-paper-position --id pp-001 --json '{"current_price": 0.0015, "value_usd": 15}'
-node scripts/db-query.js close-paper-position --id pp-001 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
-node scripts/db-query.js close-paper-position --id pp-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
-node scripts/db-query.js add-paper-receipt --json '{"id":"pt-001","order_id":"trade-001","action":"buy","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","tier":"moonshot","proposed_price":0.001,"quantity":10000,"amount":500}'
-```
+- `set-paper-cash --chain <CHAIN> --amount <N>`.
+- `add-paper-position --json '<Position+value_usd>'` — auto-deducts from `paper_cash`, auto-computes `quantity`.
+- `update-paper-position --id <ID> --json '{current_price, value_usd?}'`.
+- `close-paper-position --id <ID> [--quantity <N>] --json '{exit_price, exit_reason}'` — auto-credits sale proceeds to `paper_cash`.
+- `add-paper-receipt --json '<Receipt+tier+proposed_price+quantity+amount>'`.
 
 ### Portfolio Sync (On-Chain — Real Mode Only)
 ```bash

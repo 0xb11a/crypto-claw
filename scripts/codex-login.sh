@@ -3,7 +3,7 @@
 # codex-login.sh — Authenticate with OpenAI Codex OAuth
 #
 # Uses OpenClaw's native openai-codex provider (ChatGPT subscription).
-# This enables flat-fee GPT-5.4/GPT-5.4-mini access (no per-token billing).
+# This enables flat-fee GPT-5.5 / GPT-5.4 / GPT-5.4-mini access (no per-token billing).
 #
 # Usage:
 #   docker compose exec crypto-claw bash /home/openclaw/crypto-claw/scripts/codex-login.sh

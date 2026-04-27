@@ -45,25 +45,19 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 6. Run ALL overdue quick checks, in the order they appear in the table (highest-cadence first). After each, update its timestamp:
    `node scripts/db-query.js update-heartbeat --agent research --check <check_type>`
 7. Run the SINGLE most-overdue pipeline check (if any pipeline check is overdue). **Run the FULL pipeline autonomously: discovery → analysis → risk → trade proposal.** Do not stop after scanning. You decide what to buy — that is your job. Update its timestamp after completion.
-8. **Reply with a work summary** (required whenever at least one check ran). This is your final message and it will be delivered to chat. List every check that ran this cycle. Format:
+8. **Reply with a work summary** (required whenever at least one check ran). This is your final message and is delivered to chat. List every check that ran this cycle. Format:
    ```
    **Research Heartbeat** — <check_1>, <check_2>, ..., <check_N>
    - <check_1>: <one-line result>
    - <check_2>: <one-line result>
-   - ...
    Scanned: <N> | Analyzed: <N> | Proposed: <N>
    ```
-   Examples:
+   Example:
    - **Research Heartbeat** — sentinel_alerts, market_regime, token_scan
      - sentinel_alerts: No unprocessed alerts
      - market_regime: Unchanged (neutral)
      - token_scan: Scanned 30 trending on base+solana, analyzed 2 (AERO, VIRTUAL). Proposed 1 BUY (AERO moonshot)
      Scanned: 30 | Analyzed: 2 | Proposed: 1
-   - **Research Heartbeat** — sentinel_alerts, smart_money_signals, watchlist_check
-     - sentinel_alerts: 1 alert processed (LP drop on $TOKEN)
-     - smart_money_signals: No conviction signals (need ≥2 distinct wallets per token)
-     - watchlist_check: 0 tokens hit target entry
-     Scanned: 0 | Analyzed: 0 | Proposed: 0
 9. **REQUIRED — Log to database** (one entry PER check that ran — do NOT skip this step):
    ```bash
    node scripts/db-query.js add-research-log --json '{"check_type":"<CHECK>","tokens_scanned":<N>,"tokens_analyzed":<N>,"trades_proposed":<N>,"alerts_processed":<N>,"watchlist_hits":<N>,"summary":"<one-line summary>","status":"ok"}'
@@ -87,18 +81,13 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 - **For each promising token: immediately run the full pipeline** (analysis → risk → trade proposal). Do NOT stop after scanning — proceed through every stage until you either propose a trade or reject the token. This is autonomous operation.
 
 ### Smart-Money Signals (quick)
-- Read aggregated BUY signals from the `smart_money` signal table:
+- Read aggregated BUY signals (≥2 distinct `smart_money` wallets in last 35 min):
   ```bash
   node scripts/db-query.js get-smart-money-signals --since 35m --action buy --group-by token --min-wallets 2
   ```
-- Each row is a token where ≥2 distinct `smart_money` wallets bought in the last 35 min — a conviction signal worth investigating.
-- For each token returned, run dedup (`check-token-status`) then full pipeline (analysis → risk → trade proposal). Treat these like high-urgency discoveries
-- The signal table is populated by `scripts/activity-wallets-bg.js` (background loop, every 30 min, 24 h retention). You don't run that script — you only consume its output
-- For deployer wallets from check-contract.js, propose manually:
-  `node scripts/db-query.js propose-wallet --json '{"address":"<ADDR>","chain":"<CHAIN>","label":"<LABEL>","source_token":"<TOKEN_ADDR>"}'`
-- Background scorer (`score-wallets-bg.js`) runs every 10 min (batch size 10, 3s delay) — wallets scoring 55+ auto-classified as `whale` / `smart_money`. Self-seeds Birdeye top 100 gainers per chain every 60 min.
-- For urgent wallets (multi-token overlap), score inline: `node scripts/score-wallet.js --address <ADDR> --chain <CHAIN> --add`
-- Ad-hoc wallet inspection (still available, used outside heartbeat path): `node scripts/check-wallets.js --type smart_money --chain <CHAIN>`
+- For each token returned, run dedup via `check-token-status`, then the full pipeline (analysis → risk → trade proposal). Treat as high-urgency discoveries.
+- For deployer wallets surfaced by `check-contract.js`, call `propose-wallet` (see TOOLS.md). For urgent multi-token wallets, score inline: `node scripts/score-wallet.js --address <ADDR> --chain <CHAIN> --add`.
+- Background scoring (`score-wallets-bg.js`, 10 min) and signal production (`activity-wallets-bg.js`, 30 min, 24 h retention) run autonomously — heartbeat only consumes. See CLAUDE.md § Wallet Pipeline for the full flow.
 
 ### Conviction Token Scan (pipeline)
 - Run `node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30`

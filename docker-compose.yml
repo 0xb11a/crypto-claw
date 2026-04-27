@@ -19,7 +19,12 @@ services:
     #   tmpfs  — ephemeral (repopulated by entrypoint.sh each start)
     #   volumes — persistent (survive restarts and redeploys)
     tmpfs:
-      - /tmp:size=100M
+      # /tmp must be exec-allowed: npm/npx extracts package tarballs here
+      # (NPM_CONFIG_CACHE=/tmp/npm-cache) and runs binary scripts from them —
+      # OpenClaw 2026.4.24+ spawns `npx @zed-industries/codex-acp` whose entry
+      # is a #!/usr/bin/env node script under /tmp/npm-cache/_npx/<hash>/.
+      # 100M is too small for codex-acp's transitive deps; 500M leaves margin.
+      - /tmp:size=500M,exec
       # Sentinel/executor workspaces are tmpfs (repopulated from templates each start)
       # exec required: better-sqlite3 native bindings need mmap from node_modules
       - /home/openclaw/.openclaw/agents/sentinel/workspace:size=50M,uid=1000,gid=1000,exec
@@ -131,10 +136,10 @@ services:
       - OPENCLAW_GATEWAY_PORT=${OPENCLAW_GATEWAY_PORT:-18789}
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
       - OPENCLAW_GATEWAY_BIND=${OPENCLAW_GATEWAY_BIND:-lan}
-      - RESEARCH_MODEL=${RESEARCH_MODEL:-openai-codex/gpt-5.4}
-      - SENTINEL_MODEL=${SENTINEL_MODEL:-openai-codex/gpt-5.4}
-      - EXECUTOR_MODEL=${EXECUTOR_MODEL:-openai-codex/gpt-5.4}
-      - OBSERVER_MODEL=${OBSERVER_MODEL:-openai-codex/gpt-5.4}
+      - RESEARCH_MODEL=${RESEARCH_MODEL:-openai-codex/gpt-5.5}
+      - SENTINEL_MODEL=${SENTINEL_MODEL:-openai-codex/gpt-5.5}
+      - EXECUTOR_MODEL=${EXECUTOR_MODEL:-openai-codex/gpt-5.5}
+      - OBSERVER_MODEL=${OBSERVER_MODEL:-openai-codex/gpt-5.5}
 
       # Agent resilience (entrypoint.sh fallback/emergency)
       - SENTINEL_MODEL_FALLBACK=${SENTINEL_MODEL_FALLBACK:-claude-haiku-4-5-20251001}
@@ -146,6 +151,19 @@ services:
       - NODE_OPTIONS=--max-old-space-size=6144
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - OPENCLAW_LOG_STYLE=${OPENCLAW_LOG_STYLE:-pretty}
+
+      # OpenClaw 2026.4.24+ spawns `npx @zed-industries/codex-acp@^0.11.1` for
+      # its embedded ACP runtime probe. With read_only:true, the default npm
+      # cache (/home/node/.npm) is unwritable → EROFS. Redirect npm cache to
+      # /tmp (writable tmpfs, 100MB — declared above).
+      - NPM_CONFIG_CACHE=/tmp/npm-cache
+
+      # Disable mDNS/Bonjour gateway advertisement. The Docker bridge network
+      # doesn't support full mDNS, so probing hangs ~25s, the advertiser
+      # cancels, and CIAO emits an unhandled "PROBING CANCELLED" rejection
+      # that crashes the gateway. CryptoClaw uses a fixed Caddy reverse proxy
+      # at $SERVER_IP — no service discovery needed.
+      - OPENCLAW_DISABLE_BONJOUR=1
 
     networks:
       - crypto-claw-net

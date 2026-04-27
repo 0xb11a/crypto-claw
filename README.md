@@ -21,7 +21,7 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
    | * Risk          |       |       | * Wallet track  |
    | * Portfolio     |       |       | * Auto-sells    |
    |                 |       |       |                 |
-   | GPT-5.4         |       |       | GPT-5.4         |
+   | GPT-5.5         |       |       | GPT-5.5         |
    |                 |       |       |   (10m)         |
    |   (30m)         |       |       |                 |
    +------+----------+       |       +-------+---------+
@@ -40,7 +40,7 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
                    | * Sign         |
                    | * Submit       |
                    |                |
-                   | GPT-5.4        |
+                   | GPT-5.5        |
                    |    (1m)        |
                    +------+---------+
                           |
@@ -57,7 +57,7 @@ CryptoClaw turns OpenClaw into an autonomous crypto trading assistant. One agent
    | * GitHub issues |
    | * Telegram alerts|
    |                 |
-   | GPT-5.4         |
+   | GPT-5.5         |
    |   (60m)         |
    +-----------------+
      (reads DB + logs,
@@ -108,7 +108,7 @@ flowchart TD
 
 | | Research | Sentinel | Executor | Observer |
 |---|---|---|---|---|
-| **Model** | GPT-5.4 | GPT-5.4 | GPT-5.4 | GPT-5.4 |
+| **Model** | GPT-5.5 | GPT-5.5 | GPT-5.5 | GPT-5.5 |
 | **Heartbeat** | 30 min | 15 min | 1 min | 120 min |
 | **Reads** | positions, receipts, portfolio_meta, analysis_cache, tracked_wallets | positions/paper_positions, liquidity_snapshots, tracked_wallets | orders | receipts, orders, executor_log, sentinel_log, positions |
 | **Writes** | orders, trades, watchlist, tracked_wallets, analysis_cache, sentinel_alerts | orders, sentinel_alerts, liquidity_snapshots, sentinel_log | receipts, positions/paper_positions, executor_log, portfolio_meta | observer_log (+ GitHub issues, Telegram alerts) |
@@ -201,9 +201,9 @@ flowchart LR
 
 ## Key Design Decisions
 
-**Four agents, clear separation.** Research thinks deeply (GPT-5.4, handles all analysis/risk directly, 30m heartbeat). Sentinel reacts fast (GPT-5.4, 15m). Executor handles wallet operations (GPT-5.4, 1m). Observer monitors system health (GPT-5.4, 120m).
+**Four agents, clear separation.** Research thinks deeply (GPT-5.5, handles all analysis/risk directly, 30m heartbeat). Sentinel reacts fast (GPT-5.5, 15m). Executor handles wallet operations (GPT-5.5, 1m). Observer monitors system health (GPT-5.5, 120m).
 
-**Single model, flat fee.** All four agents run on GPT-5.4 via OpenAI Codex OAuth (ChatGPT subscription — flat fee, no per-token billing). Research handles all skills directly — no sub-agent spawning needed.
+**Single model, flat fee.** All four agents run on GPT-5.5 via OpenAI Codex OAuth (ChatGPT subscription — flat fee, no per-token billing). Research handles all skills directly — no sub-agent spawning needed.
 
 **Token deduplication.** Before running analysis, Research checks `check-token-status` against the database: open positions, pending orders, watchlist entries, and recently cached analysis results are all skipped. This prevents redundant analysis of the same trending tokens across heartbeats.
 
@@ -225,7 +225,7 @@ flowchart LR
 
 - Docker and Docker Compose (for Docker path) or OpenClaw installed locally (for manual path)
 - Node.js 22+ (manual path only)
-- ChatGPT Plus/Pro/Team subscription (GPT-5.4 via Codex OAuth) or OpenAI API key (per-token fallback)
+- ChatGPT Plus/Pro/Team subscription (GPT-5.5 via Codex OAuth) or OpenAI API key (per-token fallback)
 - A deployed Safe wallet on your target EVM chain(s) and/or Squads multisig on Solana
 - RPC endpoints for each chain (Alchemy, Infura, Helius, etc.)
 
@@ -318,11 +318,11 @@ In paper mode:
 ### Model Configuration
 
 ```bash
-# Default: All agents on GPT-5.4 via Codex OAuth (flat fee)
-RESEARCH_MODEL=openai-codex/gpt-5.4
-SENTINEL_MODEL=openai-codex/gpt-5.4
-EXECUTOR_MODEL=openai-codex/gpt-5.4
-OBSERVER_MODEL=openai-codex/gpt-5.4
+# Default: All agents on GPT-5.5 via Codex OAuth (flat fee)
+RESEARCH_MODEL=openai-codex/gpt-5.5
+SENTINEL_MODEL=openai-codex/gpt-5.5
+EXECUTOR_MODEL=openai-codex/gpt-5.5
+OBSERVER_MODEL=openai-codex/gpt-5.5
 ```
 
 ### Step 3: Configure Your Profile
@@ -771,8 +771,8 @@ node tests/test-observer.js      # Observer agent + redaction + GitHub integrati
 
 ## Cost Optimization
 
-- All four agents run on **GPT-5.4** via Codex OAuth (ChatGPT subscription — flat fee)
-- All agents use **GPT-5.4** — single model, no sub-agent overhead
+- All four agents run on **GPT-5.5** via Codex OAuth (ChatGPT subscription — flat fee)
+- All agents use **GPT-5.5** — single model, no sub-agent overhead
 - **Token dedup** prevents redundant analysis of already-analyzed tokens
 - **Background loops** (sentinel, executor) with pre-checks skip agent invocation when nothing is pending
 - **Cron jobs** (research 30m, observer 60m) with overlap guards prevent concurrent runs

@@ -480,7 +480,7 @@ fi
 
 # OpenAI model providers
 # Always register openai-codex provider (OpenClaw handles OAuth auth internally)
-CODEX_PROVIDER='{"baseUrl":"https://api.openai.com/v1","api":"openai-codex-responses","models":[{"id":"gpt-5.4","name":"GPT-5.4","contextWindow":1050000},{"id":"gpt-5.4-mini","name":"GPT-5.4 Mini","contextWindow":400000}]}'
+CODEX_PROVIDER='{"baseUrl":"https://api.openai.com/v1","api":"openai-codex-responses","models":[{"id":"gpt-5.5","name":"GPT-5.5","contextWindow":1050000},{"id":"gpt-5.4","name":"GPT-5.4","contextWindow":1050000},{"id":"gpt-5.4-mini","name":"GPT-5.4 Mini","contextWindow":400000}]}'
 openclaw config set 'models.providers.openai-codex' "$CODEX_PROVIDER" --strict-json
 echo "[entrypoint] OpenAI: Codex OAuth provider registered"
 echo "[entrypoint]   → If not yet authenticated: docker compose exec crypto-claw openclaw models auth login --provider openai-codex"
@@ -501,7 +501,7 @@ else
 fi
 
 # Allow Codex models for agents
-openclaw config set 'agents.defaults.models' '{"openai-codex/gpt-5.4":{},"openai-codex/gpt-5.4-mini":{}}' --strict-json
+openclaw config set 'agents.defaults.models' '{"openai-codex/gpt-5.5":{},"openai-codex/gpt-5.4":{},"openai-codex/gpt-5.4-mini":{}}' --strict-json
 # Clean up stale CLI backend config from previous approach
 openclaw config unset 'agents.defaults.cliBackends.codex-cli' 2>/dev/null || true
 
@@ -944,6 +944,9 @@ run_portfolio_report_loop() {
 # ============================================================
 
 run_approval_bot() {
+  if [ "${ENABLE_CHANNELS:-false}" != "true" ]; then
+    return  # channels disabled — Telegram bot has nothing to deliver
+  fi
   if [ -z "${TELEGRAM_APPROVAL_BOT_TOKEN:-}" ]; then
     return  # approval bot not configured — skip silently
   fi
