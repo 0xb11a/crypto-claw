@@ -118,6 +118,7 @@
 import { getDb, close } from './db.js';
 import { execSync } from 'child_process';
 import { getAllChains, getActiveChains, getChain, isSolana, getPortfolioRules } from './chains.js';
+import { checkExecutorWork, checkSentinelWork } from './agent-idleness.js';
 
 // Cadence in minutes for each agent's heartbeat checks.
 // Used by get-overdue-checks to compute which checks are due server-side.
@@ -1172,6 +1173,25 @@ function handle(db, cmd) {
         ? db.prepare('SELECT * FROM heartbeat_state WHERE agent = ?').all(agent)
         : db.prepare('SELECT * FROM heartbeat_state').all();
       const now = Date.now();
+
+      // Demand-driven liveness: executor and sentinel agents are only invoked when
+      // there is work to do. When idle, their heartbeat rows legitimately stop
+      // refreshing, which would otherwise look like a dead agent. idle_ok=true
+      // tells dead-agent detectors to suppress the alert. The predicates live in
+      // agent-idleness.js — shared with heartbeat-check.js so the wrapper loop's
+      // skip decision and Observer's stale-row classification can never disagree.
+      const needsExecutor = rows.some((r) => r.agent === 'executor' && r.check_type === 'process_orders');
+      const needsSentinel = rows.some((r) => r.agent === 'sentinel');
+      let executorIdle = null;
+      let sentinelIdle = null;
+      if (needsExecutor) {
+        executorIdle = checkExecutorWork(db).idle;
+      }
+      if (needsSentinel) {
+        const paperMode = (process.env.PAPER_MODE || 'false') === 'true';
+        sentinelIdle = checkSentinelWork(db, paperMode).idle;
+      }
+
       const result = rows.map((row) => {
         let seconds_since = null;
         if (row.last_run) {
@@ -1182,12 +1202,19 @@ function handle(db, cmd) {
         // 0 means "runs every outer cycle" — substitute the agent's loop interval
         // so dead-agent detection (seconds_since > 2 × expected) works.
         const effectiveMin = cadenceMin === 0 ? (AGENT_HEARTBEAT_INTERVALS[row.agent] ?? null) : cadenceMin;
+        let idle_ok = false;
+        if (row.agent === 'executor' && row.check_type === 'process_orders') {
+          idle_ok = executorIdle === true;
+        } else if (row.agent === 'sentinel') {
+          idle_ok = sentinelIdle === true;
+        }
         return {
           agent: row.agent,
           check: row.check_type,
           last_run_at: row.last_run,
           seconds_since,
           expected_cadence_seconds: effectiveMin === null ? null : effectiveMin * 60,
+          idle_ok,
         };
       });
       output(result);

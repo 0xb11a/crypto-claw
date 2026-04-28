@@ -153,6 +153,7 @@ scripts/                  # Node.js scripts
   market-overview.js      # BTC dominance, fear/greed
   market-regime.js        # Market regime classification + parameter adjustment
   heartbeat-check.js      # Pre-check for sentinel/executor background loops
+  agent-idleness.js       # Shared executor/sentinel idleness predicates — used by heartbeat-check.js (skip decision) and db-query.js get-heartbeats (idle_ok flag)
   portfolio-summary.js    # Allocation + P&L
   portfolio-load-evm.js   # On-chain portfolio sync (EVM via DeBank)
   portfolio-load-solana.js # On-chain portfolio sync (Solana via Helius)

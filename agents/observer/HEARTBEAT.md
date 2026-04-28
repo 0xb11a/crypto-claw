@@ -83,8 +83,9 @@ node scripts/db-query.js get-alerts
 node scripts/db-query.js get-heartbeats
 ```
 For each row, compare `seconds_since` against `expected_cadence_seconds`:
-- `seconds_since > 2 × expected_cadence_seconds` → **dead agent**. Alert via `send-alert.js --type emergency_mode --agent observer --message "Agent <X>/<check> heartbeat stale: last run N min ago, cadence M min"`.
-- Also check the `system/memory-backup` heartbeat — if stale > 30 min, the backup loop stopped and memory is no longer being persisted. Alert via `system_health`.
+- `seconds_since > 2 × expected_cadence_seconds` AND `idle_ok` is `false` → **dead agent**. Alert via `send-alert.js --type emergency_mode --agent observer --message "Agent <X>/<check> heartbeat stale: last run N min ago, cadence M min"`.
+- `idle_ok: true` → **skip the alert.** Executor and Sentinel are demand-driven: their wrapper loops invoke the agent only when there is work (executor: ≥1 `approved` order; sentinel: ≥1 `open`/`partial_exit` position). When there is nothing to do, the heartbeat row stops refreshing on purpose — that is healthy idleness, not a stall. Do not file a GitHub issue and do not send an emergency alert in this case.
+- Also check the `system/memory-backup` heartbeat — if stale > 30 min, the backup loop stopped and memory is no longer being persisted. Alert via `system_health`. (`memory-backup` is a real cron and never carries `idle_ok: true`.)
 
 Background-loop bg health (not in `heartbeat_state` — checked via `portfolio_meta`):
 ```bash

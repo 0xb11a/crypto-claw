@@ -18,6 +18,7 @@
 
 import { getDb, close } from './db.js';
 import { log } from './log.js';
+import { checkExecutorWork, checkSentinelWork } from './agent-idleness.js';
 
 const args = process.argv.slice(2);
 const agentIdx = args.indexOf('--agent');
@@ -34,22 +35,8 @@ try {
   const paperMode = (process.env.PAPER_MODE || 'false') === 'true';
 
   if (agent === 'executor') {
-    const counts = db
-      .prepare(
-        `
-      SELECT
-        SUM(CASE WHEN action='sell' THEN 1 ELSE 0 END) as sell_count,
-        SUM(CASE WHEN action='buy' AND status = 'approved' THEN 1 ELSE 0 END) as buy_count
-      FROM orders WHERE status IN ('approved')
-    `,
-      )
-      .get();
-    const pendingSells = counts.sell_count || 0;
-    const pendingBuys = counts.buy_count || 0;
-
-    // Queued multisig transactions are tracked by track-multisig.js background job — not the executor agent
-
-    if (pendingSells === 0 && pendingBuys === 0) {
+    const { pendingSells, pendingBuys, idle } = checkExecutorWork(db);
+    if (idle) {
       console.log(JSON.stringify({ agent: 'executor', skip: true, reason: 'no pending orders' }));
     } else {
       console.log(
@@ -62,12 +49,8 @@ try {
       );
     }
   } else if (agent === 'sentinel') {
-    const table = paperMode ? 'paper_positions' : 'positions';
-    const openPositions = db
-      .prepare(`SELECT COUNT(*) as count FROM ${table} WHERE status IN ('open', 'partial_exit')`)
-      .get().count;
-
-    if (openPositions === 0) {
+    const { openPositions, idle } = checkSentinelWork(db, paperMode);
+    if (idle) {
       console.log(JSON.stringify({ agent: 'sentinel', skip: true, reason: 'no open positions' }));
     } else {
       console.log(JSON.stringify({ agent: 'sentinel', skip: false, open_positions: openPositions }));

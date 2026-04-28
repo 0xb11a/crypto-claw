@@ -43,7 +43,11 @@ node scripts/db-query.js get-orders --status pending --limit 20
 # Alert-storm detection (omit --unprocessed; returns last 100 newest-first)
 node scripts/db-query.js get-alerts
 
-# Dead-agent + cadence-drift detection
+# Dead-agent + cadence-drift detection.
+# Each row carries idle_ok=true when staleness is expected: executor/process_orders
+# with zero `approved` orders, or sentinel/* with zero open positions. Skip the
+# emergency_mode alert for those rows — the wrapper loop intentionally did not
+# invoke the agent because there was no work.
 node scripts/db-query.js get-heartbeats
 node scripts/db-query.js get-heartbeats --agent system
 

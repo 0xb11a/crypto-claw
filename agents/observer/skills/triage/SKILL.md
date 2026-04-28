@@ -101,7 +101,7 @@ For each error or failure found, run through the full signal catalogue below and
 
 **B. Operational issues (→ Telegram alert via `send-alert.js`)**
 1. Stale orders: `approved` > 15 min, `queued_in_safe`/`queued_in_squads` > 30 min, `pending` > 2 h — use `system_health`.
-2. Dead agents: `get-heartbeats` shows `seconds_since > 2 × expected_cadence_seconds` — use `emergency_mode`.
+2. Dead agents: `get-heartbeats` shows `seconds_since > 2 × expected_cadence_seconds` AND `idle_ok` is `false` — use `emergency_mode`. Skip rows where `idle_ok: true` (executor/sentinel are demand-driven and idle on purpose when there are no approved orders / open positions).
 3. Memory-backup loop stopped: `system/memory-backup` heartbeat stale > 30 min — use `system_health`.
 4. Alert storms: `sentinel_alerts` has >3 identical `symbol + alert_type` entries in 10 min — use `system_health`.
 5. Background-loop stale: `last_activity_wallets_bg_at` missing or older than 90 min (3× 30-min cadence) → signal feed stalled; `last_score_wallets_bg_at` missing or older than 30 min (3× 10-min cadence) → proposed-wallet queue not draining. Use `system_health`.

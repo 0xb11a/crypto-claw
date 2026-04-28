@@ -372,8 +372,12 @@ describe('Instruction Alignment — Severity Rubric and Error Self-Reporting', (
 // get-heartbeats command (used by Observer for dead-agent detection)
 // ============================================================
 describe('get-heartbeats — Dead-Agent Detection', () => {
+  // Pin PAPER_MODE=false so positions/orders queries hit real tables regardless
+  // of the operator's local .env. The same dotenv quirk would let .env win
+  // otherwise (dotenv doesn't override pre-set env vars, but undefined ones get
+  // filled in from .env — including a PAPER_MODE=true line in dev shells).
   const dbQuery = (cmd) => {
-    return execSync(`SAFE_ID=test-observer-hb node ${resolve(SCRIPTS_DIR, 'db-query.js')} ${cmd}`, {
+    return execSync(`SAFE_ID=test-observer-hb PAPER_MODE=false node ${resolve(SCRIPTS_DIR, 'db-query.js')} ${cmd}`, {
       encoding: 'utf-8',
       cwd: process.cwd(),
       timeout: 10_000,
@@ -442,6 +446,88 @@ describe('get-heartbeats — Dead-Agent Detection', () => {
     const row = rows.find((r) => r.check === 'process_orders');
     assert(row, 'Should have executor/process_orders heartbeat row');
     assertEqual(row.expected_cadence_seconds, 60, 'executor/process_orders should fall back to executor loop (1 min)');
+  });
+
+  test('idle_ok=true for executor/sentinel when no work pending', () => {
+    // Empty DB: no approved orders, no open positions → demand-driven idleness
+    const rows = JSON.parse(dbQuery('get-heartbeats'));
+    const executor = rows.find((r) => r.agent === 'executor' && r.check === 'process_orders');
+    assert(executor, 'Should have executor/process_orders row');
+    assertEqual(executor.idle_ok, true, 'executor idle_ok should be true when no approved orders');
+
+    for (const name of ['price_check', 'liquidity_check', 'wallet_check', 'smart_money_exits', 'contract_check']) {
+      const row = rows.find((r) => r.agent === 'sentinel' && r.check === name);
+      assert(row, `Should have sentinel/${name} row`);
+      assertEqual(row.idle_ok, true, `sentinel/${name} idle_ok should be true when no open positions`);
+    }
+  });
+
+  test('idle_ok=false for non-demand-driven rows (research, observer, system)', () => {
+    const rows = JSON.parse(dbQuery('get-heartbeats'));
+    const nonDemand = rows.filter((r) => r.agent !== 'executor' && r.agent !== 'sentinel');
+    assert(nonDemand.length > 0, 'Should have research/observer/system rows');
+    for (const row of nonDemand) {
+      assertEqual(
+        row.idle_ok,
+        false,
+        `${row.agent}/${row.check} idle_ok should be false (only executor/sentinel are demand-driven)`,
+      );
+    }
+  });
+
+  test('approved order flips executor idle_ok to false', () => {
+    const order = JSON.stringify({
+      id: 'test-idle-ok-buy',
+      action: 'buy',
+      symbol: 'TEST',
+      address: '0x0000000000000000000000000000000000000001',
+      chain: 'base',
+      amount: 100,
+      tier: 'moonshot',
+      entry_price: 1.0,
+      stop_loss: 0.8,
+      take_profit_levels: [{ price: 1.5, percent: 100 }],
+    });
+    // AUTO_APPROVE_BUY=true so the buy lands in 'approved' status
+    execSync(
+      `SAFE_ID=test-observer-hb PAPER_MODE=false AUTO_APPROVE_BUY=true node ${resolve(SCRIPTS_DIR, 'db-query.js')} add-order --json '${order}'`,
+      { encoding: 'utf-8', cwd: process.cwd(), timeout: 10_000 },
+    );
+
+    const rows = JSON.parse(dbQuery('get-heartbeats --agent executor'));
+    const executor = rows.find((r) => r.check === 'process_orders');
+    assertEqual(executor.idle_ok, false, 'executor idle_ok should flip to false once an approved order exists');
+  });
+
+  test('open position flips sentinel idle_ok to false', () => {
+    const position = JSON.stringify({
+      id: 'test-idle-ok-pos',
+      symbol: 'TEST',
+      name: 'Test Token',
+      address: '0x0000000000000000000000000000000000000002',
+      chain: 'base',
+      tier: 'moonshot',
+      entry_price: 1.0,
+      current_price: 1.0,
+      quantity: 100,
+      value_usd: 100,
+      percent_of_portfolio: 5,
+      stop_loss: 0.8,
+      take_profit_levels: [{ price: 1.5, percent: 100 }],
+      narrative: 'test',
+      status: 'open',
+      notes: 'idle_ok test',
+    });
+    execSync(
+      `SAFE_ID=test-observer-hb PAPER_MODE=false node ${resolve(SCRIPTS_DIR, 'db-query.js')} add-position --json '${position}'`,
+      { encoding: 'utf-8', cwd: process.cwd(), timeout: 10_000 },
+    );
+
+    const rows = JSON.parse(dbQuery('get-heartbeats --agent sentinel'));
+    for (const name of ['price_check', 'liquidity_check', 'wallet_check', 'smart_money_exits', 'contract_check']) {
+      const row = rows.find((r) => r.check === name);
+      assertEqual(row.idle_ok, false, `sentinel/${name} idle_ok should flip to false once an open position exists`);
+    }
   });
 
   test('cleanup get-heartbeats test database', () => {
