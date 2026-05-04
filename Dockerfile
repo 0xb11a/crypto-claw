@@ -1,8 +1,10 @@
-FROM ghcr.io/openclaw/openclaw:2026.4.24
+FROM ghcr.io/openclaw/openclaw:2026.5.2
 
-# Install jq (agents use it to parse JSON script output) and gh (GitHub CLI for Observer agent)
+# Install jq (agents use it to parse JSON script output), gh (GitHub CLI for Observer agent),
+# and build-essential (OpenClaw 2026.5.2+ base image ships without make/gcc, but better-sqlite3
+# falls back to source compile on node versions without published prebuilts — e.g. node 24/arm64).
 USER root
-RUN apt-get update -qq && apt-get install -y -qq jq > /dev/null 2>&1 && rm -rf /var/lib/apt/lists/* && \
+RUN apt-get update -qq && apt-get install -y -qq jq build-essential > /dev/null 2>&1 && rm -rf /var/lib/apt/lists/* && \
     curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list && \
     apt-get update -qq && apt-get install -y -qq gh > /dev/null 2>&1 && rm -rf /var/lib/apt/lists/*
