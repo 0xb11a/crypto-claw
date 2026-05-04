@@ -451,26 +451,28 @@ if [ "${ENABLE_CHANNELS:-false}" = "true" ] && [ -n "${TELEGRAM_BOT_TOKEN:-}" ];
         enabled: true,
         botToken: process.env.TELEGRAM_BOT_TOKEN,
         dmPolicy: 'disabled',
+        groupPolicy: 'allowlist',
         groups: {
           [process.env.TELEGRAM_CHAT_ID]: group
         }
       };
       console.log(JSON.stringify(cfg));
     ")" --strict-json
-    echo "[entrypoint] Telegram channel synced with forum topic routing (DMs disabled)"
+    echo "[entrypoint] Telegram channel synced with forum topic routing (DMs disabled, groups allowlisted)"
   else
     # Flat group or DM — no topic routing
     openclaw config set 'channels.telegram' "$(node -e "
       console.log(JSON.stringify({
         enabled: true,
         botToken: process.env.TELEGRAM_BOT_TOKEN,
-        dmPolicy: 'disabled'
+        dmPolicy: 'disabled',
+        groupPolicy: 'allowlist'
       }));
     ")" --strict-json
-    echo "[entrypoint] Telegram channel synced (flat mode, DMs disabled, group allowlist)"
+    echo "[entrypoint] Telegram channel synced (flat mode, DMs disabled, groups allowlisted)"
   fi
 else
-  openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"open"}' --strict-json
+  openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"allowlist"}' --strict-json
   echo "[entrypoint] Telegram channel disabled"
 fi
 
