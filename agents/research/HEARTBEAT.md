@@ -36,16 +36,15 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 ## How to Run
 
 1. Run overlap guard (see above)
-2. **Detect mode.** Run `echo "PAPER_MODE=${PAPER_MODE:-false}"`. Read the output: if `true`, use paper commands (`get-paper-portfolio`, `get-paper-cash`, `get-paper-positions`, `get-paper-stats`, `get-paper-receipts`); if `false`/unset, use real commands. Reference this throughout the cycle — do not rely on memory of previous cycles.
-3. Run `node scripts/db-query.js get-overdue-checks --agent research` — returns checks that are due (cadence computed server-side, do NOT override or add extra checks).
-4. Read the `overdue` array from the output. If empty, your reply IS the summary: a single line `**Research Heartbeat** — nothing overdue`. End the cycle — no further steps (no log rows to write either, since no checks ran).
-5. Split overdue checks into two groups using the Type column above:
+2. Run `node scripts/db-query.js get-overdue-checks --agent research` — returns checks that are due (cadence computed server-side, do NOT override or add extra checks).
+3. Read the `overdue` array from the output. If empty, your reply IS the summary: a single line `**Research Heartbeat** — nothing overdue`. End the cycle — no further steps (no log rows to write either, since no checks ran).
+4. Split overdue checks into two groups using the Type column above:
    - **Quick checks**: `sentinel_alerts`, `market_regime`, `smart_money_signals`, `narrative_check`, `rebalance_review`, `daily_summary`, `watchlist_check`, `portfolio_sync`, `base_rebalance`
    - **Pipeline checks**: `token_scan`, `conviction_scan`, `narrative_deep_scan`
-6. Run ALL overdue quick checks, in the order they appear in the table (highest-cadence first). After each, update its timestamp:
+5. Run ALL overdue quick checks, in the order they appear in the table (highest-cadence first). After each, update its timestamp:
    `node scripts/db-query.js update-heartbeat --agent research --check <check_type>`
-7. Run the SINGLE most-overdue pipeline check (if any pipeline check is overdue). **Run the FULL pipeline autonomously: discovery → analysis → risk → trade proposal.** Do not stop after scanning. You decide what to buy — that is your job. Update its timestamp after completion.
-8. **Reply with a work summary** (required whenever at least one check ran). This is your final message and is delivered to chat. List every check that ran this cycle. Format:
+6. Run the SINGLE most-overdue pipeline check (if any pipeline check is overdue). **Run the FULL pipeline autonomously: discovery → analysis → risk → trade proposal.** Do not stop after scanning. You decide what to buy — that is your job. Update its timestamp after completion.
+7. **Reply with a work summary** (required whenever at least one check ran). This is your final message and is delivered to chat. List every check that ran this cycle. Format:
    ```
    **Research Heartbeat** — <check_1>, <check_2>, ..., <check_N>
    - <check_1>: <one-line result>
@@ -58,7 +57,7 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
      - market_regime: Unchanged (neutral)
      - token_scan: Scanned 30 trending on base+solana, analyzed 2 (AERO, VIRTUAL). Proposed 1 BUY (AERO moonshot)
      Scanned: 30 | Analyzed: 2 | Proposed: 1
-9. **REQUIRED — Log to database** (one entry PER check that ran — do NOT skip this step):
+8. **REQUIRED — Log to database** (one entry PER check that ran — do NOT skip this step):
    ```bash
    node scripts/db-query.js add-research-log --json '{"check_type":"<CHECK>","tokens_scanned":<N>,"tokens_analyzed":<N>,"trades_proposed":<N>,"alerts_processed":<N>,"watchlist_hits":<N>,"summary":"<one-line summary>","status":"ok"}'
    ```
@@ -85,6 +84,7 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
   ```bash
   node scripts/db-query.js get-smart-money-signals --since 35m --action buy --group-by token --min-wallets 2
   ```
+  The 35-min window absorbs 5 min of cron jitter on the 30-min cadence; the discovery skill uses a wider 6-h window for pre-trade context. Both windows are intentional — do not collapse them.
 - For each token returned, run dedup via `check-token-status`, then the full pipeline (analysis → risk → trade proposal). Treat as high-urgency discoveries.
 - For deployer wallets surfaced by `check-contract.js`, call `propose-wallet` (see TOOLS.md). For urgent multi-token wallets, score inline: `node scripts/score-wallet.js --address <ADDR> --chain <CHAIN> --add`.
 - Background scoring (`score-wallets-bg.js`, 10 min) and signal production (`activity-wallets-bg.js`, 30 min, 24 h retention) run autonomously — heartbeat only consumes. See CLAUDE.md § Wallet Pipeline for the full flow.
@@ -125,15 +125,11 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 - This is the primary mechanism for narrative-driven discovery — it finds the BEST tokens in each pumping narrative
 
 ### Rebalance Review (quick)
-- Check `PAPER_MODE` env var first
-- If `PAPER_MODE=true`: run `node scripts/db-query.js get-paper-portfolio --chain <chain>` and `node scripts/db-query.js get-paper-cash --chain <chain>`
-- If real mode: run `node scripts/portfolio-summary.js --chain <chain>`
+- Run `node scripts/db-query.js get-portfolio --chain <chain>` and `get-cash --chain <chain>`
 - Check allocation vs targets, propose rebalance if needed
 
 ### Daily Summary (quick)
-- Check `PAPER_MODE` env var first
-- If `PAPER_MODE=true`: use `get-paper-portfolio --chain <chain>`, `get-paper-stats --chain <chain>`, `get-paper-receipts --limit 20`
-- If real mode: use `get-portfolio --chain <chain>`, `get-trade-stats`, `get-receipts --limit 20`
+- `node scripts/db-query.js get-portfolio --chain <chain>`, `get-trade-stats --chain <chain>`, `get-receipts --limit 20`
 - Compile: total value, daily P&L, trades executed, alerts
 - The system sends a daily portfolio Telegram alert separately — just compile the summary in your reply and log to daily memory
 - Run `node scripts/db-query.js clear-expired-cache` to prune stale analysis cache entries
@@ -144,8 +140,7 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 - If hit → run through analysis → risk → propose trade
 
 ### Portfolio Sync (On-Chain) (quick)
-- Real mode only — skip entirely if `PAPER_MODE=true`
-- Read active chains via `get-chains`. For EACH active chain, run the appropriate loader based on chain type:
+- Read active chains via `get-chains`. For EACH active chain, run the appropriate loader. Loaders return `{status: 'skipped'}` when on-chain sync is disabled — proceed without action when you see that.
   - EVM chains: `node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger periodic`
   - Solana chains: `node scripts/portfolio-load-solana.js --chain <CHAIN> --trigger periodic`
 - After sync, check for auto-discovered tokens: `node scripts/db-query.js get-positions --status pending_analysis`

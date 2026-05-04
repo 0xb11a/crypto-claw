@@ -51,15 +51,11 @@ Before each monitoring cycle, search memory for relevant context:
 3. After writing sell orders or critical alerts, log a brief note to today's `memory/YYYY-MM-DD.md`
 
 ### Wallet Data (Database — per-fund)
-All position and alert data lives in SQLite. **Check `PAPER_MODE` env var first** — use paper commands if `true`. Run one command per exec call.
+All position and alert data lives in SQLite. DB reads/writes auto-route to the deployment's table set; check `_mode` on the response if needed. Run one command per exec call.
 
-Get all open positions (real mode):
+Get all open positions:
 ```bash
 node scripts/db-query.js get-positions --status open
-```
-Get all open positions (paper mode):
-```bash
-node scripts/db-query.js get-paper-positions --status open
 ```
 
 Get liquidity snapshots for comparison:
@@ -124,13 +120,3 @@ node scripts/db-query.js get-meta --key market_regime
 
 **Your monitoring rules do NOT change based on regime.** Stop-loss, take-profit, rug detection, and all sell order logic operate identically regardless of market conditions. The regime only affects Research's buying decisions — not your protective sells.
 
-## Paper Mode
-
-When `PAPER_MODE=true` is set in the environment:
-
-**CRITICAL: You MUST use `get-paper-positions` instead of `get-positions` everywhere.** If you query `get-positions` in paper mode, you will see 0 positions and skip all monitoring — this is the most common paper mode bug.
-
-- Use `get-paper-positions --status open` for ALL position queries
-- Still write sell orders to `orders` table (Executor processes them as paper sells)
-- Price, liquidity, and wallet checks run identically — only the position source changes
-- All alert and sell order logic is unchanged

@@ -112,7 +112,7 @@ From the raw results, apply these filters:
 
 **Strong Positive Signals:**
 - Buy:sell ratio > 1.5
-- Smart-money wallets entering — broader pre-trade scan (`db-query.js get-smart-money-signals --since 6h --action buy --chain <CHAIN> --group-by token --min-wallets 2`)
+- Smart-money wallets entering — broader pre-trade scan (`db-query.js get-smart-money-signals --since 6h --action buy --chain <CHAIN> --group-by token --min-wallets 2`). Heartbeat consumption uses a 35-min window (jitter tolerance on a 30-min cadence); discovery uses 6 h for pre-trade context. Both windows are intentional — do not collapse them.
 - Fits an active narrative (26 tracked — AI infra, AI agents, DeFi, restaking, LST, RWA, L2, ZK, modular, DePIN, memecoins, gaming, etc.)
 - Dev wallet < 10% of supply
 - Liquidity locked or burned

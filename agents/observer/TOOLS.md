@@ -62,13 +62,10 @@ node scripts/db-query.js get-meta --key last_score_wallets_bg_at
 # returning 200 OK with empty results, or schema drift.
 node scripts/db-query.js get-smart-money-signals --since 2h --limit 1
 
-# Positions and portfolio
+# Positions and portfolio (auto-route to the deployment's table set)
 node scripts/db-query.js get-positions --status open
 node scripts/db-query.js get-portfolio
-
-# Paper mode variants
-node scripts/db-query.js get-paper-receipts --limit 20
-node scripts/db-query.js get-paper-positions --status open
+node scripts/db-query.js get-receipts --limit 20
 
 # Observer logging
 node scripts/db-query.js add-observer-log --json '{"errors_analyzed": 5, "issues_created": 1, "alerts_sent": 0, "summary": "Created issue for Safe rate limit", "status": "ok"}'
@@ -152,5 +149,4 @@ node scripts/db-query.js get-chains
 | Variable | Purpose |
 |---|---|
 | `SAFE_ID` | Fund identifier — determines which database |
-| `PAPER_MODE` | `true` for paper trading data |
 | `OBSERVER_ISSUES_REPO` | Private repo for issues (e.g., `owner/crypto-claw-issues`) |

@@ -20,7 +20,7 @@ If an unhandled exception kills a step, log at `error` or `critical` — never `
 
 **Order (sell):** `{id, action:"sell", symbol, address, chain, amount, reason, urgency}` — `amount` may be `"all"` or numeric.
 
-**Position:** `{id, symbol, address, chain, tier, entry_price, quantity, stop_loss, take_profit_levels:[…]}` — paper variant adds `value_usd` (auto-deducts cash, computes quantity).
+**Position:** `{id, symbol, address, chain, tier, entry_price, quantity, stop_loss, take_profit_levels:[…]}`.
 
 **Receipt:** `{id, order_id, action, symbol, address, chain, status, safe_tx_hash?, onchain_tx_hash?, executed_price, slippage}`.
 
@@ -35,31 +35,31 @@ All wallet data lives in SQLite. Always use `node scripts/db-query.js <command>`
 - `get-chain-config --chain <CHAIN>` — full config (explorer, cash token, `rules`, `baseTierTokens`, `tiersEnabled`).
 
 ### Portfolio & cash
-Flags accepted: `--chain <CHAIN>`. Real / paper variants are interchangeable.
-- `get-portfolio [--chain]` / `get-paper-portfolio [--chain]`
-- `get-cash [--chain]` / `get-paper-cash [--chain]`
-- `set-cash --chain <CHAIN> --amount <N>` / `set-paper-cash --chain <CHAIN> --amount <N>`
+Flags accepted: `--chain <CHAIN>`. All commands auto-route to the deployment's table set; check `_mode` on the response if it matters.
+- `get-portfolio [--chain]`
+- `get-cash [--chain]`
+- `set-cash --chain <CHAIN> --amount <N>`
 - `get-gas [--chain]`
 - `get-meta --key <K>` / `set-meta --key <K> --value <V>`
 
 ### Positions (read-only via heartbeat; mutations are heartbeat-only via `process-order.js`)
-- `get-positions [--status open] [--symbol TOKEN]` (paper: `get-paper-positions`).
-- `add-position --json '<Position>'` / `add-paper-position --json '<Position+value_usd>'`.
-- `update-position --id <ID> --json '{current_price,…}'` (paper variant: `update-paper-position`).
-- `close-position --id <ID> [--quantity <N>] --json '{exit_price, exit_reason}'` (paper variant: `close-paper-position`). With `--quantity`, partial exit; without, full exit (auto P&L).
+- `get-positions [--status open] [--symbol TOKEN]`.
+- `add-position --json '<Position>'` — human-only; autonomous flows go through `process-order.js`.
+- `update-position --id <ID> --json '{current_price,…}'`.
+- `close-position --id <ID> [--quantity <N>] --json '{exit_price, exit_reason}'`. With `--quantity`, partial exit; without, full exit (auto P&L).
 
 ### Orders (Research → Executor)
 State machine: `pending → approved → executed` (or `rejected`/`cancelled`/`failed`). Failed sells can be retried; failed buys must be re-proposed.
 
 - Read: `get-orders [--pending] [--status <S>] [--action buy|sell]`, `get-order --id <ID>`, `get-order-history [--status <S>] [--limit N]`.
-- Write buy: `add-order --json '<Order(buy)>'` — status auto-set to `approved` if `PAPER_MODE=true` or `AUTO_APPROVE_BUY=true`, else `pending`.
+- Write buy: `add-order --json '<Order(buy)>'` — returns `{status, approved_by}`; act on the returned status (`pending` → call `send-approval.js`; `approved` → Executor will pick it up).
 - Write sell (auto-approved): `add-order --json '<Order(sell)>'`.
 - Transitions: `approve-order --id <ID> --by human`, `reject-order --id <ID> --reason "<r>" --by human`, `cancel-order --id <ID> --reason "<r>" --by human`, `retry-order --id <ID> --by human` (sells only), `mark-order-executed --id <ID> [--status failed --reason "<r>"]`.
 
 ### Receipts
-- `get-receipts [--limit N]` / `get-paper-receipts [--limit N]`.
+- `get-receipts [--limit N]`.
 - `get-receipt --id <ID>`.
-- `add-receipt --json '<Receipt>'` / `add-paper-receipt --json '<Receipt+tier+proposed_price+quantity+amount>'`.
+- `add-receipt --json '<Receipt>'`.
 
 ### Sentinel alerts
 - `get-alerts --unprocessed`.
@@ -102,27 +102,17 @@ Per-swap signals from `activity-wallets-bg.js` (every 30 min, 24 h retention).
 - `get-overdue-checks --agent research` — server-side cadence; do not override.
 - `update-heartbeat --agent research --check <check_type>`.
 - `add-research-log --json '{check_type, tokens_scanned?, tokens_analyzed?, trades_proposed?, alerts_processed?, watchlist_hits?, summary, status:"ok"|"error"}'`.
-- `get-research-log [--limit N]`, `get-trade-stats` / `get-paper-stats [--chain]`.
+- `get-research-log [--limit N]`, `get-trade-stats [--chain <CHAIN>]` — returns `{total_trades, wins, losses, avg_win/loss_percent, total_pnl_usd, best/worst_trade_pnl, win_rate, current_value, initial_balance, total_return_percent}`.
 
-### Portfolio sync (real mode only)
-- `sync-portfolio --chain <CHAIN> [--trigger periodic|post_trade]`.
+### Portfolio sync
+- `sync-portfolio --chain <CHAIN> [--trigger periodic|post_trade]` — returns `{ok: false, message: 'Portfolio sync skipped...'}` when on-chain sync is disabled; proceed without action.
 - `get-sync-status [--chain <CHAIN>]`.
 - `set-onchain-balance --id <position_id> --balance <N>`.
-
-In paper mode, `sync-portfolio` returns a skip message (DB is sole source of truth).
 
 ### Analysis cache (token dedup)
 - `check-token-status --address <ADDR> --chain <CHAIN>` → `{action:"skip"|"analyze", reason}`. Checks open positions, pending orders, watchlist, cached analysis. Run before any analyst/risk skill invocation.
 - `cache-analysis --json '{address, chain, symbol?, analysis_score?, risk_score?, verdict:"avoid"|"risk_rejected", reasoning, ttl_hours?}'` — default TTL 24 h.
 - `get-analysis-cache`, `clear-expired-cache`.
-
-### Paper-mode mirror
-Every read/write command above has a `paper-` mirror with identical flags. Deviations:
-- `add-paper-position` requires `value_usd` (auto-deducts from `paper_cash`, auto-computes `quantity`).
-- `close-paper-position` auto-credits sale proceeds to `paper_cash`.
-- `add-paper-receipt` schema adds `tier, proposed_price, quantity, amount`.
-- `sync-portfolio` is a no-op (DB is sole source of truth).
-- `set-paper-cash`, `get-paper-cash`, `get-paper-stats` exist as direct paper-only commands.
 
 ## Data Fetching Scripts
 
@@ -170,7 +160,6 @@ Per AGENTS.md § Error Self-Reporting, fire `model_failure` whenever any pipelin
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ACTIVE_CHAINS` | env | Comma-separated active chains. Run `get-chains` for the live list. |
-| `PAPER_MODE` | `false` | Simulated trading: no real transactions, no on-chain sync. |
 
 ## API Keys (set in environment)
 `DEBANK_API_KEY` (EVM portfolio sync) · `GOPLUS_API_KEY` (contract security) · `ETHERSCAN_API_KEY` / `BASESCAN_API_KEY` (EVM wallets/contracts) · `BIRDEYE_API_KEY` (wallet PnL + token data, Sol+EVM) · `ZERION_API_KEY` (EVM wallet PnL fallback) · `SOLSCAN_API_KEY` / `HELIUS_API_KEY` (Solana wallets). DEXScreener and CoinGecko free tiers need no key.

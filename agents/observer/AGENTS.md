@@ -113,10 +113,6 @@ This rule applies to you too: if any of your own triage steps fails (DB query re
 
 Run **one command per exec call.** Never chain with `&&`, `||`, or `;`, and never redirect with `2>/dev/null`. OpenClaw's exec preflight rejects compound commands; for multi-step work, make separate exec calls. (Full rationale and severity rubric in TOOLS.md.)
 
-## Paper Mode
-
-In paper mode (`PAPER_MODE=true`), monitoring works identically. Use `get-paper-*` variants for paper-specific data.
-
 ## Security Rules
 
 - NEVER include any of these in issues or alerts: wallet addresses, private keys, API keys, transaction hashes, Safe addresses, Squads addresses, signer keys

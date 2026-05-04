@@ -214,7 +214,37 @@ function parseJson(name) {
   }
 }
 
+// Unified command -> paper variant. When PAPER_MODE=true, callers of the
+// unified name are routed transparently to the paper-* handler so instructions
+// no longer need to branch on mode. The paper-* names remain valid as silent
+// aliases (entrypoint.sh seeds via set-paper-cash, existing tests still call
+// the explicit names, and operators may type either form).
+//
+// Intentionally NOT auto-routed:
+//   - add-position / add-paper-position: schemas differ (paper requires
+//     value_usd and auto-deducts cash; real takes quantity). Autonomous flows
+//     go through process-order.js, not add-position.
+//   - get-position (singular by id): rarely called by agents; ID lookup
+//     wouldn't match across tables anyway.
+const PAPER_VARIANT = {
+  'get-portfolio': 'get-paper-portfolio',
+  'get-positions': 'get-paper-positions',
+  'get-cash': 'get-paper-cash',
+  'get-receipts': 'get-paper-receipts',
+  'set-cash': 'set-paper-cash',
+  'update-position': 'update-paper-position',
+  'close-position': 'close-paper-position',
+  'add-receipt': 'add-paper-receipt',
+  'get-trade-stats': 'get-paper-stats',
+};
+
+// Object responses get an "_mode" key so an operator who forgot PAPER_MODE
+// can tell at a glance which table set produced the data. Arrays are left
+// alone to preserve backward compatibility with consumers that expect raw arrays.
 function output(data) {
+  if (data && typeof data === 'object' && !Array.isArray(data) && data._mode === undefined) {
+    data = { ...data, _mode: process.env.PAPER_MODE === 'true' ? 'paper' : 'real' };
+  }
   console.log(JSON.stringify(data, null, 2));
 }
 
@@ -232,6 +262,9 @@ try {
 }
 
 function handle(db, cmd) {
+  if (process.env.PAPER_MODE === 'true' && PAPER_VARIANT[cmd]) {
+    cmd = PAPER_VARIANT[cmd];
+  }
   switch (cmd) {
     // ============================================================
     // Positions
@@ -1398,6 +1431,12 @@ function handle(db, cmd) {
       break;
     }
     case 'get-trade-stats': {
+      // Live-mode stats. Under PAPER_MODE=true, callers are auto-routed to
+      // get-paper-stats (see PAPER_VARIANT). Both handlers return the same
+      // enriched shape so agents call one name regardless of deployment mode.
+      const chain = getArg('chain');
+      const chainFilter = chain ? 'AND chain = ?' : '';
+      const chainArgs = chain ? [chain] : [];
       const stats = db
         .prepare(
           `
@@ -1410,11 +1449,37 @@ function handle(db, cmd) {
           ROUND(SUM(pnl_usd), 2) as total_pnl_usd,
           MAX(pnl_usd) as best_trade_pnl,
           MIN(pnl_usd) as worst_trade_pnl
-        FROM trades
+        FROM trades WHERE pnl_usd IS NOT NULL ${chainFilter}
       `,
         )
-        .get();
+        .get(...chainArgs);
+      let cash, initialBalance;
+      if (chain) {
+        cash = parseFloat(
+          db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(cashKey(chain))?.value || '0',
+        );
+        initialBalance = parseFloat(
+          db.prepare('SELECT value FROM portfolio_meta WHERE key = ?').get(`total_deposited_${chain}`)?.value || '0',
+        );
+      } else {
+        cash = getAllCashBreakdown(db).total;
+        const depositRows = db.prepare("SELECT value FROM portfolio_meta WHERE key LIKE 'total_deposited_%'").all();
+        initialBalance = depositRows.reduce((sum, r) => sum + parseFloat(r.value || '0'), 0);
+      }
+      const openPositions = db
+        .prepare(`SELECT * FROM positions WHERE status IN ('open', 'partial_exit') ${chainFilter}`)
+        .all(...chainArgs);
+      const positionValue = openPositions.reduce(
+        (sum, p) => sum + (p.value_usd || (p.current_price || p.entry_price) * p.quantity),
+        0,
+      );
+      const totalValue = cash + positionValue;
       stats.win_rate = stats.total_trades > 0 ? Math.round((stats.wins / stats.total_trades) * 100) : 0;
+      stats.total_return_percent =
+        initialBalance > 0 ? Math.round(((totalValue - initialBalance) / initialBalance) * 10000) / 100 : 0;
+      stats.current_value = Math.round(totalValue * 100) / 100;
+      stats.initial_balance = initialBalance;
+      if (chain) stats.chain = chain;
       output(stats);
       break;
     }

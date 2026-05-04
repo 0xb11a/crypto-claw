@@ -141,4 +141,3 @@ node scripts/db-query.js update-heartbeat --agent observer --check triage
 - Maximum 3 GitHub issues per cycle
 - Always use the create-gh-issue skill for issue creation — it handles duplicate checking
 - If system.log is empty or has only `[info]` entries — log a clean run and exit
-- In paper mode, monitoring works identically — paper failures matter too

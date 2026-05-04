@@ -189,12 +189,14 @@ describe('E2E Step 2: Executor → Paper Buy', () => {
 // Step 3: Sentinel — detect stop-loss, write sell order
 // ============================================================
 describe('E2E Step 3: Sentinel → Stop-Loss → Sell Order', () => {
-  test('sentinel reads paper positions (not real)', () => {
+  test('sentinel reads paper positions via auto-routing', () => {
+    // Under PAPER_MODE=true, get-positions auto-routes to paper_positions.
+    // The explicit get-paper-positions remains as a silent alias.
     const paperPos = dbq('get-paper-positions --status open');
-    assert(paperPos.length > 0, 'Sentinel must see paper positions');
+    assert(paperPos.length > 0, 'Sentinel must see paper positions via explicit name');
 
-    const realPos = dbq('get-positions --status open');
-    assertEqual(realPos.length, 0, 'Real positions must be empty');
+    const routedPos = dbq('get-positions --status open');
+    assertEqual(routedPos.length, paperPos.length, 'get-positions must auto-route to paper in PAPER_MODE');
   });
 
   test('sentinel detects stop-loss hit', () => {
@@ -612,12 +614,15 @@ describe('E2E Step 8: Missing --chain Errors', () => {
     assert(threw, 'set-paper-cash must require --chain');
   });
 
-  test('get-portfolio without --chain returns per-chain breakdown', () => {
+  test('get-portfolio auto-routes to paper portfolio in PAPER_MODE', () => {
+    // In PAPER_MODE, get-portfolio without --chain routes to get-paper-portfolio,
+    // which returns the paper-shaped response (cash, positions, total_value, pnl, ...).
+    // No `chains` key — that's a real-mode-only multi-chain breakdown.
     const result = dbq('get-portfolio');
-    assert(result.chains, 'Must have chains key');
-    assert(result.chains.base, 'Must have base chain');
-    assert(result.chains.solana, 'Must have solana chain');
-    assert(result.total_value !== undefined, 'Must have total_value');
+    assertEqual(result._mode, 'paper', '_mode envelope must mark paper');
+    assert(result.cash !== undefined, 'paper portfolio must have cash');
+    assert(result.total_value !== undefined, 'paper portfolio must have total_value');
+    assert(Array.isArray(result.positions), 'paper portfolio must have positions array');
   });
 });
 

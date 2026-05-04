@@ -89,7 +89,7 @@ node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN> --deep
 ### Step 3: Auto-Reject Conditions (NON-NEGOTIABLE)
 If ANY of these are true → immediate REJECT, no exceptions:
 1. Honeypot contract pattern
-2. Single wallet holds > 30% (excluding DEX/contract addresses)
+2. Single wallet holds > 30% of supply (excluding DEX/contract addresses)
 3. Liquidity < $5,000
 4. No liquidity lock AND contract not renounced
 5. Known scam deployer address
@@ -111,7 +111,7 @@ Add the modifier to the overall risk score calculated in Step 2. This makes it h
 In `crisis` regime: if tier is `moonshot`, auto-reject (max position = 0%).
 
 ### Step 5: Portfolio-Level Checks
-Check `PAPER_MODE` env var. Use `get-paper-portfolio --chain <chain>` / `get-paper-positions` if paper mode, otherwise `get-portfolio --chain <chain>` / `get-positions`.
+Use `get-portfolio --chain <chain>` and `get-positions` — both auto-route to the deployment's table set.
 
 Read the target chain's portfolio rules via `get-chain-config --chain <CHAIN>`. All checks below use the chain-specific limits, not global defaults.
 

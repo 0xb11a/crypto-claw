@@ -5,11 +5,7 @@ Executor heartbeat runs every 1 minute. Keep processing fast and mechanical.
 
 ## Procedure
 
-### Step 0: Detect mode
-```bash
-echo "PAPER_MODE=${PAPER_MODE:-false}"
-```
-If `PAPER_MODE=false` AND neither `SAFE_SIGNER_KEY` nor `SQUADS_SIGNER_KEY` is set → alert human, reply HEARTBEAT_OK. If only one is set, proceed — orders on the chain without a matching signer key will fail per-order.
+`process-order.js` owns the entire order lifecycle — validation, transaction handling, receipts, position writes, cash updates, and per-order failure modes (including `markFailed(..., 'no_signer_key')` when a chain's signer key is missing). Your job is to call it and report what it returns.
 
 ### Step 1: Load approved orders (sells first, then buys)
 ```bash
@@ -38,7 +34,7 @@ node scripts/process-order.js --order-id ORDER_ID
 
 The script handles the **entire lifecycle** atomically:
 - Validates (cash, price, position)
-- Executes (calls execute-trade-evm.js or simulates in paper mode)
+- Executes (the script handles transaction routing and signing for the deployment)
 - Writes receipt (linked to position via `position_id`)
 - Creates/closes position (or creates `draft`/`pending_exit` for queued multisig)
 - Updates cash

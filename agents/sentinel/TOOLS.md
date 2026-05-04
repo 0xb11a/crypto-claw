@@ -106,26 +106,13 @@ node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tok
 # Per-position raw sell rows for a deeper look
 node scripts/db-query.js get-smart-money-signals --since 1h --action sell --tokens-in-positions --limit 50
 ```
-The `--tokens-in-positions` flag joins against `positions` (or `paper_positions` when `PAPER_MODE=true`) with status in `open|partial_exit|draft|pending_exit`. Empty result = no smart-money exits on held tokens.
-
-### Paper Mode
-Paper commands mirror real-mode equivalents with `paper-` prefix and identical flags:
-```bash
-node scripts/db-query.js get-paper-portfolio
-node scripts/db-query.js get-paper-cash
-node scripts/db-query.js get-paper-positions
-node scripts/db-query.js get-paper-positions --status open
-node scripts/db-query.js get-paper-positions --symbol TOKEN
-node scripts/db-query.js update-paper-position --id pp-001 --json '{"current_price": 0.0015, "value_usd": 15}'
-node scripts/db-query.js get-paper-receipts --limit 10
-node scripts/db-query.js get-paper-stats
-```
+The `--tokens-in-positions` flag joins against the deployment's positions table with status in `open|partial_exit|draft|pending_exit`. Empty result = no smart-money exits on held tokens.
 
 ## Monitoring Scripts
 
 ### Position Monitoring
 ```bash
-# Current prices for all positions (reads from DB, respects PAPER_MODE)
+# Current prices for all positions (reads from the deployment's positions table)
 node scripts/check-positions.js
 # Liquidity for all open positions
 node scripts/check-liquidity.js
@@ -177,7 +164,6 @@ Use `rug_warning` when a monitoring script (`check-positions`, `check-liquidity`
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ACTIVE_CHAINS` | Per `get-chains` | Comma-separated list of active chains. Run `get-chains` to see available chains. |
-| `PAPER_MODE` | `false` | Enable simulated trading (no real transactions, no on-chain sync) |
 
 ## Important Notes
 

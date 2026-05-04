@@ -32,6 +32,7 @@ const suites = [
   { name: 'Wallet Harvesting', file: 'test-harvest.js', requiresNetwork: false },
   { name: 'Observer Agent', file: 'test-observer.js', requiresNetwork: false },
   { name: 'Activity-Wallets BG', file: 'test-activity-bg.js', requiresNetwork: false },
+  { name: 'Mode Routing', file: 'test-mode-routing.js', requiresNetwork: false },
 ];
 
 // Scripts tests require network — run separately

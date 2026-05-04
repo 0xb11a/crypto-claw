@@ -18,19 +18,11 @@ triggers:
 ## Purpose
 Convert risk-assessed opportunities into concrete trade proposals. Manage sizing, entries, exits, and rebalancing.
 
-### Step 0: Load Configuration (MANDATORY — run before any portfolio action)
-Run each command as a **separate** exec call:
-```bash
-echo "PAPER_MODE=${PAPER_MODE:-false}"
-```
+## Mandatory Pre-Flight (run before any portfolio action)
 ```bash
 node scripts/db-query.js get-chains
 ```
-Read the outputs. This determines your entire cycle:
-- `PAPER_MODE=true` → use paper commands (`get-paper-portfolio`, `get-paper-cash`, `get-paper-positions`, `get-paper-stats`), auto-approve trades
-- `PAPER_MODE=false` + `AUTO_APPROVE_BUY=true` → use real commands, buys auto-approved (`approved_by: 'auto'`)
-- `PAPER_MODE=false` (default) → use real commands, require human approval
-Always include `--chain <chain>` on portfolio and cash commands. Reference this output throughout.
+Read the active chains. Always include `--chain <chain>` on portfolio and cash commands.
 
 ## When to Use
 - After risk skill approves a token
@@ -121,28 +113,25 @@ Reply APPROVE or REJECT
 - After portfolio drawdown >15%
 
 ### How to Rebalance
-1. Check `PAPER_MODE` env var
-2. If paper mode: run `node scripts/db-query.js get-paper-portfolio --chain <chain>` and `node scripts/db-query.js get-paper-cash --chain <chain>`
-3. If real mode: run `node scripts/portfolio-summary.js --chain <chain>`
-4. Calculate current vs target allocation
-5. Identify overweight/underweight tiers
-6. Propose specific sells (weakest positions in overweight tier)
-7. Propose specific buys or cash retention for underweight tier:
+1. Run `node scripts/db-query.js get-portfolio --chain <chain>` and `get-cash --chain <chain>`
+2. Calculate current vs target allocation
+3. Identify overweight/underweight tiers
+4. Propose specific sells (weakest positions in overweight tier)
+5. Propose specific buys or cash retention for underweight tier:
    - **If base tier is underweight:** Base tier buys are restricted to wrapped native tokens only. Never classify or propose a non-native token as base tier to fill an underweight base allocation. If no base token is available or appropriate, leave the allocation underweight and allocate to cash instead. Query `get-chain-config --chain <CHAIN>` for `baseTierTokens`. These are the only tokens eligible for base tier allocation on each chain. Propose buying the most underweight base asset from that list. Prefer spreading across multiple base assets when available on the same chain to improve diversification. Use `node scripts/token-metrics.js --address <BASE_TOKEN_ADDRESS> --chain <CHAIN>` to get current price.
 
    - **If conviction tier is underweight:** Check watchlist and recent analyses for conviction-rated tokens, or trigger a conviction scan via `node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30`
    - **If moonshot tier is underweight:** Normal discovery pipeline handles this
-8. If paper mode: auto-approve. If real mode: send rebalance proposal to human:
+6. Write the orders via `add-order` (it returns `{status, approved_by}`). If any return `status: pending`, send the rebalance proposal to the human:
    ```bash
    node scripts/send-alert.js --type rebalance_event --agent research --message "Rebalance proposed on <CHAIN>: sell overweight <TIER>, buy underweight <TIER>. X orders pending approval."
    ```
 
 ## Writing Orders to Database
 
-After formatting the trade proposal, write the order to the database. The `add-order` command automatically sets the correct status:
-- **Paper mode** (`PAPER_MODE=true`): auto-approved (`status: 'approved'`, `approved_by: 'paper_mode'`)
-- **Real mode** + `AUTO_APPROVE_BUY=true`: auto-approved (`status: 'approved'`, `approved_by: 'auto'`)
-- **Real mode** (default): pending human approval (`status: 'pending'`)
+After formatting the trade proposal, write the order via `add-order`. It returns `{status, approved_by}` — branch on the returned `status`:
+- `approved` → Executor will pick it up next minute. No approval call needed.
+- `pending` → human approval required. Call `send-approval.js` (below) to surface inline buttons.
 
 ```bash
 node scripts/db-query.js add-order --json '{
@@ -177,11 +166,7 @@ This sends the trade proposal to Telegram with inline Approve/Reject buttons. On
 
 The human approves or rejects via chat (orders skill). The Executor agent polls for approved orders every minute, validates independently, builds the Safe wallet transaction, signs, and submits. You do NOT execute trades directly — the Executor handles all wallet operations.
 
-Check execution results later via:
-```bash
-# Real mode:  node scripts/db-query.js get-receipts --limit 5
-# Paper mode: node scripts/db-query.js get-paper-receipts --limit 5
-```
+Check execution results later via `node scripts/db-query.js get-receipts --limit 5`.
 
 ## Market Regime Awareness
 

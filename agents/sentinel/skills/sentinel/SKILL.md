@@ -16,10 +16,6 @@ triggers:
 Guardian of the portfolio. Watch every open position for danger. React faster than any human.
 
 ### Step 0: Load Configuration (MANDATORY — run at the start of every cycle)
-Run each command as a **separate** exec call:
-```bash
-echo "PAPER_MODE=${PAPER_MODE:-false}"
-```
 ```bash
 echo "ACTIVE_CHAINS=${ACTIVE_CHAINS}"
 ```
@@ -27,10 +23,6 @@ If `ACTIVE_CHAINS` is empty or unset, run:
 ```bash
 node scripts/db-query.js get-chains
 ```
-Read the outputs. This determines your entire cycle:
-- `PAPER_MODE=true` → use `get-paper-positions` for ALL position queries
-- `PAPER_MODE=false` → use `get-positions`
-Getting this wrong means monitoring nothing. Reference this output for every command.
 
 ## When to Use
 - During heartbeat checks (highest priority)
@@ -209,16 +201,3 @@ If an exit pattern (e.g., a recurring rug signature, LP-drain precursor, or fals
 
 `MEMORY.md` is symlinked across all four agents.
 
-## Paper Mode
-
-When `PAPER_MODE=true`, the entire workflow above applies but position queries use paper commands:
-
-| Action | Real Mode | Paper Mode |
-|--------|-----------|------------|
-| Get positions | `get-positions --status open` | `get-paper-positions --status open` |
-| Get specific position | `get-positions --symbol TOKEN` | `get-paper-positions --symbol TOKEN` |
-
-Everything else is identical:
-- Monitoring scripts (check-positions.js, check-liquidity.js, check-wallets.js) run the same
-- Sell orders are written to `orders` table (Executor handles paper routing)
-- Alerts are written to `sentinel_alerts` table (unchanged)

@@ -77,30 +77,7 @@ node scripts/db-query.js update-heartbeat --agent executor --check process_order
 node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":1,"buy_orders_processed":0,"success_count":1,"status":"ok"}'
 ```
 
-### Paper Mode
-Paper commands mirror real-mode equivalents with `paper-` prefix and identical flags. During the heartbeat, `process-order.js` handles paper positions, receipts, and cash atomically — same as real mode — so the mutation commands below are **for ad-hoc human interaction only** (diagnostics, manual adjustments) and must not be used as part of autonomous order processing.
-
-**Read-only (safe to use for reporting):**
-```bash
-node scripts/db-query.js get-paper-portfolio
-node scripts/db-query.js get-paper-cash
-node scripts/db-query.js get-paper-cash --chain <CHAIN>
-node scripts/db-query.js get-paper-positions
-node scripts/db-query.js get-paper-positions --status open
-node scripts/db-query.js get-paper-positions --symbol TOKEN
-node scripts/db-query.js get-paper-receipts
-node scripts/db-query.js get-paper-receipts --limit 10
-node scripts/db-query.js get-paper-stats
-```
-
-**Mutations (human interaction only — never during heartbeat):**
-- `set-paper-cash --chain <CHAIN> --amount <N>`.
-- `add-paper-position --json '<Position+value_usd>'` — auto-deducts from `paper_cash`, auto-computes `quantity`.
-- `update-paper-position --id <ID> --json '{current_price, value_usd?}'`.
-- `close-paper-position --id <ID> [--quantity <N>] --json '{exit_price, exit_reason}'` — auto-credits sale proceeds to `paper_cash`.
-- `add-paper-receipt --json '<Receipt+tier+proposed_price+quantity+amount>'`.
-
-### Portfolio Sync (On-Chain — Real Mode Only)
+### Portfolio Sync (On-Chain)
 ```bash
 node scripts/db-query.js sync-portfolio --chain <CHAIN>
 node scripts/db-query.js sync-portfolio --chain <CHAIN> --trigger post_trade
@@ -108,8 +85,9 @@ node scripts/db-query.js get-sync-status
 node scripts/db-query.js get-sync-status --chain <CHAIN>
 node scripts/db-query.js set-onchain-balance --id <position_id> --balance 1000.5
 ```
+`sync-portfolio` returns `{ok: false, message: 'Portfolio sync skipped...'}` when on-chain sync is disabled — proceed without action.
 
-## Trade Execution (Real Mode Only)
+## Trade Execution
 
 ### EVM (Safe Wallet) — execute-trade-evm.js
 
@@ -160,22 +138,21 @@ When rejected: receipt → `reverted`, draft positions deleted (cash refunded), 
 node scripts/token-metrics.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```
 
-### On-Chain Portfolio Sync (Real Mode Only)
+### On-Chain Portfolio Sync
 ```bash
 node scripts/portfolio-load-evm.js --chain <CHAIN>
 node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger post_trade
 node scripts/portfolio-load-solana.js --chain solana
 node scripts/portfolio-load-solana.js --chain solana --trigger post_trade
 ```
-Native ETH/SOL stored as gas metadata (not a position). Stablecoins accumulate as cash.
+Native ETH/SOL stored as gas metadata (not a position). Stablecoins accumulate as cash. Loaders return `{status: 'skipped'}` when on-chain sync is disabled — proceed without action.
 
 ## Emergency & Alerts
 
 ### Emergency Executor (No LLM Required)
 ```bash
 # Script-only sell executor — runs when executor agent can't reach any model
-# Processes SELL orders only (never buys). Calls execute-trade-evm.js / execute-trade-solana.js
-# In paper mode: simulates execution, writes to paper tables
+# Processes SELL orders only (never buys). Calls process-order.js per order.
 node scripts/emergency-executor.js
 ```
 
@@ -198,7 +175,6 @@ Every successful `send-alert.js` invocation also writes an `[info] [send-alert]`
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ACTIVE_CHAINS` | Per `get-chains` | Comma-separated list of active chains. Run `get-chains` to see available chains. |
-| `PAPER_MODE` | `false` | Enable simulated trading (no real transactions, no on-chain sync) |
 
 ## Important Notes
 

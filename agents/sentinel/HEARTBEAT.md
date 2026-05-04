@@ -1,7 +1,7 @@
 # HEARTBEAT.md — Sentinel Agent
 
 ## Schedule
-Sentinel heartbeat runs every 15 minutes. ALL checks run every heartbeat (not rotating).
+Sentinel heartbeat runs every 15 minutes. Most checks run every heartbeat (price, liquidity, wallet, smart-money exits). Contract check is rotating (≈ every 30 min) — gated by `get-overdue-checks` in Step 5.
 Keep checks fast and mechanical.
 
 > **Note on `check_type` naming.** Two different tables use a `check_type` column, and they follow different conventions:
@@ -14,9 +14,6 @@ Keep checks fast and mechanical.
 
 ### 1. Price Check (CRITICAL)
 ```bash
-# Check PAPER_MODE env var first!
-#   Real mode:  node scripts/db-query.js get-positions --status open
-#   Paper mode: node scripts/db-query.js get-paper-positions --status open
 node scripts/check-positions.js
 ```
 ```bash
@@ -93,7 +90,7 @@ node scripts/db-query.js update-heartbeat --agent sentinel --check contract_chec
 ```bash
 node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"sells_executed":0,"status":"ok"}'
 ```
-Use status: `"ok"` if nothing happened or sell orders were written cleanly, `"notable"` if Tier 2 events occurred (price >20% drop without sell, liquidity 15-30%, tax >5%, mintable), `"error"` if a check crashed (see AGENTS.md § Error Self-Reporting). Do not use values outside this set — Observer correlates on these literals.
+Use status: `"ok"` if nothing happened or sell orders were written cleanly, `"notable"` if Tier 2 events occurred (price >20% drop without sell, liquidity 15-30%, tax >5%, mintable), `"error"` if a check crashed (see AGENTS.md § Error Self-Reporting). Stay within this set — your own 3h-summary logic in Step 7 reads `"notable"`, and Observer's silent-crash detector reads `"error"`.
 
 ### 7. Summary Decision (ONLY after logging)
 Decide whether to send a periodic summary. Do NOT send alerts for quiet heartbeats.
@@ -116,9 +113,8 @@ node scripts/send-alert.js --type heartbeat_summary --agent sentinel --message "
 ```
 
 ## Rules
-- Run ALL checks every heartbeat, not just one
+- Run every check that is due — the always-on ones (price, liquidity, wallet, smart-money exits) plus any rotating check (contract) the overdue array surfaces this cycle. Do not selectively drop checks.
 - Never skip a check to save tokens — your whole job is checking
-- **Run `echo "PAPER_MODE=${PAPER_MODE:-false}"` at the start of every heartbeat.** Read the output. Use `get-paper-positions` if `true`, `get-positions` if `false`/unset. Reference this for every command in the cycle.
 - If no open positions in DB → reply HEARTBEAT_OK immediately
 - Keep total response under 500 tokens when nothing is wrong
 - Do NOT call `send-alert.js` when all checks pass with no events — quiet runs produce zero Telegram messages
