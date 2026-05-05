@@ -200,7 +200,7 @@ done
 cp "$SCRIPT_DIR/scripts/package.json" "$SENTINEL_DIR/workspace/scripts/"
 
 # Executor gets execution scripts + db access + price checking
-for script in db.js db-query.js agent-idleness.js chains.js token-metrics.js portfolio-load-evm.js portfolio-load-solana.js address-validator.js order-approval.js; do
+for script in db.js db-query.js agent-idleness.js chains.js token-metrics.js portfolio-load-evm.js portfolio-load-solana.js address-validator.js order-approval.js onchain-balance.js price-oracle.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$EXECUTOR_DIR/workspace/scripts/"
 done
 for script in execute-trade-evm.js check-safe-status.js execute-trade-solana.js check-squads-status.js send-alert.js process-order.js track-multisig.js emergency-executor.js redact.js log.js; do

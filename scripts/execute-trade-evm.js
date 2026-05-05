@@ -14,8 +14,9 @@
  */
 
 import 'dotenv/config';
-import { getChain, getCashToken } from './chains.js';
-import { createPublicClient, http, parseAbi, encodeFunctionData, formatUnits, parseUnits, maxUint256 } from 'viem';
+import { getChain, getCashToken, isAllowedRouter, isAllowedRpcUrl } from './chains.js';
+import { fetchOraclePrice, evaluatePriceDrift } from './price-oracle.js';
+import { createPublicClient, http, parseAbi, encodeFunctionData, formatUnits, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import SafeModule from '@safe-global/protocol-kit';
 import SafeApiKitModule from '@safe-global/api-kit';
@@ -173,6 +174,37 @@ function resolveConfig(chainName) {
   if (!signerKey) throw new Error('SAFE_SIGNER_KEY not set');
   if (!oneInchApiKey) throw new Error('ONEINCH_API_KEY not set');
 
+  // PR 2.8: RPC hostname allowlist. A tampered RPC env var would let
+  // an attacker snoop signed-tx broadcast (front-run), drop txs
+  // (censor), or return manipulated state reads (defeat PR 2.4 cash
+  // reconciliation). Modes via RPC_VALIDATION_MODE:
+  //   unset/strict → mismatch throws (default, fail-closed)
+  //   warn         → log [suspicious-rpc] but continue (rollout)
+  //   skip         → no check at all (genuine outage / new provider)
+  const mode = process.env.RPC_VALIDATION_MODE || 'strict';
+  if (mode !== 'skip' && !isAllowedRpcUrl(chainName, rpcUrl)) {
+    let host = '';
+    try {
+      host = new URL(rpcUrl).hostname;
+    } catch {
+      host = '<unparseable>';
+    }
+    if (mode === 'warn') {
+      log(
+        'warn',
+        'execute-trade-evm',
+        `[suspicious-rpc] ${chainName}: hostname ${host} not in allowlist (RPC_VALIDATION_MODE=warn)`,
+      );
+    } else {
+      log(
+        'critical',
+        'execute-trade-evm',
+        `[suspicious-rpc] ${chainName}: hostname ${host} not in allowlist — refusing to execute`,
+      );
+      throw new Error(`rpc_hostname_not_allowlisted: ${host} on ${chainName}`);
+    }
+  }
+
   const cashToken = getCashToken(chainName);
   return {
     safeAddress,
@@ -275,6 +307,44 @@ export function buildApproveCalldata(spender, amount) {
     functionName: 'approve',
     args: [spender, amount],
   });
+}
+
+// PR 2.5: scoped approvals. Replaces the legacy maxUint256 approval
+// with `quote_amount * (1 + margin)`. Defangs the worst-case 1inch
+// router compromise — instead of letting a malicious router drain
+// the full Safe USDC + token balances, it can only take the in-
+// flight trade amount plus the margin (default 5%).
+//
+// Trade-off: ~$3 extra gas per EVM buy because each swap now needs
+// a fresh approval (the previous trade's allowance is consumed by
+// the router or left as a tiny residual).
+//
+// IMPORTANT: existing Safes that previously executed under the
+// legacy code path still have a maxUint256 allowance. To realize
+// the full benefit, an operator should manually revoke those old
+// approvals via the Safe UI. PR 2.5 only hardens NEW approvals.
+//
+// Tunable via env var APPROVAL_MARGIN_PCT (integer, default 5).
+// Use 10 for high-volatility assets where price moves fast between
+// quote and execution. Use 0 to approve the exact amount (riskier
+// — any rounding will revert the swap).
+//
+// Exported for offline unit testing of the BigInt math.
+export function computeApprovalAmount(amountWei, marginPct) {
+  if (typeof amountWei !== 'bigint') {
+    throw new TypeError(`computeApprovalAmount: amountWei must be bigint, got ${typeof amountWei}`);
+  }
+  if (amountWei < 0n) {
+    throw new RangeError('computeApprovalAmount: amountWei must be non-negative');
+  }
+  const pct = Number.isFinite(marginPct) && marginPct >= 0 ? Math.floor(marginPct) : 5;
+  // (amount * (100 + pct)) / 100 — integer math, BigInt-safe.
+  return (amountWei * BigInt(100 + pct)) / 100n;
+}
+
+function getApprovalMarginPct() {
+  const v = parseInt(process.env.APPROVAL_MARGIN_PCT ?? '', 10);
+  return Number.isFinite(v) && v >= 0 ? v : 5;
 }
 
 // ============================================================
@@ -467,10 +537,63 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
     };
   }
 
+  // PR 2.3: hard-allowlist the swap target. If 1inch's API or DNS is
+  // ever compromised, the response could redirect tx.to at an
+  // attacker contract. PR 2.5 scopes the USDC approval to the trade
+  // amount + margin, but defense-in-depth: refuse the swap entirely
+  // if it's not going to a known-good router.
+  if (!isAllowedRouter(args.chain, swap.tx.to)) {
+    log(
+      'critical',
+      'execute-trade-evm',
+      `BUY tx.to NOT in router allowlist [chain=${args.chain} symbol=${args.symbol} got=${swap.tx.to}] — refusing to sign`,
+    );
+    return {
+      status: 'failed',
+      error: `aggregator_router_not_allowlisted: ${swap.tx.to} on ${args.chain}`,
+      action: 'buy',
+      symbol: args.symbol,
+      chain: args.chain,
+    };
+  }
+
   stepLog(
     ctx,
     `quote_ok: dstAmount=${swap.dstAmount} expected=${formatUnits(BigInt(swap.dstAmount), tokenDecimals)} ${args.symbol} router=${shortAddr(swap.tx.to)}`,
   );
+
+  // PR 2.7: cross-check 1inch's quote against an independent price
+  // source. Catches aggregator-side manipulation (compromised API,
+  // sandwich within tolerance, stale-routed quote). Skipped via
+  // SKIP_PRICE_ORACLE=true during a genuine source outage.
+  if (process.env.SKIP_PRICE_ORACLE !== 'true') {
+    const tokensOut = parseFloat(formatUnits(BigInt(swap.dstAmount), tokenDecimals));
+    const quotePrice = tokensOut > 0 ? buyAmount / tokensOut : 0;
+    const oracle = await fetchOraclePrice(args.chain, args.address);
+    if (oracle === null) {
+      stepLog(ctx, `oracle_skipped: no source agreement for ${shortAddr(args.address)} on ${args.chain}`);
+    } else {
+      const drift = evaluatePriceDrift({ quotePrice, oraclePrice: oracle.price });
+      if (!drift.valid) {
+        log(
+          'critical',
+          'execute-trade-evm',
+          `BUY oracle_drift_exceeded src=${oracle.source} ${drift.reason} [chain=${args.chain} symbol=${args.symbol}]`,
+        );
+        return {
+          status: 'failed',
+          error: `oracle_drift_exceeded (${oracle.source}): ${drift.reason}`,
+          action: 'buy',
+          symbol: args.symbol,
+          chain: args.chain,
+        };
+      }
+      stepLog(
+        ctx,
+        `oracle_ok src=${oracle.source} quote=$${quotePrice} oracle=$${oracle.price} drift=${drift.driftPct.toFixed(2)}%`,
+      );
+    }
+  }
 
   // Build Safe transactions: approve + swap
   const transactions = [];
@@ -482,11 +605,15 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
   const approveNeeded = currentAllowance < BigInt(amountWei);
   stepLog(ctx, `allowance: current=${currentAllowance} needed=${amountWei} approve_needed=${approveNeeded}`);
   if (approveNeeded) {
+    // PR 2.5: scoped — approve only this trade's amount + margin,
+    // not maxUint256. Limits blast radius if 1inch is compromised.
+    const approvalAmount = computeApprovalAmount(BigInt(amountWei), getApprovalMarginPct());
     transactions.push({
       to: env.usdcAddress,
       value: '0',
-      data: buildApproveCalldata(ONEINCH_ROUTER, maxUint256),
+      data: buildApproveCalldata(ONEINCH_ROUTER, approvalAmount),
     });
+    stepLog(ctx, `approval_scoped: amount=${approvalAmount} margin_pct=${getApprovalMarginPct()}`);
   }
 
   // Add swap transaction
@@ -497,8 +624,46 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
   });
   stepLog(ctx, `tx_built: ${transactions.length} transaction(s) (approve=${approveNeeded}, swap=true)`);
 
+  // PR 2.6: snapshot pre-swap balance of the target token so we can
+  // compute actual_received post-confirmation. Skipped for dryRun
+  // since no real state change happens. Failures here downgrade to a
+  // warning — we don't want to abort a valid swap because the
+  // balanceOf RPC blipped.
+  let preSwapBalance = null;
+  if (!dryRun) {
+    try {
+      preSwapBalance = await client.readContract({
+        address: args.address,
+        abi: ERC20_ABI,
+        functionName: 'balanceOf',
+        args: [env.safeAddress],
+      });
+      stepLog(ctx, `presnap: token_balance=${preSwapBalance}`);
+    } catch (err) {
+      stepLog(ctx, `presnap_failed: ${err.message.slice(0, 80)} — post-swap drift check disabled`);
+    }
+  }
+
   const result = await buildAndSubmitSafeTx(env, transactions, { dryRun, ctx });
   stepLog(ctx, `buy done status=${result.status} safeHash=${result.safeHash || ''} txHash=${result.txHash || ''}`);
+
+  // PR 2.6: post-swap balance read (only on actual on-chain execution).
+  let actualReceived = null;
+  if (!dryRun && result.status === 'executed' && preSwapBalance !== null) {
+    try {
+      const postSwapBalance = await client.readContract({
+        address: args.address,
+        abi: ERC20_ABI,
+        functionName: 'balanceOf',
+        args: [env.safeAddress],
+      });
+      const deltaWei = postSwapBalance - preSwapBalance;
+      actualReceived = parseFloat(formatUnits(deltaWei < 0n ? 0n : deltaWei, tokenDecimals));
+      stepLog(ctx, `postsnap: token_balance=${postSwapBalance} delta=${deltaWei} actual_received=${actualReceived}`);
+    } catch (err) {
+      stepLog(ctx, `postsnap_failed: ${err.message.slice(0, 80)}`);
+    }
+  }
 
   return {
     ...result,
@@ -508,6 +673,8 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
     tokenAddress: args.address,
     usdcSpent: buyAmount,
     expectedTokens: formatUnits(BigInt(swap.dstAmount), tokenDecimals),
+    quotedReceived: parseFloat(formatUnits(BigInt(swap.dstAmount), tokenDecimals)),
+    actualReceived,
     timestamp: new Date().toISOString(),
   };
 }
@@ -586,10 +753,58 @@ async function executeSell(args, env, { dryRun = false } = {}) {
     };
   }
 
+  // PR 2.3: same router allowlist check as the buy flow.
+  if (!isAllowedRouter(args.chain, swap.tx.to)) {
+    log(
+      'critical',
+      'execute-trade-evm',
+      `SELL tx.to NOT in router allowlist [chain=${args.chain} symbol=${args.symbol} got=${swap.tx.to}] — refusing to sign`,
+    );
+    return {
+      status: 'failed',
+      error: `aggregator_router_not_allowlisted: ${swap.tx.to} on ${args.chain}`,
+      action: 'sell',
+      symbol: args.symbol,
+      chain: args.chain,
+    };
+  }
+
   stepLog(
     ctx,
     `quote_ok: dstAmount=${swap.dstAmount} expected=${formatUnits(BigInt(swap.dstAmount), env.usdcDecimals)} USDC router=${shortAddr(swap.tx.to)}`,
   );
+
+  // PR 2.7: oracle cross-check on the SELL side. Effective sell
+  // price = USDC out / token in. Same drift threshold as buys.
+  if (process.env.SKIP_PRICE_ORACLE !== 'true') {
+    const usdcOut = parseFloat(formatUnits(BigInt(swap.dstAmount), env.usdcDecimals));
+    const tokensIn = parseFloat(formatUnits(sellAmountWei, tokenDecimals));
+    const quotePrice = tokensIn > 0 ? usdcOut / tokensIn : 0;
+    const oracle = await fetchOraclePrice(args.chain, args.address);
+    if (oracle === null) {
+      stepLog(ctx, `oracle_skipped: no source agreement for ${shortAddr(args.address)} on ${args.chain}`);
+    } else {
+      const drift = evaluatePriceDrift({ quotePrice, oraclePrice: oracle.price });
+      if (!drift.valid) {
+        log(
+          'critical',
+          'execute-trade-evm',
+          `SELL oracle_drift_exceeded src=${oracle.source} ${drift.reason} [chain=${args.chain} symbol=${args.symbol}]`,
+        );
+        return {
+          status: 'failed',
+          error: `oracle_drift_exceeded (${oracle.source}): ${drift.reason}`,
+          action: 'sell',
+          symbol: args.symbol,
+          chain: args.chain,
+        };
+      }
+      stepLog(
+        ctx,
+        `oracle_ok src=${oracle.source} quote=$${quotePrice} oracle=$${oracle.price} drift=${drift.driftPct.toFixed(2)}%`,
+      );
+    }
+  }
 
   // Build Safe transactions: approve (if needed) + swap
   const transactions = [];
@@ -600,11 +815,14 @@ async function executeSell(args, env, { dryRun = false } = {}) {
   const approveNeeded = currentAllowance < sellAmountWei;
   stepLog(ctx, `allowance: current=${currentAllowance} needed=${sellAmountWei} approve_needed=${approveNeeded}`);
   if (approveNeeded) {
+    // PR 2.5: scoped — same as buy flow.
+    const approvalAmount = computeApprovalAmount(sellAmountWei, getApprovalMarginPct());
     transactions.push({
       to: args.address,
       value: '0',
-      data: buildApproveCalldata(ONEINCH_ROUTER, maxUint256),
+      data: buildApproveCalldata(ONEINCH_ROUTER, approvalAmount),
     });
+    stepLog(ctx, `approval_scoped: amount=${approvalAmount} margin_pct=${getApprovalMarginPct()}`);
   }
 
   transactions.push({
@@ -614,10 +832,45 @@ async function executeSell(args, env, { dryRun = false } = {}) {
   });
   stepLog(ctx, `tx_built: ${transactions.length} transaction(s) (approve=${approveNeeded}, swap=true)`);
 
+  // PR 2.6: snapshot pre-swap USDC balance (sells receive USDC).
+  let preSwapUsdc = null;
+  if (!dryRun) {
+    try {
+      preSwapUsdc = await client.readContract({
+        address: env.usdcAddress,
+        abi: ERC20_ABI,
+        functionName: 'balanceOf',
+        args: [env.safeAddress],
+      });
+      stepLog(ctx, `presnap: usdc_balance=${preSwapUsdc}`);
+    } catch (err) {
+      stepLog(ctx, `presnap_failed: ${err.message.slice(0, 80)} — post-swap drift check disabled`);
+    }
+  }
+
   const result = await buildAndSubmitSafeTx(env, transactions, { dryRun, ctx });
   stepLog(ctx, `sell done status=${result.status} safeHash=${result.safeHash || ''} txHash=${result.txHash || ''}`);
 
   const usdcDecimals = env.usdcDecimals;
+
+  // PR 2.6: post-swap USDC balance.
+  let actualReceived = null;
+  if (!dryRun && result.status === 'executed' && preSwapUsdc !== null) {
+    try {
+      const postSwapUsdc = await client.readContract({
+        address: env.usdcAddress,
+        abi: ERC20_ABI,
+        functionName: 'balanceOf',
+        args: [env.safeAddress],
+      });
+      const deltaWei = postSwapUsdc - preSwapUsdc;
+      actualReceived = parseFloat(formatUnits(deltaWei < 0n ? 0n : deltaWei, usdcDecimals));
+      stepLog(ctx, `postsnap: usdc_balance=${postSwapUsdc} delta=${deltaWei} actual_received=${actualReceived}`);
+    } catch (err) {
+      stepLog(ctx, `postsnap_failed: ${err.message.slice(0, 80)}`);
+    }
+  }
+
   return {
     ...result,
     action: 'sell',
@@ -626,6 +879,8 @@ async function executeSell(args, env, { dryRun = false } = {}) {
     tokenAddress: args.address,
     tokensSold: formatUnits(sellAmountWei, tokenDecimals),
     expectedUsdc: formatUnits(BigInt(swap.dstAmount), usdcDecimals),
+    quotedReceived: parseFloat(formatUnits(BigInt(swap.dstAmount), usdcDecimals)),
+    actualReceived,
     timestamp: new Date().toISOString(),
   };
 }

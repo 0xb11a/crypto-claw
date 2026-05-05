@@ -64,9 +64,10 @@ cp "$SRC/agents/executor/TOOLS.md"      "$AGENT_TPL/executor/TOOLS.md"
 cp "$SRC/agents/executor/skills/executor/SKILL.md" "$AGENT_TPL/executor/skills/executor/SKILL.md"
 
 # Executor scripts: db access + execution + price checking + chain config + portfolio sync + emergency.
-# Internal helpers (address-validator, order-approval) are required by
-# token-metrics/process-order (PR 1.3/1.4) and db-query (PR 1.5).
-for script in db.js db-query.js agent-idleness.js chains.js token-metrics.js portfolio-load-evm.js portfolio-load-solana.js address-validator.js order-approval.js; do
+# Internal helpers (address-validator, order-approval, onchain-balance)
+# are required by token-metrics/process-order (PR 1.3/1.4/2.4) and
+# db-query (PR 1.5).
+for script in db.js db-query.js agent-idleness.js chains.js token-metrics.js portfolio-load-evm.js portfolio-load-solana.js address-validator.js order-approval.js onchain-balance.js price-oracle.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/executor/scripts/"
 done
 for script in execute-trade-evm.js check-safe-status.js execute-trade-solana.js check-squads-status.js emergency-executor.js send-alert.js process-order.js track-multisig.js redact.js log.js; do

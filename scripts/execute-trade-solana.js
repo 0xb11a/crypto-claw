@@ -14,7 +14,8 @@
  */
 
 import 'dotenv/config';
-import { getChain, getCashToken } from './chains.js';
+import { getChain, getCashToken, isAllowedSwapProgram, isAllowedAncillaryProgram, isAllowedRpcUrl } from './chains.js';
+import { fetchOraclePrice, evaluatePriceDrift } from './price-oracle.js';
 import {
   Connection,
   PublicKey,
@@ -24,7 +25,13 @@ import {
   TransactionInstruction,
   AddressLookupTableAccount,
 } from '@solana/web3.js';
-import { getAssociatedTokenAddress, getAccount, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
+import {
+  getAssociatedTokenAddress,
+  getAccount,
+  getMint,
+  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+} from '@solana/spl-token';
 import * as multisig from '@sqds/multisig';
 import bs58 from 'bs58';
 import { log } from './log.js';
@@ -153,6 +160,32 @@ function resolveConfig(chainName) {
   if (!multisigAddress) throw new Error(`${chain.squads.multisigEnv} not set`);
   if (!signerKeyBase58) throw new Error(`${chain.squads.signerKeyEnv} not set`);
   if (!rpcUrl) throw new Error(`${chain.squads.rpcEnv} not set`);
+
+  // PR 2.8: RPC hostname allowlist (same as EVM). Defangs threat
+  // #14 — a tampered RPC env could front-run / censor / fake state.
+  const mode = process.env.RPC_VALIDATION_MODE || 'strict';
+  if (mode !== 'skip' && !isAllowedRpcUrl(chainName, rpcUrl)) {
+    let host = '';
+    try {
+      host = new URL(rpcUrl).hostname;
+    } catch {
+      host = '<unparseable>';
+    }
+    if (mode === 'warn') {
+      log(
+        'warn',
+        'execute-trade-solana',
+        `[suspicious-rpc] ${chainName}: hostname ${host} not in allowlist (RPC_VALIDATION_MODE=warn)`,
+      );
+    } else {
+      log(
+        'critical',
+        'execute-trade-solana',
+        `[suspicious-rpc] ${chainName}: hostname ${host} not in allowlist — refusing to execute`,
+      );
+      throw new Error(`rpc_hostname_not_allowlisted: ${host} on ${chainName}`);
+    }
+  }
 
   const multisigPda = new PublicKey(multisigAddress);
   const signer = Keypair.fromSecretKey(bs58.decode(signerKeyBase58));
@@ -290,6 +323,44 @@ function deserializeInstruction(ix) {
     })),
     data: Buffer.from(ix.data, 'base64'),
   });
+}
+
+// PR 2.3: validate every instruction's programId before we let Squads
+// sign over it. The threat model: Jupiter's API gets compromised /
+// MITM'd, the response includes a malicious setupInstruction whose
+// programId is an attacker contract. That instruction would execute
+// from the vault's signing context BEFORE the legit swap, and could
+// drain the vault. Hard-allowlist the swap program (Jupiter v6) and
+// the small set of well-known Solana system programs Jupiter uses
+// for ATA creation and wSOL handling.
+//
+// Exported for offline unit tests.
+export function validateJupiterInstructions(swapData, chain) {
+  if (!swapData?.swapInstruction?.programId) {
+    return { valid: false, reason: 'missing_swap_instruction_programId' };
+  }
+  if (!isAllowedSwapProgram(chain, swapData.swapInstruction.programId)) {
+    return {
+      valid: false,
+      reason: `swap_program_not_allowlisted: ${swapData.swapInstruction.programId}`,
+    };
+  }
+  const ancillary = [
+    ...(Array.isArray(swapData.setupInstructions) ? swapData.setupInstructions : []),
+    ...(swapData.cleanupInstruction ? [swapData.cleanupInstruction] : []),
+  ];
+  for (const ix of ancillary) {
+    if (!ix?.programId) {
+      return { valid: false, reason: 'ancillary_instruction_missing_programId' };
+    }
+    if (!isAllowedAncillaryProgram(chain, ix.programId)) {
+      return {
+        valid: false,
+        reason: `ancillary_program_not_allowlisted: ${ix.programId}`,
+      };
+    }
+  }
+  return { valid: true };
 }
 
 // Resolve Jupiter-provided LUT addresses into AddressLookupTableAccount objects.
@@ -541,6 +612,50 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
   const quote = await getJupiterQuote(USDC_MINT, tokenMint, usdcLamports, slippageBps, ctx);
   stepLog(ctx, `quote_ok: outAmount=${quote.outAmount} route_plan_len=${quote.routePlan?.length ?? '?'}`);
 
+  // PR 2.6/2.7: fetch token decimals once — needed for both the
+  // oracle cross-check below and the post-swap balance assertion.
+  let tokenDecimals = null;
+  let tokenProgramId = null;
+  try {
+    tokenProgramId = await detectTokenProgram(env.connection, tokenMint, ctx);
+    const mintInfo = await getMint(env.connection, tokenMint, undefined, tokenProgramId);
+    tokenDecimals = mintInfo.decimals;
+    stepLog(ctx, `mint_info: decimals=${tokenDecimals}`);
+  } catch (err) {
+    stepLog(ctx, `mint_info_failed: ${err.message.slice(0, 80)} — oracle/post-swap checks degraded`);
+  }
+
+  // PR 2.7: independent oracle cross-check before signing. Catches
+  // Jupiter-side quote manipulation and routing through stale pools.
+  if (process.env.SKIP_PRICE_ORACLE !== 'true' && tokenDecimals !== null) {
+    const tokensOut = Number(BigInt(quote.outAmount)) / 10 ** tokenDecimals;
+    const quotePrice = tokensOut > 0 ? buyAmountUsd / tokensOut : 0;
+    const oracle = await fetchOraclePrice(args.chain, args.address);
+    if (oracle === null) {
+      stepLog(ctx, `oracle_skipped: no source agreement for ${shortAddr(tokenMint)} on ${args.chain}`);
+    } else {
+      const drift = evaluatePriceDrift({ quotePrice, oraclePrice: oracle.price });
+      if (!drift.valid) {
+        log(
+          'critical',
+          'execute-trade-solana',
+          `BUY oracle_drift_exceeded src=${oracle.source} ${drift.reason} [chain=${args.chain} symbol=${args.symbol}]`,
+        );
+        return {
+          status: 'failed',
+          error: `oracle_drift_exceeded (${oracle.source}): ${drift.reason}`,
+          action: 'buy',
+          symbol: args.symbol,
+          chain: args.chain,
+        };
+      }
+      stepLog(
+        ctx,
+        `oracle_ok src=${oracle.source} quote=$${quotePrice} oracle=$${oracle.price} drift=${drift.driftPct.toFixed(2)}%`,
+      );
+    }
+  }
+
   // Get swap instructions for the vault
   stepLog(ctx, `swap_instructions_request`);
   const swapData = await getJupiterSwapInstructions(quote, env.vaultPda, ctx);
@@ -555,6 +670,25 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
     return {
       status: 'failed',
       error: `Jupiter response missing swapInstruction (keys: ${JSON.stringify(Object.keys(swapData || {}))})`,
+      action: 'buy',
+      symbol: args.symbol,
+      chain: args.chain,
+    };
+  }
+
+  // PR 2.3: hard-allowlist every instruction's programId. If Jupiter
+  // is compromised it could inject an attacker-controlled setup
+  // instruction that drains the vault before the legit swap runs.
+  const progCheck = validateJupiterInstructions(swapData, args.chain);
+  if (!progCheck.valid) {
+    log(
+      'critical',
+      'execute-trade-solana',
+      `BUY ${progCheck.reason} for ${args.symbol} on ${args.chain} — refusing to sign`,
+    );
+    return {
+      status: 'failed',
+      error: `aggregator_program_not_allowlisted: ${progCheck.reason}`,
       action: 'buy',
       symbol: args.symbol,
       chain: args.chain,
@@ -594,11 +728,42 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
 
   const lookupTableAccounts = await resolveLookupTables(env.connection, swapData.addressLookupTableAddresses, ctx);
 
+  // PR 2.6: snapshot pre-swap balance + decimals so we can compute
+  // actual_received post-confirmation. Failures degrade gracefully —
+  // no balance check rather than blocking the trade.
+  // tokenDecimals was fetched above (PR 2.6/2.7 shared). If that
+  // failed we skip the post-swap snapshot too.
+  let preSwapBalance = null;
+  if (!dryRun && tokenDecimals !== null) {
+    try {
+      preSwapBalance = await getTokenBalance(env.connection, tokenMint, env.vaultPda, ctx);
+      stepLog(ctx, `presnap: token_balance=${preSwapBalance}`);
+    } catch (err) {
+      stepLog(ctx, `presnap_failed: ${err.message.slice(0, 80)} — post-swap drift check disabled`);
+    }
+  }
+
   const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun, ctx, lookupTableAccounts });
   stepLog(
     ctx,
     `buy done status=${result.status} sig=${result.txSignature || ''} txIndex=${result.squadsTransactionIndex || ''}`,
   );
+
+  // PR 2.6: post-swap balance read.
+  let actualReceived = null;
+  if (!dryRun && result.status === 'executed' && preSwapBalance !== null && tokenDecimals !== null) {
+    try {
+      const postSwapBalance = await getTokenBalance(env.connection, tokenMint, env.vaultPda, ctx);
+      const delta = postSwapBalance - preSwapBalance;
+      const deltaPositive = delta < 0n ? 0n : delta;
+      actualReceived = Number(deltaPositive) / 10 ** tokenDecimals;
+      stepLog(ctx, `postsnap: token_balance=${postSwapBalance} delta=${delta} actual_received=${actualReceived}`);
+    } catch (err) {
+      stepLog(ctx, `postsnap_failed: ${err.message.slice(0, 80)}`);
+    }
+  }
+
+  const quotedReceived = tokenDecimals !== null ? Number(BigInt(quote.outAmount)) / 10 ** tokenDecimals : null;
 
   return {
     ...result,
@@ -608,6 +773,8 @@ async function executeBuy(args, env, { dryRun = false } = {}) {
     tokenAddress: args.address,
     usdcSpent: buyAmountUsd,
     expectedTokens: quote.outAmount,
+    quotedReceived,
+    actualReceived,
     timestamp: new Date().toISOString(),
   };
 }
@@ -657,6 +824,48 @@ async function executeSell(args, env, { dryRun = false } = {}) {
   const quote = await getJupiterQuote(tokenMint, USDC_MINT, sellAmount, slippageBps, ctx);
   stepLog(ctx, `quote_ok: outAmount=${quote.outAmount} route_plan_len=${quote.routePlan?.length ?? '?'}`);
 
+  // PR 2.7: oracle cross-check on the SELL side. Effective price =
+  // USDC out / token in (both human-readable). Need decimals.
+  if (process.env.SKIP_PRICE_ORACLE !== 'true') {
+    let sellTokenDecimals = null;
+    try {
+      const tokenProgramId = await detectTokenProgram(env.connection, tokenMint, ctx);
+      const mintInfo = await getMint(env.connection, tokenMint, undefined, tokenProgramId);
+      sellTokenDecimals = mintInfo.decimals;
+    } catch (err) {
+      stepLog(ctx, `oracle_skipped: mint_info_failed ${err.message.slice(0, 80)}`);
+    }
+    if (sellTokenDecimals !== null) {
+      const usdcOut = Number(BigInt(quote.outAmount)) / 10 ** USDC_DECIMALS;
+      const tokensIn = Number(sellAmount) / 10 ** sellTokenDecimals;
+      const quotePrice = tokensIn > 0 ? usdcOut / tokensIn : 0;
+      const oracle = await fetchOraclePrice(args.chain, args.address);
+      if (oracle === null) {
+        stepLog(ctx, `oracle_skipped: no source agreement for ${shortAddr(tokenMint)} on ${args.chain}`);
+      } else {
+        const drift = evaluatePriceDrift({ quotePrice, oraclePrice: oracle.price });
+        if (!drift.valid) {
+          log(
+            'critical',
+            'execute-trade-solana',
+            `SELL oracle_drift_exceeded src=${oracle.source} ${drift.reason} [chain=${args.chain} symbol=${args.symbol}]`,
+          );
+          return {
+            status: 'failed',
+            error: `oracle_drift_exceeded (${oracle.source}): ${drift.reason}`,
+            action: 'sell',
+            symbol: args.symbol,
+            chain: args.chain,
+          };
+        }
+        stepLog(
+          ctx,
+          `oracle_ok src=${oracle.source} quote=$${quotePrice} oracle=$${oracle.price} drift=${drift.driftPct.toFixed(2)}%`,
+        );
+      }
+    }
+  }
+
   // Get swap instructions for the vault
   stepLog(ctx, `swap_instructions_request`);
   const swapData = await getJupiterSwapInstructions(quote, env.vaultPda, ctx);
@@ -671,6 +880,23 @@ async function executeSell(args, env, { dryRun = false } = {}) {
     return {
       status: 'failed',
       error: `Jupiter response missing swapInstruction (keys: ${JSON.stringify(Object.keys(swapData || {}))})`,
+      action: 'sell',
+      symbol: args.symbol,
+      chain: args.chain,
+    };
+  }
+
+  // PR 2.3: same allowlist check as the buy flow.
+  const progCheckSell = validateJupiterInstructions(swapData, args.chain);
+  if (!progCheckSell.valid) {
+    log(
+      'critical',
+      'execute-trade-solana',
+      `SELL ${progCheckSell.reason} for ${args.symbol} on ${args.chain} — refusing to sign`,
+    );
+    return {
+      status: 'failed',
+      error: `aggregator_program_not_allowlisted: ${progCheckSell.reason}`,
       action: 'sell',
       symbol: args.symbol,
       chain: args.chain,
@@ -710,6 +936,17 @@ async function executeSell(args, env, { dryRun = false } = {}) {
 
   const lookupTableAccounts = await resolveLookupTables(env.connection, swapData.addressLookupTableAddresses, ctx);
 
+  // PR 2.6: snapshot pre-swap USDC balance (sells receive USDC).
+  let preSwapUsdc = null;
+  if (!dryRun) {
+    try {
+      preSwapUsdc = await getTokenBalance(env.connection, USDC_MINT, env.vaultPda, ctx);
+      stepLog(ctx, `presnap: usdc_balance=${preSwapUsdc}`);
+    } catch (err) {
+      stepLog(ctx, `presnap_failed: ${err.message.slice(0, 80)} — post-swap drift check disabled`);
+    }
+  }
+
   const result = await buildAndSubmitSquadsTx(env, allInstructions, { dryRun, ctx, lookupTableAccounts });
   stepLog(
     ctx,
@@ -717,6 +954,20 @@ async function executeSell(args, env, { dryRun = false } = {}) {
   );
 
   const expectedUsdc = Number(quote.outAmount) / 10 ** USDC_DECIMALS;
+
+  // PR 2.6: post-swap USDC balance read.
+  let actualReceived = null;
+  if (!dryRun && result.status === 'executed' && preSwapUsdc !== null) {
+    try {
+      const postSwapUsdc = await getTokenBalance(env.connection, USDC_MINT, env.vaultPda, ctx);
+      const delta = postSwapUsdc - preSwapUsdc;
+      const deltaPositive = delta < 0n ? 0n : delta;
+      actualReceived = Number(deltaPositive) / 10 ** USDC_DECIMALS;
+      stepLog(ctx, `postsnap: usdc_balance=${postSwapUsdc} delta=${delta} actual_received=${actualReceived}`);
+    } catch (err) {
+      stepLog(ctx, `postsnap_failed: ${err.message.slice(0, 80)}`);
+    }
+  }
 
   return {
     ...result,
@@ -726,6 +977,8 @@ async function executeSell(args, env, { dryRun = false } = {}) {
     tokenAddress: args.address,
     tokensSold: sellAmount.toString(),
     expectedUsdc: expectedUsdc.toFixed(2),
+    quotedReceived: expectedUsdc,
+    actualReceived,
     timestamp: new Date().toISOString(),
   };
 }

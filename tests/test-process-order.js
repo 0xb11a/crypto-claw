@@ -93,12 +93,12 @@ function dbq(command) {
 }
 
 /** Run process-order.js for an order */
-function processOrder(orderId, { paperMode = true } = {}) {
+function processOrder(orderId, { paperMode = true, envOverrides = {} } = {}) {
   const raw = execSync(`node ${PROCESS_ORDER} --order-id ${orderId}`, {
     encoding: 'utf-8',
     cwd: PROJECT_ROOT,
     timeout: 30_000,
-    env: { ...process.env, SAFE_ID, PAPER_MODE: paperMode ? 'true' : 'false' },
+    env: { ...process.env, SAFE_ID, PAPER_MODE: paperMode ? 'true' : 'false', ...envOverrides },
   }).trim();
   return JSON.parse(raw);
 }
@@ -362,7 +362,14 @@ describe('Stage 4: process-order.js — Paper Mode Lifecycle', () => {
       timeout: 10_000,
     });
 
-    const result = processOrder('exec-test-buy-base', { paperMode: true });
+    // PR 2.2: skip the new pre-sign recheck — this test verifies the
+    // executor pipeline, not the GoPlus recheck (covered by the
+    // offline test-presign-recheck suite). Avoids 30-60s of extra
+    // latency and a hard dep on GoPlus availability for the test run.
+    const result = processOrder('exec-test-buy-base', {
+      paperMode: true,
+      envOverrides: { SKIP_PRESIGN_RECHECK: 'true' },
+    });
     assert(result.ok, `process-order must succeed: ${JSON.stringify(result)}`);
     assertEqual(result.status, 'executed', 'Must be executed');
     assertEqual(result.action, 'buy');
@@ -397,7 +404,11 @@ describe('Stage 4: process-order.js — Paper Mode Lifecycle', () => {
       timeout: 10_000,
     });
 
-    const result = processOrder('exec-test-buy-sol', { paperMode: true });
+    // PR 2.2: same as the Base BUY test above — skip recheck here.
+    const result = processOrder('exec-test-buy-sol', {
+      paperMode: true,
+      envOverrides: { SKIP_PRESIGN_RECHECK: 'true' },
+    });
     assert(result.ok, `process-order must succeed: ${JSON.stringify(result)}`);
     assertEqual(result.status, 'executed');
     assertEqual(result.action, 'buy');
@@ -506,7 +517,13 @@ describe('Stage 4: process-order.js — Paper Mode Lifecycle', () => {
       timeout: 10_000,
     });
 
-    const result = processOrder('exec-test-nocash', { paperMode: true });
+    // PR 2.1's tier amount cap would normally block this $999,999 buy
+    // before the cash check fires. Bump the moonshot cap above the
+    // order amount so the cash check is what we're actually testing.
+    const result = processOrder('exec-test-nocash', {
+      paperMode: true,
+      envOverrides: { TIER_MAX_USD_MOONSHOT: '10000000' },
+    });
     assertEqual(result.ok, false, 'Should fail');
     assertEqual(result.status, 'failed');
     assert(result.error.includes('insufficient_cash'), `Error should mention insufficient_cash: ${result.error}`);

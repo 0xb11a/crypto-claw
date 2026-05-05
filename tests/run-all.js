@@ -38,6 +38,14 @@ const suites = [
   { name: 'Tier Validation', file: 'test-tier-validation.js', requiresNetwork: false },
   { name: 'Auto-Approve Cap', file: 'test-auto-approve-cap.js', requiresNetwork: false },
   { name: 'Untrusted-Strings Rule', file: 'test-untrusted-rule.js', requiresNetwork: false },
+  { name: 'Tier Amount Cap', file: 'test-tier-amount-cap.js', requiresNetwork: false },
+  { name: 'Pre-Sign Safety Recheck', file: 'test-presign-recheck.js', requiresNetwork: false },
+  { name: 'Aggregator Allowlist', file: 'test-aggregator-allowlist.js', requiresNetwork: false },
+  { name: 'Cash Reconciliation', file: 'test-cash-reconcile.js', requiresNetwork: false },
+  { name: 'Scoped Approvals', file: 'test-scoped-approvals.js', requiresNetwork: false },
+  { name: 'Received-Drift Check', file: 'test-recv-drift.js', requiresNetwork: false },
+  { name: 'Price Oracle', file: 'test-price-oracle.js', requiresNetwork: false },
+  { name: 'RPC Allowlist', file: 'test-rpc-allowlist.js', requiresNetwork: false },
 ];
 
 // Scripts tests require network — run separately

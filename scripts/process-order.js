@@ -20,8 +20,9 @@ import { getDb, close } from './db.js';
 import { execSync, execFileSync } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { isSolana, getPortfolioRules } from './chains.js';
+import { isSolana, getPortfolioRules, getTierMaxUsd } from './chains.js';
 import { log } from './log.js';
+import { fetchOnchainCashBalance, evaluateCashDrift, evaluateReceivedDrift } from './onchain-balance.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPaper = process.env.PAPER_MODE === 'true';
@@ -90,6 +91,37 @@ export function validateTier(tier, action, chain) {
 }
 
 // ============================================================
+// Tier amount cap (PR 2.1)
+//
+// Defangs threat #5 (cash-balance poisoning). The legacy executor
+// only checked `amount <= cash`. If portfolio_meta.cash_* is forged
+// (via a prompt-injected agent or a sync bug) to e.g. $1M, then a
+// "5% moonshot" order at $50,000 passes that check — and now the
+// agent has just moved $50k to an attacker CA on a single trade.
+//
+// The absolute cap is operator-tunable (chains.js / env var). Sells
+// are exempt: they exit existing positions whose size was already
+// constrained at buy time.
+// ============================================================
+
+export function validateAmountCap(tier, action, amount, chain, env = process.env) {
+  if (action !== 'buy') return { valid: true };
+  const cap = getTierMaxUsd(chain, tier, env);
+  if (cap === null) return { valid: true };
+  const amt = parseFloat(amount);
+  if (!Number.isFinite(amt) || amt <= 0) {
+    return { valid: false, reason: `invalid_amount: '${amount}' is not a positive number` };
+  }
+  if (amt > cap) {
+    return {
+      valid: false,
+      reason: `amount_over_tier_cap: $${amt} > $${cap} (tier=${tier}, chain=${chain})`,
+    };
+  }
+  return { valid: true };
+}
+
+// ============================================================
 // Data access helpers
 // ============================================================
 
@@ -151,6 +183,140 @@ function setCash(db, chain, amount) {
     String(amount),
     key,
   );
+}
+
+// ============================================================
+// Pre-sign safety re-check (PR 2.2)
+//
+// Research validates the token at proposal time, but there's a delay
+// between proposal → human approval → executor pickup. A token can:
+//   - become a honeypot (admin enables blacklist after our buy queues)
+//   - have its liquidity rugged
+//   - have its top-holder concentration spike (deployer dumps to one
+//     address, or multisig owner reclaims supply)
+//
+// We re-call check-contract.js + token-metrics.js immediately before
+// signing. Hard-rejects: honeypot, transfer_pausable, top-holder>30%,
+// liquidity<$5k. These mirror the agent-prose autoReject conditions
+// in agents/research/AGENTS.md, but enforce them in code at the
+// moment of value movement (defense in depth).
+//
+// Fail-closed: if either check throws or returns malformed JSON, we
+// refuse to sign. Operator can bypass with SKIP_PRESIGN_RECHECK=true
+// in genuine API outages.
+// ============================================================
+
+const RECHECK_MIN_LIQUIDITY_USD = 5_000;
+const RECHECK_MAX_TOP_HOLDER_PCT = 30;
+
+/**
+ * Pure predicate — given the parsed JSON outputs of token-metrics
+ * and check-contract, decide whether to allow the buy.
+ *
+ * Exported for offline unit tests so we don't need to spawn
+ * subprocesses to test the decision logic.
+ *
+ * @param {object} input
+ * @param {number|null} input.liquidity        from token-metrics
+ * @param {object|null} input.safety           from check-contract
+ * @param {number} [input.minLiquidity]
+ * @param {number} [input.maxTopHolderPct]
+ * @returns {{ valid: boolean, reason?: string }}
+ */
+export function evaluateRecheck({
+  liquidity,
+  safety,
+  minLiquidity = RECHECK_MIN_LIQUIDITY_USD,
+  maxTopHolderPct = RECHECK_MAX_TOP_HOLDER_PCT,
+}) {
+  // Fail-closed if either source is missing/malformed.
+  if (liquidity === null || liquidity === undefined || !Number.isFinite(liquidity)) {
+    return { valid: false, reason: 'recheck_failed: token-metrics returned no liquidity' };
+  }
+  if (!safety || typeof safety !== 'object') {
+    return { valid: false, reason: 'recheck_failed: check-contract returned no safety object' };
+  }
+
+  if (liquidity < minLiquidity) {
+    return {
+      valid: false,
+      reason: `liquidity_too_low_at_signing: $${liquidity.toFixed(0)} < $${minLiquidity}`,
+    };
+  }
+
+  // check-contract.js sets these flags from GoPlus.
+  if (safety.safety?.isHoneypot) {
+    return { valid: false, reason: 'honeypot_detected_at_signing' };
+  }
+  if (safety.safety?.canPause) {
+    return { valid: false, reason: 'pausable_detected_at_signing' };
+  }
+
+  // Top holder concentration. Excludes locked / contract holders so
+  // legitimate liquidity locks (which often hold > 30%) don't false-
+  // positive. The first non-contract, non-locked holder is the one
+  // that could realistically dump.
+  const holders = Array.isArray(safety.holders?.topHolders) ? safety.holders.topHolders : [];
+  const topRealHolder = holders.find((h) => !h.isContract && !h.isLocked);
+  if (topRealHolder) {
+    const pct = parseFloat(topRealHolder.percent ?? 0);
+    if (Number.isFinite(pct) && pct > maxTopHolderPct) {
+      return {
+        valid: false,
+        reason: `top_holder_too_high_at_signing: ${pct.toFixed(1)}% > ${maxTopHolderPct}%`,
+      };
+    }
+  }
+
+  // check-contract may have its own autoReject (verdict='REJECT').
+  // Honor it as a catch-all in case GoPlus added a critical flag we
+  // don't explicitly check above.
+  if (safety.autoReject || safety.verdict === 'REJECT') {
+    const flags = Array.isArray(safety.flags) ? safety.flags : [];
+    const critical = flags.find((f) => f.severity === 'critical');
+    const reason = critical?.type ?? 'unknown_critical_flag';
+    return { valid: false, reason: `autoReject_at_signing: ${reason}` };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Orchestrates the two subprocess calls and returns the predicate
+ * result. Errors from either spawn become recheck_failed reasons.
+ */
+function recheckBuySafety(address, chain) {
+  let liquidity = null;
+  let safety = null;
+
+  try {
+    const scriptPath = resolve(__dirname, 'token-metrics.js');
+    const raw = execSync(`node ${scriptPath} --address ${address} --chain ${chain}`, {
+      encoding: 'utf-8',
+      timeout: 30_000,
+      cwd: __dirname,
+    });
+    const data = JSON.parse(raw);
+    if (data.status === 'ok' && data.metrics) {
+      liquidity = parseFloat(data.metrics.liquidity ?? 0);
+    }
+  } catch (err) {
+    return { valid: false, reason: `recheck_failed: token-metrics threw (${err.message.slice(0, 80)})` };
+  }
+
+  try {
+    const scriptPath = resolve(__dirname, 'check-contract.js');
+    const raw = execSync(`node ${scriptPath} --address ${address} --chain ${chain}`, {
+      encoding: 'utf-8',
+      timeout: 30_000,
+      cwd: __dirname,
+    });
+    safety = JSON.parse(raw);
+  } catch (err) {
+    return { valid: false, reason: `recheck_failed: check-contract threw (${err.message.slice(0, 80)})` };
+  }
+
+  return evaluateRecheck({ liquidity, safety });
 }
 
 // ============================================================
@@ -388,6 +554,44 @@ async function processBuy(db, order) {
   }
   plog(order, `cash_ok: have $${cash.toFixed(2)} need $${amount}`);
 
+  // 1b. Pre-execute on-chain cash reconciliation (PR 2.4).
+  // Defangs threat #5 directly. The DB's cash row could be poisoned —
+  // reading the actual Safe/Squads vault balance and comparing is the
+  // ground-truth check. Skipped in paper mode (no on-chain state) and
+  // bypassable via SKIP_CASH_RECONCILE=true for genuine RPC outages.
+  if (!isPaper && process.env.SKIP_CASH_RECONCILE !== 'true') {
+    let onchainCash = null;
+    try {
+      onchainCash = await fetchOnchainCashBalance(order.chain);
+    } catch (err) {
+      const reason = `cash_reconcile_failed: ${String(err?.message || err).slice(0, 100)}`;
+      log(
+        'error',
+        'process-order',
+        `BUY validation_failed: ${reason} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+      );
+      const receiptId = writeReceipt(db, order, { status: 'validation_failed', error: reason }, 'buy');
+      markFailed(db, order.id, reason);
+      sendAlert('trade_failed', `BUY $${order.symbol}: ${reason}`);
+      return { ...result, status: 'failed', error: reason, receipt_id: receiptId };
+    }
+    const drift = evaluateCashDrift({ dbCash: cash, onchainCash });
+    if (!drift.valid) {
+      log(
+        'critical',
+        'process-order',
+        `BUY validation_failed: ${drift.reason} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+      );
+      const receiptId = writeReceipt(db, order, { status: 'validation_failed', error: drift.reason }, 'buy');
+      markFailed(db, order.id, drift.reason);
+      sendAlert('trade_failed', `BUY $${order.symbol}: ${drift.reason}`);
+      return { ...result, status: 'failed', error: drift.reason, receipt_id: receiptId };
+    }
+    plog(order, `cash_reconcile_ok onchain=$${onchainCash.toFixed(2)} drift=${drift.drift.toFixed(2)}%`);
+  } else if (!isPaper) {
+    plog(order, `cash_reconcile_skipped (SKIP_CASH_RECONCILE=true)`);
+  }
+
   // 2. Validate price not stale
   const currentPrice = await fetchCurrentPrice(order.address, order.chain);
   plog(order, `price_fetched: current=${currentPrice} proposed=${order.entry_price}`);
@@ -411,6 +615,28 @@ async function processBuy(db, order) {
   if (currentPrice && order.entry_price) {
     const drift = Math.abs(currentPrice - order.entry_price) / order.entry_price;
     plog(order, `price_check_ok drift=${(drift * 100).toFixed(2)}% exec_price=$${execPrice}`);
+  }
+
+  // 2b. Pre-sign safety re-check (PR 2.2). Catches honeypots, paused
+  // tokens, top-holder spikes, and liquidity rugs that happened
+  // between proposal and execution. Operator can bypass with
+  // SKIP_PRESIGN_RECHECK=true during a genuine API outage.
+  if (process.env.SKIP_PRESIGN_RECHECK !== 'true') {
+    const recheck = recheckBuySafety(order.address, order.chain);
+    if (!recheck.valid) {
+      log(
+        'error',
+        'process-order',
+        `BUY validation_failed: ${recheck.reason} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+      );
+      const receiptId = writeReceipt(db, order, { status: 'validation_failed', error: recheck.reason }, 'buy');
+      markFailed(db, order.id, recheck.reason);
+      sendAlert('trade_failed', `BUY $${order.symbol}: ${recheck.reason}`);
+      return { ...result, status: 'failed', error: recheck.reason, receipt_id: receiptId };
+    }
+    plog(order, `presign_recheck_ok`);
+  } else {
+    plog(order, `presign_recheck_skipped (SKIP_PRESIGN_RECHECK=true)`);
   }
 
   // 3. Validate we have a usable price
@@ -517,15 +743,37 @@ async function processBuy(db, order) {
     return { ...result, ok: true, status: tradeResult.status, receipt_id: receiptId, position_id: positionId };
   }
 
-  // Status: executed — write receipt, add position, update cash
+  // Status: executed — write receipt, add position, update cash.
+  // PR 2.6: prefer ACTUAL on-chain received qty over the quoted /
+  // derived qty. Catches fee-on-transfer (1% transfer tax → 99
+  // received vs 100 quoted) and partial honeypots (transfer tax in
+  // one direction). Drift > maxSlippage + 0.5% fires a critical alert
+  // and writes a marker into positions.notes so Sentinel sees it.
   const positionId = uid('pos');
-  const finalPrice = tradeResult.executedPrice || tradeResult.price || execPrice;
-  const quantity = tradeResult.quantity || (finalPrice > 0 ? amount / finalPrice : 0);
+  const maxSlippagePct = order.tier === 'moonshot' ? 5 : 2;
+  const driftCheck =
+    !isPaper && Number.isFinite(tradeResult.actualReceived) && Number.isFinite(tradeResult.quotedReceived)
+      ? evaluateReceivedDrift({
+          actualReceived: tradeResult.actualReceived,
+          quotedReceived: tradeResult.quotedReceived,
+          maxSlippagePct,
+        })
+      : null;
+  const trustActual = driftCheck && Number.isFinite(tradeResult.actualReceived) && tradeResult.actualReceived > 0;
+  const quantity = trustActual
+    ? tradeResult.actualReceived
+    : tradeResult.quantity || (execPrice > 0 ? amount / execPrice : 0);
+  const finalPrice =
+    trustActual && quantity > 0 ? amount / quantity : tradeResult.executedPrice || tradeResult.price || execPrice;
+  const positionNotes =
+    driftCheck && !driftCheck.valid
+      ? `recv_drift_${driftCheck.driftPct.toFixed(2)}pct: ${driftCheck.reason} — possible fee-on-transfer or partial honeypot`
+      : null;
   const posTable = isPaper ? 'paper_positions' : 'positions';
 
   db.prepare(
-    `INSERT INTO ${posTable} (id, symbol, address, chain, tier, entry_price, current_price, quantity, value_usd, stop_loss, take_profit_levels, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')`,
+    `INSERT INTO ${posTable} (id, symbol, address, chain, tier, entry_price, current_price, quantity, value_usd, stop_loss, take_profit_levels, status, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
   ).run(
     positionId,
     order.symbol,
@@ -538,7 +786,25 @@ async function processBuy(db, order) {
     amount,
     order.stop_loss,
     order.take_profit_levels || '[]',
+    positionNotes,
   );
+
+  if (driftCheck && !driftCheck.valid) {
+    log(
+      'critical',
+      'process-order',
+      `BUY recv_drift exceeded slippage cap: ${driftCheck.reason} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol}, position: ${positionId})`,
+    );
+    sendAlert(
+      'rug_warning',
+      `BUY $${order.symbol}: received ${tradeResult.actualReceived} vs quoted ${tradeResult.quotedReceived} (${driftCheck.driftPct.toFixed(2)}% drift) — possible fee-on-transfer/honeypot. Position ${positionId} flagged.`,
+    );
+  } else if (driftCheck) {
+    plog(
+      order,
+      `recv_drift_ok actual=${tradeResult.actualReceived} quoted=${tradeResult.quotedReceived} drift=${driftCheck.driftPct.toFixed(2)}%`,
+    );
+  }
 
   const receiptId = writeReceipt(db, order, tradeResult, 'buy', positionId);
   plog(order, `position_created id=${positionId} price=$${finalPrice} qty=${quantity} receipt=${receiptId}`);
@@ -825,6 +1091,30 @@ async function main() {
           order_id: orderId,
           status: 'failed',
           error: tierCheck.reason,
+        }),
+      );
+      return;
+    }
+
+    // PR 2.1: tier-derived absolute USD cap.
+    // Defangs threat #5 (cash-balance poisoning) — refuses any buy
+    // larger than the per-tier ceiling regardless of what the cash
+    // figure says. Cap is operator-tunable via TIER_MAX_USD_<TIER>.
+    const capCheck = validateAmountCap(order.tier, order.action, order.amount, order.chain);
+    if (!capCheck.valid) {
+      log(
+        'error',
+        'process-order',
+        `${order.action.toUpperCase()} validation_failed: ${capCheck.reason} (order: ${orderId})`,
+      );
+      markFailed(db, orderId, capCheck.reason);
+      sendAlert('trade_failed', `${order.action.toUpperCase()} ${order.symbol}: ${capCheck.reason}`);
+      console.log(
+        JSON.stringify({
+          ok: false,
+          order_id: orderId,
+          status: 'failed',
+          error: capCheck.reason,
         }),
       );
       return;
