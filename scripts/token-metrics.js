@@ -7,7 +7,10 @@
  */
 
 import 'dotenv/config';
+import { fileURLToPath } from 'node:url';
 import { log } from './log.js';
+import { sanitizeUntrusted } from './redact.js';
+import { normalizeAddress } from './address-validator.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 
@@ -46,13 +49,34 @@ async function getTokenMetrics(address, _chain) {
   // Use the highest-liquidity pair
   const mainPair = pairs.sort((a, b) => parseFloat(b.liquidity?.usd ?? 0) - parseFloat(a.liquidity?.usd ?? 0))[0];
 
+  return formatTokenMetrics(mainPair, pairs.length);
+}
+
+// Exported for unit tests. DEXScreener returns deployer-controlled
+// strings (symbol/name/dex/url) which must be sanitized before they
+// reach any LLM context. The token address is checksum-validated;
+// invalid addresses produce status='invalid_address' so the caller
+// won't proceed to trade.
+export function formatTokenMetrics(mainPair, totalPairs) {
+  const chain = sanitizeUntrusted(mainPair.chainId, { maxLen: 32 });
+  const normalized = normalizeAddress(mainPair.baseToken?.address, chain);
+  if (normalized === null) {
+    return {
+      status: 'invalid_address',
+      address: String(mainPair.baseToken?.address ?? '').slice(0, 64),
+      chain,
+      message: 'Token address failed checksum / format validation',
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   return {
     status: 'ok',
     token: {
-      address: mainPair.baseToken?.address,
-      symbol: mainPair.baseToken?.symbol,
-      name: mainPair.baseToken?.name,
-      chain: mainPair.chainId,
+      address: normalized,
+      symbol: sanitizeUntrusted(mainPair.baseToken?.symbol, { maxLen: 32 }),
+      name: sanitizeUntrusted(mainPair.baseToken?.name, { maxLen: 64 }),
+      chain,
     },
     metrics: {
       price: parseFloat(mainPair.priceUsd ?? 0),
@@ -78,10 +102,10 @@ async function getTokenMetrics(address, _chain) {
       pairCreatedAt: mainPair.pairCreatedAt ? new Date(mainPair.pairCreatedAt).toISOString() : null,
       ageHours: mainPair.pairCreatedAt ? ((Date.now() - mainPair.pairCreatedAt) / 3_600_000).toFixed(1) : null,
     },
-    dex: mainPair.dexId,
+    dex: sanitizeUntrusted(mainPair.dexId, { maxLen: 32 }),
     pairAddress: mainPair.pairAddress,
-    url: mainPair.url,
-    totalPairs: pairs.length,
+    url: mainPair.url ? sanitizeUntrusted(mainPair.url, { maxLen: 256 }) : null,
+    totalPairs,
     timestamp: new Date().toISOString(),
   };
 }
@@ -104,4 +128,4 @@ async function main() {
   }
 }
 
-main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();

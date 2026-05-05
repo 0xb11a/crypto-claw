@@ -119,6 +119,7 @@ import { getDb, close } from './db.js';
 import { execSync } from 'child_process';
 import { getAllChains, getActiveChains, getChain, isSolana, getPortfolioRules } from './chains.js';
 import { checkExecutorWork, checkSentinelWork } from './agent-idleness.js';
+import { determineOrderApproval } from './order-approval.js';
 
 // Cadence in minutes for each agent's heartbeat checks.
 // Used by get-overdue-checks to compute which checks are due server-side.
@@ -644,11 +645,16 @@ function handle(db, cmd) {
           error('Sell order requires: symbol, address, chain, amount, reason');
       }
       const isSell = t.action === 'sell';
-      const isPaper = process.env.PAPER_MODE === 'true';
-      const isAutoBuy = process.env.AUTO_APPROVE_BUY === 'true';
-      // Status: sells auto-approved by sentinel, paper/auto buys auto-approved, real buys pending
-      const status = isSell || (t.action === 'buy' && (isPaper || isAutoBuy)) ? 'approved' : 'pending';
-      const approvedBy = isSell ? 'sentinel' : isPaper ? 'paper_mode' : isAutoBuy ? 'auto' : null;
+      // PR 1.5: gated by AUTO_APPROVE_BUY_MAX_USD per-trade cap.
+      const { status, approvedBy, downgradedReason } = determineOrderApproval({
+        action: t.action,
+        amount: t.amount,
+      });
+      if (downgradedReason) {
+        // Make it visible in stderr / system.log so the operator can
+        // see in Telegram why the auto-approve was skipped.
+        console.error(`[db-query] add-order auto-approve downgraded: ${downgradedReason} (id=${t.id})`);
+      }
       const now = new Date().toISOString();
       db.prepare(
         `
@@ -683,7 +689,7 @@ function handle(db, cmd) {
         now,
         approvedBy || null,
       );
-      output({ ok: true, id: t.id, status });
+      output({ ok: true, id: t.id, status, ...(downgradedReason ? { downgradedReason } : {}) });
       break;
     }
     case 'mark-order-executed': {

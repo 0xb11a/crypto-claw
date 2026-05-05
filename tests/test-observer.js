@@ -488,9 +488,11 @@ describe('get-heartbeats — Dead-Agent Detection', () => {
       stop_loss: 0.8,
       take_profit_levels: [{ price: 1.5, percent: 100 }],
     });
-    // AUTO_APPROVE_BUY=true so the buy lands in 'approved' status
+    // AUTO_APPROVE_BUY=true with a cap above the order amount so the
+    // buy lands in 'approved' status (PR 1.5 requires the cap or it
+    // downgrades to pending).
     execSync(
-      `SAFE_ID=test-observer-hb PAPER_MODE=false AUTO_APPROVE_BUY=true node ${resolve(SCRIPTS_DIR, 'db-query.js')} add-order --json '${order}'`,
+      `SAFE_ID=test-observer-hb PAPER_MODE=false AUTO_APPROVE_BUY=true AUTO_APPROVE_BUY_MAX_USD=10000 node ${resolve(SCRIPTS_DIR, 'db-query.js')} add-order --json '${order}'`,
       { encoding: 'utf-8', cwd: process.cwd(), timeout: 10_000 },
     );
 

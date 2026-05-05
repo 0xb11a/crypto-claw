@@ -44,7 +44,17 @@ if [ "$PAPER_MODE" = "true" ]; then
   echo "[entrypoint] *** PAPER MODE — no real transactions ***"
 fi
 if [ "$AUTO_APPROVE_BUY" = "true" ] && [ "$PAPER_MODE" != "true" ]; then
-  echo "[entrypoint] *** AUTO-APPROVE BUY enabled — buys will not require human approval ***"
+  # PR 1.5: AUTO_APPROVE_BUY without a per-trade USD cap is the worst-case
+  # blast radius for threat #30 (prompt-injected Research → unbounded
+  # auto-buy at attacker CA). Refuse to start until cap is configured.
+  # Use ${VAR:-} form because `set -u` (line 14) makes bare $VAR fatal
+  # when the env var is unset.
+  AUTO_APPROVE_BUY_MAX_USD_VAL="${AUTO_APPROVE_BUY_MAX_USD:-}"
+  if [ -z "$AUTO_APPROVE_BUY_MAX_USD_VAL" ] || [ "$AUTO_APPROVE_BUY_MAX_USD_VAL" = "0" ]; then
+    echo "[entrypoint] FATAL: AUTO_APPROVE_BUY=true requires AUTO_APPROVE_BUY_MAX_USD (per-trade USD cap, e.g. 50). Refusing to start." >&2
+    exit 1
+  fi
+  echo "[entrypoint] *** AUTO-APPROVE BUY enabled — buys ≤ \$$AUTO_APPROVE_BUY_MAX_USD_VAL will not require human approval (larger orders fall back to human gate) ***"
 fi
 
 # ============================================================
@@ -472,7 +482,14 @@ if [ "${ENABLE_CHANNELS:-false}" = "true" ] && [ -n "${TELEGRAM_BOT_TOKEN:-}" ];
     echo "[entrypoint] Telegram channel synced (flat mode, DMs disabled, groups allowlisted)"
   fi
 else
-  openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"allowlist"}' --strict-json
+  # NOTE: keep groupPolicy="open" here even though "allowlist" is what the
+  # security audit prefers. With enabled=false + groupPolicy="allowlist", the
+  # telegram plugin's outbound adapter never registers, so any cron --announce
+  # or `openclaw message send --channel telegram` call throws
+  # "Outbound not configured for channel: telegram". The channel is already
+  # disabled so groupPolicy is moot for inbound — leaving it "open" preserves
+  # the activation path that loads the outbound adapter.
+  openclaw config set 'channels.telegram' '{"enabled":false,"groupPolicy":"open"}' --strict-json
   echo "[entrypoint] Telegram channel disabled"
 fi
 

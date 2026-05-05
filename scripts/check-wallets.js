@@ -13,14 +13,56 @@
  */
 
 import 'dotenv/config';
+import { fileURLToPath } from 'node:url';
 import { getDb, close } from './db.js';
 import { getChain, isEVM, isSolana, getAllChains } from './chains.js';
 import { log } from './log.js';
+import { sanitizeUntrusted } from './redact.js';
+import { normalizeAddress } from './address-validator.js';
 
 const FETCH_TIMEOUT_MS = Number(process.env.CHECK_WALLETS_FETCH_TIMEOUT_MS) || 5_000;
 const DEFAULT_LIMIT_PER_CHAIN = Number(process.env.CHECK_WALLETS_LIMIT_PER_CHAIN) || 10;
 const FAIL_FAST_CONSECUTIVE = 3;
 const PER_CHAIN_DELAY_MS = 250;
+
+// ============================================================
+// Tx formatters — exported for unit tests.
+//
+// `tokenSymbol` (Etherscan) and `description`/`type` (Helius) are
+// attacker-controlled fields: anyone can mint a token or build a
+// transaction with arbitrary metadata. They must be sanitized before
+// they cross into agent context (#6 address poisoning, #24 metadata
+// prompt injection in the threat model).
+// ============================================================
+
+export function formatEvmTx(tx, walletAddress, chain = 'ethereum') {
+  const tokenAddress = normalizeAddress(tx.contractAddress, chain);
+  const from = normalizeAddress(tx.from, chain);
+  const to = normalizeAddress(tx.to, chain);
+  // If the wallet field itself is bad we can't compute direction safely.
+  const wallet = normalizeAddress(walletAddress, chain);
+  return {
+    hash: tx.hash,
+    tokenSymbol: sanitizeUntrusted(tx.tokenSymbol, { maxLen: 32 }),
+    tokenAddress: tokenAddress ?? 'INVALID_ADDRESS',
+    from: from ?? 'INVALID_ADDRESS',
+    to: to ?? 'INVALID_ADDRESS',
+    addressValid: tokenAddress !== null && from !== null && to !== null && wallet !== null,
+    value: tx.value,
+    timestamp: new Date(parseInt(tx.timeStamp) * 1000).toISOString(),
+    direction: from && wallet && from.toLowerCase() === wallet.toLowerCase() ? 'sell' : 'buy',
+  };
+}
+
+export function formatHeliusTx(tx) {
+  return {
+    hash: tx.signature,
+    type: sanitizeUntrusted(tx.type, { maxLen: 32 }),
+    timestamp: new Date((tx.timestamp ?? 0) * 1000).toISOString(),
+    fee: tx.fee,
+    description: sanitizeUntrusted(tx.description, { maxLen: 256 }),
+  };
+}
 
 // ============================================================
 // CLI args
@@ -81,16 +123,7 @@ async function checkEvmWallet(address, chain) {
       return { address, chain, status: 'no_activity', recentTransactions: [] };
     }
 
-    const txs = data.result.map((tx) => ({
-      hash: tx.hash,
-      tokenSymbol: tx.tokenSymbol,
-      tokenAddress: tx.contractAddress,
-      from: tx.from,
-      to: tx.to,
-      value: tx.value,
-      timestamp: new Date(parseInt(tx.timeStamp) * 1000).toISOString(),
-      direction: tx.from.toLowerCase() === address.toLowerCase() ? 'sell' : 'buy',
-    }));
+    const txs = data.result.map((tx) => formatEvmTx(tx, address, chain));
 
     return {
       address,
@@ -168,13 +201,7 @@ async function checkSolanaViaHelius(address, apiKey) {
       return { address, chain: 'solana', status: 'no_activity', recentTransactions: [] };
     }
 
-    const txs = data.map((tx) => ({
-      hash: tx.signature,
-      type: tx.type,
-      timestamp: new Date((tx.timestamp ?? 0) * 1000).toISOString(),
-      fee: tx.fee,
-      description: tx.description,
-    }));
+    const txs = data.map((tx) => formatHeliusTx(tx));
 
     return {
       address,
@@ -471,4 +498,4 @@ async function main() {
   }
 }
 
-main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();

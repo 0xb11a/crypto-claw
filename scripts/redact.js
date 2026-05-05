@@ -84,4 +84,66 @@ export function redact(text) {
   return result;
 }
 
-export default { redact };
+// ============================================================
+// sanitizeUntrusted — for fields that originate from external
+// untrusted sources (token names/symbols from DEXScreener, contract
+// metadata from GoPlus, wallet symbols from Etherscan, etc.) before
+// they are surfaced to an LLM agent.
+//
+// Different concern from redact():
+//   redact()           — strips OUR secrets out of OUR strings (defensive)
+//   sanitizeUntrusted() — strips THEIR injection out of THEIR strings (offensive)
+//
+// Strips:
+//   - control chars (\x00-\x1F, \x7F-\x9F) except \n \t
+//   - zero-width chars (​-‍, ﻿, ⁠, ᠎)
+//   - bidi/RTL overrides (‪-‮, ⁦-⁩)
+//   - tag-like sequences </…> </…> that could close LLM markup
+//   - markdown code fences (```)
+//   - excess length (default 64 chars; configurable per source)
+// ============================================================
+
+const CONTROL_CHARS = /[\x00-\x08\x0B-\x1F\x7F-\x9F]/g; // keep \n (0A) and \t (09)
+const ZERO_WIDTH = /[​-‍﻿⁠᠎]/g;
+const BIDI_OVERRIDE = /[‪-‮⁦-⁩]/g;
+const CLOSING_TAG = /<\/?[a-zA-Z][^>]{0,200}>/g;
+const CODE_FENCE = /```/g;
+
+const DEFAULT_MAX_LEN = 64;
+
+/**
+ * Sanitize an untrusted external string before passing to an LLM.
+ *
+ * @param {string} str - Input from DEXScreener, GoPlus, etc.
+ * @param {object} opts
+ * @param {number} [opts.maxLen=64] - Length cap. Truncate beyond this.
+ * @param {string} [opts.source='unknown'] - Source label (for the truncation marker).
+ * @returns {string} - Sanitized string safe for LLM context.
+ */
+export function sanitizeUntrusted(str, opts = {}) {
+  if (str === null || str === undefined) return '';
+  if (typeof str !== 'string') str = String(str);
+
+  const maxLen = Number.isFinite(opts.maxLen) && opts.maxLen > 0 ? opts.maxLen : DEFAULT_MAX_LEN;
+
+  let result = str;
+
+  // 1. Strip dangerous Unicode classes
+  result = result.replace(BIDI_OVERRIDE, '');
+  result = result.replace(ZERO_WIDTH, '');
+  result = result.replace(CONTROL_CHARS, '');
+
+  // 2. Neutralize markup that could escape an LLM context boundary
+  result = result.replace(CLOSING_TAG, '');
+  result = result.replace(CODE_FENCE, "'''");
+
+  // 3. Cap length. Use a short, parseable marker so the model can see
+  //    that truncation happened and won't read across the boundary.
+  if (result.length > maxLen) {
+    result = result.slice(0, maxLen) + '…[truncated]';
+  }
+
+  return result;
+}
+
+export default { redact, sanitizeUntrusted };

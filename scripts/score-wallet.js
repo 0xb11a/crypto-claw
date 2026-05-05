@@ -23,6 +23,7 @@ import { getDb, close } from './db.js';
 import { harvestWallets } from './harvest.js';
 import { getChain } from './chains.js';
 import { log } from './log.js';
+import { requireValidAddress } from './address-validator.js';
 
 // ============================================================
 // CLI args
@@ -424,7 +425,25 @@ function computeScore(traderRank, zerionPnl, tokenStats) {
 
 async function main() {
   const config = parseArgs();
-  const { address, chain } = config;
+
+  // Reject invalid CA at boundary — protects DB writes downstream
+  // (auto-add path) and prevents wasting Birdeye/Zerion API calls.
+  let address;
+  try {
+    address = requireValidAddress(config.address, config.chain);
+  } catch (err) {
+    console.log(
+      JSON.stringify({
+        status: 'invalid_address',
+        address: config.address,
+        chain: config.chain,
+        error: err.message,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+    process.exit(1);
+  }
+  const { chain } = config;
 
   try {
     // Fetch data from all available sources in parallel

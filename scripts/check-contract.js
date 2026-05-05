@@ -12,6 +12,7 @@
 import 'dotenv/config';
 import { getChain, isSolana } from './chains.js';
 import { log } from './log.js';
+import { requireValidAddress } from './address-validator.js';
 
 const GOPLUS_BASE = 'https://api.gopluslabs.io/api/v1';
 
@@ -476,18 +477,21 @@ async function main() {
 
   try {
     const chainCfg = getChain(config.chain);
+    // Reject invalid CA at the boundary before we hit GoPlus / spend an
+    // API call OR feed a poisoned address into the agent's context.
+    const validatedAddress = requireValidAddress(config.address, config.chain);
 
     if (isSolana(config.chain)) {
-      const result = await checkSolanaToken(config.address, chainCfg);
+      const result = await checkSolanaToken(validatedAddress, chainCfg);
       console.log(JSON.stringify(result, null, 2));
     } else {
-      const result = await checkEVMToken(config.address, chainCfg.goplus.chainId, config.chain);
+      const result = await checkEVMToken(validatedAddress, chainCfg.goplus.chainId, config.chain);
       console.log(JSON.stringify(result, null, 2));
     }
   } catch (err) {
     console.log(
       JSON.stringify({
-        status: 'error',
+        status: err.code === 'invalid_address' ? 'invalid_address' : 'error',
         error: err.message,
         timestamp: new Date().toISOString(),
       }),

@@ -7,6 +7,7 @@
  */
 
 import { describe, test, assert, assertEqual, assertType, summary } from './test-helpers.js';
+import { determineOrderApproval } from '../scripts/order-approval.js';
 
 // ============================================================
 // Mock Data Representing Each Pipeline Stage
@@ -354,14 +355,21 @@ describe('Executor Order Filtering — status-based', () => {
 // ============================================================
 
 describe('AUTO_APPROVE_BUY — order status determination', () => {
-  // Mirror the logic from db-query.js add-order
+  // PR 1.5: tests now exercise the REAL function from db-query.js, not
+  // a mirror — so accidental drift between the test and the runtime
+  // logic can't happen. The cap-gating behavior is covered exhaustively
+  // in tests/test-auto-approve-cap.js.
+  function envFor(paperMode, autoBuy) {
+    return {
+      PAPER_MODE: paperMode,
+      AUTO_APPROVE_BUY: autoBuy,
+      // Cap is set so the cap-gate path doesn't downgrade in these
+      // baseline tests. Per-amount checks live in their own suite.
+      AUTO_APPROVE_BUY_MAX_USD: '10000',
+    };
+  }
   function determineStatus(action, paperMode, autoBuy) {
-    const isSell = action === 'sell';
-    const isPaper = paperMode === 'true';
-    const isAutoBuy = autoBuy === 'true';
-    const status = isSell || (action === 'buy' && (isPaper || isAutoBuy)) ? 'approved' : 'pending';
-    const approvedBy = isSell ? 'sentinel' : isPaper ? 'paper_mode' : isAutoBuy ? 'auto' : null;
-    return { status, approvedBy };
+    return determineOrderApproval({ action, amount: 100 }, envFor(paperMode, autoBuy));
   }
 
   test('default: real mode buy is pending', () => {

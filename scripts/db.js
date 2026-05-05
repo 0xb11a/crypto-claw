@@ -971,6 +971,31 @@ const migrations = [
       ALTER TABLE executor_log ADD COLUMN summary TEXT;
     `,
   },
+  {
+    name: '027_cleanup_invalid_tiers',
+    sql: `
+      -- PR 1.4 cleanup. orders.tier has no CHECK constraint, so any value
+      -- could be written historically (including attacker-injected ones).
+      -- process-order.js (PR 1.4) now refuses any order whose tier is not
+      -- in chains.js tiersEnabled at execution time, but we also kill any
+      -- pending/approved row that was already in the queue at upgrade so
+      -- it doesn't sit unprocessed forever.
+      --
+      -- Conservative: only touch rows with an EXPLICITLY bad tier. Leave
+      -- NULL tiers alone (legacy orders may have nulls; the runtime check
+      -- will reject NEW null-tier buys but not retroactively cancel old
+      -- ones). Sells with NULL tier also remain untouched — sells inherit
+      -- tier from the position.
+      UPDATE orders
+      SET status = 'failed',
+          status_reason = 'invalid_tier (PR 1.4 migration 027 cleanup)',
+          status_changed_at = datetime('now'),
+          status_changed_by = 'migration_027'
+      WHERE status IN ('pending', 'approved')
+        AND tier IS NOT NULL
+        AND tier NOT IN ('moonshot', 'conviction', 'base');
+    `,
+  },
 ];
 
 export default { getDb, close };

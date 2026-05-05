@@ -20,7 +20,7 @@ import { getDb, close } from './db.js';
 import { execSync, execFileSync } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { isSolana } from './chains.js';
+import { isSolana, getPortfolioRules } from './chains.js';
 import { log } from './log.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -47,6 +47,46 @@ function getArg(name) {
 
 function uid(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// ============================================================
+// Tier validation (PR 1.4)
+//
+// The orders.tier column has no CHECK constraint, so a poisoned
+// proposal could write tier='stealth' / tier=null / tier='admin'.
+// The legacy slippage selector at line ~171 falls back to 2% on any
+// non-'moonshot' value, silently widening fills for forged tiers.
+// We schema-validate at execution time against chains.js.
+//
+// Buys: tier required, must be in tiersEnabled for the chain.
+// Sells: tier optional (sells inherit from position); reject if
+// explicitly set to a value not in tiersEnabled.
+// ============================================================
+
+export function validateTier(tier, action, chain) {
+  let allowedTiers;
+  try {
+    allowedTiers = getPortfolioRules(chain).tiersEnabled;
+  } catch (err) {
+    return { valid: false, reason: `invalid_tier: unknown chain '${chain}' (${err.message})` };
+  }
+  if (!Array.isArray(allowedTiers) || allowedTiers.length === 0) {
+    return { valid: false, reason: `invalid_tier: chain '${chain}' has no tiersEnabled` };
+  }
+  if (action === 'buy') {
+    if (!tier || !allowedTiers.includes(tier)) {
+      return {
+        valid: false,
+        reason: `invalid_tier: '${tier ?? 'null'}' not in [${allowedTiers.join(', ')}] for chain ${chain}`,
+      };
+    }
+  } else if (tier && !allowedTiers.includes(tier)) {
+    return {
+      valid: false,
+      reason: `invalid_tier (${action}): '${tier}' not in [${allowedTiers.join(', ')}] for chain ${chain}`,
+    };
+  }
+  return { valid: true };
 }
 
 // ============================================================
@@ -767,6 +807,29 @@ async function main() {
       return;
     }
 
+    // PR 1.4: schema-validate tier before doing anything else.
+    // Defangs threat #28 (tier-label forgery) — blocks invalid tiers
+    // before they propagate to slippage selection or position writes.
+    const tierCheck = validateTier(order.tier, order.action, order.chain);
+    if (!tierCheck.valid) {
+      log(
+        'error',
+        'process-order',
+        `${order.action.toUpperCase()} validation_failed: ${tierCheck.reason} (order: ${orderId})`,
+      );
+      markFailed(db, orderId, tierCheck.reason);
+      sendAlert('trade_failed', `${order.action.toUpperCase()} ${order.symbol}: ${tierCheck.reason}`);
+      console.log(
+        JSON.stringify({
+          ok: false,
+          order_id: orderId,
+          status: 'failed',
+          error: tierCheck.reason,
+        }),
+      );
+      return;
+    }
+
     // Real mode safety check
     if (!isPaper && !process.env.SAFE_SIGNER_KEY && !isSolana(order.chain)) {
       markFailed(db, orderId, 'no_signer_key');
@@ -799,4 +862,4 @@ async function main() {
   }
 }
 
-main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();

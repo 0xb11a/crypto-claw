@@ -33,6 +33,11 @@ const suites = [
   { name: 'Observer Agent', file: 'test-observer.js', requiresNetwork: false },
   { name: 'Activity-Wallets BG', file: 'test-activity-bg.js', requiresNetwork: false },
   { name: 'Mode Routing', file: 'test-mode-routing.js', requiresNetwork: false },
+  { name: 'Redaction & Sanitization', file: 'test-redact.js', requiresNetwork: false },
+  { name: 'Address Validator', file: 'test-address-validator.js', requiresNetwork: false },
+  { name: 'Tier Validation', file: 'test-tier-validation.js', requiresNetwork: false },
+  { name: 'Auto-Approve Cap', file: 'test-auto-approve-cap.js', requiresNetwork: false },
+  { name: 'Untrusted-Strings Rule', file: 'test-untrusted-rule.js', requiresNetwork: false },
 ];
 
 // Scripts tests require network — run separately

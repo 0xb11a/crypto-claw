@@ -14,6 +14,7 @@
 import { getDb } from './db.js';
 import { getActiveChains, getChain } from './chains.js';
 import { log } from './log.js';
+import { normalizeAddress } from './address-validator.js';
 
 // ============================================================
 // Core harvest — propose wallets from API results
@@ -21,6 +22,7 @@ import { log } from './log.js';
 
 export function harvestWallets(walletAddresses, chain, labelFn, source, excludeAddress) {
   let harvested = 0;
+  let droppedInvalid = 0;
   try {
     const db = getDb();
     const stmt = db.prepare(`
@@ -31,11 +33,22 @@ export function harvestWallets(walletAddresses, chain, labelFn, source, excludeA
     const insertMany = db.transaction((addrs) => {
       for (const addr of addrs) {
         if (!addr || addr.toLowerCase() === excludeLower) continue;
-        const result = stmt.run(addr, chain, labelFn(addr), source);
+        // Validate at boundary — never let a poisoned address reach the
+        // wallet table. labelFn() is called with the original input so
+        // existing labels don't change form.
+        const normalized = normalizeAddress(addr, chain);
+        if (normalized === null) {
+          droppedInvalid++;
+          continue;
+        }
+        const result = stmt.run(normalized, chain, labelFn(addr), source);
         harvested += result.changes; // 1 if inserted, 0 if duplicate ignored
       }
     });
     insertMany(walletAddresses);
+    if (droppedInvalid > 0) {
+      log('warn', 'harvest', `Dropped ${droppedInvalid} invalid addresses for ${chain} (source=${source})`);
+    }
   } catch (err) {
     log('warn', 'harvest', `Wallet harvest failed for ${chain} (source=${source}): ${err.message}`);
     // Non-fatal — harvesting is best-effort

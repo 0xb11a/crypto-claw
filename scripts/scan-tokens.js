@@ -9,9 +9,12 @@
  */
 
 import 'dotenv/config';
+import { fileURLToPath } from 'node:url';
 import { getDb, close } from './db.js';
 import { isActive } from './chains.js';
 import { log } from './log.js';
+import { sanitizeUntrusted } from './redact.js';
+import { normalizeAddress } from './address-validator.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com';
 const DEXSCREENER_DEX = `${DEXSCREENER_BASE}/latest/dex`;
@@ -181,24 +184,35 @@ async function scanEstablished(chain) {
   return { pairs: filtered };
 }
 
-function formatToken(pair) {
+// Exported for unit tests. DEXScreener returns deployer-controlled
+// strings (symbol/name/dexId) which must be sanitized before they reach
+// any LLM context. The token address is checksum-validated; if the
+// address is invalid, `addressValid` is false and `tokenAddress` is
+// 'INVALID_ADDRESS' so downstream code can filter the row out.
+export function formatToken(pair) {
+  const chain = sanitizeUntrusted(pair.chainId ?? 'unknown', { maxLen: 32 });
+  const rawAddress = pair.baseToken?.address;
+  const normalized = normalizeAddress(rawAddress, chain);
+  const addressValid = normalized !== null;
+
   return {
-    tokenAddress: pair.baseToken?.address ?? 'unknown',
-    chain: pair.chainId ?? 'unknown',
-    symbol: pair.baseToken?.symbol ?? 'unknown',
-    name: pair.baseToken?.name ?? 'unknown',
+    tokenAddress: addressValid ? normalized : 'INVALID_ADDRESS',
+    addressValid,
+    chain,
+    symbol: sanitizeUntrusted(pair.baseToken?.symbol ?? 'unknown', { maxLen: 32 }),
+    name: sanitizeUntrusted(pair.baseToken?.name ?? 'unknown', { maxLen: 64 }),
     price: parseFloat(pair.priceUsd ?? 0),
     priceChange24h: parseFloat(pair.priceChange?.h24 ?? 0),
     volume24h: parseFloat(pair.volume?.h24 ?? 0),
     liquidity: parseFloat(pair.liquidity?.usd ?? 0),
     pairAddress: pair.pairAddress ?? 'unknown',
-    dexId: pair.dexId ?? 'unknown',
+    dexId: sanitizeUntrusted(pair.dexId ?? 'unknown', { maxLen: 32 }),
     pairCreatedAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : null,
     txns24h: {
       buys: pair.txns?.h24?.buys ?? 0,
       sells: pair.txns?.h24?.sells ?? 0,
     },
-    url: pair.url ?? null,
+    url: pair.url ? sanitizeUntrusted(pair.url, { maxLen: 256 }) : null,
   };
 }
 
@@ -223,7 +237,12 @@ async function main() {
       filteredPairs = filteredPairs.filter((p) => isActive(p.chainId));
     }
 
-    const pairs = filteredPairs.slice(0, config.limit).map(formatToken);
+    const formatted = filteredPairs.slice(0, config.limit).map(formatToken);
+    const droppedInvalid = formatted.filter((t) => !t.addressValid).length;
+    if (droppedInvalid > 0) {
+      log('warn', 'scan-tokens', `Dropped ${droppedInvalid} tokens with invalid CA from upstream`);
+    }
+    const pairs = formatted.filter((t) => t.addressValid);
 
     console.log(
       JSON.stringify(
@@ -251,4 +270,4 @@ async function main() {
   }
 }
 
-main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();
