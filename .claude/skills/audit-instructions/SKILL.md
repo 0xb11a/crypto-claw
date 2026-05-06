@@ -31,8 +31,7 @@ These are the code files the markdown must stay in sync with. The code wins in e
 - `scripts/chains.js` — portfolio rule constants (position limits, cash reserves, slippage), chain config, cash tokens.
 - `scripts/db.js` — SQLite schema (tables, columns) from the migrations.
 - `scripts/` directory listing — all valid script filenames.
-- `build-templates.sh` — which scripts get deployed to which agent in Docker.
-- `setup.sh` — which scripts get deployed to which agent bare-metal.
+- `build-templates.sh` — which scripts get deployed to which agent.
 - `entrypoint.sh` — sole OpenClaw config surface. Read for:
   - cron schedules (`--every <interval>` per agent, used by Pass 3b)
   - `openclaw config set 'agents.defaults.compaction.reserveTokensFloor' <N>` (used by Pass 10)
@@ -100,7 +99,7 @@ cmd-b
 1. List all `.js` files in `scripts/`.
 2. Grep every instruction file for `node scripts/<file>` and bare `scripts/<file>` references.
 3. **Flag as CRITICAL** any reference to a non-existent script.
-4. Read `build-templates.sh` and `setup.sh` to determine which scripts each agent receives.
+4. Read `build-templates.sh` to determine which scripts each agent receives.
 5. **Flag as WARNING** any script referenced in an agent's instructions that is NOT deployed to that agent.
 
 ### Pass 3 — Constant consistency (semi-mechanical)

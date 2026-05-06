@@ -17,9 +17,7 @@
 # Usage:
 #   ./memory-backup.sh /path/to/workspace
 #
-# Runs as a background shell loop in the container (entrypoint.sh),
-# or as a system cron job for bare-metal installs:
-#   */15 * * * * /path/to/memory-backup.sh /path/to/workspace
+# Runs as a background shell loop in the container (entrypoint.sh).
 # ============================================================
 
 set -euo pipefail

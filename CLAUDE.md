@@ -26,7 +26,7 @@ Patterns, lessons, scoring calibration — knowledge that applies across all fun
 
 - `workspace/MEMORY.md` — Curated long-term patterns (updated when pattern seen 3+ times)
 - `workspace/memory/YYYY-MM-DD.md` — Daily logs with timestamped entries
-- Backed up every 15 minutes via `memory-backup.sh` (background shell loop in Docker, system cron for bare-metal)
+- Backed up every 15 minutes via `memory-backup.sh` (background shell loop in `entrypoint.sh`)
 - Sentinel/Executor/Observer `memory/` dirs are symlinked to Research's workspace — the single backup job covers all four agents' writes
 
 ### Layer 2: Wallet Data (SQLite — per-fund)
@@ -129,7 +129,7 @@ Smart-money tracking is a four-role pipeline. Each role has a bounded contract; 
 agents/research/          # Research Agent config (AGENTS.md, SOUL.md, HEARTBEAT.md, TOOLS.md, skills/)
 agents/sentinel/          # Sentinel Agent config (same structure, fewer skills)
 agents/executor/          # Executor Agent config (same structure, 1 skill)
-workspace/                # Shared workspace (copied to all agents by setup.sh)
+workspace/                # Shared workspace (copied to all agents by build-templates.sh)
   MEMORY.md               # Curated long-term patterns and lessons (agent memory)
   memory/                 # Daily log directory (agent memory)
   USER.md                 # Operator profile (editable)
@@ -185,8 +185,7 @@ scripts/                  # Node.js scripts
 tests/                    # 18 test suites + runner + helpers
 Dockerfile                # Based on ghcr.io/openclaw/openclaw:latest
 docker-compose.yml        # One-command deployment
-build-templates.sh        # Docker build-time template assembly (replaces setup.sh in Docker)
-setup.sh                  # Bare-metal installer (deploys agents into OpenClaw directory structure)
+build-templates.sh        # Docker build-time template assembly
 .env.example              # Environment variable template
 ```
 
@@ -206,7 +205,7 @@ setup.sh                  # Bare-metal installer (deploys agents into OpenClaw d
 | `workspace/TOOLS.md` | Full tool reference (not deployed) — check this for the complete picture |
 | `scripts/process-order.js` | Atomic order processing — validates, executes, updates status, writes receipts |
 | `entrypoint.sh` | Docker runtime init — per-agent config, background loops, workspace seeding |
-| `setup.sh` | Understand this to know how files get deployed to OpenClaw |
+| `build-templates.sh` | Build-time deployment — which scripts/skills/markdown each agent gets |
 
 ## Commands
 
@@ -253,10 +252,6 @@ docker compose down             # Stop
 # Docker with paper mode
 PAPER_MODE=true docker compose up -d
 PAPER_MODE=true PAPER_STARTING_BALANCE=5000 docker compose up -d
-
-# Manual setup (without Docker)
-SAFE_ID=my-fund ./setup.sh                      # Deploy agents to OpenClaw
-SAFE_ID=my-fund ./setup.sh --memory-backup       # Also install memory backup system cron
 ```
 
 ## Tech Stack
@@ -352,11 +347,11 @@ Configure `PORTFOLIO_REPORT_HOUR` (0-23, default: 0) to receive automated daily 
 
 ## When Modifying
 
-- **Adding a new script:** Add it to `scripts/`, document it in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md` (per-agent reference), add output validation to `tests/test-scripts.js`, add it to the appropriate agent's copy list in `setup.sh` and `build-templates.sh`, and add it to the agent's shell allowlist in `entrypoint.sh` (see per-agent `agents.list[N]` overrides).
+- **Adding a new script:** Add it to `scripts/`, document it in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md` (per-agent reference), add output validation to `tests/test-scripts.js`, add it to the appropriate agent's copy list in `build-templates.sh`, and add it to the agent's shell allowlist in `entrypoint.sh` (see per-agent `agents.list[N]` overrides).
 - **Adding a new DB table:** Add a migration in `scripts/db.js` (increment migration number), add CLI commands in `db-query.js`, add schema tests to `tests/test-memory.js`, document commands in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md`.
 - **Changing safety rules:** Update `agents/research/AGENTS.md` AND `agents/executor/AGENTS.md` (if execution-related) AND `tests/test-safety.js` AND `tests/test-executor.js` — tests enforce the exact limits.
-- **Adding a new agent:** Follow the pattern in `agents/observer/` (the most recently added agent) — create a directory with AGENTS.md, SOUL.md, HEARTBEAT.md, and skills/. Add per-agent config overrides on `agents.list[N]` in `entrypoint.sh` (tools, permissions, memory, compaction — follow least privilege). Add directory creation, file copy, and symlink logic to `setup.sh` and `build-templates.sh`. Add heartbeat_state seeds in the db.js migration. Add the agent name to `HEARTBEAT_CADENCES` and `AGENT_HEARTBEAT_INTERVALS` in `scripts/db-query.js`. Update `docker-compose.yml` if it needs different resources.
-- **Changing agent tool/permission config:** OpenClaw global config applies to all agents — per-agent tool restriction is enforced by **script deployment** (which .js files each agent gets in its workspace) and **skills directories** (each agent only sees its own skills). Edit `entrypoint.sh` for global settings, `build-templates.sh`/`setup.sh` for per-agent script deployment.
+- **Adding a new agent:** Follow the pattern in `agents/observer/` (the most recently added agent) — create a directory with AGENTS.md, SOUL.md, HEARTBEAT.md, and skills/. Add per-agent config overrides on `agents.list[N]` in `entrypoint.sh` (tools, permissions, memory, compaction — follow least privilege). Add directory creation, file copy, and symlink logic to `build-templates.sh`. Add heartbeat_state seeds in the db.js migration. Add the agent name to `HEARTBEAT_CADENCES` and `AGENT_HEARTBEAT_INTERVALS` in `scripts/db-query.js`. Update `docker-compose.yml` if it needs different resources.
+- **Changing agent tool/permission config:** OpenClaw global config applies to all agents — per-agent tool restriction is enforced by **script deployment** (which .js files each agent gets in its workspace) and **skills directories** (each agent only sees its own skills). Edit `entrypoint.sh` for global settings, `build-templates.sh` for per-agent script deployment.
 - **Modifying the pipeline:** Update `tests/test-pipeline.js` to verify the new data flow between stages.
 - **Changing Safe wallet config:** Update `.env.example`, `docker-compose.yml`, and `agents/executor/AGENTS.md`. Never put keys in files.
 - **Multi-fund deployment:** Set different `SAFE_ID` values. Each gets its own SQLite database. Agent memory (markdown) is shared across all deployments.
@@ -369,7 +364,7 @@ Configure `PORTFOLIO_REPORT_HOUR` (0-23, default: 0) to receive automated daily 
 - Sentinel only gets monitoring scripts (check-positions, check-liquidity, check-wallets) + db access. Executor only gets db access + execution scripts. Don't assume an agent has access to all scripts.
 - Agent memory (markdown) is symlinked between all three agents. Daily logs written by any agent are visible to all.
 - The database is also shared via symlinked `data/` directory — all agents read/write the same SQLite file.
-- The `setup.sh` script skips existing MEMORY.md to preserve learned patterns. If you need to reset, delete it first.
+- `entrypoint.sh` skips existing MEMORY.md to preserve learned patterns. If you need to reset, delete it first.
 - Docker runs as non-root (UID 1000). File permissions matter.
 - The Executor's `SAFE_SIGNER_KEY` must NEVER appear in any log, receipt, or file. Only read from env var.
 - Executor validates orders independently (defense in depth) — don't assume Research's validation is sufficient.

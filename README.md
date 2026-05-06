@@ -271,8 +271,6 @@ HELIUS_API_KEY=                       # Solana portfolio sync + token data
 
 ### Step 2: Deploy
 
-#### Option A: Docker (Recommended)
-
 ```bash
 docker compose up -d
 docker compose logs -f    # watch startup
@@ -285,16 +283,6 @@ What happens on first start:
 3. SQLite database created and migrated (`data/<SAFE_ID>.db` — 20 tables)
 4. Background loops start: memory backup (15m), wallet scoring (10m), sentinel (15m), executor (1m)
 5. OpenClaw gateway starts, cron jobs created: research (30m), observer (60m)
-
-#### Option B: Manual (No Docker)
-
-```bash
-chmod +x setup.sh
-SAFE_ID=fund-alpha ./setup.sh
-
-# Optional: install memory backup + wallet scoring cron jobs
-SAFE_ID=fund-alpha ./setup.sh --memory-backup --wallet-scorer
-```
 
 ### Paper Mode (Simulated Trading)
 
@@ -330,29 +318,20 @@ OBSERVER_MODEL=openai-codex/gpt-5.5
 Edit `USER.md` in the research agent's workspace:
 
 ```bash
-# Docker: exec into the container
 docker compose exec crypto-claw nano /home/openclaw/.openclaw/agents/research/workspace/USER.md
-
-# Manual
-nano ~/.openclaw/agents/research/workspace/USER.md
 ```
 
 Fill in your timezone, experience level, risk tolerance, portfolio targets, and any wallet addresses you want tracked.
 
 ### Step 4: Set Up Agent Memory Backup
 
-Agent memory (MEMORY.md + daily logs) should be backed up to a **private** git repo, separate from the code repo.
+Agent memory (MEMORY.md + daily logs) should be backed up to a **private** git repo, separate from the code repo. Set `MEMORY_GIT_REMOTE` in `.env`:
 
 ```bash
-# Docker: set MEMORY_GIT_REMOTE in .env
 MEMORY_GIT_REMOTE=https://<token>@github.com/your-org/crypto-claw-memory.git
-
-# Manual path
-cd ~/.openclaw/agents/research/workspace
-git remote add origin git@github.com:your-org/crypto-claw-memory.git
-SAFE_ID=fund-alpha ./setup.sh --memory-backup
-# Installs cron: commits + pushes every 15 minutes
 ```
+
+The container runs `memory-backup.sh` as a background loop every 15 minutes — commits and pushes any changes to the configured remote.
 
 ### Step 5: Verify
 
@@ -366,8 +345,6 @@ cd tests && node run-all.js --offline
 ---
 
 ## Updating & Redeployment
-
-### Docker Redeploy
 
 ```bash
 git pull
@@ -385,13 +362,6 @@ What happens on restart:
 **What updates on redeploy:** agent rules, skills, scripts, TOOLS.md, BOOT.md, IDENTITY.md, DB schema.
 
 **What persists across redeploys:** USER.md, MEMORY.md, daily logs, all wallet data (positions, trades, orders, receipts).
-
-### Manual Redeploy
-
-```bash
-git pull
-SAFE_ID=fund-alpha ./setup.sh
-```
 
 ### File Ownership Model
 
@@ -702,7 +672,6 @@ crypto-claw/
 +-- Dockerfile                       # Image build
 +-- docker-compose.yml               # One-command deployment
 +-- build-templates.sh               # Docker build-time template assembly
-+-- setup.sh                         # Bare-metal installer
 +-- .env.example                     # Environment variable template
 +-- CLAUDE.md                        # Claude Code project guide
 ```
