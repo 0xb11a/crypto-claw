@@ -274,17 +274,65 @@ async function main() {
     const args = ['message', 'send', '--channel', 'telegram', '--target', chatId, '--message', formattedMessage];
     if (threadId) args.push('--thread-id', threadId);
 
+    // Bumped from 15s — observer reported recurring spawnSync ETIMEDOUT on the
+    // OpenClaw CLI under load. 25s is generous enough to absorb a slow gateway
+    // round-trip without permanently dropping alerts.
     execFileSync('openclaw', args, {
-      timeout: 15000,
+      timeout: 25000,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
     log('info', 'send-alert', `sent type=${type} agent=${agent} topic=${threadId || 'default'}`);
     console.log(JSON.stringify({ status: 'sent', type, agent, topic: threadId || 'default' }));
+    return;
   } catch (err) {
     log('warn', 'send-alert', `Failed to send via openclaw (type=${type}, agent=${agent}): ${err.message}`);
     console.error(`[send-alert] Failed to send via openclaw: ${err.message}`);
-    console.log(JSON.stringify({ status: 'failed', type, agent, error: err.message }));
+    // Fall through to direct Telegram fallback
+  }
+
+  // Fallback: direct Telegram Bot API. Used when the openclaw CLI hangs,
+  // exits non-zero, or isn't on PATH. Requires TELEGRAM_BOT_TOKEN; without
+  // it, the alert is dropped (operator should set the env var).
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) {
+    log('error', 'send-alert', `openclaw CLI failed and TELEGRAM_BOT_TOKEN not set — alert dropped (type=${type})`);
+    console.log(
+      JSON.stringify({ status: 'failed', type, agent, error: 'openclaw failed and no TELEGRAM_BOT_TOKEN fallback' }),
+    );
+    return;
+  }
+
+  try {
+    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    const body = {
+      chat_id: chatId,
+      text: formattedMessage,
+      ...(threadId ? { message_thread_id: parseInt(threadId, 10) } : {}),
+    };
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Telegram API ${res.status}: ${text.slice(0, 200)}`);
+    }
+    log('info', 'send-alert', `sent_via_fallback type=${type} agent=${agent} topic=${threadId || 'default'}`);
+    console.log(JSON.stringify({ status: 'sent_via_fallback', type, agent, topic: threadId || 'default' }));
+  } catch (fallbackErr) {
+    log('error', 'send-alert', `Telegram fallback also failed (type=${type}, agent=${agent}): ${fallbackErr.message}`);
+    console.error(`[send-alert] Telegram fallback failed: ${fallbackErr.message}`);
+    console.log(JSON.stringify({ status: 'failed', type, agent, error: `fallback: ${fallbackErr.message}` }));
   }
 }
 
