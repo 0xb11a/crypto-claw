@@ -50,6 +50,10 @@ const suites = [
   { name: 'Governance Drift', file: 'test-governance-drift.js', requiresNetwork: false },
   { name: 'Position Reconcile', file: 'test-position-reconcile.js', requiresNetwork: false },
   { name: 'NPM Audit Gate', file: 'test-audit-gate.js', requiresNetwork: false },
+  { name: 'Token-Age Quarantine', file: 'test-quarantine-age.js', requiresNetwork: false },
+  { name: 'Two-Source Confirmation', file: 'test-two-source-confirm.js', requiresNetwork: false },
+  { name: 'Safety-Rule Drift Gate', file: 'test-safety-rule-drift.js', requiresNetwork: false },
+  { name: 'Threat-Model Coverage', file: 'test-threat-model-coverage.js', requiresNetwork: false },
 ];
 
 // Scripts tests require network — run separately

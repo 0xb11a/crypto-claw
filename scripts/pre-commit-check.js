@@ -7,8 +7,10 @@
  */
 
 import { execSync } from 'child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
+import { PORTFOLIO_RULES, getPortfolioRules } from './chains.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -65,6 +67,124 @@ function isAllowlisted(line, file) {
 
 function isFakeHexKey(match) {
   return FAKE_HEX_PATTERNS.some((p) => p.test(match));
+}
+
+// ============================================================
+// PR 4.4: CLAUDE.md ↔ chains.js safety-rule drift gate.
+//
+// CLAUDE.md's "Safety Rules (Do Not Weaken)" section duplicates the
+// numeric portfolio limits from chains.js PORTFOLIO_RULES. If a
+// developer (or LLM) silently relaxes a limit in CLAUDE.md without
+// touching chains.js, the prose contradicts the code — agents
+// reading CLAUDE.md will plan trades the executor will reject. If
+// the relaxation goes the OTHER way (chains.js raised but CLAUDE.md
+// not updated), a future refactor that re-derives limits from
+// CLAUDE.md prose silently re-tightens. Either way: drift compounds.
+//
+// This gate blocks the commit on any mismatch.
+// ============================================================
+
+// Map of phrases in CLAUDE.md "Safety Rules" → chains.js key, plus
+// optional chain override expectations. The phrases are matched
+// case-insensitively against the section text.
+const CLAUDE_SAFETY_RULES = [
+  { phrase: 'Max moonshot position', jsKey: 'maxMoonshotPosition', solanaOverride: 7 },
+  { phrase: 'Max conviction position', jsKey: 'maxConvictionPosition' },
+  { phrase: 'Max base position', jsKey: 'maxBasePosition' },
+  { phrase: 'Max total moonshot allocation', jsKey: 'maxMoonshotAllocation' },
+  { phrase: 'Min cash reserve', jsKey: 'minCashReserve' },
+  { phrase: 'Max same-narrative positions', jsKey: 'maxSameNarrative' },
+];
+
+/**
+ * Pure predicate, exported for offline tests. Given the text of
+ * CLAUDE.md and a PORTFOLIO_RULES-shaped object, returns the array
+ * of mismatches. Empty array = consistent.
+ */
+export function findSafetyRuleMismatches(claudeMdContent, portfolioRules, chainOverrides = {}) {
+  if (!claudeMdContent || typeof claudeMdContent !== 'string') {
+    return [{ rule: 'CLAUDE.md', reason: 'unreadable_or_empty' }];
+  }
+  // Extract the "Safety Rules" section. Stop at the next ## heading
+  // or end of file.
+  const sectionMatch = claudeMdContent.match(/## Safety Rules[^\n]*\n([\s\S]*?)(?=\n## |\n# |$)/);
+  if (!sectionMatch) {
+    return [{ rule: 'CLAUDE.md', reason: 'safety_rules_section_missing' }];
+  }
+  const section = sectionMatch[1];
+
+  const findings = [];
+  for (const { phrase, jsKey, solanaOverride } of CLAUDE_SAFETY_RULES) {
+    // % is optional — most rules are percentages but maxSameNarrative
+    // is a bare count ("Max same-narrative positions: 3").
+    const re = new RegExp(`${phrase}:\\s*(\\d+(?:\\.\\d+)?)\\s*%?`, 'i');
+    const m = section.match(re);
+    const jsValue = portfolioRules[jsKey];
+    if (!m) {
+      findings.push({
+        rule: jsKey,
+        phrase,
+        mdValue: null,
+        jsValue,
+        reason: 'phrase_missing_in_claude_md',
+      });
+      continue;
+    }
+    const mdValue = parseFloat(m[1]);
+    if (mdValue !== jsValue) {
+      findings.push({
+        rule: jsKey,
+        phrase,
+        mdValue,
+        jsValue,
+        reason: 'value_mismatch',
+      });
+    }
+
+    // Solana override: when phrase has `(Solana: N%)` parenthetical,
+    // verify it matches solanaOverride (which itself should match
+    // chainOverrides.solana[jsKey] from chains.js).
+    if (solanaOverride !== undefined) {
+      const overrideRe = new RegExp(`${phrase}:[^\\n]*Solana:\\s*(\\d+(?:\\.\\d+)?)\\s*%`, 'i');
+      const om = section.match(overrideRe);
+      if (om) {
+        const mdSolana = parseFloat(om[1]);
+        const expected = chainOverrides.solana?.[jsKey] ?? solanaOverride;
+        if (mdSolana !== expected) {
+          findings.push({
+            rule: `${jsKey} (Solana override)`,
+            phrase,
+            mdValue: mdSolana,
+            jsValue: expected,
+            reason: 'solana_override_mismatch',
+          });
+        }
+      }
+    }
+  }
+  return findings;
+}
+
+/**
+ * File-reading orchestrator. Loads CLAUDE.md from the repo root and
+ * runs the predicate against the live PORTFOLIO_RULES.
+ */
+function runSafetyRuleGate() {
+  try {
+    const repoRoot = resolve(__dirname, '..');
+    const claudeMd = readFileSync(resolve(repoRoot, 'CLAUDE.md'), 'utf-8');
+    // Pull Solana's chain override so we can verify the Solana
+    // moonshot-cap parenthetical in CLAUDE.md.
+    let chainOverrides = {};
+    try {
+      chainOverrides = { solana: getPortfolioRules('solana') };
+    } catch {
+      /* if chains.js can't load, fall back to defaults */
+    }
+    return findSafetyRuleMismatches(claudeMd, PORTFOLIO_RULES, chainOverrides);
+  } catch (err) {
+    return [{ rule: 'CLAUDE.md', reason: `read_failed: ${err.message}` }];
+  }
 }
 
 // PR 3.1: MEMORY.md write-protection. New pattern entries (lines
@@ -297,7 +417,27 @@ function main() {
     /* skip if git fails */
   }
 
-  if (findings.length === 0 && memoryFindings.length === 0 && auditFindings.length === 0) {
+  // PR 4.4: CLAUDE.md ↔ chains.js drift gate. Runs on every commit
+  // (cheap — single file read + import). Only fires findings when
+  // CLAUDE.md OR chains.js is in the staged diff (avoids re-flagging
+  // pre-existing drift on commits that don't touch either).
+  let safetyRuleFindings = [];
+  try {
+    const stagedFiles = execSync('git diff --cached --name-only --diff-filter=ACM', { encoding: 'utf-8' });
+    const staged = stagedFiles.split('\n');
+    if (staged.includes('CLAUDE.md') || staged.includes('scripts/chains.js')) {
+      safetyRuleFindings = runSafetyRuleGate();
+    }
+  } catch {
+    /* skip if git fails */
+  }
+
+  if (
+    findings.length === 0 &&
+    memoryFindings.length === 0 &&
+    auditFindings.length === 0 &&
+    safetyRuleFindings.length === 0
+  ) {
     if (auditAllowedNoted.length > 0) {
       console.error('ℹ️  npm audit: allowlisted vulnerabilities still present (no-op):');
       for (const v of auditAllowedNoted) console.error(`     ${v.package} (${v.severity})`);
@@ -341,6 +481,27 @@ function main() {
     console.error('Run `npm audit` in scripts/ for details. To accept a finding,');
     console.error('add the package name to AUDIT_ALLOWLIST in pre-commit-check.js');
     console.error('with a comment explaining why.');
+    console.error('');
+  }
+
+  if (safetyRuleFindings.length > 0) {
+    console.error('🚨 CLAUDE.md ↔ chains.js safety-rule drift (PR 4.4):');
+    for (const f of safetyRuleFindings) {
+      if (f.reason === 'value_mismatch') {
+        console.error(`  ${f.phrase}: CLAUDE.md says ${f.mdValue}%, chains.js enforces ${f.jsValue}%`);
+      } else if (f.reason === 'solana_override_mismatch') {
+        console.error(`  ${f.phrase} (Solana): CLAUDE.md says ${f.mdValue}%, chains.js enforces ${f.jsValue}%`);
+      } else if (f.reason === 'phrase_missing_in_claude_md') {
+        console.error(`  ${f.phrase}: missing from CLAUDE.md (chains.js value: ${f.jsValue}%)`);
+      } else {
+        console.error(`  ${f.rule}: ${f.reason}`);
+      }
+    }
+    console.error('');
+    console.error('Update either CLAUDE.md or scripts/chains.js so they agree.');
+    console.error('chains.js is the runtime source of truth; CLAUDE.md is the');
+    console.error('agent-facing summary. They MUST stay in sync — agent prose that');
+    console.error('disagrees with the executor breaks the trust contract.');
     console.error('');
   }
 

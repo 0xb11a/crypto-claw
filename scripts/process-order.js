@@ -20,9 +20,10 @@ import { getDb, close } from './db.js';
 import { execSync, execFileSync } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { isSolana, getPortfolioRules, getTierMaxUsd } from './chains.js';
+import { isSolana, getPortfolioRules, getTierMaxUsd, getQuarantineTokenAgeHours } from './chains.js';
 import { log } from './log.js';
 import { fetchOnchainCashBalance, evaluateCashDrift, evaluateReceivedDrift } from './onchain-balance.js';
+import { fetchTwoSourceConfirmation, evaluateTwoSourceConfirmation } from './price-oracle.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPaper = process.env.PAPER_MODE === 'true';
@@ -119,6 +120,74 @@ export function validateAmountCap(tier, action, amount, chain, env = process.env
     };
   }
   return { valid: true };
+}
+
+// ============================================================
+// Token-age quarantine (PR 4.1)
+//
+// Real-mode buys for tokens younger than chains.js
+// `quarantineTokenAgeHours` (default 24h) get refused with reason
+// `quarantined_age` and an alert to the Research Telegram topic.
+// The first 24h after listing is when rugpulls and post-launch
+// contract upgrades cluster — forcing capital to wait eliminates
+// the worst tier of moonshot losses.
+//
+// Operator can manually override via `db-query.js approve-order`
+// after re-checking, OR can set QUARANTINE_TOKEN_AGE_HOURS=0 to
+// disable the gate fund-wide.
+//
+// Skipped in paper mode (testing new tokens IS the point of paper).
+// Skipped on missing pairCreatedAt (DEXScreener didn't return one
+// → can't reason about age, fail open since the safety recheck
+// already caught structural issues).
+// ============================================================
+
+/**
+ * Pure age predicate, exported for offline tests.
+ *
+ * @param {object} input
+ * @param {string|number|Date|null} input.pairCreatedAt  ISO string, epoch ms, or Date
+ * @param {number} input.minAgeHours
+ * @param {Date} [input.currentTime=now]
+ * @returns {{ valid: boolean, ageHours: number|null, reason?: string }}
+ */
+export function evaluateTokenAge({ pairCreatedAt, minAgeHours, currentTime = new Date() }) {
+  if (minAgeHours === null || minAgeHours === undefined || !Number.isFinite(minAgeHours) || minAgeHours <= 0) {
+    return { valid: true, ageHours: null }; // gate disabled
+  }
+  if (pairCreatedAt === null || pairCreatedAt === undefined || pairCreatedAt === '') {
+    // Fail open: PR 2.2 already handled the structural safety checks;
+    // we don't have age info to reason about here.
+    return { valid: true, ageHours: null };
+  }
+  let createdMs;
+  if (pairCreatedAt instanceof Date) {
+    createdMs = pairCreatedAt.getTime();
+  } else if (typeof pairCreatedAt === 'number') {
+    createdMs = pairCreatedAt;
+  } else {
+    const parsed = Date.parse(String(pairCreatedAt));
+    if (!Number.isFinite(parsed)) return { valid: true, ageHours: null };
+    createdMs = parsed;
+  }
+  const ageHours = (currentTime.getTime() - createdMs) / 3_600_000;
+  if (!Number.isFinite(ageHours)) return { valid: true, ageHours: null };
+  if (ageHours < 0) {
+    // Future-dated → suspicious, treat as 0 age
+    return {
+      valid: false,
+      ageHours,
+      reason: `quarantined_age: pairCreatedAt is in the future (${ageHours.toFixed(1)}h) — likely bogus data`,
+    };
+  }
+  if (ageHours < minAgeHours) {
+    return {
+      valid: false,
+      ageHours,
+      reason: `quarantined_age: token age ${ageHours.toFixed(1)}h < ${minAgeHours}h minimum`,
+    };
+  }
+  return { valid: true, ageHours };
 }
 
 // ============================================================
@@ -284,10 +353,16 @@ export function evaluateRecheck({
 /**
  * Orchestrates the two subprocess calls and returns the predicate
  * result. Errors from either spawn become recheck_failed reasons.
+ *
+ * PR 4.1: also returns `pairCreatedAt` (or null) so the caller can
+ * apply the token-age quarantine without re-spawning token-metrics.
+ *
+ * @returns {{ valid: boolean, reason?: string, pairCreatedAt?: string|null }}
  */
 function recheckBuySafety(address, chain) {
   let liquidity = null;
   let safety = null;
+  let pairCreatedAt = null;
 
   try {
     const scriptPath = resolve(__dirname, 'token-metrics.js');
@@ -299,6 +374,7 @@ function recheckBuySafety(address, chain) {
     const data = JSON.parse(raw);
     if (data.status === 'ok' && data.metrics) {
       liquidity = parseFloat(data.metrics.liquidity ?? 0);
+      pairCreatedAt = data.metrics.pairCreatedAt ?? null;
     }
   } catch (err) {
     return { valid: false, reason: `recheck_failed: token-metrics threw (${err.message.slice(0, 80)})` };
@@ -316,7 +392,8 @@ function recheckBuySafety(address, chain) {
     return { valid: false, reason: `recheck_failed: check-contract threw (${err.message.slice(0, 80)})` };
   }
 
-  return evaluateRecheck({ liquidity, safety });
+  const result = evaluateRecheck({ liquidity, safety });
+  return { ...result, pairCreatedAt };
 }
 
 // ============================================================
@@ -621,6 +698,7 @@ async function processBuy(db, order) {
   // tokens, top-holder spikes, and liquidity rugs that happened
   // between proposal and execution. Operator can bypass with
   // SKIP_PRESIGN_RECHECK=true during a genuine API outage.
+  let recheckPairCreatedAt = null;
   if (process.env.SKIP_PRESIGN_RECHECK !== 'true') {
     const recheck = recheckBuySafety(order.address, order.chain);
     if (!recheck.valid) {
@@ -634,9 +712,80 @@ async function processBuy(db, order) {
       sendAlert('trade_failed', `BUY $${order.symbol}: ${recheck.reason}`);
       return { ...result, status: 'failed', error: recheck.reason, receipt_id: receiptId };
     }
+    recheckPairCreatedAt = recheck.pairCreatedAt;
     plog(order, `presign_recheck_ok`);
   } else {
     plog(order, `presign_recheck_skipped (SKIP_PRESIGN_RECHECK=true)`);
+  }
+
+  // 2c. Token-age quarantine (PR 4.1). Real-mode buys for tokens
+  // <quarantineTokenAgeHours (default 24h) get refused with
+  // `quarantined_age` and surface in Telegram so the operator can
+  // override. Skipped in paper mode (testing new tokens IS the point
+  // of paper). Skipped if pairCreatedAt unavailable (the safety
+  // recheck above already filtered structural issues).
+  if (!isPaper && recheckPairCreatedAt) {
+    const minAgeHours = getQuarantineTokenAgeHours(order.chain);
+    const ageCheck = evaluateTokenAge({ pairCreatedAt: recheckPairCreatedAt, minAgeHours });
+    if (!ageCheck.valid) {
+      log(
+        'warn',
+        'process-order',
+        `BUY quarantined: ${ageCheck.reason} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+      );
+      const receiptId = writeReceipt(db, order, { status: 'validation_failed', error: ageCheck.reason }, 'buy');
+      markFailed(db, order.id, ageCheck.reason);
+      // Use trade_proposal so it lands in the Research topic — the
+      // operator can re-evaluate and manually approve via the orders
+      // skill if they want to override the quarantine.
+      sendAlert(
+        'trade_proposal',
+        `🕒 BUY $${order.symbol} on ${order.chain} QUARANTINED — token age ${ageCheck.ageHours?.toFixed(1) ?? '?'}h < ${minAgeHours}h. Manually approve via 'approve-order ${order.id}' if you want to override.`,
+      );
+      return { ...result, status: 'quarantined', error: ageCheck.reason, receipt_id: receiptId };
+    }
+    plog(order, `quarantine_ok age=${ageCheck.ageHours?.toFixed(1)}h min=${minAgeHours}h`);
+  }
+
+  // 2d. Two-source confirmation (PR 4.2). Both DEXScreener AND
+  // Birdeye must see the token (and agree on price within 2%) before
+  // real money commits. Catches:
+  //   - tokens only one source has indexed (suspicious for non-fresh
+  //     tokens — fresh ones are already caught by PR 4.1 quarantine)
+  //   - wash-trading that inflated price on one venue but not the
+  //     other (the disagreement is the signal)
+  // Skipped in paper mode and when SKIP_TWO_SOURCE_CONFIRM=true is
+  // set (e.g. one of the APIs is rate-limited and the operator
+  // accepts the risk to keep buys flowing).
+  if (!isPaper && process.env.SKIP_TWO_SOURCE_CONFIRM !== 'true') {
+    let twoSrc = null;
+    try {
+      twoSrc = await fetchTwoSourceConfirmation(order.chain, order.address);
+    } catch (err) {
+      // Don't fail the trade on a network blip — log and proceed. The
+      // executor's other gates (oracle check inside execute-trade)
+      // will fire if either source is genuinely unreachable.
+      plog(order, `two_source_fetch_failed: ${err.message.slice(0, 80)} — skipping`);
+      twoSrc = null;
+    }
+    if (twoSrc) {
+      const conf = evaluateTwoSourceConfirmation(twoSrc);
+      if (!conf.confirmed) {
+        log(
+          'warn',
+          'process-order',
+          `BUY quarantined: ${conf.reason} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+        );
+        const receiptId = writeReceipt(db, order, { status: 'validation_failed', error: conf.reason }, 'buy');
+        markFailed(db, order.id, conf.reason);
+        sendAlert(
+          'trade_proposal',
+          `🔀 BUY $${order.symbol} on ${order.chain} QUARANTINED — ${conf.reason}. Manually approve via 'approve-order ${order.id}' if you want to override.`,
+        );
+        return { ...result, status: 'quarantined', error: conf.reason, receipt_id: receiptId };
+      }
+      plog(order, `two_source_ok dex=${twoSrc.dex} birdeye=${twoSrc.birdeye} drift=${conf.driftPct?.toFixed(2)}%`);
+    }
   }
 
   // 3. Validate we have a usable price

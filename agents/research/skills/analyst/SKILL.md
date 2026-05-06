@@ -36,6 +36,8 @@ Check contract safety:
 node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```
 
+> **Two-source confirmation (PR 4.2):** the executor enforces, at signing time, that BOTH DEXScreener and Birdeye see the token and agree on price within 2%. Tokens that fail this gate are auto-quarantined with a Telegram alert. You don't need to verify two-source agreement during analysis — the gate fires regardless — but if you find a token that DEXScreener has and Birdeye doesn't, expect quarantine. The 2-source check exists because single-source tokens (typically newly-listed, obscure venue, or post-list-but-pre-Birdeye-indexing) carry concentrated rug risk.
+
 Check holder distribution:
 ```bash
 node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN> --propose

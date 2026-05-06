@@ -139,6 +139,91 @@ export async function fetchOraclePrice(chain, address) {
 }
 
 // ============================================================
+// Two-source confirmation (PR 4.2)
+//
+// Different concern from fetchOraclePrice (PR 2.7): that function
+// validates the AGGREGATOR's quote against a reference. This one
+// validates that the TOKEN ITSELF is seen by both major data
+// sources before we put real money behind it.
+//
+// Why it matters: a token that only DEXScreener sees (Birdeye
+// returns null) is one of:
+//   - so fresh that Birdeye hasn't indexed it yet → caught already
+//     by PR 4.1 quarantine, but redundant defense never hurts
+//   - so obscure that no real price discovery is happening
+//   - exists on a venue Birdeye doesn't track → liquidity is one
+//     pool deep, rug risk concentrated
+//
+// Disagreement on price across the two sources is a separate signal:
+// often means wash-trading on one DEX inflated price on one source
+// but not the other.
+// ============================================================
+
+/**
+ * Fetches both DEXScreener + Birdeye prices in parallel for the
+ * 2-source confirmation gate. Returns raw nullable values; the
+ * predicate decides what to do.
+ *
+ * @returns {Promise<{ dex: number|null, birdeye: number|null }>}
+ */
+export async function fetchTwoSourceConfirmation(chain, address) {
+  const [dex, birdeye] = await Promise.all([fetchDexScreenerPrice(chain, address), fetchBirdeyePrice(chain, address)]);
+  return { dex, birdeye };
+}
+
+/**
+ * Pure predicate. Confirmed iff BOTH sources returned a positive
+ * price AND the prices agree within maxPriceDriftPct (default 2%).
+ *
+ * @param {object} input
+ * @param {number|null} input.dex       DEXScreener price
+ * @param {number|null} input.birdeye   Birdeye price
+ * @param {number} [input.maxPriceDriftPct=2]
+ * @returns {{ confirmed: boolean, source: 'both'|'dex_only'|'birdeye_only'|'neither', driftPct: number|null, reason?: string }}
+ */
+export function evaluateTwoSourceConfirmation({ dex, birdeye, maxPriceDriftPct = 2 }) {
+  const dexOk = Number.isFinite(dex) && dex > 0;
+  const birdOk = Number.isFinite(birdeye) && birdeye > 0;
+
+  if (!dexOk && !birdOk) {
+    return {
+      confirmed: false,
+      source: 'neither',
+      driftPct: null,
+      reason: 'two_source_unconfirmed: neither DEXScreener nor Birdeye returned a price',
+    };
+  }
+  if (!dexOk) {
+    return {
+      confirmed: false,
+      source: 'birdeye_only',
+      driftPct: null,
+      reason: 'two_source_unconfirmed: DEXScreener returned no price (Birdeye-only listing)',
+    };
+  }
+  if (!birdOk) {
+    return {
+      confirmed: false,
+      source: 'dex_only',
+      driftPct: null,
+      reason: 'two_source_unconfirmed: Birdeye returned no price (DEXScreener-only listing — too fresh / too obscure)',
+    };
+  }
+
+  const diff = Math.abs(dex - birdeye);
+  const driftPct = (diff / Math.min(dex, birdeye)) * 100;
+  if (driftPct > maxPriceDriftPct) {
+    return {
+      confirmed: false,
+      source: 'both',
+      driftPct,
+      reason: `two_source_disagreement: dex=${dex} birdeye=${birdeye} drift=${driftPct.toFixed(2)}% > ${maxPriceDriftPct}%`,
+    };
+  }
+  return { confirmed: true, source: 'both', driftPct };
+}
+
+// ============================================================
 // Pure predicates — exported for offline testing.
 // ============================================================
 

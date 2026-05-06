@@ -121,6 +121,20 @@ const PORTFOLIO_RULES = {
   // order. Tunable per fund via env var TIER_MAX_USD_<TIER> (uppercase)
   // or per-chain override on chain.rules.tierMaxUsd.
   tierMaxUsd: { moonshot: 200, conviction: 500, base: 2000 },
+  // PR 4.1: quarantine new tokens. Real-mode buys for tokens younger
+  // than this threshold are refused with `quarantined_age` and an
+  // alert to the Research Telegram topic. The operator can manually
+  // approve via `db-query.js approve-order` to override.
+  //
+  // Why: the highest scam-risk window is the first 24h after listing
+  // (rugpulls and post-launch contract upgrades cluster here). Forcing
+  // novel tokens to age before real capital touches them eliminates
+  // the worst tier of moonshot losses without blocking high-conviction
+  // operator-approved opportunities.
+  //
+  // Tunable per fund via QUARANTINE_TOKEN_AGE_HOURS env (set 0 to
+  // disable, 12 to relax, 48 to tighten). Skipped in paper mode.
+  quarantineTokenAgeHours: 24,
 };
 
 const CHAINS = {
@@ -412,6 +426,28 @@ export function isAllowedAncillaryProgram(chainName, programId) {
   if (agg.ancillaryProgramAllowlist?.includes(programId)) return true;
   if (agg.swapProgramAllowlist?.includes(programId)) return true;
   return false;
+}
+
+/**
+ * PR 4.1: quarantine duration for new tokens. Returns the number of
+ * hours a token must age before real-mode buys are allowed.
+ *
+ * Precedence (highest first):
+ *   1. env QUARANTINE_TOKEN_AGE_HOURS (operator-tunable per fund)
+ *   2. chain.rules.quarantineTokenAgeHours (chain-specific override)
+ *   3. PORTFOLIO_RULES.quarantineTokenAgeHours (24h default)
+ *
+ * Returns 0 to mean "quarantine disabled". Negative env values are
+ * normalized to the chain default so a misconfigured env doesn't
+ * silently disable the gate.
+ */
+export function getQuarantineTokenAgeHours(chainName, env = process.env) {
+  const envRaw = env.QUARANTINE_TOKEN_AGE_HOURS;
+  const envVal = parseFloat(envRaw ?? '');
+  if (Number.isFinite(envVal) && envVal >= 0 && envRaw !== undefined && envRaw !== '') return envVal;
+  const merged = getPortfolioRules(chainName);
+  const v = merged.quarantineTokenAgeHours;
+  return Number.isFinite(v) && v >= 0 ? v : 24;
 }
 
 /**
