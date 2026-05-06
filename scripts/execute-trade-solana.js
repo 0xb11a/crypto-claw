@@ -812,15 +812,53 @@ async function executeSell(args, env, { dryRun = false } = {}) {
     };
   }
 
+  // Resolve mint decimals up front: callers (process-order.js partial sells)
+  // pass amount in human-readable token units (e.g. "28.431870482749996" for an
+  // 80% sell of 35.539...). BigInt() crashes on fractional strings, so convert
+  // to integer base units via decimals before quoting. Also reused by the
+  // oracle cross-check below.
+  let sellTokenDecimals = null;
+  try {
+    const tokenProgramId = await detectTokenProgram(env.connection, tokenMint, ctx);
+    const mintInfo = await getMint(env.connection, tokenMint, undefined, tokenProgramId);
+    sellTokenDecimals = mintInfo.decimals;
+    stepLog(ctx, `mint_info: decimals=${sellTokenDecimals}`);
+  } catch (err) {
+    stepLog(ctx, `mint_info_failed: ${err.message.slice(0, 80)}`);
+  }
+
   let sellAmount;
   if (args.amount === 'all') {
     sellAmount = tokenBalance;
   } else {
-    sellAmount = BigInt(args.amount);
+    const amountNum = parseFloat(args.amount);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      return {
+        status: 'failed',
+        error: `Invalid sell amount: ${args.amount}`,
+      };
+    }
+    // Already-integer base-units strings still parse correctly through this path
+    // when decimals=0; otherwise we always treat amount as human-readable units
+    // (the convention process-order.js uses for partial sells).
+    if (sellTokenDecimals === null) {
+      return {
+        status: 'failed',
+        error: `Cannot convert sell amount ${args.amount} to base units: mint decimals lookup failed`,
+      };
+    }
+    // Math.floor — never sell more than the position holds.
+    sellAmount = BigInt(Math.floor(amountNum * 10 ** sellTokenDecimals));
+    if (sellAmount <= 0n) {
+      return {
+        status: 'failed',
+        error: `Sell amount ${args.amount} rounds to 0 base units at decimals=${sellTokenDecimals}`,
+      };
+    }
     if (tokenBalance < sellAmount) {
       return {
         status: 'failed',
-        error: `Insufficient token balance: have ${tokenBalance.toString()}, need ${args.amount}`,
+        error: `Insufficient token balance: have ${tokenBalance.toString()}, need ${sellAmount.toString()} (from ${args.amount})`,
       };
     }
   }
@@ -835,16 +873,8 @@ async function executeSell(args, env, { dryRun = false } = {}) {
   stepLog(ctx, `quote_ok: outAmount=${quote.outAmount} route_plan_len=${quote.routePlan?.length ?? '?'}`);
 
   // PR 2.7: oracle cross-check on the SELL side. Effective price =
-  // USDC out / token in (both human-readable). Need decimals.
+  // USDC out / token in (both human-readable).
   if (process.env.SKIP_PRICE_ORACLE !== 'true') {
-    let sellTokenDecimals = null;
-    try {
-      const tokenProgramId = await detectTokenProgram(env.connection, tokenMint, ctx);
-      const mintInfo = await getMint(env.connection, tokenMint, undefined, tokenProgramId);
-      sellTokenDecimals = mintInfo.decimals;
-    } catch (err) {
-      stepLog(ctx, `oracle_skipped: mint_info_failed ${err.message.slice(0, 80)}`);
-    }
     if (sellTokenDecimals !== null) {
       const usdcOut = Number(BigInt(quote.outAmount)) / 10 ** USDC_DECIMALS;
       const tokensIn = Number(sellAmount) / 10 ** sellTokenDecimals;
