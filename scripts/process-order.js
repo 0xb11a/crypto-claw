@@ -29,7 +29,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPaper = process.env.PAPER_MODE === 'true';
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 const STALE_PRICE_THRESHOLD = 0.1; // 10% drift = stale
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
 const TRANSIENT_ERRORS = ['Too Many Requests', '429', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'socket hang up'];
 
 function plog(order, msg) {

@@ -68,7 +68,12 @@ async function withStep(label, ctx, fn, { retries = 0, baseDelay = 1000 } = {}) 
   }
 }
 
-const SAFE_RETRY = { retries: 5, baseDelay: 1000 };
+// Each Safe API call gets exponential backoff up to ~3.2 min total
+// (1.5+3+6+12+24+48+96 = 190.5s) so a single spawn absorbs a full Safe
+// Transaction Service rate-limit window without escalating to retry-at-the-
+// order-level. Combined with the order-level retry loop in process-order.js
+// this gives a ~16 min absorption window before an order is marked failed.
+const SAFE_RETRY = { retries: 7, baseDelay: 1500 };
 
 // ============================================================
 // Constants
