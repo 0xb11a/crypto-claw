@@ -464,6 +464,16 @@ async function buildAndSubmitSquadsTx(env, instructions, { dryRun = false, ctx, 
   const metaSize = metaTx.serialize().length;
   stepLog(ctx, `meta_tx signed signer=${shortAddr(signer.publicKey)} size=${metaSize}B (create+propose+approve)`);
 
+  // Solana network packet limit is 1232 bytes. RPC simulation rejects oversized
+  // versioned transactions with a generic error; gating here gives an actionable
+  // classification before we burn an RPC call.
+  if (metaSize > 1232) {
+    const errMsg = `Squads meta-tx oversized: ${metaSize}B > 1232B limit (instructions=${instructions.length}, luts=${lookupTableAccounts.length})`;
+    stepLog(ctx, `ERROR tx_too_large: ${errMsg}`);
+    log('error', 'execute-trade-solana', errMsg);
+    throw new Error(`tx_too_large: ${errMsg}`);
+  }
+
   // Dry run: return signed tx data without broadcasting
   if (dryRun) {
     stepLog(ctx, `dry_run: returning without send`);
