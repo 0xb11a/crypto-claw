@@ -50,7 +50,7 @@ cp "$SRC/agents/sentinel/skills/sentinel/SKILL.md" "$AGENT_TPL/sentinel/skills/s
 # Sentinel scripts: monitoring + db access + chain config + emergency.
 # Internal helpers (address-validator, order-approval) are required by
 # check-wallets/check-contract (PR 1.3) and db-query (PR 1.5).
-for script in db.js db-query.js agent-idleness.js chains.js check-positions.js check-liquidity.js check-wallets.js check-contract.js emergency-sentinel.js send-alert.js redact.js log.js address-validator.js order-approval.js; do
+for script in db.js db-query.js agent-idleness.js chains.js check-positions.js check-liquidity.js check-wallets.js check-contract.js emergency-sentinel.js send-alert.js redact.js log.js address-validator.js order-approval.js promote-pattern.js onchain-balance.js reconcile-positions.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/sentinel/scripts/"
 done
 cp "$SCRIPTS_DIR/package.json" "$AGENT_TPL/sentinel/scripts/"
@@ -67,10 +67,10 @@ cp "$SRC/agents/executor/skills/executor/SKILL.md" "$AGENT_TPL/executor/skills/e
 # Internal helpers (address-validator, order-approval, onchain-balance)
 # are required by token-metrics/process-order (PR 1.3/1.4/2.4) and
 # db-query (PR 1.5).
-for script in db.js db-query.js agent-idleness.js chains.js token-metrics.js portfolio-load-evm.js portfolio-load-solana.js address-validator.js order-approval.js onchain-balance.js price-oracle.js; do
+for script in db.js db-query.js agent-idleness.js chains.js token-metrics.js check-contract.js portfolio-load-evm.js portfolio-load-solana.js address-validator.js order-approval.js onchain-balance.js price-oracle.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/executor/scripts/"
 done
-for script in execute-trade-evm.js check-safe-status.js execute-trade-solana.js check-squads-status.js emergency-executor.js send-alert.js process-order.js track-multisig.js redact.js log.js; do
+for script in execute-trade-evm.js check-safe-status.js execute-trade-solana.js check-squads-status.js emergency-executor.js send-alert.js process-order.js track-multisig.js redact.js log.js promote-pattern.js governance-drift.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/executor/scripts/"
 done
 cp "$SCRIPTS_DIR/package.json" "$AGENT_TPL/executor/scripts/"
@@ -86,7 +86,7 @@ cp "$SRC/agents/observer/skills/create-gh-issue/SKILL.md" "$AGENT_TPL/observer/s
 
 # Observer scripts: db access + alerting + logging (GitHub via gh CLI, not custom scripts).
 # Internal helpers required by db-query (PR 1.5).
-for script in db.js db-query.js agent-idleness.js chains.js send-alert.js check-signer-balances.js redact.js log.js order-approval.js; do
+for script in db.js db-query.js agent-idleness.js chains.js send-alert.js check-signer-balances.js redact.js log.js order-approval.js promote-pattern.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/observer/scripts/"
 done
 cp "$SCRIPTS_DIR/package.json" "$AGENT_TPL/observer/scripts/"

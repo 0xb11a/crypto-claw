@@ -13,6 +13,7 @@ import { getChain, getCashToken } from './chains.js';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { getAssociatedTokenAddress, getAccount } from '@solana/spl-token';
 import * as multisig from '@sqds/multisig';
+import { evaluateSquadsDrift, readExpectedSquadsConfig } from './governance-drift.js';
 
 const solCashToken = getCashToken('solana');
 const USDC_MINT = new PublicKey(solCashToken.address);
@@ -20,9 +21,10 @@ const USDC_DECIMALS = solCashToken.decimals;
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const config = { pending: false };
+  const config = { pending: false, checkDrift: false };
   for (const arg of args) {
     if (arg === '--pending') config.pending = true;
+    if (arg === '--check-drift') config.checkDrift = true;
   }
   return config;
 }
@@ -177,7 +179,29 @@ async function main() {
 
   try {
     const result = await getSquadsInfo(env, args.pending);
+
+    // PR 3.2: governance drift check. Reads expected members /
+    // threshold from EXPECTED_SQUADS_MEMBERS / EXPECTED_SQUADS_THRESHOLD.
+    if (args.checkDrift && result.multisig && result.multisig.members) {
+      const drift = evaluateSquadsDrift({
+        observedMembers: result.multisig.members.map((m) => m.key),
+        observedThreshold: result.multisig.threshold,
+        expected: readExpectedSquadsConfig(),
+      });
+      result.governanceDrift = drift;
+      if (!drift.valid) {
+        log(
+          'critical',
+          'check-squads-status',
+          `governance_drift on solana: ${drift.alerts.map((a) => `${a.type}(${a.detail})`).join('; ')}`,
+        );
+      }
+    }
+
     console.log(JSON.stringify(result, null, 2));
+    if (args.checkDrift && result.governanceDrift && !result.governanceDrift.valid) {
+      process.exit(2);
+    }
   } catch (err) {
     log('error', 'check-squads-status', `Failed: ${err.message}`);
     console.log(

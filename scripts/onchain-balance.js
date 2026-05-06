@@ -20,7 +20,10 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress, getAccount, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { getChain, getCashToken, isEVM, isSolana, isAllowedRpcUrl } from './chains.js';
 
-const ERC20_ABI = parseAbi(['function balanceOf(address) view returns (uint256)']);
+const ERC20_ABI = parseAbi([
+  'function balanceOf(address) view returns (uint256)',
+  'function decimals() view returns (uint8)',
+]);
 
 // PR 2.8: defense-in-depth. Throw early if the RPC env is tampered
 // — the same hostname check execute-trade-{evm,solana}.js does at
@@ -199,12 +202,94 @@ export async function fetchOnchainTokenBalance(chainName, tokenAddress, owner, d
   throw new Error(`Unsupported chain for token-balance read: ${chainName}`);
 }
 
+/**
+ * PR 3.3: fetch on-chain decimals for a token. Used by
+ * reconcile-positions.js since the positions table doesn't carry
+ * decimals as a column. ~150ms per token (cached implicitly by RPC
+ * provider for popular tokens).
+ *
+ * @param {string} chainName
+ * @param {string} tokenAddress
+ * @returns {Promise<number>}
+ */
+export async function fetchTokenDecimals(chainName, tokenAddress) {
+  if (isEVM(chainName)) {
+    const chain = getChain(chainName);
+    const rpcUrl = process.env[chain.safe.rpcEnv];
+    if (!rpcUrl) throw new Error(`${chain.safe.rpcEnv} not set`);
+    assertRpcAllowed(chainName, rpcUrl);
+    const client = createPublicClient({ transport: http(rpcUrl) });
+    const decimals = await client.readContract({
+      address: tokenAddress,
+      abi: ERC20_ABI,
+      functionName: 'decimals',
+    });
+    return Number(decimals);
+  }
+  if (isSolana(chainName)) {
+    const chain = getChain(chainName);
+    const rpcUrl = process.env[chain.squads.rpcEnv];
+    if (!rpcUrl) throw new Error(`${chain.squads.rpcEnv} not set`);
+    assertRpcAllowed(chainName, rpcUrl);
+    const connection = new Connection(rpcUrl, 'confirmed');
+    const mint = new PublicKey(tokenAddress);
+    const mintInfo = await connection.getAccountInfo(mint);
+    if (!mintInfo) throw new Error(`Mint not found: ${tokenAddress}`);
+    // SPL Mint layout: decimals is byte at offset 44
+    return mintInfo.data[44];
+  }
+  throw new Error(`Unsupported chain for decimals read: ${chainName}`);
+}
+
 // ============================================================
 // Pure drift predicate (PR 2.6) — given the quoted vs actual amounts
 // from a completed swap, decide whether the drift is acceptable.
 // Used to detect fee-on-transfer tokens, partial honeypots, and
 // MEV/sandwich attacks that exceeded the slippage tolerance.
 // ============================================================
+
+// ============================================================
+// Pure position-reconciliation predicate (PR 3.3) — given the DB's
+// recorded position quantity vs the actual on-chain balance, decide
+// whether the position has drifted (continuous fee-on-transfer,
+// rebase, freeze authority confiscation, backdoor mint dilution,
+// or DB sync bugs). Defense in depth on top of PR 2.6's one-shot
+// post-buy assertion.
+// ============================================================
+
+/**
+ * @param {object} input
+ * @param {number} input.dbQty       quantity recorded in positions.quantity
+ * @param {number} input.onchainQty  human-readable on-chain balance
+ * @param {number} [input.maxDriftPct=1]
+ * @param {number} [input.minDustQty=0.000001]  ignore drift on dust holdings
+ * @returns {{ valid: boolean, driftPct: number, direction: 'short'|'over'|'none', reason?: string }}
+ */
+export function evaluatePositionDrift({ dbQty, onchainQty, maxDriftPct = 1, minDustQty = 0.000001 }) {
+  if (!Number.isFinite(dbQty) || dbQty < 0) {
+    return { valid: false, driftPct: NaN, direction: 'none', reason: `invalid_db_qty: ${dbQty}` };
+  }
+  if (!Number.isFinite(onchainQty) || onchainQty < 0) {
+    return { valid: false, driftPct: NaN, direction: 'none', reason: `invalid_onchain_qty: ${onchainQty}` };
+  }
+  // Both balances dust → not actionable.
+  if (dbQty < minDustQty && onchainQty < minDustQty) {
+    return { valid: true, driftPct: 0, direction: 'none' };
+  }
+  const denom = Math.max(dbQty, minDustQty);
+  const diff = onchainQty - dbQty; // positive = on-chain has MORE than DB thinks
+  const absDriftPct = (Math.abs(diff) / denom) * 100;
+  const direction = diff < 0 ? 'short' : diff > 0 ? 'over' : 'none';
+  if (absDriftPct > maxDriftPct) {
+    return {
+      valid: false,
+      driftPct: absDriftPct,
+      direction,
+      reason: `position_drift: db=${dbQty} onchain=${onchainQty} drift=${absDriftPct.toFixed(2)}% direction=${direction}`,
+    };
+  }
+  return { valid: true, driftPct: absDriftPct, direction };
+}
 
 /**
  * @param {object} input

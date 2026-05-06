@@ -12,6 +12,7 @@ import { log } from './log.js';
 import { getChain, getCashToken } from './chains.js';
 import { createPublicClient, http, formatUnits, parseAbi } from 'viem';
 import SafeApiKitModule from '@safe-global/api-kit';
+import { evaluateSafeDrift, readExpectedSafeConfig } from './governance-drift.js';
 const SafeApiKit = SafeApiKitModule.default || SafeApiKitModule;
 
 const SAFE_TX_SERVICE_URLS = {
@@ -28,14 +29,17 @@ const ERC20_ABI = parseAbi([
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const config = { chain: '', safeHash: '' };
-  for (let i = 0; i < args.length; i += 2) {
+  const config = { chain: '', safeHash: '', checkDrift: false };
+  for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--chain':
-        config.chain = args[i + 1];
+        config.chain = args[++i];
         break;
       case '--safe-hash':
-        config.safeHash = args[i + 1];
+        config.safeHash = args[++i];
+        break;
+      case '--check-drift':
+        config.checkDrift = true;
         break;
     }
   }
@@ -113,6 +117,9 @@ async function getSafeInfo(config) {
       nonce: safeInfo.nonce,
       threshold: safeInfo.threshold,
       owners: safeInfo.owners,
+      // PR 3.2: include modules so the drift check has the full surface.
+      // Safe SDK returns this as an array of contract addresses.
+      modules: Array.isArray(safeInfo.modules) ? safeInfo.modules : [],
     },
     balances: {
       eth: formatUnits(ethBalance, 18),
@@ -196,7 +203,32 @@ async function main() {
   try {
     const result = args.safeHash ? await getTransactionStatus(config) : await getSafeInfo(config);
 
+    // PR 3.2: governance drift check. Reads expected owners /
+    // threshold / modules from env (EXPECTED_SAFE_*_<CHAIN>) and
+    // compares to the live Safe config. Critical alerts on drift.
+    if (args.checkDrift && result.safe) {
+      const drift = evaluateSafeDrift({
+        observedOwners: result.safe.owners,
+        observedThreshold: result.safe.threshold,
+        observedModules: result.safe.modules,
+        expected: readExpectedSafeConfig(args.chain),
+      });
+      result.governanceDrift = drift;
+      if (!drift.valid) {
+        log(
+          'critical',
+          'check-safe-status',
+          `governance_drift on ${args.chain}: ${drift.alerts.map((a) => `${a.type}(${a.detail})`).join('; ')}`,
+        );
+      }
+    }
+
     console.log(JSON.stringify(result, null, 2));
+    // Exit 2 (distinct from generic error 1) when drift is detected
+    // so the cron wrapper can branch on it.
+    if (args.checkDrift && result.governanceDrift && !result.governanceDrift.valid) {
+      process.exit(2);
+    }
   } catch (err) {
     log('error', 'check-safe-status', `Failed: ${err.message}`);
     console.error(`Error: ${err.message}`);

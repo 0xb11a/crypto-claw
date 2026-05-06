@@ -38,15 +38,26 @@ Before doing non-trivial work: `memory_search` for the token/topic/pattern, then
 
 Write to today's daily log when a discovery/analysis/risk assessment completes, a trade is proposed/approved/rejected, a lesson is learned from a trade outcome, or a pattern recurs (promote to `MEMORY.md` after 3+ occurrences). When corrected on a mistake, add the correction as a rule to `MEMORY.md`.
 
-### MEMORY.md Updates
-When updating `MEMORY.md`, use this template:
-```markdown
-### [Pattern Name] (confidence: X%, seen: N times)
-- Signal: what triggers this pattern
-- Action: what to do
-- Last seen: YYYY-MM-DD
-- Record: W wins / L losses
+### MEMORY.md Updates (PR 3.1: write-protected)
+**Never write to `MEMORY.md` directly.** Use `scripts/promote-pattern.js`. It validates inputs, sanitizes text, and emits the `<!-- via promote-pattern.js ... -->` provenance marker that pre-commit-check requires. Manual edits will be rejected by the pre-commit hook.
+
+```bash
+node scripts/promote-pattern.js \
+  --name "Late-night liquidity rugs" \
+  --description "Tokens listed 22:00-04:00 UTC rug 3x more often" \
+  --signal "pairCreatedAt hour ∈ [22,4] UTC" \
+  --action "Skip discovery during this window; add 2x risk weight" \
+  --seen 3 \
+  --attestation-source risk \
+  --derived-from "receipt:rcpt-abc,receipt:rcpt-def,alert:alrt-ghi"
 ```
+
+Required fields:
+- `--seen N` (≥ 3 — the existing 3+-occurrences convention is now enforced in code)
+- `--attestation-source` (one of: risk, analyst, portfolio, discovery, orders, sentinel, observer, triage, manual)
+- `--derived-from` (comma-separated `<type>:<id>` IDs that EXIST in trusted DB tables: receipt, paper_receipt, position, paper_position, alert, sentinel_log, executor_log, research_log, observer_log)
+
+The script REFUSES to write if any derived-from ID doesn't exist in its named table. This makes invented patterns (hallucination, prompt injection) impossible to land — the trail must trace back to ground-truth records.
 
 ### MEMORY.md Pruning (run during `daily_summary` check)
 Remove any MEMORY.md pattern entry where BOTH `Last seen` is older than 30 days AND `seen: N times` is fewer than 3. Leave entries meeting only one condition — a pattern seen 5× that went quiet for 40 days may still return. Log every prune to today's daily log with `[PRUNE]`: pattern name + reason.

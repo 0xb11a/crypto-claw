@@ -51,6 +51,8 @@ Before each monitoring cycle, search memory for relevant context:
 2. `memory_get` to read today's daily log for recent Research/Executor activity
 3. After writing sell orders or critical alerts, log a brief note to today's `memory/YYYY-MM-DD.md`
 
+**Never edit `MEMORY.md` directly (PR 3.1).** If a sentinel-detected pattern is worth promoting to long-term memory, use `scripts/promote-pattern.js --attestation-source sentinel --derived-from alert:<id>,...`. Manual edits get rejected by pre-commit.
+
 ### Wallet Data (Database — per-fund)
 All position and alert data lives in SQLite. DB reads/writes auto-route to the deployment's table set; check `_mode` on the response if needed. Run one command per exec call.
 

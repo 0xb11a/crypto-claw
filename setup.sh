@@ -194,22 +194,22 @@ cp "$SCRIPT_DIR/scripts/"*.js "$RESEARCH_DIR/workspace/scripts/"
 cp "$SCRIPT_DIR/scripts/package.json" "$RESEARCH_DIR/workspace/scripts/"
 
 # Sentinel gets monitoring scripts + db access + alerts
-for script in db.js db-query.js agent-idleness.js chains.js check-positions.js check-liquidity.js check-wallets.js check-contract.js send-alert.js emergency-sentinel.js redact.js log.js address-validator.js order-approval.js; do
+for script in db.js db-query.js agent-idleness.js chains.js check-positions.js check-liquidity.js check-wallets.js check-contract.js send-alert.js emergency-sentinel.js redact.js log.js address-validator.js order-approval.js promote-pattern.js onchain-balance.js reconcile-positions.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$SENTINEL_DIR/workspace/scripts/"
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$SENTINEL_DIR/workspace/scripts/"
 
 # Executor gets execution scripts + db access + price checking
-for script in db.js db-query.js agent-idleness.js chains.js token-metrics.js portfolio-load-evm.js portfolio-load-solana.js address-validator.js order-approval.js onchain-balance.js price-oracle.js; do
+for script in db.js db-query.js agent-idleness.js chains.js token-metrics.js check-contract.js portfolio-load-evm.js portfolio-load-solana.js address-validator.js order-approval.js onchain-balance.js price-oracle.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$EXECUTOR_DIR/workspace/scripts/"
 done
-for script in execute-trade-evm.js check-safe-status.js execute-trade-solana.js check-squads-status.js send-alert.js process-order.js track-multisig.js emergency-executor.js redact.js log.js; do
+for script in execute-trade-evm.js check-safe-status.js execute-trade-solana.js check-squads-status.js send-alert.js process-order.js track-multisig.js emergency-executor.js redact.js log.js promote-pattern.js governance-drift.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$EXECUTOR_DIR/workspace/scripts/"
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$EXECUTOR_DIR/workspace/scripts/"
 
 # Observer gets db access + alerting + logging (GitHub via gh CLI, not custom scripts)
-for script in db.js db-query.js agent-idleness.js chains.js send-alert.js check-signer-balances.js redact.js log.js order-approval.js; do
+for script in db.js db-query.js agent-idleness.js chains.js send-alert.js check-signer-balances.js redact.js log.js order-approval.js promote-pattern.js; do
   cp "$SCRIPT_DIR/scripts/$script" "$OBSERVER_DIR/workspace/scripts/"
 done
 cp "$SCRIPT_DIR/scripts/package.json" "$OBSERVER_DIR/workspace/scripts/"

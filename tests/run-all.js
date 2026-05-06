@@ -46,6 +46,10 @@ const suites = [
   { name: 'Received-Drift Check', file: 'test-recv-drift.js', requiresNetwork: false },
   { name: 'Price Oracle', file: 'test-price-oracle.js', requiresNetwork: false },
   { name: 'RPC Allowlist', file: 'test-rpc-allowlist.js', requiresNetwork: false },
+  { name: 'Promote Pattern (MEMORY.md)', file: 'test-promote-pattern.js', requiresNetwork: false },
+  { name: 'Governance Drift', file: 'test-governance-drift.js', requiresNetwork: false },
+  { name: 'Position Reconcile', file: 'test-position-reconcile.js', requiresNetwork: false },
+  { name: 'NPM Audit Gate', file: 'test-audit-gate.js', requiresNetwork: false },
 ];
 
 // Scripts tests require network — run separately

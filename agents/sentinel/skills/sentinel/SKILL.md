@@ -189,15 +189,18 @@ The Executor agent polls for approved orders every heartbeat and executes them t
 Per AGENTS.md § Error Self-Reporting: every tool crash must produce both a sentinel_log row (`status: "error"`) and a Telegram alert via `send-alert.js` — the "quiet heartbeat" exception never applies to failed checks. If `add-alert` or `add-order` itself fails, escalate with the strongest alert (`sell_triggered` for failed sell-writes, `rug_warning` for failed monitoring) — capital is unprotected until the operator intervenes.
 
 ## Promotion
-If an exit pattern (e.g., a recurring rug signature, LP-drain precursor, or false-alarm condition) recurs 3+ times across daily logs, promote it to the shared `MEMORY.md` using this template:
+If an exit pattern (e.g., a recurring rug signature, LP-drain precursor, or false-alarm condition) recurs 3+ times across daily logs, promote via `scripts/promote-pattern.js`. **Never edit `MEMORY.md` directly** — manual edits are rejected by pre-commit (PR 3.1). The script validates the pattern's provenance against trusted DB tables and emits the marker pre-commit requires.
 
-```markdown
-### [Pattern Name] (confidence: X%, seen: N times)
-- Signal: what triggers this pattern
-- Action: what to do
-- Last seen: YYYY-MM-DD
-- Record: W wins / L losses
+```bash
+node scripts/promote-pattern.js \
+  --name "<Pattern Name>" \
+  --description "<what happens>" \
+  --signal "<what triggers it>" \
+  --action "<what to do>" \
+  --seen 3 \
+  --attestation-source sentinel \
+  --derived-from "alert:<id>,alert:<id>,alert:<id>"
 ```
 
-`MEMORY.md` is symlinked across all four agents.
+`--derived-from` IDs must exist in trusted DB tables (`alert`, `sentinel_log`, `position`, `receipt`, etc. — full list in `agents/sentinel/AGENTS.md` § Memory Protocol). `MEMORY.md` is symlinked across all four agents, so a successful promotion is visible everywhere.
 

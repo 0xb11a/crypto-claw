@@ -148,17 +148,20 @@ node scripts/db-query.js update-heartbeat --agent observer --check triage
 ```
 
 ## Promotion
-If a failure mode (e.g., a recurring API error, retry-exhaustion signature, or systemic timeout pattern) recurs 3+ times across daily logs, promote it to `MEMORY.md` using this template:
+If a failure mode (e.g., a recurring API error, retry-exhaustion signature, or systemic timeout pattern) recurs 3+ times across cycles, promote via `scripts/promote-pattern.js`. **Never edit `MEMORY.md` directly** — manual edits are rejected by pre-commit (PR 3.1). The script validates the pattern's provenance against trusted DB tables (Observer's source is `observer_log:<id>`).
 
-```markdown
-### [Pattern Name] (confidence: X%, seen: N times)
-- Signal: what triggers this pattern
-- Action: what to do
-- Last seen: YYYY-MM-DD
-- Record: W wins / L losses
+```bash
+node scripts/promote-pattern.js \
+  --name "<Failure Mode Name>" \
+  --description "<what fails and why it matters>" \
+  --signal "<log/alert pattern that triggers it>" \
+  --action "<what the operator/agent should do>" \
+  --seen 3 \
+  --attestation-source observer \
+  --derived-from "observer_log:<id>,observer_log:<id>,observer_log:<id>"
 ```
 
-Observer writes to the same `MEMORY.md` as Research — the workspace is symlinked across agents.
+`--derived-from` IDs must exist in trusted DB tables — see Observer AGENTS.md § Core Principle #6. The script REFUSES to write if any ID can't be resolved, so invented patterns (hallucination, prompt injection from log/issue text) cannot land. Observer writes to the same `MEMORY.md` as Research — the workspace is symlinked across all four agents, so a successful promotion is visible everywhere.
 
 ## Examples
 

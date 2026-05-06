@@ -761,6 +761,98 @@ run_activity_wallets_loop() {
 }
 
 # ============================================================
+# 5e3. Governance drift cron (PR 3.2)
+#      Once per day, reads each active chain's Safe / Squads config
+#      and asserts owners + threshold + modules match the
+#      EXPECTED_SAFE_*_<CHAIN> / EXPECTED_SQUADS_* env vars set at
+#      fund setup. Drift fires a critical rug_warning Telegram alert
+#      because owner-add / threshold-lower is the highest-leverage
+#      attack possible — it doesn't drain anything immediately, it
+#      grants permanent unilateral control. The next "legitimate"
+#      transaction is the drain.
+#
+#      Skipped chains where no expected config is set, with a noisy
+#      log so the operator notices. Paper mode skips entirely (no
+#      on-chain governance to drift).
+# ============================================================
+run_governance_drift_loop() {
+  if [ "$PAPER_MODE" = "true" ]; then
+    echo "[governance-drift] paper mode — skipping"
+    return 0
+  fi
+  sleep 300  # wait 5 min after startup so RPC clients are warm
+  while true; do
+    IFS=',' read -ra CHAINS <<< "${ACTIVE_CHAINS:-base,solana}"
+    for chain in "${CHAINS[@]}"; do
+      chain=$(echo "$chain" | xargs) # trim
+      if [ -z "$chain" ]; then continue; fi
+      if [ "$chain" = "solana" ]; then
+        SCRIPT="$EXECUTOR_WS/scripts/check-squads-status.js"
+        FLAGS="--check-drift"
+      else
+        SCRIPT="$EXECUTOR_WS/scripts/check-safe-status.js"
+        FLAGS="--chain $chain --check-drift"
+      fi
+      if [ ! -f "$SCRIPT" ]; then continue; fi
+      OUTPUT=$(SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" node "$SCRIPT" $FLAGS 2>&1)
+      EXIT=$?
+      echo "$OUTPUT" | sed 's/^/[governance-drift] /'
+      if [ "$EXIT" = "2" ]; then
+        # Drift detected — fire critical alert
+        SUMMARY=$(echo "$OUTPUT" | grep -i 'governance_drift' | head -1 | tr -d '\n' | head -c 400)
+        SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" node "$EXECUTOR_WS/scripts/send-alert.js" \
+          --type rug_warning \
+          --agent observer \
+          --message "GOVERNANCE DRIFT on $chain: $SUMMARY" 2>&1 | sed 's/^/[governance-drift-alert] /' || true
+      elif [ "$EXIT" != "0" ]; then
+        echo "[governance-drift] chain=$chain status check exit=$EXIT (non-fatal)"
+      fi
+    done
+    sleep 86400  # 24 hours
+  done
+}
+
+# ============================================================
+# 5e4. Position reconciliation loop (PR 3.3)
+#      Once per hour, runs reconcile-positions.js against every
+#      open position. Reads the actual on-chain balance from the
+#      vault and compares to positions.quantity. Drift > 1% writes
+#      a marker into positions.notes AND fires a critical
+#      rug_warning alert so the operator can investigate.
+#
+#      Defense in depth on top of PR 2.6 (which only catches drift
+#      at the moment of the buy). Continuous fee-on-transfer,
+#      rebase, freeze-authority confiscation, and backdoor mints
+#      all show up here.
+# ============================================================
+run_position_reconcile_loop() {
+  if [ "$PAPER_MODE" = "true" ]; then
+    echo "[position-reconcile] paper mode — skipping"
+    return 0
+  fi
+  sleep 600  # wait 10 min after startup so positions exist
+  while true; do
+    OUTPUT=$(SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" \
+      node "$SENTINEL_WS/scripts/reconcile-positions.js" 2>&1)
+    EXIT=$?
+    echo "$OUTPUT" | sed 's/^/[position-reconcile] /'
+    if [ "$EXIT" = "0" ]; then
+      DRIFT_COUNT=$(echo "$OUTPUT" | grep -o '"driftCount": *[0-9]*' | head -1 | grep -o '[0-9]*' || echo 0)
+      if [ "$DRIFT_COUNT" != "0" ] && [ -n "$DRIFT_COUNT" ]; then
+        SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" node "$SENTINEL_WS/scripts/send-alert.js" \
+          --type rug_warning \
+          --agent sentinel \
+          --message "POSITION DRIFT detected on $DRIFT_COUNT position(s) — check positions.notes for recon_drift markers and decide whether to exit." \
+          2>&1 | sed 's/^/[position-reconcile-alert] /' || true
+      fi
+    else
+      echo "[position-reconcile] script exit=$EXIT (non-fatal)"
+    fi
+    sleep 3600  # 60 minutes
+  done
+}
+
+# ============================================================
 # 5f. Multisig transaction tracker (real mode only)
 #     Monitors queued Safe/Squads transactions every 5 minutes.
 #     Confirms or reverts draft/pending_exit positions.
@@ -999,6 +1091,8 @@ echo "[entrypoint] Starting OpenClaw gateway..."
 run_memory_backup_loop &
 run_wallet_scoring_loop &
 run_activity_wallets_loop &
+run_governance_drift_loop &
+run_position_reconcile_loop &
 run_multisig_tracker_loop &
 run_executor_loop &
 run_sentinel_loop &
