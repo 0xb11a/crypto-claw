@@ -446,7 +446,60 @@ async function fetchCurrentPrice(address, chain) {
 // Trade execution
 // ============================================================
 
+// Preflight: spawn check-signer-balances.js for the order's chain and refuse
+// to attempt the trade if the signer's native-token balance is below the
+// chain threshold. Without this, low-SOL signers reach Squads simulation and
+// fail with "Transfer: insufficient lamports" — a late, hard-to-classify
+// failure instead of an early "fund the signer" alert. EVM Safe signers have
+// the same shape (gas payer below threshold).
+//
+// Returns { valid: true } / { valid: false, reason: '...' }. Failures inside
+// the check itself fail open — this is preflight defense in depth, not a
+// safety gate, and we don't want a flaky balance RPC to permanently block
+// trades.
+function preflightSignerBalance(order) {
+  try {
+    const scriptPath = resolve(__dirname, 'check-signer-balances.js');
+    const raw = execFileSync('node', [scriptPath, '--chain', order.chain], {
+      encoding: 'utf-8',
+      timeout: 15_000,
+      cwd: __dirname,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const data = JSON.parse(raw);
+    const entry = (data.signerBalances || []).find((b) => b.chain === order.chain);
+    if (!entry) return { valid: true };
+    if (entry.status === 'skipped') return { valid: true };
+    if (entry.belowThreshold === true) {
+      return {
+        valid: false,
+        reason: `insufficient_signer_balance: ${entry.symbol} ${entry.balance} < ${entry.threshold} on ${order.chain}`,
+      };
+    }
+    return { valid: true };
+  } catch (err) {
+    plog(order, `signer_preflight: check-signer-balances threw, failing open (${(err.message || '').slice(0, 200)})`);
+    return { valid: true };
+  }
+}
+
 function executeTrade(order, action) {
+  const balanceCheck = preflightSignerBalance(order);
+  if (!balanceCheck.valid) {
+    log(
+      'error',
+      'process-order',
+      `${action.toUpperCase()} ${balanceCheck.reason} (order ${order.id}, chain ${order.chain}, symbol ${order.symbol})`,
+    );
+    // Surface the operationally-specific alert before returning. The default
+    // failure path would alert as 'trade_failed' which buries the cause.
+    sendAlert(
+      'signer_low_balance',
+      `Signer balance below threshold on ${order.chain} — refusing to attempt ${action.toUpperCase()} $${order.symbol}. ${balanceCheck.reason}`,
+    );
+    return { status: 'failed', error: balanceCheck.reason };
+  }
+
   const scriptName = isSolana(order.chain) ? 'execute-trade-solana.js' : 'execute-trade-evm.js';
   const scriptPath = resolve(__dirname, scriptName);
 
