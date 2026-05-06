@@ -578,6 +578,32 @@ function markFailed(db, orderId, reason) {
   ).run(reason, orderId);
 }
 
+// Non-routable trades (no aggregator quote / insufficient liquidity) are not
+// execution failures — the order never went on-chain and there's no point
+// retrying. Using the existing 'cancelled' status keeps the schema unchanged
+// while distinguishing them in queries via status_reason='no_route: ...'.
+function markSkipped(db, orderId, reason) {
+  db.prepare(
+    "UPDATE orders SET status = 'cancelled', status_reason = ?, status_changed_at = datetime('now'), status_changed_by = 'executor' WHERE id = ?",
+  ).run(reason, orderId);
+}
+
+// Detect aggregator no-route / insufficient-liquidity errors. These come
+// through as 1inch "insufficient liquidity" / "cannot estimate" or Jupiter
+// "No routes found" / "Could not find any route" messages.
+function isNonRoutableError(errorMsg) {
+  if (!errorMsg) return false;
+  const m = String(errorMsg).toLowerCase();
+  return (
+    m.includes('no routes found') ||
+    m.includes('insufficient liquidity') ||
+    m.includes('could not find any route') ||
+    m.includes('cannot estimate') ||
+    m.includes('no route') ||
+    m.includes('not enough liquidity')
+  );
+}
+
 // ============================================================
 // Alerts
 // ============================================================
@@ -836,6 +862,22 @@ async function processBuy(db, order) {
     const errorMsg = tradeResult.error || 'unknown';
     const reason = `tx_failed: ${errorMsg}`;
 
+    // Non-routable: aggregator returned no route / insufficient liquidity.
+    // The order never went on-chain — don't retry, don't mark failed (which
+    // mixes with real execution failures), don't loud-alert. Cancel cleanly.
+    if (isNonRoutableError(errorMsg)) {
+      const skipReason = `no_route: ${errorMsg}`;
+      log(
+        'warn',
+        'process-order',
+        `BUY skipped (non-routable): ${errorMsg} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+      );
+      const receiptId = writeReceipt(db, order, { ...tradeResult, status: 'tx_failed', error: skipReason }, 'buy');
+      markSkipped(db, order.id, skipReason);
+      sendAlert('trade_skipped', `BUY $${order.symbol} skipped: no aggregator route (${order.chain})`);
+      return { ...result, status: 'skipped', error: skipReason, receipt_id: receiptId };
+    }
+
     // Transient errors: keep order approved for retry on next heartbeat
     if (isTransientError(errorMsg)) {
       const retries = getRetryCount(db, order.id);
@@ -1066,6 +1108,26 @@ async function processSell(db, order) {
   if (tradeResult.status === 'failed') {
     const errorMsg = tradeResult.error || 'unknown';
     const reason = `tx_failed: ${errorMsg}`;
+
+    // Non-routable: aggregator returned no route / insufficient liquidity.
+    // For SELL this is operationally serious — the position can't auto-exit
+    // and needs operator intervention — so we cancel the order (retrying
+    // won't summon a route) but raise a loud alert. Skip the retry loop.
+    if (isNonRoutableError(errorMsg)) {
+      const skipReason = `no_route: ${errorMsg}`;
+      log(
+        'critical',
+        'process-order',
+        `SELL no_route — manual exit required: ${errorMsg} (order: ${order.id}, chain: ${order.chain}, symbol: ${order.symbol})`,
+      );
+      const receiptId = writeReceipt(db, order, { ...tradeResult, status: 'tx_failed', error: skipReason }, 'sell');
+      markSkipped(db, order.id, skipReason);
+      sendAlert(
+        'trade_failed',
+        `SELL $${order.symbol} BLOCKED: no aggregator route — manual exit required (${order.chain})`,
+      );
+      return { ...result, status: 'skipped', error: skipReason, receipt_id: receiptId };
+    }
 
     // Transient errors: keep order approved for retry on next heartbeat
     if (isTransientError(errorMsg)) {
