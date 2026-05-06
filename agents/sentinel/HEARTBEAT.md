@@ -115,7 +115,26 @@ node scripts/send-alert.js --type heartbeat_summary --agent sentinel --message "
 ## Rules
 - Run every check that is due — the always-on ones (price, liquidity, wallet, smart-money exits) plus any rotating check (contract) the overdue array surfaces this cycle. Do not selectively drop checks.
 - Never skip a check to save tokens — your whole job is checking
-- If no open positions in DB → reply HEARTBEAT_OK immediately
+- If no open positions in DB → bump every heartbeat (see *No-positions heartbeat* below) and then reply HEARTBEAT_OK. Skipping the bump makes Observer think the agent died.
 - Keep total response under 500 tokens when nothing is wrong
 - Do NOT call `send-alert.js` when all checks pass with no events — quiet runs produce zero Telegram messages
 - Only send Telegram alerts for: sell orders (immediate), periodic summaries (3h cadence if notable events), or 24h proof-of-life
+
+## No-positions heartbeat
+When there are zero open positions, the always-on checks (price, liquidity, wallet) and the rotating check (contract) all have nothing to do. They still ran logically — there was just nothing to check. Bump every heartbeat so Observer's staleness detector sees the agent as alive. Each command must be in its own code fence (one command per exec call).
+```bash
+node scripts/db-query.js update-heartbeat --agent sentinel --check price_check
+```
+```bash
+node scripts/db-query.js update-heartbeat --agent sentinel --check liquidity_check
+```
+```bash
+node scripts/db-query.js update-heartbeat --agent sentinel --check wallet_check
+```
+```bash
+node scripts/db-query.js update-heartbeat --agent sentinel --check smart_money_exits
+```
+```bash
+node scripts/db-query.js update-heartbeat --agent sentinel --check contract_check
+```
+Then log the cycle as ok with `positions_checked: 0` via `add-sentinel-log` (Step 6) and reply HEARTBEAT_OK.
