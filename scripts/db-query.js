@@ -629,17 +629,25 @@ function handle(db, cmd) {
       const t = parseJson();
       if (!t.action || !['buy', 'sell'].includes(t.action)) error('add-order requires "action": "buy" or "sell"');
       if (t.action === 'buy') {
-        if (
-          !t.symbol ||
-          !t.address ||
-          !t.chain ||
-          t.amount == null ||
-          !t.tier ||
-          t.entry_price == null ||
-          t.stop_loss == null ||
-          !t.take_profit_levels
-        )
-          error('Buy order requires: symbol, address, chain, amount, tier, entry_price, stop_loss, take_profit_levels');
+        // Base-tier buys are HODL — no stop-loss / take-profit by policy.
+        // Other tiers (moonshot, conviction) require both. Without this
+        // distinction, base_rebalance was forced to retry with placeholder
+        // SL/TP values, generating spurious research_log status:error rows.
+        const isBaseTier = t.tier === 'base';
+        const baseRequired =
+          !t.symbol || !t.address || !t.chain || t.amount == null || !t.tier || t.entry_price == null;
+        const slTpRequired = !isBaseTier && (t.stop_loss == null || !t.take_profit_levels);
+        if (baseRequired || slTpRequired) {
+          if (isBaseTier) {
+            error(
+              'Base-tier buy requires: symbol, address, chain, amount, tier, entry_price (stop_loss/take_profit_levels optional)',
+            );
+          } else {
+            error(
+              'Buy order requires: symbol, address, chain, amount, tier, entry_price, stop_loss, take_profit_levels',
+            );
+          }
+        }
       } else {
         if (!t.symbol || !t.address || !t.chain || t.amount == null || !t.reason)
           error('Sell order requires: symbol, address, chain, amount, reason');

@@ -186,7 +186,9 @@ Use `maxBasePosition` from `get-chain-config --chain <CHAIN>` as the cap. Target
 | Drops -25% from recent peak | Alert human, no auto-action |
 | Rises +40% from entry | Sell 15% to rebalance to cash |
 
-All stop-losses and take-profits auto-execute via Sentinel → Executor — no approval needed.
+When writing a base-tier BUY via `add-order`: omit `stop_loss` and `take_profit_levels` entirely (or pass `null`). The schema accepts null SL/TP for `tier: "base"` only — do NOT supply placeholder values to satisfy the schema. Placeholder SL/TP would create false trigger thresholds that Sentinel could act on.
+
+The non-base tiers (`moonshot`, `conviction`) still require both `stop_loss` and `take_profit_levels`.
 
 ## Communication with Other Agents
 - **Sentinel** writes alerts (`sentinel_alerts`) and sell orders (`orders`); Research consumes via `get-alerts --unprocessed` + `mark-alert-processed --id <ID>` each heartbeat.
