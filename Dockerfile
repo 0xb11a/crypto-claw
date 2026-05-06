@@ -62,7 +62,18 @@ RUN mkdir -p \
   ${OPENCLAW_HOME}/agents/observer/workspace/skills \
   ${OPENCLAW_HOME}/agents/observer/agent
 
-# Build workspace and agent templates (replaces setup.sh --docker)
+# Path-resolution defense for agent file reads. Codex GPT-5.5 reflexively constructs
+# absolute paths and drops the `.openclaw/` segment that OpenClaw uses to hide its
+# data dir, producing recurring ENOENTs like:
+#   /home/openclaw/agents/<name>/workspace/...   (HOME-rooted, no `.openclaw`)
+#   ~/agents/<name>/workspace/...                (HOME=/home/node → /home/node/agents/...)
+# Symlinks make the intuited paths resolve to the real workspace tree. Targets need
+# not exist at link time — workspaces are populated at container start by entrypoint.sh.
+# Both /home/openclaw and /home/node are owned by UID 1000, so no privilege escalation.
+RUN ln -sfn ${OPENCLAW_HOME}/agents /home/openclaw/agents && \
+    ln -sfn ${OPENCLAW_HOME}/agents /home/node/agents
+
+# Build workspace and agent templates
 RUN chmod +x /home/openclaw/crypto-claw/build-templates.sh && \
     /home/openclaw/crypto-claw/build-templates.sh
 
