@@ -364,32 +364,43 @@ function recheckBuySafety(address, chain) {
   let safety = null;
   let pairCreatedAt = null;
 
-  try {
-    const scriptPath = resolve(__dirname, 'token-metrics.js');
-    const raw = execSync(`node ${scriptPath} --address ${address} --chain ${chain}`, {
+  // execFileSync with stdio:['ignore','pipe','pipe'] captures stderr separately
+  // (execSync collapses it). On failure we surface the first 400 chars so the
+  // operator can distinguish "tooling broken" (ENOENT, ETIMEDOUT, JSON parse)
+  // from "contract unsafe" (legit reject from the script).
+  const runRecheck = (scriptName) => {
+    const scriptPath = resolve(__dirname, scriptName);
+    return execFileSync('node', [scriptPath, '--address', address, '--chain', chain], {
       encoding: 'utf-8',
       timeout: 30_000,
       cwd: __dirname,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
+  };
+  const formatRecheckError = (scriptName, err) => {
+    const stderr = (err.stderr || '').toString().trim();
+    const message = err.message || '';
+    log('error', 'process-order', `recheck ${scriptName} threw: ${message} | stderr=${stderr.slice(0, 600)}`);
+    const detail = (stderr || message).slice(0, 400);
+    return `recheck_failed: ${scriptName} threw (${detail})`;
+  };
+
+  try {
+    const raw = runRecheck('token-metrics.js');
     const data = JSON.parse(raw);
     if (data.status === 'ok' && data.metrics) {
       liquidity = parseFloat(data.metrics.liquidity ?? 0);
       pairCreatedAt = data.metrics.pairCreatedAt ?? null;
     }
   } catch (err) {
-    return { valid: false, reason: `recheck_failed: token-metrics threw (${err.message.slice(0, 80)})` };
+    return { valid: false, reason: formatRecheckError('token-metrics', err) };
   }
 
   try {
-    const scriptPath = resolve(__dirname, 'check-contract.js');
-    const raw = execSync(`node ${scriptPath} --address ${address} --chain ${chain}`, {
-      encoding: 'utf-8',
-      timeout: 30_000,
-      cwd: __dirname,
-    });
+    const raw = runRecheck('check-contract.js');
     safety = JSON.parse(raw);
   } catch (err) {
-    return { valid: false, reason: `recheck_failed: check-contract threw (${err.message.slice(0, 80)})` };
+    return { valid: false, reason: formatRecheckError('check-contract', err) };
   }
 
   const result = evaluateRecheck({ liquidity, safety });
