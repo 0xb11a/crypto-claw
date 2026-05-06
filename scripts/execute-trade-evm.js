@@ -42,6 +42,27 @@ function is429(err) {
   return msg.includes('Too Many Requests') || msg.includes('429');
 }
 
+// Walk the err / err.cause chain and pull the deepest available HTTP status +
+// body. The Safe SDK wraps fetch errors in custom Error subclasses, and
+// 422 "Unprocessable Content" responses bury the validation body two levels
+// deep. Without this, the operator sees only "proposeTransaction: Unprocessable
+// Content" with no actionable detail.
+function extractHttpDetail(err) {
+  let status = '';
+  let body = '';
+  let cur = err;
+  for (let depth = 0; depth < 5 && cur; depth++) {
+    status =
+      status || cur.status || cur.statusCode || cur.response?.status || cur.response?.statusCode || cur.code || '';
+    const candidate = cur.response?.data ?? cur.response?.body ?? cur.data ?? cur.body ?? '';
+    if (candidate && !body) {
+      body = typeof candidate === 'string' ? candidate : JSON.stringify(candidate);
+    }
+    cur = cur.cause;
+  }
+  return { status, body };
+}
+
 async function withStep(label, ctx, fn, { retries = 0, baseDelay = 1000 } = {}) {
   const start = Date.now();
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -54,10 +75,8 @@ async function withStep(label, ctx, fn, { retries = 0, baseDelay = 1000 } = {}) 
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
-      const status = err.status || err.response?.status || err.code || '';
-      const body = err.response?.data ?? err.response?.body ?? err.data ?? '';
-      const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-      const detailParts = [status ? `HTTP ${status}` : '', bodyStr ? bodyStr.slice(0, 500) : ''].filter(Boolean);
+      const { status, body } = extractHttpDetail(err);
+      const detailParts = [status ? `HTTP ${status}` : '', body ? body.slice(0, 800) : ''].filter(Boolean);
       const detail = detailParts.length ? ` [${detailParts.join(' ')}]` : '';
       const msg = `${label}: ${err.message}${detail}`;
       stepLog(ctx, `ERROR ${msg} (${Date.now() - start}ms)`);
@@ -415,7 +434,18 @@ async function buildAndSubmitSafeTx(env, transactions, { dryRun = false, ctx } =
     };
   }
 
-  stepLog(ctx, `proposing to safe_tx_service`);
+  // Preflight log: capture payload shape so a 422 "Unprocessable Content"
+  // response from Safe Transaction Service can be diagnosed against the
+  // request we sent. signedTx.data is the SafeTransactionData we propose;
+  // mismatch of `nonce`, `value`, or `data` length vs the on-chain Safe
+  // is the usual cause of 422.
+  const txd = signedTx.data || {};
+  stepLog(
+    ctx,
+    `propose_payload: nonce=${txd.nonce} to=${shortAddr(txd.to)} value=${txd.value ?? '0'} data_len=${txd.data?.length ?? 0} ` +
+      `op=${txd.operation ?? '?'} gasToken=${txd.gasToken ?? 'native'} signatures=${signedTx.signatures?.size ?? 0} ` +
+      `safeTxHash=${safeTxHash}`,
+  );
   const proposeStart = Date.now();
   await withStep(
     'proposeTransaction',
