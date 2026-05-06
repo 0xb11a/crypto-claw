@@ -471,7 +471,12 @@ function executeTrade(order, action) {
   plog(order, `spawn: ${scriptName} ${args.join(' ')}`);
   const start = Date.now();
   try {
-    const raw = execSync(`node ${scriptPath} ${args.join(' ')}`, {
+    // execFileSync skips the /bin/sh hop. Previously execSync routed through
+    // a shell, which would surface as "spawnSync /bin/sh ETIMEDOUT" instead
+    // of the underlying child timeout — confusing classification and making
+    // the receipt error message conflate "shell wrapper hung" with "child
+    // process hung". Direct exec gives ETIMEDOUT without the shell prefix.
+    const raw = execFileSync('node', [scriptPath, ...args], {
       encoding: 'utf-8',
       timeout: 120_000,
       env: process.env,
