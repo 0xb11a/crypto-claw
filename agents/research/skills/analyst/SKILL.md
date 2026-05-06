@@ -38,6 +38,8 @@ node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 
 > **Two-source confirmation (PR 4.2):** the executor enforces, at signing time, that BOTH DEXScreener and Birdeye see the token and agree on price within 2%. Tokens that fail this gate are auto-quarantined with a Telegram alert. You don't need to verify two-source agreement during analysis — the gate fires regardless — but if you find a token that DEXScreener has and Birdeye doesn't, expect quarantine. The 2-source check exists because single-source tokens (typically newly-listed, obscure venue, or post-list-but-pre-Birdeye-indexing) carry concentrated rug risk.
 
+> **Recovered safety rejections (e.g. GoPlus "Not fungible SPL token address"):** when `check-contract.js` returns a structural reject like *not fungible*, *not a token*, or *no holder data*, this is a cached avoid decision — the token shouldn't be analyzed further, but the pipeline didn't crash. Cache the verdict via `cache-analysis --json '{"verdict":"avoid","reason":"<reason>",...}'` and log to `add-research-log` with `"status":"warning"` (NOT `"error"`). Reserve `status:"error"` for unrecovered crashes (network timeouts, JSON parse failures with no usable output). Observer treats `error` as a silent crash and files an issue per occurrence.
+
 Check holder distribution:
 ```bash
 node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN> --propose

@@ -17,16 +17,29 @@ One unified skill chain per cycle: `discovery` (scan + filter) → `analyst` (sc
 
 ## Error Self-Reporting
 
-**Silent failure is the worst failure. Every error must produce both a log row (status: error) and a Telegram alert via send-alert.js before the agent returns.**
+**Silent unrecovered failure is the worst failure. Every UNRECOVERED error must produce both a log row (`status: "error"`) and a Telegram alert via send-alert.js before the agent returns. Recovered failures (retry succeeded, fallback succeeded, expected rejection cached) must use `status: "warning"` and skip the alert — Observer treats every `status: "error"` row as a silent crash and files an issue per occurrence, so misclassifying a recovered failure generates issue noise.**
 
-This rule applies to every pipeline step: memory_search, discovery, analyst, risk, portfolio, orders, market regime checks, narrative checks, portfolio sync. If any step throws, exits non-zero, or returns malformed JSON:
+This rule applies to every pipeline step: memory_search, discovery, analyst, risk, portfolio, orders, market regime checks, narrative checks, portfolio sync.
 
+**Classification:**
+
+| Outcome | `status` | send-alert? |
+|---|---|---|
+| Step threw / exited non-zero / returned malformed JSON, with no usable output | `error` | yes (`model_failure`) |
+| Step failed initially, then a retry or fallback path produced usable output (e.g. memory_write shell-quoting failed but fallback append succeeded) | `warning` | no |
+| External API returned a structural rejection that's expected and cached (e.g. GoPlus "Not fungible SPL token", holder data unavailable, token doesn't exist) | `warning` | no |
+| External tool timeout that the calling step handled gracefully (smart-money signals unavailable, narrative scan partial) | `warning` | no |
+| Secret may have leaked in logs/output | `critical` | yes |
+
+**On unrecovered error:**
 1. Write one `add-research-log` row with `status: "error"`, the `check_type`, and a one-line `summary` of what failed (use `[REDACTED]` for any address/key).
 2. Fire `node scripts/send-alert.js --type model_failure --agent research --message "<check_type> failed: <short reason>"`.
 3. Halt that token's pipeline (do not continue to the next stage with partial data).
 4. Continue to the next scheduled check — one failed pipeline must not block the whole heartbeat.
 
-Severity (per TOOLS.md): use `warn` only if a retry/fallback actually succeeded; if the step did not finish, it is `error`; if a secret may have leaked, it is `critical`.
+**On recovered/warning:**
+1. Write `add-research-log` with `status: "warning"` and a `summary` describing what was recovered (e.g. "memory_write fallback append succeeded after shell-quote failure"; "smart_money signals unavailable — check-wallets.js timed out, continuing without signals this cycle").
+2. Do NOT call `send-alert.js`. The cycle continues.
 
 ## Exec Hygiene
 

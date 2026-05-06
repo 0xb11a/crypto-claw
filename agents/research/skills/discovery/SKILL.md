@@ -113,6 +113,7 @@ From the raw results, apply these filters:
 **Strong Positive Signals:**
 - Buy:sell ratio > 1.5
 - Smart-money wallets entering — broader pre-trade scan (`db-query.js get-smart-money-signals --since 6h --action buy --chain <CHAIN> --group-by token --min-wallets 2`). Heartbeat consumption uses a 35-min window (jitter tolerance on a 30-min cadence); discovery uses 6 h for pre-trade context. Both windows are intentional — do not collapse them.
+  - **If the query times out / returns empty / errors:** the activity-wallets-bg loop may be stalled or the upstream RPC is congested. Treat this as a *recovered failure*: log `add-research-log --json '{"check_type":"smart_money","status":"warning","summary":"smart-money signals unavailable this cycle"}'` and continue discovery without the signal. Do NOT `send-alert` (a data gap is not a crash; Observer's bg-loop staleness check on `last_activity_wallets_bg_at` covers actual liveness). See AGENTS.md § Error Self-Reporting for the full classification table.
 - Fits an active narrative (26 tracked — AI infra, AI agents, DeFi, restaking, LST, RWA, L2, ZK, modular, DePIN, memecoins, gaming, etc.)
 - Dev wallet < 10% of supply
 - Liquidity locked or burned
