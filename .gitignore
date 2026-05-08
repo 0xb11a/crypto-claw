@@ -31,3 +31,12 @@ Thumbs.db
 
 # Logs
 *.log
+
+# TypeScript build output (P0 monorepo)
+# dist/ is produced by tsc --build; committed only for SDK generated files
+apps/*/dist/
+libs/*/dist/
+sdk/cclaw/dist/
+
+# TypeScript incremental build info
+*.tsbuildinfo

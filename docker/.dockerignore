@@ -1,0 +1,46 @@
+# Legacy agent runtime — not part of the new monorepo image
+agents/
+workspace/
+
+# Legacy script deps
+scripts/node_modules/
+tests/node_modules/
+tests/data/
+
+# Runtime data (mounted as volumes)
+data/
+secrets/
+
+# Env files — never bake into image
+.env
+.env.*
+*.env
+!*.env.example
+
+# Git metadata
+.git/
+.gitignore
+.gitmodules
+
+# CI/docs (not needed in prod image)
+.github/
+docs/
+
+# Build artifacts that shouldn't be double-copied
+apps/*/dist/
+libs/*/dist/
+dist/
+
+# Editor artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

@@ -1,0 +1,21 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./libs/config" },
+    { "path": "./libs/logger" },
+    { "path": "./libs/prisma" },
+    { "path": "./libs/domain" },
+    { "path": "./libs/auth" },
+    { "path": "./libs/audit" },
+    { "path": "./libs/health" },
+    { "path": "./libs/notifications" },
+    { "path": "./libs/market" },
+    { "path": "./libs/chain" },
+    { "path": "./libs/portfolio" },
+    { "path": "./libs/execution" },
+    { "path": "./apps/api" },
+    { "path": "./apps/worker" },
+    { "path": "./apps/scheduler" },
+    { "path": "./apps/executor" }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@cclaw/cclaw",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/index.js",
+  "bin": {
+    "cclaw": "src/index.js"
+  },
+  "description": "cclaw CLI — generated from OpenAPI spec. Available from P1 onward."
+}

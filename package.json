@@ -2,17 +2,38 @@
   "name": "crypto-claw",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22.11.0 <23"
+  },
   "scripts": {
-    "lint": "eslint 'scripts/**/*.js' 'tests/**/*.js'",
-    "lint:fix": "eslint --fix 'scripts/**/*.js' 'tests/**/*.js'",
-    "format": "prettier --check 'scripts/**/*.js' 'tests/**/*.js'",
-    "format:fix": "prettier --write 'scripts/**/*.js' 'tests/**/*.js'",
-    "test": "cd tests && node run-all.js --offline",
-    "setup-hooks": "bash setup-hooks.sh"
+    "typecheck": "tsc --build",
+    "lint": "eslint 'apps/**/*.ts' 'libs/**/*.ts' 'sdk/**/*.ts' && eslint 'scripts/**/*.js' 'tests/**/*.js'",
+    "lint:fix": "eslint --fix 'apps/**/*.ts' 'libs/**/*.ts' 'sdk/**/*.ts' && eslint --fix 'scripts/**/*.js' 'tests/**/*.js'",
+    "test": "pnpm test:unit && pnpm test:integration",
+    "test:unit": "vitest run --project '*:unit'",
+    "test:integration": "vitest run --project 'integration'",
+    "test:e2e": "vitest run --project 'e2e'",
+    "build": "tsc --build",
+    "build:openapi": "echo '[build:openapi] deferred to P1'",
+    "build:sdk": "echo '[build:sdk] deferred to P1'",
+    "dev:api": "ts-node -r tsconfig-paths/register apps/api/src/main.ts",
+    "dev:worker": "ts-node -r tsconfig-paths/register apps/worker/src/main.ts",
+    "dev:scheduler": "ts-node -r tsconfig-paths/register apps/scheduler/src/main.ts",
+    "dev:executor": "ts-node apps/executor/src/main.ts",
+    "legacy:lint": "eslint 'scripts/**/*.js' 'tests/**/*.js'",
+    "legacy:test": "cd tests && node run-all.js --offline"
   },
   "devDependencies": {
+    "@swc/core": "^1.7.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
     "eslint": "^9.0.0",
+    "eslint-import-resolver-typescript": "^3.6.0",
+    "eslint-plugin-import": "^2.29.0",
     "globals": "^16.0.0",
-    "prettier": "^3.0.0"
+    "prettier": "^3.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^1.6.0"
   }
 }

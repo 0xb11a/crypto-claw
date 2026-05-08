@@ -6,6 +6,72 @@ This runbook is the operator's first stop for any non-trivial operation against 
 
 ---
 
+## 0. Local development (P0a)
+
+This section covers the monorepo workflow introduced in P0a. The legacy
+`scripts/` and `tests/test-*.js` system continues to work alongside it.
+
+### Prerequisites
+
+- Node.js 22.11.0 (use `.nvmrc`: `nvm use` or `fnm use`)
+- pnpm 9.15.0 (enabled via corepack: `corepack enable && corepack prepare pnpm@9.15.0 --activate`)
+
+### First-time setup
+
+```bash
+# From repo root:
+pnpm install
+```
+
+### Develop
+
+```bash
+# Type-check the whole monorepo:
+pnpm typecheck
+
+# Lint (TS + legacy JS):
+pnpm lint
+
+# Run unit + integration tests:
+pnpm test
+
+# Run unit tests only (fast, no build needed):
+pnpm test:unit
+
+# Run integration tests (requires prior pnpm build to produce dist/ artifacts):
+pnpm build && pnpm test:integration
+
+# Start the API in watch mode (requires ts-node and tsconfig-paths):
+pnpm dev:api
+
+# Start the worker in watch mode:
+pnpm dev:worker
+```
+
+### Build
+
+```bash
+# Compile all apps and libs to dist/:
+pnpm build
+```
+
+### Container smoke test
+
+```bash
+docker buildx build --target prod -f docker/Dockerfile -t cclaw:smoke .
+```
+
+### Legacy system
+
+The legacy agent scripts and tests are not in the pnpm workspace. Run them
+as before:
+
+```bash
+cd tests && node run-all.js --offline
+```
+
+---
+
 ## 1. Provisioning a fresh host
 
 [TBD — fills in during P6]
