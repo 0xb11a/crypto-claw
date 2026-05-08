@@ -5,6 +5,13 @@ node_modules/
 .env
 scripts/.env
 
+# New service runtime env (P-prep onward) — block real values, allow examples
+.env.runtime
+secrets/signer.env
+secrets/*.env
+!secrets/*.env.example
+!.env.runtime.example
+
 # Wallet databases (per-fund, not code)
 data/
 *.db
