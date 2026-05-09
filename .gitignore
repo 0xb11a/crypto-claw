@@ -40,3 +40,6 @@ sdk/cclaw/dist/
 
 # TypeScript incremental build info
 *.tsbuildinfo
+
+# Vitest coverage output (build artifact — never commit)
+coverage/

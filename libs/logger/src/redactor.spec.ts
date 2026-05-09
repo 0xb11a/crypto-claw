@@ -64,6 +64,19 @@ describe('redactString — safe strings', () => {
   });
 });
 
+describe('redactString — defensive: non-string inputs', () => {
+  it('returns empty string when given an empty string', () => {
+    // Exercises the !text branch at line 97
+    expect(redactString('')).toBe('');
+  });
+
+  it('returns empty string when given a falsy value (null cast)', () => {
+    // Exercises the fallback return path for null/undefined-like inputs
+    // TypeScript callers should not pass null, but the guard must be robust.
+    expect(redactString(null as unknown as string)).toBe('');
+  });
+});
+
 describe('REDACT_PATHS', () => {
   it('includes req.headers.authorization', () => {
     expect(REDACT_PATHS).toContain('req.headers.authorization');
