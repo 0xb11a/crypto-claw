@@ -72,7 +72,7 @@ WORKDIR /app
 # when run under Docker / Kubernetes. dumb-init is PID 1; it reaps zombies and
 # forwards SIGTERM/SIGINT so graceful-shutdown hooks fire.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends dumb-init && \
+    apt-get install -y --no-install-recommends dumb-init=1.2.5-2 && \
     rm -rf /var/lib/apt/lists/*
 
 # Build args for OCI labels (populated by docker/build-push-action via --build-arg)
