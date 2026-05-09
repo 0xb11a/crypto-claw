@@ -241,6 +241,7 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
           format: table
+          trivyignores: .trivyignore
 
   # ---------------------------------------------------------------------------
   # 5. sbom — generate SPDX SBOM and attest via cosign
