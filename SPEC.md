@@ -340,7 +340,8 @@ GitHub Actions; three workflows.
 11. E2E (PR sample) — single smoke flow.
 
 ### `.github/workflows/main.yml` — merge to `main`
-- All PR checks PLUS multi-arch build (`linux/amd64,linux/arm64`), trivy vulnerability scan (fail on HIGH/CRITICAL with fix), syft SBOM, cosign keyless signing, push to `ghcr.io/<owner>/cryptoclaw:sha-<sha>` and `:main`, OpenAPI artifact published.
+- All PR checks PLUS multi-arch build (`linux/amd64,linux/arm64`), trivy vulnerability scan (fail on HIGH/CRITICAL with fix), syft SBOM, cosign keyless signing, push to `ghcr.io/<owner>/crypto-claw:sha-<sha>` and `:main`, OpenAPI artifact published.
+- Triggers on push to `v2` and `main` during the rewrite; reduces to `main` only at P4 cutover (ADR-0011).
 
 ### `.github/workflows/nightly.yml`
 - Full e2e via testcontainers.
@@ -356,7 +357,7 @@ GitHub Actions; three workflows.
 Deployment unit: `docker compose` on a single host. Image, release flow, and runbook upgraded.
 
 ### Image and release flow
-- Registry: `ghcr.io/<owner>/cryptoclaw`.
+- Registry: `ghcr.io/<owner>/crypto-claw` (derived from `${{ github.repository }}` in workflow; see ADR-0014).
 - Tags: `:sha-<commit>` (immutable per main build), `:main` (rolling), `:vMAJOR.MINOR.PATCH` (release tag), `:latest` (release only).
 - `release-please` automates `CHANGELOG.md` and tag creation from conventional commits.
 - Operator upgrade: bump tag in `docker-compose.yml`, `docker compose pull && docker compose up -d`.
@@ -366,7 +367,7 @@ Deployment unit: `docker compose` on a single host. Image, release flow, and run
 ```yaml
 services:
   api:
-    image: ghcr.io/<owner>/cryptoclaw:vX.Y.Z
+    image: ghcr.io/<owner>/crypto-claw:vX.Y.Z
     command: node dist/apps/api/main.js
     env_file: .env.runtime
     environment:
@@ -383,7 +384,7 @@ services:
         condition: service_healthy
 
   worker:
-    image: ghcr.io/<owner>/cryptoclaw:vX.Y.Z
+    image: ghcr.io/<owner>/crypto-claw:vX.Y.Z
     command: node dist/apps/worker/main.js
     env_file: .env.runtime
     environment:
@@ -397,7 +398,7 @@ services:
       redis: { condition: service_healthy }
 
   scheduler:
-    image: ghcr.io/<owner>/cryptoclaw:vX.Y.Z
+    image: ghcr.io/<owner>/crypto-claw:vX.Y.Z
     command: node dist/apps/scheduler/main.js
     env_file: .env.runtime
     depends_on:
