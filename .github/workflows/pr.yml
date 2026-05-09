@@ -96,7 +96,7 @@ jobs:
 
       # Validate Renovate config — cheap gate; fails fast on Renovate config errors
       - name: Validate renovate.json
-        run: npx --yes renovate-config-validator renovate.json
+        run: npx --package renovate --yes -- renovate-config-validator renovate.json
 
       # Step 12 — Secret scan
       - name: Secret scan (legacy pre-commit-check)
