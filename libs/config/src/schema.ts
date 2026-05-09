@@ -111,6 +111,26 @@ export const envSchema = z.object({
     .enum(['true', 'false', ''])
     .transform((v) => v === 'true')
     .default('false'),
+
+  // --------------------------------------------------------------------------
+  // Runtime behaviour — consumed by libs/logger (SPEC §11)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Pino log level. Default 'info'.
+   * Controls verbosity across all NestJS apps at runtime.
+   */
+  LOG_LEVEL: z
+    .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace'])
+    .default('info'),
+
+  /**
+   * Node runtime environment. Default 'development'.
+   * Used by libs/logger to select pino-pretty transport in non-production mode.
+   */
+  NODE_ENV: z
+    .enum(['development', 'production', 'test'])
+    .default('development'),
 });
 
 /** Typed AppConfig shape derived from the Zod schema. */
