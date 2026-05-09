@@ -316,3 +316,72 @@ describe('apps/api — NODE_ENV validation (SPEC §4 #6, libs/logger fix)', () =
     expect(result.stderr).toContain('[config] invalid env: NODE_ENV');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Docker image boot-defense (P0b — SPEC §4 invariant 4 + ADR-0010)
+//
+// Spawns the locally built prod image to assert that boot defenses run
+// correctly inside the OCI image produced by docker/Dockerfile.
+//
+// Gated on CCLAW_TEST_LOCAL_DOCKER_IMAGE env var so the standard CI
+// integration job (which has no Docker daemon) is unaffected.
+// To exercise locally after building cclaw:p0b-smoke:
+//   CCLAW_TEST_LOCAL_DOCKER_IMAGE=cclaw:p0b-smoke pnpm test:integration
+// ---------------------------------------------------------------------------
+
+const DOCKER_IMAGE = process.env['CCLAW_TEST_LOCAL_DOCKER_IMAGE'];
+
+function spawnDocker(
+  image: string,
+  extraEnv: Record<string, string>,
+): Promise<{ code: number | null; stderr: string; stdout: string }> {
+  return new Promise((res) => {
+    // Build -e flags from extraEnv
+    const envFlags: string[] = [];
+    for (const [k, v] of Object.entries(extraEnv)) {
+      envFlags.push('-e', `${k}=${v}`);
+    }
+    const args = ['run', '--rm', '--platform', 'linux/amd64', ...envFlags, image, 'node', 'apps/api/dist/main.js'];
+    const child = spawn('docker', args, {
+      env: { PATH: process.env['PATH'] },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stderr = '';
+    let stdout = '';
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    child.on('close', (code) => { res({ code, stderr, stdout }); });
+    // 15s: arm64 emulation startup is slow
+    setTimeout(() => child.kill('SIGKILL'), 15000);
+  });
+}
+
+describe('prod Docker image — config boot-defense (P0b, SPEC §4 invariant 4)', () => {
+  it.skipIf(!DOCKER_IMAGE)(
+    'exits non-zero with [config] invalid env when no env vars are set',
+    async () => {
+      // When CCLAW_TEST_LOCAL_DOCKER_IMAGE is unset this test is skipped
+      // so it never blocks the standard CI integration job.
+      const result = await spawnDocker(DOCKER_IMAGE!, {});
+      expect(result.code).not.toBe(0);
+      expect(result.stderr + result.stdout).toMatch(/\[config\] invalid env/);
+    },
+  );
+});
+
+describe('prod Docker image — signer-key boot-defense (P0b, ADR-0010)', () => {
+  it.skipIf(!DOCKER_IMAGE)(
+    'exits non-zero with [boot] signer keys must not be present when SAFE_SIGNER_KEY is set',
+    async () => {
+      // Asserts that the signer-key isolation guard (ADR-0010) still fires
+      // inside the published OCI image — not just the Node artifact tests above.
+      // A Dockerfile change that accidentally copies signer-key env into the
+      // image environment would surface here.
+      const result = await spawnDocker(DOCKER_IMAGE!, { SAFE_SIGNER_KEY: 'test' });
+      expect(result.code).not.toBe(0);
+      expect(result.stderr + result.stdout).toContain(
+        '[boot] signer keys must not be present',
+      );
+    },
+  );
+});

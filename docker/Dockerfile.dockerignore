@@ -2,7 +2,9 @@
 agents/
 workspace/
 
-# Legacy script deps
+# Node modules — never copy from host (platform-specific native binaries;
+# the builder stage installs from lockfile inside the image)
+node_modules/
 scripts/node_modules/
 tests/node_modules/
 tests/data/
@@ -44,3 +46,16 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Test sources — not needed in image
+**/*.test.ts
+**/*.spec.ts
+
+# Shim-parity baseline — large directory, never needed in image
+tests/shim-parity/baseline/
+
+# Coverage output
+coverage/
+
+# Nested .dockerignore files (avoid confusion)
+**/.dockerignore
