@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, assertConfigValid } from '@cclaw/config';
+import { ConfigModule, assertConfigValid, assertNoSignerKeysInEnv } from '@cclaw/config';
 import { LoggerModule } from '@cclaw/logger';
 
-// Resolve config once at module definition time.
-// assertConfigValid is cheap and idempotent — calling it here (in addition to
-// main.ts) is intentional: it gives LoggerModule the validated config values
-// without wiring a Nest provider token from @cclaw/config (deferred to P1).
-// If the env is invalid this call will exit(78) before Nest bootstraps.
+// Boot self-checks run at module-import time so they fire before NestFactory
+// touches anything. Order matches main.ts (SPEC §4 #4 then §4 #6): signer-key
+// isolation first, then config validation. Both are idempotent — main.ts
+// re-runs them as a defensive double-check; the second call is a no-op if the
+// first passed and never reached if the first throws.
+assertNoSignerKeysInEnv(process.env);
 const _config = assertConfigValid(process.env);
 
 /**
