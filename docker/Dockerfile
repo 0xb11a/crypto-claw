@@ -2,8 +2,8 @@
 # =============================================================================
 # CryptoClaw — multi-stage Dockerfile (P0b hardened)
 #
-# Stage 1: builder — installs deps, compiles TypeScript
-# Stage 2: prod — copies compiled output and production node_modules only
+# Stage 1: builder — installs deps, compiles TypeScript, runs pnpm deploy
+# Stage 2: prod — copies self-contained per-app deploy trees
 #
 # Base image pinned by manifest-list digest (ADR-0013 P0b followup).
 # Resolved 2026-05-09 via: docker manifest inspect node:22.11.0-bookworm-slim
@@ -12,6 +12,15 @@
 #
 # This file lives at docker/Dockerfile. The legacy root Dockerfile is
 # untouched (DoD §I).
+#
+# Why pnpm deploy?
+# pnpm workspaces use a virtual content-addressable store (.pnpm/) whose
+# packages are symlinked into per-package node_modules. Copying only the
+# root node_modules into the prod image breaks the symlink chain and makes
+# every `require()` of a hoisted package (e.g. reflect-metadata) fail with
+# MODULE_NOT_FOUND. `pnpm deploy --prod` produces a self-contained directory
+# per app with a flat node_modules/ built from the workspace graph — no
+# symlinks into the store, no devDeps.
 # =============================================================================
 
 # ─── Stage 1: builder ────────────────────────────────────────────────────────
@@ -62,6 +71,17 @@ COPY . .
 # context, so incremental mode would error on stale tsbuildinfo).
 RUN pnpm exec tsc --build --force
 
+# Produce self-contained deploy trees, one per app.
+# Each /deploy/<app> dir contains: dist/, node_modules/, package.json —
+# with workspace:* deps resolved to their built counterparts and devDeps
+# removed. The prod stage copies these trees verbatim; no symlinks.
+RUN --mount=type=cache,id=pnpm,target=/pnpm-store \
+    pnpm config set store-dir /pnpm-store && \
+    pnpm deploy --prod --filter @cclaw/api /deploy/api && \
+    pnpm deploy --prod --filter @cclaw/worker /deploy/worker && \
+    pnpm deploy --prod --filter @cclaw/scheduler /deploy/scheduler && \
+    pnpm deploy --prod --filter @cclaw/executor /deploy/executor
+
 # ─── Stage 2: prod ───────────────────────────────────────────────────────────
 # Resolved 2026-05-09 via: docker manifest inspect node:22.11.0-bookworm-slim
 FROM node:22.11.0-bookworm-slim@sha256:f035ba7ffee18f67200e2eb8018e0f13c954ec16338f264940f701997e3c12da AS prod
@@ -91,23 +111,14 @@ LABEL org.opencontainers.image.title="crypto-claw" \
 # Use the `node` user (UID/GID 1000) already provided by node:bookworm-slim.
 # Matches the CLAUDE.md note "Docker runs as non-root (UID 1000)".
 
-# Copy compiled output — chown to node:node so the non-root user can read them.
-COPY --chown=node:node --from=builder /build/apps/api/dist /app/apps/api/dist
-COPY --chown=node:node --from=builder /build/apps/worker/dist /app/apps/worker/dist
-COPY --chown=node:node --from=builder /build/apps/scheduler/dist /app/apps/scheduler/dist
-COPY --chown=node:node --from=builder /build/apps/executor/dist /app/apps/executor/dist
-COPY --chown=node:node --from=builder /build/libs/config/dist /app/libs/config/dist
-COPY --chown=node:node --from=builder /build/libs/logger/dist /app/libs/logger/dist
-
-# Copy production node_modules (all workspace packages share the hoist)
-COPY --chown=node:node --from=builder /build/node_modules /app/node_modules
-
-# Copy package.json files for module resolution
-COPY --chown=node:node --from=builder /build/package.json /app/package.json
-COPY --chown=node:node --from=builder /build/apps/api/package.json /app/apps/api/package.json
-COPY --chown=node:node --from=builder /build/apps/worker/package.json /app/apps/worker/package.json
-COPY --chown=node:node --from=builder /build/apps/scheduler/package.json /app/apps/scheduler/package.json
-COPY --chown=node:node --from=builder /build/apps/executor/package.json /app/apps/executor/package.json
+# Copy self-contained deploy trees from the builder.
+# Each tree has dist/, node_modules/, and package.json for that app.
+# Layout: /app/apps/<name>/{dist,node_modules,package.json}
+# The default CMD "node apps/api/dist/main.js" resolves relative to WORKDIR /app.
+COPY --chown=node:node --from=builder /deploy/api /app/apps/api
+COPY --chown=node:node --from=builder /deploy/worker /app/apps/worker
+COPY --chown=node:node --from=builder /deploy/scheduler /app/apps/scheduler
+COPY --chown=node:node --from=builder /deploy/executor /app/apps/executor
 
 USER node
 
