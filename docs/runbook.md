@@ -61,6 +61,88 @@ pnpm build
 docker buildx build --target prod -f docker/Dockerfile -t cclaw:smoke .
 ```
 
+### §0.1 Local development with Docker Compose
+
+`docker/docker-compose.dev.yml` provides a full local stack using the
+`builder` image stage (not `prod`) so `tsx` and source files are available
+for HMR.  The production stack is the legacy root `docker-compose.yml`
+until P6 cutover.
+
+```bash
+# Start all services (api, worker, scheduler, executor stubs, redis):
+docker compose -f docker/docker-compose.dev.yml up
+
+# In a separate terminal — tail all logs:
+docker compose -f docker/docker-compose.dev.yml logs -f
+
+# Rebuild after dependency changes:
+docker compose -f docker/docker-compose.dev.yml build
+
+# Stop and remove containers (volumes kept):
+docker compose -f docker/docker-compose.dev.yml down
+```
+
+Services:
+
+| Service | Port | Notes |
+|---|---|---|
+| redis | 127.0.0.1:6379 | redis:7-alpine with healthcheck |
+| api | 127.0.0.1:7878 | `pnpm --filter @cclaw/api dev` (tsx HMR) |
+| worker | — | `pnpm --filter @cclaw/worker dev` |
+| scheduler | — | `pnpm --filter @cclaw/scheduler dev` |
+| executor | — | stub — exits with boot-defense banner (P3 wires signer) |
+
+The bind-mount (`..:/build`) means edits to `apps/` or `libs/` are
+reflected immediately in the running containers.  The anonymous
+`/build/node_modules` volume prevents the host `node_modules/` from
+masking the in-image installation (critical on macOS with native binaries).
+
+`main.yml` runs on both `v2` and `main` branches during the rewrite
+(P0b–P3); it reduces to `main`-only at P4 cutover (ADR-0011).
+
+### §0.2 Pulling published images and verifying signatures
+
+After a push to `v2` or `main` fires `main.yml`, images land at
+`ghcr.io/0xb11a/crypto-claw`.
+
+**Pull by sha tag:**
+
+```bash
+docker pull ghcr.io/0xb11a/crypto-claw:sha-<7chars>
+```
+
+**Verify cosign signature (keyless OIDC — ADR-0015):**
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/0xb11a/crypto-claw/\.github/workflows/main\.yml@.+$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/0xb11a/crypto-claw:sha-<7chars>
+```
+
+The `--certificate-oidc-issuer` is always `https://token.actions.githubusercontent.com`
+(GitHub's public OIDC endpoint), NOT the Sigstore public-good instance.
+If the workflow file is ever renamed the regexp pattern must change — see
+ADR-0015 for the trade-off and ADR-0014 for the registry choice.
+
+**Verify SBOM attestation:**
+
+```bash
+cosign verify-attestation \
+  --type spdxjson \
+  --certificate-identity-regexp '^https://github.com/0xb11a/crypto-claw/\.github/workflows/main\.yml@.+$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/0xb11a/crypto-claw:sha-<7chars>
+```
+
+Both commands exit 0 on success.  The attestation predicate is valid
+SPDX-JSON (check with `| jq .payload | base64 -d | jq .`).
+
+**Note on trivy gate (ADR-0016):** The `scan` job in `main.yml` runs
+`severity: CRITICAL, ignore-unfixed: true` in P0b–P5.  A nightly scan
+(P0c) will add a non-blocking HIGH advisory.  The gate tightens to
+`HIGH,CRITICAL` in P6 alongside the distroless migration.
+
 ### Legacy system
 
 The legacy agent scripts and tests are not in the pnpm workspace. Run them

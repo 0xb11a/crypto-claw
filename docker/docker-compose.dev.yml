@@ -1,0 +1,94 @@
+# CryptoClaw — local development compose stack (P0b)
+#
+# This file is FOR LOCAL DEVELOPMENT ONLY. The production stack lives in
+# the legacy root /docker-compose.yml (replaced in P6).
+#
+# Usage:
+#   docker compose -f docker/docker-compose.dev.yml up
+#
+# Notes:
+# - api/worker/scheduler/executor build with target=builder (not prod) so
+#   tsx and source files are available for HMR via `pnpm dev:*` scripts.
+# - Source code is bind-mounted at /build (the builder WORKDIR) for live
+#   editing without rebuilding the image.
+# - api binds 127.0.0.1:7878:7878 per ADR-0006 (localhost-only).
+# - Redis binds 127.0.0.1:6379:6379 for local tooling (redis-cli, etc.).
+# - The /build/node_modules anonymous volume prevents the host node_modules
+#   from masking the in-image installation (critical on macOS with
+#   platform-specific native binaries).
+
+x-app-common: &app-common
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+    target: builder
+  volumes:
+    - ..:/build
+    - /build/node_modules
+
+x-worker-env: &worker-env
+  SAFE_ID: dev-local
+  REDIS_URL: redis://redis:6379
+  ACTIVE_CHAINS: base,solana
+  OPENAI_API_KEY: dev-dummy-key-not-real-aaaaaaaaaaaa
+  RESEARCH_API_KEY: dev-research-key-aaaaaaaaaaaaaaaa
+  SENTINEL_API_KEY: dev-sentinel-key-aaaaaaaaaaaaaaaa
+  EXECUTOR_API_KEY: dev-executor-key-aaaaaaaaaaaaaaaa
+  OBSERVER_API_KEY: dev-observer-key-aaaaaaaaaaaaaaaa
+  LOOP_API_KEY: dev-loop-key-aaaaaaaaaaaaaaaaaaaaa
+  WORKER_API_KEY: dev-worker-key-aaaaaaaaaaaaaaaaaaa
+  SCHEDULER_API_KEY: dev-scheduler-key-aaaaaaaaaaaaaaa
+  DASHBOARD_API_KEY: dev-dashboard-key-aaaaaaaaaaaaaaaa
+  LOG_LEVEL: debug
+  NODE_ENV: development
+
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  api:
+    <<: *app-common
+    command: pnpm --filter @cclaw/api dev
+    ports:
+      - "127.0.0.1:7878:7878"
+    environment:
+      <<: *worker-env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker:
+    <<: *app-common
+    command: pnpm --filter @cclaw/worker dev
+    environment:
+      <<: *worker-env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    <<: *app-common
+    command: pnpm --filter @cclaw/scheduler dev
+    environment:
+      <<: *worker-env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  executor:
+    # Stub only in P0b — exits with a boot-defense banner since no signer
+    # key is present. Signer-key injection is wired in P3 (ADR-0010).
+    <<: *app-common
+    command: pnpm --filter @cclaw/executor dev
+    environment:
+      <<: *worker-env
+    depends_on:
+      redis:
+        condition: service_healthy
