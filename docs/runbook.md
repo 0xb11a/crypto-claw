@@ -143,6 +143,107 @@ SPDX-JSON (check with `| jq .payload | base64 -d | jq .`).
 (P0c) will add a non-blocking HIGH advisory.  The gate tightens to
 `HIGH,CRITICAL` in P6 alongside the distroless migration.
 
+### §0.3 Husky pre-commit hooks (P0c)
+
+Husky 9 hooks are bootstrapped automatically on `pnpm install` via the
+`prepare: husky` script. Two hooks are active:
+
+| Hook | What runs |
+|---|---|
+| `pre-commit` | `pnpm exec lint-staged` (ESLint + Prettier on staged files), then `node scripts/pre-commit-check.js` (secret scan) |
+| `commit-msg` | `pnpm exec commitlint --edit "$1"` (Conventional Commits enforcement) |
+
+**Bootstrap from scratch:**
+
+```bash
+pnpm install
+```
+
+The `prepare` lifecycle script runs `husky`, which writes the shim files
+into `.husky/_/`. These shims are gitignored (`.husky/.gitignore`).
+
+**Reset if hooks are stale or broken:**
+
+```bash
+rm -rf .husky/_
+pnpm install
+```
+
+**Emergency bypass (rare; must be justified in the commit message):**
+
+```bash
+git commit --no-verify
+```
+
+Note: Husky 9 no longer requires `husky install` or a `husky.sh` source line.
+Do not add them — those are Husky 8 artefacts.
+
+### §0.4 Renovate dependency dashboard (P0c)
+
+Renovate manages all npm and GitHub Actions dependency updates.
+
+- **Dashboard:** `Issues` tab → `Dependency Dashboard` (auto-created by Renovate on first run).
+- **Schedule:** weekday off-hours (after 9pm / before 5am UTC) and weekends.
+- **Patch updates** auto-merge after all branch protection requirements are met
+  (1 human review + signed commit). The bot does NOT bypass review.
+- **Major updates** require explicit dashboard approval.
+- **Weekly groups:** `github-actions-bump` and `npm devDependencies (weekly)` —
+  both open Monday before 5am UTC to allow a quiet-weekday triage window.
+- **Docker base-image digests** are pinned and kept fresh by Renovate — this
+  resolves the ADR-0013 P0b followup.
+
+**Approving a major update:**
+
+1. Open the Dependency Dashboard issue.
+2. Check the box next to the major you want to approve.
+3. Renovate opens (or reopens) the PR within its next scheduled run.
+4. Review and merge normally.
+
+**Renovate config lives in `renovate.json` at repo root.** After any change,
+the `pr.yml` check job validates it via `npx renovate-config-validator`.
+
+### §0.5 Nightly CI (P0c)
+
+`.github/workflows/nightly.yml` runs daily at **02:17 UTC** and on manual
+`workflow_dispatch`.
+
+| Job | What it does | Failure behaviour |
+|---|---|---|
+| `audit` | `pnpm audit --audit-level=high --prod` | Advisory (`continue-on-error: true`) |
+| `trivy-info` | HIGH+CRITICAL scan of `:v2` image, SARIF → Code Scanning | Never fails pipeline (`exit-code: 0`) |
+| `container-smoke-nightly` | Pulls `:v2`, builds dist, runs `pnpm test:integration` | Hard failure — base-image drift detected |
+| `e2e-full` | Placeholder (deferred to P1) | Always green (echo only) |
+
+**SARIF results** from `trivy-info` appear in `Security` → `Code scanning alerts`
+on GitHub. They are purely informational — see ADR-0017 for the suppression policy.
+
+**Manual run:**
+
+```bash
+gh workflow run nightly.yml --ref feat/p0c-nightly-husky-renovate
+```
+
+### §0.6 Post-publish container smoke (P0c)
+
+After every push to `v2` or `main`, `main.yml` runs a `post-publish-smoke`
+job that:
+
+1. Waits for `build-and-publish` and `sign` to complete.
+2. Pulls the just-published image **by digest** (deterministic; not by tag,
+   which can race against subsequent pushes).
+3. Tags it `cclaw:postpublish` locally.
+4. Runs `pnpm test:integration` with `CCLAW_TEST_LOCAL_DOCKER_IMAGE=cclaw:postpublish`.
+
+**If this job fails:**
+The published image is potentially unsafe (boot-defense regression). Rollback:
+
+1. Identify the last-known-good `sha-<7>` tag in GHCR.
+2. Update `docker-compose.yml` to pin that tag.
+3. `docker compose pull && docker compose up -d`.
+4. Open an incident issue and diagnose before pushing a fix commit.
+
+**Cross-reference:** ADR-0017 (CVE suppression policy), ADR-0016 (trivy gate).
+
 ### Legacy system
 
 The legacy agent scripts and tests are not in the pnpm workspace. Run them
