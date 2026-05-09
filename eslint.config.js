@@ -93,7 +93,7 @@ export default [
   // These are the ONLY files permitted to do so (SPEC §4 #6).
   // ----------------------------------------------------------------
   {
-    files: ['libs/config/src/**/*.ts', 'libs/logger/src/logger.module.ts', 'apps/*/src/main.ts'],
+    files: ['libs/config/src/**/*.ts', 'apps/*/src/main.ts', 'apps/*/src/app.module.ts'],
     ignores: ['**/node_modules/**', '**/*.spec.ts'],
     languageOptions: {
       parser: tsParser,

@@ -56,9 +56,8 @@ FROM node:22.11.0-bookworm-slim AS prod
 
 WORKDIR /app
 
-# Create non-root user (Docker best practice; UID 1000 matches CLAUDE.md note)
-RUN groupadd --gid 1000 node-app && \
-    useradd --uid 1000 --gid 1000 --no-create-home --shell /bin/false node-app
+# Use the `node` user (UID/GID 1000) already provided by node:bookworm-slim.
+# Matches the CLAUDE.md note "Docker runs as non-root (UID 1000)".
 
 # Copy compiled output
 COPY --from=builder /build/apps/api/dist /app/apps/api/dist
@@ -78,7 +77,7 @@ COPY --from=builder /build/apps/worker/package.json /app/apps/worker/package.jso
 COPY --from=builder /build/apps/scheduler/package.json /app/apps/scheduler/package.json
 COPY --from=builder /build/apps/executor/package.json /app/apps/executor/package.json
 
-USER node-app
+USER node
 
 # Default: run the API server.
 # Override CMD in docker-compose.yml for worker, scheduler, executor.
