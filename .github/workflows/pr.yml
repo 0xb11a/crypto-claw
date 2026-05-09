@@ -94,6 +94,10 @@ jobs:
           pnpm run build:sdk
           git diff --exit-code sdk/generated/
 
+      # Validate Renovate config — cheap gate; fails fast on Renovate config errors
+      - name: Validate renovate.json
+        run: npx --yes renovate-config-validator renovate.json
+
       # Step 12 — Secret scan
       - name: Secret scan (legacy pre-commit-check)
         run: node scripts/pre-commit-check.js || echo '[skip] pre-commit-check.js requires node scripts deps'
