@@ -36,6 +36,7 @@ Thumbs.db
 # dist/ is produced by tsc --build; committed only for SDK generated files
 apps/*/dist/
 libs/*/dist/
+libs/modules/*/dist/
 sdk/cclaw/dist/
 
 # TypeScript incremental build info
