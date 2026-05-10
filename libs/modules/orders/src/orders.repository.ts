@@ -76,10 +76,14 @@ export class OrdersRepository {
 
   async findMany(query: OrderListQueryDto): Promise<OrderResponseDto[]> {
     const limit = Math.min(query.limit ?? 50, 200);
+    // Legacy semantics (SPEC §19 #2 / db-query.js line 605):
+    // --pending returns status IN ('pending', 'approved') — i.e. "awaiting execution".
+    // The executor agent reads this list; silently missing 'approved' orders would break
+    // the order-execution pipeline during the rewrite window.
     const where = {
       ...(query.status ? { status: query.status } : {}),
       ...(query.action ? { action: query.action } : {}),
-      ...(query.pending ? { status: 'pending' } : {}),
+      ...(query.pending ? { status: { in: ['pending', 'approved'] } } : {}),
       ...(query.cursor ? { id: { gt: query.cursor } } : {}),
     };
 
@@ -160,10 +164,11 @@ export class OrdersRepository {
   }
 
   async count(query: Omit<OrderListQueryDto, 'limit' | 'cursor'>): Promise<number> {
+    // Mirror the same legacy semantics as findMany: --pending = IN ('pending', 'approved')
     const where = {
       ...(query.status ? { status: query.status } : {}),
       ...(query.action ? { action: query.action } : {}),
-      ...(query.pending ? { status: 'pending' } : {}),
+      ...(query.pending ? { status: { in: ['pending', 'approved'] } } : {}),
     };
     return this.prisma.order.count({ where });
   }

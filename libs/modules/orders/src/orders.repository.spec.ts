@@ -61,10 +61,14 @@ describe('OrdersRepository', () => {
       expect(orders[0]!.status).toBe('pending');
     });
 
-    it('passes pending filter', async () => {
+    it('passes pending filter as status IN (pending, approved) — legacy semantics', async () => {
+      // Legacy db-query.js: status IN ('pending', 'approved') = "awaiting execution"
+      // (SPEC §19 #2 byte-identical contract / db-query.js line 605)
       await repo.findMany({ pending: true });
       expect(prisma.order.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ status: 'pending' }) }),
+        expect.objectContaining({
+          where: expect.objectContaining({ status: { in: ['pending', 'approved'] } }),
+        }),
       );
     });
   });
