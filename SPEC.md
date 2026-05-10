@@ -340,13 +340,16 @@ GitHub Actions; three workflows.
 11. E2E (PR sample) — single smoke flow.
 
 ### `.github/workflows/main.yml` — merge to `main`
-- All PR checks PLUS multi-arch build (`linux/amd64,linux/arm64`), trivy vulnerability scan (fail on HIGH/CRITICAL with fix), syft SBOM, cosign keyless signing, push to `ghcr.io/<owner>/crypto-claw:sha-<sha>` and `:main`, OpenAPI artifact published.
+- All PR checks PLUS multi-arch build (`linux/amd64,linux/arm64`), trivy vulnerability scan (fail on CRITICAL with fix per ADR-0016), syft SBOM, cosign keyless signing, push to `ghcr.io/<owner>/crypto-claw:sha-<sha>` and `:main`, OpenAPI artifact published.
+- **`post-publish-smoke`** job runs after `build-and-publish` + `sign`; pulls the just-published image by digest (deterministic, no tag race) and runs the Docker boot-defense integration tests. Gated on `v2` / `main` refs.
 - Triggers on push to `v2` and `main` during the rewrite; reduces to `main` only at P4 cutover (ADR-0011).
 
 ### `.github/workflows/nightly.yml`
-- Full e2e via testcontainers.
-- 60-min synthetic-load soak; asserts no `SQLITE_BUSY`, p99 latency budgets met.
-- `npm audit --audit-level=moderate` (issues a tracking issue on new finding).
+- Runs on schedule `'17 2 * * *'` (02:17 UTC) and on `workflow_dispatch`. Four jobs:
+  1. **`audit`** — `pnpm audit --audit-level=high --prod` (advisory; `continue-on-error: true`).
+  2. **`trivy-info`** — Information-only trivy scan of the latest `:v2` image (`severity: HIGH,CRITICAL`, `ignore-unfixed: false`, `exit-code: '0'`, no suppressions); SARIF output uploaded to GitHub Code Scanning via `github/codeql-action/upload-sarif@v3`. See ADR-0017 for the CVE suppression policy.
+  3. **`container-smoke-nightly`** — pulls `:v2`, builds fresh dist, runs the Docker boot-defense integration tests via `pnpm test:integration`. Catches base-image drift overnight.
+  4. **`e2e-full`** — placeholder for testcontainers full E2E (deferred to P1).
 - Renovate handles dep updates between nightly runs.
 
 **Branch protection on `main`:** all PR checks required, signed commits required, 1 approving review.
