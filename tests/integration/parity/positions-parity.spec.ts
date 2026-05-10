@@ -4,9 +4,10 @@
  * Verifies that the legacy db-query.js get-positions output shape is structurally
  * correct. This is the load-bearing parity check during P1a.
  *
- * Note on tp_levels_hit: db-query.js only parses `take_profit_levels` but NOT
- * `tp_levels_hit` — the latter is returned as a raw JSON string. Our
- * PositionsRepository parses both. This known difference is documented here.
+ * Field asymmetry (intentionally preserved for legacy parity):
+ * - take_profit_levels: parsed to number[] by both db-query.js and PositionsRepository
+ * - tp_levels_hit: returned as a raw JSON string by both db-query.js and PositionsRepository
+ *   (this was a regression in P1a that was fixed in the second-pass; see fix(positions) commit)
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -148,14 +149,15 @@ describe('positions parity: structural shape', () => {
     expect(pos!.take_profit_levels).toEqual([2500, 3000, 4000]);
   });
 
-  it('tp_levels_hit is a raw JSON string in db-query.js output (known schema delta)', () => {
+  it('tp_levels_hit is a raw JSON string in db-query.js output (matches PositionsRepository)', () => {
     // db-query.js parses take_profit_levels but NOT tp_levels_hit.
-    // Our PositionsRepository parses both — this is an intentional improvement.
-    // This test documents the known difference for reviewer awareness.
+    // PositionsRepository now matches this behavior: tp_levels_hit is returned as the
+    // raw TEXT column value (e.g. '[]'), NOT as a parsed array.
+    // This was fixed in the second-pass commit fix(positions): preserve tp_levels_hit as raw string.
     const output = runDbQuery('get-positions', ['--status', 'open']) as Array<{ id: string; tp_levels_hit: unknown }>;
     const pos = output.find((p) => p.id === OPEN_POS_ID);
     expect(pos).toBeDefined();
-    // Raw string from legacy
+    // Both legacy and new API return the raw string
     expect(typeof pos!.tp_levels_hit).toBe('string');
   });
 

@@ -28,7 +28,8 @@ const openPos: PositionResponseDto = {
   take_profit_levels: [2500, 3000],
   status: 'open',
   trailing_stop_active: 0,
-  tp_levels_hit: [],
+  // tp_levels_hit is a raw JSON string (legacy parity — db-query.js does NOT parse it)
+  tp_levels_hit: '[]',
   mode: 'real',
 };
 

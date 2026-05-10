@@ -50,7 +50,9 @@ export class PositionsRepository {
     return {
       ...row,
       take_profit_levels: this.parseJsonArray(row.takeProfitLevels),
-      tp_levels_hit: this.parseJsonArray(row.tpLevelsHit),
+      // tp_levels_hit is NOT parsed — legacy db-query.js returns the raw TEXT value.
+      // Agent code calls JSON.parse(tp_levels_hit); we must match the raw string shape.
+      tp_levels_hit: row.tpLevelsHit ?? '[]',
       trailing_stop_active: row.trailingStopActive,
       entry_date: row.entryDate,
       entry_price: row.entryPrice,
@@ -103,7 +105,8 @@ export class PositionsRepository {
       max_price_since_entry: row.maxPriceSinceEntry ?? undefined,
       trailing_stop_pct: row.trailingStopPct ?? undefined,
       trailing_stop_active: row.trailingStopActive,
-      tp_levels_hit: this.parseJsonArray(row.tpLevelsHit),
+      // tp_levels_hit is NOT parsed — match legacy db-query.js raw TEXT shape.
+      tp_levels_hit: row.tpLevelsHit ?? '[]',
       created_at: row.createdAt ?? undefined,
       updated_at: row.updatedAt ?? undefined,
       mode: 'paper',

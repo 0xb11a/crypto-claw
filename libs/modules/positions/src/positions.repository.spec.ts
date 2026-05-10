@@ -67,11 +67,15 @@ describe('PositionsRepository', () => {
   });
 
   describe('findMany()', () => {
-    it('returns mapped positions with parsed JSON arrays', async () => {
+    it('returns mapped positions: take_profit_levels parsed, tp_levels_hit raw string', async () => {
+      // take_profit_levels is parsed (matches legacy db-query.js behavior)
+      // tp_levels_hit is NOT parsed — raw JSON string, matching legacy db-query.js
       const rows = await repo.findMany({});
       expect(rows).toHaveLength(1);
       expect(rows[0]!.take_profit_levels).toEqual([2500, 3000, 4000]);
-      expect(rows[0]!.tp_levels_hit).toEqual([]);
+      // Legacy asymmetry: tp_levels_hit stays as raw string '[]'
+      expect(typeof rows[0]!.tp_levels_hit).toBe('string');
+      expect(rows[0]!.tp_levels_hit).toBe('[]');
       expect(rows[0]!.mode).toBe('real');
     });
 
@@ -83,10 +87,13 @@ describe('PositionsRepository', () => {
   });
 
   describe('findById()', () => {
-    it('returns a mapped position', async () => {
+    it('returns a mapped position with take_profit_levels parsed and tp_levels_hit raw', async () => {
       const pos = await repo.findById('pos-1', 'real');
       expect(pos.id).toBe('pos-1');
       expect(pos.take_profit_levels).toEqual([2500, 3000, 4000]);
+      // tp_levels_hit must be the raw string from the DB (legacy parity)
+      expect(typeof pos.tp_levels_hit).toBe('string');
+      expect(pos.tp_levels_hit).toBe('[]');
     });
 
     it('throws NotFoundException when position not found', async () => {
@@ -100,19 +107,35 @@ describe('PositionsRepository', () => {
   });
 
   describe('JSON field handling', () => {
-    it('parses malformed JSON gracefully as empty array', async () => {
-      const badRow = { ...rawPosition, takeProfitLevels: 'not-json', tpLevelsHit: '{{}' };
+    it('parses malformed take_profit_levels gracefully as empty array', async () => {
+      const badRow = { ...rawPosition, takeProfitLevels: 'not-json' };
       (prisma.position.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(badRow);
       const pos = await repo.findById('pos-1', 'real');
       expect(pos.take_profit_levels).toEqual([]);
-      expect(pos.tp_levels_hit).toEqual([]);
     });
 
-    it('parses null JSON column as empty array', async () => {
-      const nullRow = { ...rawPosition, takeProfitLevels: null, tpLevelsHit: null };
+    it('tp_levels_hit is returned as-is (raw string, not parsed)', async () => {
+      // Legacy db-query.js does NOT parse tp_levels_hit — we return the raw TEXT value.
+      const badRow = { ...rawPosition, tpLevelsHit: '{{}' };
+      (prisma.position.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(badRow);
+      const pos = await repo.findById('pos-1', 'real');
+      // Raw pass-through: we do NOT validate or parse tp_levels_hit
+      expect(pos.tp_levels_hit).toBe('{{}');
+    });
+
+    it('parses null take_profit_levels as empty array', async () => {
+      const nullRow = { ...rawPosition, takeProfitLevels: null };
       (prisma.position.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(nullRow);
       const pos = await repo.findById('pos-1', 'real');
       expect(pos.take_profit_levels).toEqual([]);
+    });
+
+    it('null tp_levels_hit defaults to empty JSON string', async () => {
+      const nullRow = { ...rawPosition, tpLevelsHit: null };
+      (prisma.position.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(nullRow);
+      const pos = await repo.findById('pos-1', 'real');
+      // null defaults to '[]' (matches legacy db DEFAULT '[]')
+      expect(pos.tp_levels_hit).toBe('[]');
     });
   });
 
@@ -131,6 +154,8 @@ describe('PositionsRepository', () => {
       });
       expect(result.symbol).toBe('ETH');
       expect(result.take_profit_levels).toEqual([2500, 3000, 4000]);
+      // tp_levels_hit is the raw string returned by the DB row
+      expect(typeof result.tp_levels_hit).toBe('string');
       expect(result.mode).toBe('real');
     });
 

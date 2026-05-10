@@ -20,7 +20,10 @@ export class PositionResponseDto {
   @ApiPropertyOptional() percent_of_portfolio?: number | null;
   @ApiProperty() entry_date!: string;
   @ApiProperty() stop_loss!: number;
-  /** Parsed take-profit levels array. */
+  /**
+   * Parsed take-profit levels array.
+   * Legacy db-query.js parses this field (JSON.parse); we match that behavior.
+   */
   @ApiProperty({ type: [Number] }) take_profit_levels!: number[];
   @ApiPropertyOptional() narrative?: string | null;
   @ApiProperty() status!: string;
@@ -35,8 +38,14 @@ export class PositionResponseDto {
   @ApiPropertyOptional() max_price_since_entry?: number | null;
   @ApiPropertyOptional() trailing_stop_pct?: number | null;
   @ApiProperty() trailing_stop_active!: number;
-  /** Parsed TP levels hit array. */
-  @ApiProperty({ type: [Number] }) tp_levels_hit!: number[];
+  /**
+   * Raw JSON string of TP levels hit.
+   * Legacy db-query.js does NOT parse tp_levels_hit — it returns the raw TEXT column value
+   * (e.g. '[]' or '[1,2,3]'). Agent code that consumes this field calls JSON.parse() on it.
+   * We match legacy here: the field is always a JSON-encoded string, never a parsed array.
+   * (Asymmetry: take_profit_levels IS parsed; tp_levels_hit is NOT — both mirror db-query.js.)
+   */
+  @ApiProperty() tp_levels_hit!: string;
   @ApiPropertyOptional() created_at?: string | null;
   @ApiPropertyOptional() updated_at?: string | null;
   /** Whether this is a paper position. */
