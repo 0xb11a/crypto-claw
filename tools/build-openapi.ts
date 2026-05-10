@@ -75,12 +75,26 @@ async function main(): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (app as any).close();
 
-  // Write with sorted keys for diff stability
+  // Write with sorted keys for diff stability.
+  // We write JSON.stringify output first, then run Prettier on the file so the
+  // committed output matches what lint-staged would produce — preventing a false
+  // positive drift on every regen.
   const sorted = sortKeys(document);
   const json = JSON.stringify(sorted, null, 2);
 
   mkdirSync(dirname(OUTPUT_PATH), { recursive: true });
   writeFileSync(OUTPUT_PATH, json + '\n', 'utf8');
+
+  // Format with Prettier to match the committed file format
+  try {
+    const { execFileSync: exec } = req('node:child_process') as typeof import('node:child_process');
+    exec('node_modules/.bin/prettier', ['--write', OUTPUT_PATH], {
+      cwd: REPO_ROOT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch {
+    // If Prettier is not available, skip formatting — CI lint-staged will catch drift
+  }
 
   const pathCount = Object.keys((document as { paths?: Record<string, unknown> }).paths ?? {}).length;
   process.stdout.write(`[build:openapi] Written ${OUTPUT_PATH}\n`);
