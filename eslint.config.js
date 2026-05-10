@@ -1,6 +1,11 @@
 import globals from 'globals';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 import tsParser from '@typescript-eslint/parser';
+import { createRequire } from 'node:module';
+
+// Load the local CryptoClaw ESLint plugin (CommonJS module)
+const require = createRequire(import.meta.url);
+const cclawPlugin = require('./tools/eslint-plugin-cclaw/index.js');
 
 export default [
   // ----------------------------------------------------------------
@@ -35,7 +40,17 @@ export default [
   // ----------------------------------------------------------------
   {
     files: ['apps/**/*.ts', 'libs/**/*.ts', 'sdk/**/*.ts'],
-    ignores: ['**/node_modules/**', '**/dist/**', '**/*.spec.ts', '**/*.test.ts', '**/vitest.config.ts'],
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/*.spec.ts',
+      '**/*.test.ts',
+      '**/vitest.config.ts',
+      // libs/prisma is the one place @prisma/client IS allowed — handled below
+      'libs/prisma/src/**/*.ts',
+      // Generated SDK output — not hand-authored; excluded from lint
+      'sdk/generated/**/*.ts',
+    ],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -89,11 +104,54 @@ export default [
   },
 
   // ----------------------------------------------------------------
+  // libs/prisma — @prisma/client imports are allowed here (SPEC §4 #1).
+  // This is the ONLY place where PrismaClient is used directly.
+  // ----------------------------------------------------------------
+  {
+    files: ['libs/prisma/src/**/*.ts'],
+    ignores: ['**/node_modules/**', '**/dist/**', '**/*.spec.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        project: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+      globals: {
+        ...globals.node,
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tsPlugin,
+    },
+    rules: {
+      ...tsPlugin.configs['recommended'].rules,
+      // @prisma/client is explicitly allowed inside libs/prisma
+      'no-restricted-imports': 'off',
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[object.name='process'][property.name='env']",
+          message: 'Direct process.env access is forbidden. Use the typed AppConfig from @cclaw/config instead.',
+        },
+      ],
+      'no-console': ['error', { allow: ['warn', 'error'] }],
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    },
+  },
+
+  // ----------------------------------------------------------------
   // Config/bootstrap files that legitimately read process.env.
   // These are the ONLY files permitted to do so (SPEC §4 #6).
   // ----------------------------------------------------------------
   {
-    files: ['libs/config/src/**/*.ts', 'apps/*/src/main.ts', 'apps/*/src/app.module.ts'],
+    files: [
+      'libs/config/src/**/*.ts',
+      'apps/*/src/main.ts',
+      'apps/*/src/app.module.ts',
+      'libs/auth/src/auth.module.ts',
+      'libs/prisma/src/prisma.module.ts',
+    ],
     ignores: ['**/node_modules/**', '**/*.spec.ts'],
     languageOptions: {
       parser: tsParser,
@@ -122,6 +180,57 @@ export default [
                 'Direct @prisma/client imports are forbidden outside libs/prisma. Use the PrismaService from @cclaw/prisma instead.',
             },
           ],
+        },
+      ],
+      'no-console': ['error', { allow: ['warn', 'error'] }],
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    },
+  },
+
+  // ----------------------------------------------------------------
+  // CryptoClaw custom rules — controller files only
+  // Enforces @Roles on handlers and @Audited on mutating handlers
+  // (SPEC §4 #3, §9.5, ADR-0018, ADR-0019).
+  // ----------------------------------------------------------------
+  {
+    files: ['apps/**/*.controller.ts', 'libs/modules/**/*.controller.ts', 'libs/health/src/*.controller.ts'],
+    ignores: ['**/node_modules/**', '**/dist/**', '**/*.spec.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        project: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+      globals: {
+        ...globals.node,
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tsPlugin,
+      cclaw: cclawPlugin,
+    },
+    rules: {
+      ...tsPlugin.configs['recommended'].rules,
+      'cclaw/require-roles-on-handlers': 'error',
+      'cclaw/require-audited-on-mutating-handlers': 'error',
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@prisma/client'],
+              message:
+                'Direct @prisma/client imports are forbidden outside libs/prisma. Use the PrismaService from @cclaw/prisma instead.',
+            },
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[object.name='process'][property.name='env']",
+          message: 'Direct process.env access is forbidden. Use the typed AppConfig from @cclaw/config instead.',
         },
       ],
       'no-console': ['error', { allow: ['warn', 'error'] }],
