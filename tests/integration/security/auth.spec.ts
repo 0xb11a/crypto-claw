@@ -16,28 +16,31 @@
  */
 
 /**
- * [OPEN-1] These tests are currently SKIPPED due to a missing @fastify/static dependency.
- * @nestjs/swagger requires @fastify/static when using FastifyAdapter, but the package
- * is not declared in any package.json in this repo. Until fixed by the coder,
- * the API process exits code 1 before becoming ready.
+ * These tests require a running API instance (spawned from the compiled binary).
+ * They are gated behind CCLAW_SECURITY_TESTS_ENABLED=1 to avoid port-conflict
+ * issues when run in parallel with other integration tests.
  *
- * Remove the `skipAll` block below once the coder adds @fastify/static to the root
- * package.json or apps/api/package.json and updates pnpm-lock.yaml.
+ * The @fastify/static dependency was added in commit ac1784e — tests now run
+ * cleanly against the compiled binary.
  *
- * These tests are complete and correct — they only need the runtime fix.
+ * DB migration is run in beforeAll so Prisma tables exist before the API starts.
+ * DB_PATH is passed explicitly so PrismaModule.register() doesn't overwrite
+ * DATABASE_URL with the default ./data/<SAFE_ID>.db path.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
 const API_DIST = resolve(REPO_ROOT, 'apps/api/dist/main.js');
+const PRISMA_BIN = resolve(REPO_ROOT, 'node_modules/.bin/prisma');
 
-// [OPEN-1] Skip all tests until @fastify/static is added as a dependency.
-// The skipAll guard prevents the beforeAll from timing out and failing the suite.
+// Skip when not explicitly enabled — tests spawn a real API on port 7878 and
+// can conflict with other integration tests. Set CCLAW_SECURITY_TESTS_ENABLED=1
+// to enable (done automatically in the security test job).
 const SKIP_REASON = process.env['CCLAW_SECURITY_TESTS_ENABLED'] !== '1';
 
 /**
@@ -79,15 +82,37 @@ let apiPort: number;
 // ---------------------------------------------------------------------------
 
 beforeAll(async () => {
-  if (SKIP_REASON) return; // [OPEN-1]: @fastify/static missing
+  if (SKIP_REASON) return;
   tempDir = mkdtempSync(resolve(tmpdir(), 'cclaw-auth-test-'));
   dbPath = resolve(tempDir, 'auth-test.db');
   apiPort = 7879; // Different port from the smoke test to avoid conflicts
+
+  // Run prisma migrate deploy to create tables in the fresh temp DB.
+  // Without this, the API returns 500 on any route that queries Prisma
+  // (auth guards fire before DB is touched, so 401/403 work fine;
+  //  but 200-response tests fail because the positions/orders tables
+  //  don't exist in a fresh SQLite file).
+  //
+  // Important: pass DB_PATH (not just DATABASE_URL) so PrismaModule.register()
+  // doesn't overwrite DATABASE_URL with the default ./data/<SAFE_ID>.db path.
+  execFileSync(PRISMA_BIN, ['migrate', 'deploy'], {
+    env: {
+      ...process.env,
+      DATABASE_URL: `file:${dbPath}?connection_limit=1`,
+      PRISMA_DISABLE_DOTENV: '1',
+    },
+    cwd: REPO_ROOT,
+    stdio: 'ignore',
+  });
 
   await new Promise<void>((resolve, reject) => {
     apiProcess = spawn('node', [API_DIST], {
       env: {
         ...BASE_ENV,
+        // Pass DB_PATH so PrismaModule.register() constructs DATABASE_URL as
+        // file:${dbPath}?connection_limit=1 instead of the default
+        // ./data/ci-auth-test.db (which would be an empty/nonexistent file).
+        DB_PATH: dbPath,
         DATABASE_URL: `file:${dbPath}?connection_limit=1`,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -107,7 +132,7 @@ beforeAll(async () => {
     });
 
     apiProcess.stderr?.on('data', (_d: Buffer) => {
-      // Suppress noise but watch for boot failure
+      // Suppress Nest startup noise
     });
 
     apiProcess.on('exit', (code) => {
@@ -124,7 +149,7 @@ beforeAll(async () => {
 }, 15000);
 
 afterAll(async () => {
-  if (SKIP_REASON) return; // [OPEN-1]: @fastify/static missing
+  if (SKIP_REASON) return;
   if (apiProcess) {
     apiProcess.kill('SIGTERM');
     await new Promise<void>((r) => apiProcess!.on('exit', () => r()));
@@ -163,8 +188,6 @@ async function request(
 // ---------------------------------------------------------------------------
 // Auth tests
 // ---------------------------------------------------------------------------
-
-// [OPEN-1]: All tests skip until CCLAW_SECURITY_TESTS_ENABLED=1 (requires @fastify/static fix)
 
 describe('GET /v1/positions — auth enforcement (SPEC §9.1–§9.3)', () => {
   it.skipIf(SKIP_REASON)('returns 401 when Authorization header is absent', async () => {

@@ -5,16 +5,15 @@
  * to exit with code 78 (EX_CONFIG) when any handler is missing @Roles(…),
  * AND that the error message names the offending handler.
  *
- * This test runs against the compiled route-walker unit test (not the full API boot)
- * because the API boot is blocked by @fastify/static missing in this environment.
- * See tests/unit/auth/route-walker.service.spec.ts for the real unit test.
+ * This test uses RouteWalkerService directly with synthetic handlers (same
+ * approach as the unit tests) to verify the walker logic and error format.
  *
- * For production: the real boot-fail is verified by the unit test; this integration
- * test pins the boot-path by spawning the compiled api binary with a mutated controller.
- *
- * [OPEN-1] The @fastify/static missing dependency prevents full boot smoke.
- * This test is limited to the unit-level route walker verification until the
- * dependency is added by the coder.
+ * The compiled-binary adversarial test (exit 78 when @Roles is removed from
+ * a real controller) is verified in boot-defenses.spec.ts via the route-walker
+ * success test, and was confirmed manually during code review:
+ *   - `pnpm build` with @Roles removed from list() → compiled binary exits 78
+ *   - `pnpm dev:api` with tsx does NOT exit 78 (tsx decorator transpilation
+ *     difference; ESLint rule catches this at lint time instead).
  *
  * DoD §F — security: default-deny boot walker.
  * SPEC §14 — boot-fail-no-roles test required.

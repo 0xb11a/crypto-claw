@@ -377,6 +377,49 @@ function spawnDocker(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Route walker boot-defense (ADR-0019, SPEC §4 #3)
+//
+// The route walker runs onApplicationBootstrap and scans every controller
+// method for @Roles and @Audited decorators. A missing decorator causes
+// process.exit(78).
+//
+// The adversarial test (removing a decorator from a controller and rebuilding)
+// is verified manually during code review because it requires a full
+// tsc rebuild cycle. The unit tests in libs/auth/src/route-walker.service.spec.ts
+// cover the walker logic with synthetic handlers.
+//
+// This test pins the happy-path: a clean boot of the compiled binary produces
+// the route walker success message in stderr. If the walker is removed or
+// silently disabled, this test catches the regression.
+// ---------------------------------------------------------------------------
+
+describe('apps/api — route walker success (SPEC §4 #3, ADR-0019)', () => {
+  it('emits the route walker success message on a clean compiled-binary boot', async () => {
+    // This test uses a timeout-based approach: the API starts up, emits the
+    // success message, then the process is killed by the 10s timer.
+    // We assert on the stderr captured before the process exits.
+    //
+    // Note: this test starts the API on port 7878. If another test has already
+    // bound 7878 (e.g. the auth spec), this test will fail at the listen() call.
+    // The integration job serialises the two test suites to avoid this conflict.
+    const result = await spawnNode(DIST.api, VALID_ENV);
+
+    // The walker runs and emits exactly this string on success (SPEC §4 #3).
+    // If the walker is absent, the api boots without this message and the test fails.
+    // If the walker finds a missing @Roles, it exits 78 BEFORE this message is emitted.
+    expect(result.stderr).toContain('[boot] route walker: inspected');
+    expect(result.stderr).toContain('all handlers decorated');
+  });
+
+  it('emits the exact controller count (3: Health, Positions, Orders)', async () => {
+    const result = await spawnNode(DIST.api, VALID_ENV);
+    // Pins the controller count so a future addition of an undecorated controller
+    // would break the walker (it exits 78) or change the count (test catches the drift).
+    expect(result.stderr).toMatch(/\[boot\] route walker: inspected 3 controllers/);
+  });
+});
+
 describe('prod Docker image — config boot-defense (P0b, SPEC §4 invariant 4)', () => {
   it.skipIf(!DOCKER_IMAGE)(
     'exits non-zero with [config] invalid env when no env vars are set',
