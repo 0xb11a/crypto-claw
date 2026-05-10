@@ -4,6 +4,12 @@ export default defineWorkspace([
   // libs
   'libs/config/vitest.config.ts',
   'libs/logger/vitest.config.ts',
+  'libs/prisma/vitest.config.ts',
+  'libs/auth/vitest.config.ts',
+  'libs/audit/vitest.config.ts',
+  'libs/health/vitest.config.ts',
+  'libs/modules/positions/vitest.config.ts',
+  'libs/modules/orders/vitest.config.ts',
   // apps
   'apps/api/vitest.config.ts',
   'apps/worker/vitest.config.ts',
