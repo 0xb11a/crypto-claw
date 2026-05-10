@@ -13,6 +13,8 @@
     { "path": "./libs/chain" },
     { "path": "./libs/portfolio" },
     { "path": "./libs/execution" },
+    { "path": "./libs/modules/positions" },
+    { "path": "./libs/modules/orders" },
     { "path": "./apps/api" },
     { "path": "./apps/worker" },
     { "path": "./apps/scheduler" },

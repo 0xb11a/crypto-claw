@@ -1,0 +1,32 @@
+{
+  "agent": "sentinel",
+  "overdue": [
+    {
+      "check_type": "contract_check",
+      "minutes_since": null,
+      "cadence": 30
+    },
+    {
+      "check_type": "liquidity_check",
+      "minutes_since": null,
+      "cadence": 0
+    },
+    {
+      "check_type": "price_check",
+      "minutes_since": null,
+      "cadence": 0
+    },
+    {
+      "check_type": "smart_money_exits",
+      "minutes_since": null,
+      "cadence": 15
+    },
+    {
+      "check_type": "wallet_check",
+      "minutes_since": null,
+      "cadence": 0
+    }
+  ],
+  "not_yet_due": [],
+  "_mode": "paper"
+}

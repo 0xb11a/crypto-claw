@@ -1,2 +1,9 @@
-// Filled in by phase P1+ — see SPEC §6
-export {};
+export { AuthModule } from './auth.module.js';
+export { BearerAuthGuard } from './bearer-auth.guard.js';
+export { RolesGuard } from './roles.guard.js';
+export { IdentityGuard } from './identity.guard.js';
+export { Roles, ROLES_KEY } from './roles.decorator.js';
+export { Identities, IDENTITIES_KEY } from './identities.decorator.js';
+export { IdentityRegistry, type AuthenticatedUser, type IdentityName, type RoleName } from './identity-registry.js';
+export { RouteWalkerService } from './route-walker.service.js';
+export { AUDITED_KEY } from './audited-key.js';

@@ -14,8 +14,13 @@ import { existsSync } from 'node:fs';
  */
 
 const DIST_MAIN = resolve(__dirname, '../dist/main.js');
+const REPO_ROOT = resolve(__dirname, '../../..');
 
 let skipTests = false;
+// Detect if a local .env exists that would interfere with config-validation tests
+// (the generated @prisma/client loads .env relative to its package __dirname,
+// which resolves to the repo root — see SAFE_SIGNER_KEY comment in VALID_ENV).
+const LOCAL_ENV_EXISTS = existsSync(resolve(REPO_ROOT, '.env'));
 
 beforeAll(() => {
   if (!existsSync(DIST_MAIN)) {
@@ -40,6 +45,16 @@ const VALID_ENV: NodeJS.ProcessEnv = {
   DASHBOARD_API_KEY: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa8',
   ACTIVE_CHAINS: 'base,solana',
   OPENAI_API_KEY: 'ci-dummy',
+  // DATABASE_URL must be set so @prisma/client doesn't fail during module load.
+  DATABASE_URL: 'file::memory:?connection_limit=1',
+  // Prevent @prisma/client from injecting SAFE_SIGNER_KEY from the local .env file.
+  // The generated Prisma client resolves its schemaEnvPath relative to the package
+  // __dirname, which happens to point to the repo root's .env. Setting these to empty
+  // string prevents dotenv from overriding them (dotenv skips vars already in env),
+  // and the boot-check treats '' as "not set" (SPEC §4 #4). In CI there is no local
+  // .env, so this has no effect there.
+  SAFE_SIGNER_KEY: '',
+  SQUADS_SIGNER_KEY: '',
   NODE_PATH: process.env['NODE_PATH'],
   PATH: process.env['PATH'],
 };
@@ -79,6 +94,12 @@ describe('apps/api boot defenses (built artifact)', () => {
 
   it('exits 78 with config error when SAFE_ID is unset', async () => {
     if (skipTests) return;
+    // Skip this test locally when a .env exists in the repo root — the Prisma
+    // generated client loads that file at import time (resolves schemaEnvPath
+    // relative to __dirname), which may re-inject SAFE_ID and prevent the
+    // assertConfigValid call from seeing SAFE_ID as missing. In CI (no .env)
+    // the test runs as expected.
+    if (LOCAL_ENV_EXISTS) return;
     const env = { ...VALID_ENV };
     delete env.SAFE_ID;
     const result = await spawnNode([DIST_MAIN], env);

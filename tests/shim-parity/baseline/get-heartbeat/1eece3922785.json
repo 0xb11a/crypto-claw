@@ -1,0 +1,7 @@
+[
+  {
+    "agent": "observer",
+    "check_type": "triage",
+    "last_run": null
+  }
+]

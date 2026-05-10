@@ -255,6 +255,158 @@ cd tests && node run-all.js --offline
 
 ---
 
+## 0.7 P1a: Prisma migration, route walker, shim-parity, audit policy (P1a)
+
+This section documents the new infrastructure introduced in P1a.
+
+### Existing-DB baselining (one-time per deploy target)
+
+If the target SQLite DB was created by the legacy `scripts/db.js` migrations
+(it has tables but no `_prisma_migrations` row), Prisma will refuse to deploy
+with:
+
+```
+Error P3005: The database schema is not empty.
+```
+
+Run this **once per deployment target** before the first `prisma migrate deploy`:
+
+```bash
+DATABASE_URL="file:./data/<SAFE_ID>.db" pnpm prisma migrate resolve \
+  --applied 20260510091724_p1a_initial_positions_orders_receipts_alerts_heartbeat_audit
+```
+
+This marks the P1a migration as already-applied (the tables exist via `db.js`).
+Subsequent migrations from P1b+ will deploy cleanly on top.
+
+**Skip this step on a fresh (empty) DB.** Prisma handles empty DBs natively —
+`prisma migrate deploy` creates the `_prisma_migrations` table itself and
+applies the migration SQL.
+
+### Prisma migration on first deploy
+
+`apps/api` runs `prisma migrate deploy` automatically on startup. No manual step
+is needed on the first deploy against a fresh DB. The migration:
+- Creates `positions`, `paper_positions`, `orders`, `receipts`, `paper_receipts`,
+  `sentinel_alerts`, `heartbeat_state`, `portfolio_meta`, `service_audit`, and `trades` tables.
+- Does NOT touch the legacy `_migrations` table used by `scripts/db.js` — the two
+  migration trackers coexist (`_prisma_migrations` vs `_migrations`).
+
+**If you need to re-run migrations manually:**
+
+```bash
+DATABASE_URL="file:./data/<SAFE_ID>.db" pnpm prisma migrate deploy
+```
+
+**Schema drift check (CI gate):**
+
+```bash
+DATABASE_URL="file:./data/<SAFE_ID>.db" pnpm prisma migrate diff \
+  --from-migrations prisma/migrations \
+  --to-schema-datamodel prisma/schema.prisma \
+  --exit-code
+```
+
+Exit code 0 = schema matches migrations. Any non-zero output means `schema.prisma`
+was edited without generating a migration — run `pnpm prisma migrate dev --name <name>`
+to produce the migration file, then commit it.
+
+### Default-deny route walker (ADR-0019)
+
+On every startup, `apps/api` walks all registered controller routes and refuses to boot
+if any handler:
+- Lacks `@Roles(...)` metadata.
+- Is a non-GET handler without `@Audited()` metadata.
+
+Boot-fail message format:
+```
+[boot] route on ControllerClass#methodName (path=/v1/...) missing @Roles(...)
+```
+
+Exit code: **78** (EX_CONFIG). This matches the config-validation boot-fail format.
+
+The boot walker runs AFTER all modules are initialized (`onApplicationBootstrap`). It
+logs `[boot] route walker: inspected N controllers; all handlers decorated` on success.
+
+### Audit log policy (ADR-0018, SPEC §9.5)
+
+Every non-GET handler decorated with `@Audited()` writes a row to `service_audit`.
+Rows include:
+- `identity`, `role` — the calling agent's identity and role
+- `body_sha256` — SHA-256 of the canonical (key-sorted) request body
+- `body_redacted` — request body with secrets stripped via `libs/logger`'s redactor
+- `status`, `latency_ms`, `error_kind` — response metadata
+
+**Query the audit log:**
+
+```bash
+cclaw system audit --since 2h  # (available in P1b)
+```
+
+For now, query directly:
+
+```bash
+DATABASE_URL="file:./data/<SAFE_ID>.db" node -e "
+  const { PrismaClient } = require('@prisma/client');
+  const p = new PrismaClient();
+  p.serviceAudit.findMany({ orderBy: { ts: 'desc' }, take: 20 }).then(rows => {
+    console.log(JSON.stringify(rows, null, 2));
+    p.\$disconnect();
+  });
+"
+```
+
+**Audit write failure:** If the DB write fails, the error is logged via `libs/logger`
+with `audit_write_failed: true`. The original request's response is unaffected.
+Monitor for these in `docker compose logs api | grep audit_write_failed`.
+
+### Shim-parity baseline (ADR-0020)
+
+The shim-parity gate captures byte-identical output from `db-query.js` and the
+new `cclaw` CLI. Baseline captured at P1a start against an empty dev DB.
+
+**Run the comparison locally:**
+
+```bash
+node tests/shim-parity/compare-baseline.js --safe-id <dev-fund-id> --only positions,orders
+```
+
+**Re-capture baseline** (only needed if `scripts/db.js` or `scripts/db-query.js`
+changes — DoD §I says they stay unchanged during the rewrite):
+
+```bash
+node tests/shim-parity/capture-baseline.js --safe-id <dev-fund-id> --commit-baseline
+```
+
+See `tests/shim-parity/README.md` for the full lifecycle.
+
+### cclaw CLI — P1a commands (7 commands)
+
+```bash
+# Positions
+cclaw positions list [--status open|closed|partial_exit|all] [--mode real|paper]
+cclaw positions get --id <id> [--mode real|paper]
+
+# Orders
+cclaw orders list [--status pending|approved|...] [--action buy|sell] [--pending]
+cclaw orders get --id <id>
+cclaw orders propose --json '<json body>'
+cclaw orders approve --id <id> [--by human]
+cclaw orders reject --id <id> [--reason <text>]
+```
+
+Requires `CCLAW_API_TOKEN` env (maps to any of the 8 `*_API_KEY` values) and
+`CCLAW_API_BASE` (default: `http://127.0.0.1:7878`).
+
+### Codecov gate flip (P1a)
+
+As of this PR, the Codecov gate is enforcing (not advisory):
+- `codecov.yml` has no `if_no_uploads: pass`.
+- `pr.yml` step 15 (Upload coverage) has `fail_ci_if_error: true`.
+- Target: ≥80% line coverage on `libs/modules/positions/**` and `libs/modules/orders/**`.
+
+---
+
 ## 1. Provisioning a fresh host
 
 [TBD — fills in during P6]

@@ -1,2 +1,3 @@
-// Filled in by phase P1+ — see SPEC §6
-export {};
+export { PrismaService } from './prisma.service.js';
+export { PrismaModule } from './prisma.module.js';
+export { withTransaction, type PrismaTransactionClient } from './transactions.js';

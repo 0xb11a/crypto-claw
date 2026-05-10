@@ -1,0 +1,13 @@
+{
+  "cash": 10000,
+  "initial_balance": 10000,
+  "total_value": 10000,
+  "pnl": 0,
+  "pnl_percent": 0,
+  "realized_pnl": 0,
+  "total_closed_trades": 0,
+  "positions": [],
+  "closed_positions": [],
+  "recent_trades": [],
+  "_mode": "paper"
+}

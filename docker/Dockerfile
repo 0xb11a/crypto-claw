@@ -53,6 +53,8 @@ COPY libs/market/package.json libs/market/
 COPY libs/chain/package.json libs/chain/
 COPY libs/portfolio/package.json libs/portfolio/
 COPY libs/execution/package.json libs/execution/
+COPY libs/modules/positions/package.json libs/modules/positions/
+COPY libs/modules/orders/package.json libs/modules/orders/
 COPY sdk/generated/package.json sdk/generated/
 COPY sdk/cclaw/package.json sdk/cclaw/
 COPY tests/integration/package.json tests/integration/
@@ -63,6 +65,13 @@ COPY tests/integration/package.json tests/integration/
 RUN --mount=type=cache,id=pnpm,target=/pnpm-store \
     pnpm config set store-dir /pnpm-store && \
     pnpm install --frozen-lockfile
+
+# Copy schema before source so prisma generate can run before remaining
+# source. Prisma generates per-project types into node_modules/.prisma/client/
+# from the schema; without those, libs/modules/<entity>/ repositories fail to
+# typecheck because they import { Position, Order, ... } from '@prisma/client'.
+COPY prisma/ prisma/
+RUN pnpm prisma generate
 
 # Copy remaining source files
 COPY . .

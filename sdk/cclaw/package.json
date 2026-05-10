@@ -3,9 +3,20 @@
   "version": "0.0.0",
   "private": true,
   "type": "commonjs",
-  "main": "src/index.js",
+  "main": "dist/index.js",
   "bin": {
-    "cclaw": "src/index.js"
+    "cclaw": "dist/index.js"
   },
-  "description": "cclaw CLI — generated from OpenAPI spec. Available from P1 onward."
+  "description": "cclaw CLI — CryptoClaw API command-line interface",
+  "scripts": {
+    "build": "tsc --build tsconfig.build.json",
+    "typecheck": "tsc --build"
+  },
+  "dependencies": {
+    "commander": "^14.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
 }

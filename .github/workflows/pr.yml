@@ -36,6 +36,10 @@ env:
   # Node env
   NODE_ENV: test
 
+  # Prisma: prevent auto-loading .env files (no .env in CI)
+  PRISMA_DISABLE_DOTENV: '1'
+  DATABASE_URL: file:./data/ci-test.db
+
 jobs:
   # ---------------------------------------------------------------------------
   # 1–4: Setup, typecheck, lint, unit tests
@@ -66,6 +70,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Generate Prisma client BEFORE typecheck so { Position, Order, ... }
+      # type-only imports from '@prisma/client' resolve. Defensive: install
+      # currently triggers it via @prisma/client postinstall, but pin
+      # explicitly so this step can't silently regress.
+      - name: Generate Prisma client
+        run: pnpm prisma generate
+
       # Step 5 — Typecheck
       - name: Typecheck
         run: pnpm typecheck
@@ -78,15 +89,19 @@ jobs:
       - name: Unit tests
         run: pnpm test:unit --coverage
 
-      # Step 9 — Schema drift gate (deferred to P1)
+      # Step 9 — Schema drift gate (P1a: real gate)
       - name: Schema drift gate
-        run: echo '[deferred to P1] prisma migrate diff gate'
+        run: pnpm exec prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --exit-code
+        env:
+          DATABASE_URL: file:./data/ci-schema-check.db
 
       # Step 10 — OpenAPI drift gate
       - name: OpenAPI drift gate
         run: |
           pnpm run build:openapi
           git diff --exit-code sdk/generated/openapi.json
+        env:
+          DATABASE_URL: file:./data/ci-test.db
 
       # Step 11 — SDK drift gate
       - name: SDK drift gate
@@ -94,11 +109,25 @@ jobs:
           pnpm run build:sdk
           git diff --exit-code sdk/generated/
 
+      # Step 12 — Shim-parity gate (ADVISORY in P1a per ADR-0020)
+      # The empty-baseline only catches structural drift; the load-bearing
+      # parity assertion is the per-module synthetic-data unit tests.
+      - name: Shim-parity gate (advisory)
+        continue-on-error: true
+        run: |
+          node tests/shim-parity/compare-baseline.js \
+            --safe-id ci-test \
+            --only positions,orders
+        env:
+          SAFE_ID: ci-test
+          DB_PATH: ./data/ci-test.db
+          PAPER_MODE: 'false'
+
       # Validate Renovate config — cheap gate; fails fast on Renovate config errors
       - name: Validate renovate.json
         run: npx --package renovate --yes -- renovate-config-validator renovate.json
 
-      # Step 12 — Secret scan
+      # Step 13 — Secret scan
       - name: Secret scan (legacy pre-commit-check)
         run: node scripts/pre-commit-check.js || echo '[skip] pre-commit-check.js requires node scripts deps'
 
@@ -109,11 +138,23 @@ jobs:
           base: ${{ github.event.repository.default_branch }}
           extra_args: --only-verified
 
-      # Step 15 — Codecov (informational in P0a; gate flips in P1)
+      # Step 15 — Codecov (ENFORCING from P1a per the codecov flip).
+      # The actual coverage gate is enforced by codecov.io's GitHub status
+      # check (project: 80%, patch: 80% per codecov.yml) once the upload
+      # processes server-side. The upload step itself is non-blocking on
+      # transient/auth errors so a flaky Codecov API doesn't fail every PR;
+      # the gate is the status check, not the action exit code.
+      #
+      # Requires CODECOV_TOKEN repo secret (Codecov ended tokenless uploads).
+      # Without the secret, the upload silently fails — the codecov.io status
+      # check then never appears, and branch protection's "all status checks
+      # required" setting will keep the PR from merging until the operator
+      # adds the secret.
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6
         continue-on-error: true
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
   # ---------------------------------------------------------------------------
@@ -153,12 +194,45 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Parity tests (tests/integration/parity/) spawn `node scripts/db-query.js`
+      # which transitively requires `better-sqlite3` from the LEGACY scripts/
+      # tree (DoD §I — legacy untouched). That tree has its own package.json
+      # outside the pnpm workspace; install it explicitly here so parity tests
+      # can run.
+      - name: Install legacy scripts/ deps (for parity tests)
+        run: cd scripts && npm install
+
+      # Prisma generates per-project types from prisma/schema.prisma into
+      # node_modules/.prisma/client/. Repositories type-only-import { Position,
+      # Order, ... } from '@prisma/client' — without `prisma generate` those
+      # names don't exist and `tsc --build` fails.
+      - name: Generate Prisma client
+        run: pnpm prisma generate
+
       - name: Build (required for integration tests that spawn artifacts)
         run: pnpm build
 
-      # Step 8 — Integration tests
+      # Walker boot-success tests in boot-defenses.spec.ts spawn the compiled
+      # apps/api binary, which boots PrismaService and connects to the SQLite
+      # DB at ./data/ci-test.db. Create the directory + run a real migration
+      # so the DB file + tables exist before the api starts.
+      - name: Prepare test DB (mkdir + prisma migrate deploy)
+        run: |
+          mkdir -p data
+          pnpm prisma migrate deploy
+        env:
+          DATABASE_URL: file:./data/ci-test.db
+
+      # Step 8 — Integration tests (includes parity tests + auth security suite)
       - name: Integration tests
         run: pnpm test:integration
+        env:
+          DATABASE_URL: file:./data/ci-test.db
+          DB_PATH: ./data/ci-test.db
+          PAPER_MODE: 'false'
+          AUTO_APPROVE_BUY: 'false'
+          # Activate the auth 401/403/400/200 suite (DoD §F + SPEC §14)
+          CCLAW_SECURITY_TESTS_ENABLED: '1'
 
   # ---------------------------------------------------------------------------
   # 13: Container build smoke test
