@@ -259,10 +259,34 @@ cd tests && node run-all.js --offline
 
 This section documents the new infrastructure introduced in P1a.
 
+### Existing-DB baselining (one-time per deploy target)
+
+If the target SQLite DB was created by the legacy `scripts/db.js` migrations
+(it has tables but no `_prisma_migrations` row), Prisma will refuse to deploy
+with:
+
+```
+Error P3005: The database schema is not empty.
+```
+
+Run this **once per deployment target** before the first `prisma migrate deploy`:
+
+```bash
+DATABASE_URL="file:./data/<SAFE_ID>.db" pnpm prisma migrate resolve \
+  --applied 20260510091724_p1a_initial_positions_orders_receipts_alerts_heartbeat_audit
+```
+
+This marks the P1a migration as already-applied (the tables exist via `db.js`).
+Subsequent migrations from P1b+ will deploy cleanly on top.
+
+**Skip this step on a fresh (empty) DB.** Prisma handles empty DBs natively —
+`prisma migrate deploy` creates the `_prisma_migrations` table itself and
+applies the migration SQL.
+
 ### Prisma migration on first deploy
 
 `apps/api` runs `prisma migrate deploy` automatically on startup. No manual step
-is needed on the first deploy. The migration:
+is needed on the first deploy against a fresh DB. The migration:
 - Creates `positions`, `paper_positions`, `orders`, `receipts`, `paper_receipts`,
   `sentinel_alerts`, `heartbeat_state`, `portfolio_meta`, `service_audit`, and `trades` tables.
 - Does NOT touch the legacy `_migrations` table used by `scripts/db.js` — the two
