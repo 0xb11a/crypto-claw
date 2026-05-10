@@ -131,11 +131,24 @@ jobs:
           base: ${{ github.event.repository.default_branch }}
           extra_args: --only-verified
 
-      # Step 15 — Codecov (ENFORCING from P1a per the codecov flip)
+      # Step 15 — Codecov (ENFORCING from P1a per the codecov flip).
+      # The actual coverage gate is enforced by codecov.io's GitHub status
+      # check (project: 80%, patch: 80% per codecov.yml) once the upload
+      # processes server-side. The upload step itself is non-blocking on
+      # transient/auth errors so a flaky Codecov API doesn't fail every PR;
+      # the gate is the status check, not the action exit code.
+      #
+      # Requires CODECOV_TOKEN repo secret (Codecov ended tokenless uploads).
+      # Without the secret, the upload silently fails — the codecov.io status
+      # check then never appears, and branch protection's "all status checks
+      # required" setting will keep the PR from merging until the operator
+      # adds the secret.
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6
+        continue-on-error: true
         with:
-          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   # ---------------------------------------------------------------------------
   # 8: Integration tests (separate job — may need Redis service)
