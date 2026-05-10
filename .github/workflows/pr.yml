@@ -194,6 +194,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Parity tests (tests/integration/parity/) spawn `node scripts/db-query.js`
+      # which transitively requires `better-sqlite3` from the LEGACY scripts/
+      # tree (DoD §I — legacy untouched). That tree has its own package.json
+      # outside the pnpm workspace; install it explicitly here so parity tests
+      # can run.
+      - name: Install legacy scripts/ deps (for parity tests)
+        run: cd scripts && npm install
+
       # Prisma generates per-project types from prisma/schema.prisma into
       # node_modules/.prisma/client/. Repositories type-only-import { Position,
       # Order, ... } from '@prisma/client' — without `prisma generate` those
@@ -203,6 +211,17 @@ jobs:
 
       - name: Build (required for integration tests that spawn artifacts)
         run: pnpm build
+
+      # Walker boot-success tests in boot-defenses.spec.ts spawn the compiled
+      # apps/api binary, which boots PrismaService and connects to the SQLite
+      # DB at ./data/ci-test.db. Create the directory + run a real migration
+      # so the DB file + tables exist before the api starts.
+      - name: Prepare test DB (mkdir + prisma migrate deploy)
+        run: |
+          mkdir -p data
+          pnpm prisma migrate deploy
+        env:
+          DATABASE_URL: file:./data/ci-test.db
 
       # Step 8 — Integration tests (includes parity tests + auth security suite)
       - name: Integration tests
