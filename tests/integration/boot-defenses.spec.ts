@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 /**
@@ -25,6 +25,13 @@ const DIST = {
   executor: resolve(REPO_ROOT, 'apps/executor/dist/main.js'),
 };
 
+// Detect if a local .env exists that would interfere with config-validation tests.
+// The generated @prisma/client loads .env relative to its package __dirname, which
+// resolves to the repo root .env. Tests that delete specific env vars and expect the
+// process to fail on those vars must be skipped locally when .env can re-inject them.
+// In CI (no local .env), all tests run as expected.
+const LOCAL_ENV_EXISTS = existsSync(resolve(REPO_ROOT, '.env'));
+
 /**
  * Minimal valid env that passes Zod schema.
  * Does NOT spread process.env to avoid inheriting secrets from the parent.
@@ -42,6 +49,15 @@ const VALID_ENV: NodeJS.ProcessEnv = {
   DASHBOARD_API_KEY: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa8',
   ACTIVE_CHAINS: 'base,solana',
   OPENAI_API_KEY: 'ci-dummy',
+  // DATABASE_URL must be set so @prisma/client doesn't fail during module load.
+  DATABASE_URL: 'file::memory:?connection_limit=1',
+  // Prevent @prisma/client from injecting SAFE_SIGNER_KEY from the local .env file.
+  // The generated Prisma client resolves its schemaEnvPath relative to the package
+  // __dirname, which points to the repo root's .env. Setting these to empty string
+  // prevents dotenv from overriding them (dotenv skips vars already in env), and the
+  // boot-check treats '' as "not set" (SPEC §4 #4, ADR-0010).
+  SAFE_SIGNER_KEY: '',
+  SQUADS_SIGNER_KEY: '',
   // PATH is needed for node resolution; NODE_PATH for module hoisting
   NODE_PATH: process.env['NODE_PATH'],
   PATH: process.env['PATH'],
@@ -98,6 +114,8 @@ describe('apps/api — signer-key isolation (ADR-0010)', () => {
 
 describe('apps/api — config validation (SPEC §4 #6)', () => {
   it('exits 78 and emits the literal error string when SAFE_ID is unset', async () => {
+    // Skip locally when .env exists: @prisma/client re-injects SAFE_ID from .env.
+    if (LOCAL_ENV_EXISTS) return;
     const env = { ...VALID_ENV };
     delete env.SAFE_ID;
     const result = await spawnNode(DIST.api, env);
@@ -122,6 +140,7 @@ describe('apps/worker — signer-key isolation (ADR-0010)', () => {
 
 describe('apps/worker — config validation', () => {
   it('exits 78 when SAFE_ID is unset', async () => {
+    if (LOCAL_ENV_EXISTS) return;
     const env = { ...VALID_ENV };
     delete env.SAFE_ID;
     const result = await spawnNode(DIST.worker, env);
@@ -146,6 +165,7 @@ describe('apps/scheduler — signer-key isolation (ADR-0010)', () => {
 
 describe('apps/scheduler — config validation', () => {
   it('exits 78 when SAFE_ID is unset', async () => {
+    if (LOCAL_ENV_EXISTS) return;
     const env = { ...VALID_ENV };
     delete env.SAFE_ID;
     const result = await spawnNode(DIST.scheduler, env);
@@ -180,6 +200,7 @@ describe('apps/executor — signer keys are permitted (ADR-0010)', () => {
 
 describe('apps/executor — config validation', () => {
   it('exits 78 when SAFE_ID is unset', async () => {
+    if (LOCAL_ENV_EXISTS) return;
     const env = { ...VALID_ENV };
     delete env.SAFE_ID;
     const result = await spawnNode(DIST.executor, env);

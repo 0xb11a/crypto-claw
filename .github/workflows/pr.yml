@@ -36,6 +36,10 @@ env:
   # Node env
   NODE_ENV: test
 
+  # Prisma: prevent auto-loading .env files (no .env in CI)
+  PRISMA_DISABLE_DOTENV: '1'
+  DATABASE_URL: file:./data/ci-test.db
+
 jobs:
   # ---------------------------------------------------------------------------
   # 1–4: Setup, typecheck, lint, unit tests
@@ -78,15 +82,19 @@ jobs:
       - name: Unit tests
         run: pnpm test:unit --coverage
 
-      # Step 9 — Schema drift gate (deferred to P1)
+      # Step 9 — Schema drift gate (P1a: real gate)
       - name: Schema drift gate
-        run: echo '[deferred to P1] prisma migrate diff gate'
+        run: pnpm exec prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --exit-code
+        env:
+          DATABASE_URL: file:./data/ci-schema-check.db
 
       # Step 10 — OpenAPI drift gate
       - name: OpenAPI drift gate
         run: |
           pnpm run build:openapi
           git diff --exit-code sdk/generated/openapi.json
+        env:
+          DATABASE_URL: file:./data/ci-test.db
 
       # Step 11 — SDK drift gate
       - name: SDK drift gate
@@ -94,11 +102,25 @@ jobs:
           pnpm run build:sdk
           git diff --exit-code sdk/generated/
 
+      # Step 12 — Shim-parity gate (ADVISORY in P1a per ADR-0020)
+      # The empty-baseline only catches structural drift; the load-bearing
+      # parity assertion is the per-module synthetic-data unit tests.
+      - name: Shim-parity gate (advisory)
+        continue-on-error: true
+        run: |
+          node tests/shim-parity/compare-baseline.js \
+            --safe-id ci-test \
+            --only positions,orders
+        env:
+          SAFE_ID: ci-test
+          DB_PATH: ./data/ci-test.db
+          PAPER_MODE: 'false'
+
       # Validate Renovate config — cheap gate; fails fast on Renovate config errors
       - name: Validate renovate.json
         run: npx --package renovate --yes -- renovate-config-validator renovate.json
 
-      # Step 12 — Secret scan
+      # Step 13 — Secret scan
       - name: Secret scan (legacy pre-commit-check)
         run: node scripts/pre-commit-check.js || echo '[skip] pre-commit-check.js requires node scripts deps'
 
@@ -109,12 +131,11 @@ jobs:
           base: ${{ github.event.repository.default_branch }}
           extra_args: --only-verified
 
-      # Step 15 — Codecov (informational in P0a; gate flips in P1)
+      # Step 15 — Codecov (ENFORCING from P1a per the codecov flip)
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6
-        continue-on-error: true
         with:
-          fail_ci_if_error: false
+          fail_ci_if_error: true
 
   # ---------------------------------------------------------------------------
   # 8: Integration tests (separate job — may need Redis service)
@@ -156,9 +177,13 @@ jobs:
       - name: Build (required for integration tests that spawn artifacts)
         run: pnpm build
 
-      # Step 8 — Integration tests
+      # Step 8 — Integration tests (includes parity tests)
       - name: Integration tests
         run: pnpm test:integration
+        env:
+          DATABASE_URL: file:./data/ci-test.db
+          PAPER_MODE: 'false'
+          AUTO_APPROVE_BUY: 'false'
 
   # ---------------------------------------------------------------------------
   # 13: Container build smoke test
