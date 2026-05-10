@@ -70,6 +70,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Generate Prisma client BEFORE typecheck so { Position, Order, ... }
+      # type-only imports from '@prisma/client' resolve. Defensive: install
+      # currently triggers it via @prisma/client postinstall, but pin
+      # explicitly so this step can't silently regress.
+      - name: Generate Prisma client
+        run: pnpm prisma generate
+
       # Step 5 — Typecheck
       - name: Typecheck
         run: pnpm typecheck
@@ -186,6 +193,13 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # Prisma generates per-project types from prisma/schema.prisma into
+      # node_modules/.prisma/client/. Repositories type-only-import { Position,
+      # Order, ... } from '@prisma/client' — without `prisma generate` those
+      # names don't exist and `tsc --build` fails.
+      - name: Generate Prisma client
+        run: pnpm prisma generate
 
       - name: Build (required for integration tests that spawn artifacts)
         run: pnpm build
