@@ -177,13 +177,16 @@ jobs:
       - name: Build (required for integration tests that spawn artifacts)
         run: pnpm build
 
-      # Step 8 — Integration tests (includes parity tests)
+      # Step 8 — Integration tests (includes parity tests + auth security suite)
       - name: Integration tests
         run: pnpm test:integration
         env:
           DATABASE_URL: file:./data/ci-test.db
+          DB_PATH: ./data/ci-test.db
           PAPER_MODE: 'false'
           AUTO_APPROVE_BUY: 'false'
+          # Activate the auth 401/403/400/200 suite (DoD §F + SPEC §14)
+          CCLAW_SECURITY_TESTS_ENABLED: '1'
 
   # ---------------------------------------------------------------------------
   # 13: Container build smoke test
