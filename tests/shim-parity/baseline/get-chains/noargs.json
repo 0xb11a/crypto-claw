@@ -1,0 +1,5 @@
+{
+  "active": ["base", "solana"],
+  "all": ["base", "ethereum", "solana"],
+  "_mode": "paper"
+}

@@ -1,0 +1,62 @@
+[
+  {
+    "agent": "research",
+    "check_type": "base_rebalance",
+    "last_run": null
+  },
+  {
+    "agent": "research",
+    "check_type": "conviction_scan",
+    "last_run": null
+  },
+  {
+    "agent": "research",
+    "check_type": "daily_summary",
+    "last_run": null
+  },
+  {
+    "agent": "research",
+    "check_type": "market_regime",
+    "last_run": null
+  },
+  {
+    "agent": "research",
+    "check_type": "narrative_check",
+    "last_run": null
+  },
+  {
+    "agent": "research",
+    "check_type": "narrative_deep_scan",
+    "last_run": null
+  },
+  {
+    "agent": "research",
+    "check_type": "portfolio_sync",
+    "last_run": null
+  },
+  {
+    "agent": "research",
+    "check_type": "rebalance_review",
+    "last_run": null
+  },
+  {
+    "agent": "research",
+    "check_type": "sentinel_alerts",
+    "last_run": null
+  },
+  {
+    "agent": "research",
+    "check_type": "smart_money_signals",
+    "last_run": null
+  },
+  {
+    "agent": "research",
+    "check_type": "token_scan",
+    "last_run": null
+  },
+  {
+    "agent": "research",
+    "check_type": "watchlist_check",
+    "last_run": null
+  }
+]
