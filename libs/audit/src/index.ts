@@ -1,2 +1,6 @@
-// Filled in by phase P1+ — see SPEC §6
-export {};
+export { AuditModule } from './audit.module.js';
+export { AuditService, type AuditWriteInput } from './audit.service.js';
+export { AuditRepository, type CreateAuditInput } from './audit.repository.js';
+export { AuditInterceptor } from './audit.interceptor.js';
+export { Audited } from './audited.decorator.js';
+export { canonicalJson } from './canonical-json.js';
