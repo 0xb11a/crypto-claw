@@ -1,2 +1,37 @@
-// Filled in by phase P1+ — see SPEC §6
-export {};
+export {
+  CHAINS,
+  PORTFOLIO_RULES,
+  getChain,
+  getActiveChains,
+  getAllChains,
+  getPortfolioRules,
+  getTierMaxUsd,
+  getSignerThreshold,
+  getQuarantineTokenAgeHours,
+  getCashToken,
+  getStablecoins,
+  getBaseTierTokens,
+  getAggregator,
+  isAllowedRouter,
+  isAllowedSwapProgram,
+  isAllowedAncillaryProgram,
+  isAllowedRpcUrl,
+  isEvm,
+  isSolana,
+} from './chains.js';
+
+export type {
+  Chain,
+  EvmChain,
+  SolanaChain,
+  BaseChainConfig,
+  PortfolioRules,
+  TierMaxUsd,
+  TokenConfig,
+  NativeTokenConfig,
+  RpcAllowlist,
+  EvmAggregatorConfig,
+  SolanaAggregatorConfig,
+  SafeConfig,
+  SquadsConfig,
+} from './chains.js';

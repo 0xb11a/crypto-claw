@@ -2,6 +2,7 @@ import { defineWorkspace } from 'vitest/config';
 
 export default defineWorkspace([
   // libs
+  'libs/chain/vitest.config.ts',
   'libs/config/vitest.config.ts',
   'libs/logger/vitest.config.ts',
   'libs/prisma/vitest.config.ts',
