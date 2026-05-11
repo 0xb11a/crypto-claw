@@ -67,11 +67,12 @@ function spawnNode(
   distPath: string,
   env: NodeJS.ProcessEnv,
   cwd?: string,
+  stdinData?: string,
 ): Promise<{ code: number | null; stderr: string; stdout: string }> {
   return new Promise((res) => {
     const child = spawn('node', [distPath], {
       env,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       ...(cwd ? { cwd } : {}),
     });
     let stderr = '';
@@ -85,6 +86,11 @@ function spawnNode(
     child.on('close', (code) => {
       res({ code, stderr, stdout });
     });
+    // Write stdin and close if provided; otherwise close immediately (empty stdin)
+    if (stdinData) {
+      child.stdin.write(stdinData);
+    }
+    child.stdin.end();
     // Kill after 10 s — NestJS apps with Redis may take a moment to fail
     setTimeout(() => child.kill('SIGKILL'), 10000);
   });
@@ -178,23 +184,72 @@ describe('apps/scheduler — config validation', () => {
 // executor — MUST allow signer keys (ADR-0010)
 // ---------------------------------------------------------------------------
 
+/**
+ * Minimal valid order for executor stdin (P1c-i).
+ * Provides enough fields for the executor to pass preflight checks.
+ */
+const VALID_EXECUTOR_ORDER = JSON.stringify({
+  id: 'boot-test-order-001',
+  action: 'buy',
+  symbol: 'ETH',
+  address: '0x0000000000000000000000000000000000000001',
+  chain: 'base',
+  amount: '100',
+  entry_price: 2000,
+  slippage_bps: 200,
+  tier: 'conviction',
+  expected_amount_out: 0.05,
+});
+
 describe('apps/executor — signer keys are permitted (ADR-0010)', () => {
-  it('exits 0 even when SAFE_SIGNER_KEY is set', async () => {
-    const result = await spawnNode(DIST.executor, {
-      ...VALID_ENV,
-      SAFE_SIGNER_KEY: 'some-signer-key',
-    });
-    expect(result.code).toBe(0);
+  it('does NOT emit signer-key rejection when SAFE_SIGNER_KEY is set', async () => {
+    // P1c-i: executor processes the order with signer key present.
+    // With EXECUTOR_STUB_MODE=1, it should produce a success receipt.
+    const result = await spawnNode(
+      DIST.executor,
+      {
+        ...VALID_ENV,
+        SAFE_SIGNER_KEY: 'some-signer-key-for-base-chain',
+        EXECUTOR_STUB_MODE: '1',
+      },
+      undefined,
+      VALID_EXECUTOR_ORDER,
+    );
     expect(result.stderr).not.toContain('[boot] signer keys must not be present');
+    const lines = result.stdout.trim().split('\n').filter(Boolean);
+    const lastLine = lines[lines.length - 1] ?? '{}';
+    const parsed = JSON.parse(lastLine) as { status: string };
+    expect(parsed.status).toBe('executed');
   });
 
-  it('exits 0 even when SQUADS_SIGNER_KEY is set', async () => {
-    const result = await spawnNode(DIST.executor, {
-      ...VALID_ENV,
-      SQUADS_SIGNER_KEY: 'some-signer-key',
+  it('does NOT emit signer-key rejection when SQUADS_SIGNER_KEY is set for Solana order', async () => {
+    const solanaOrder = JSON.stringify({
+      id: 'boot-test-order-sol-001',
+      action: 'buy',
+      symbol: 'SOL',
+      address: 'So11111111111111111111111111111111111111112',
+      chain: 'solana',
+      amount: '100',
+      entry_price: 150,
+      slippage_bps: 200,
+      tier: 'conviction',
+      expected_amount_out: 0.666,
     });
-    expect(result.code).toBe(0);
+    const result = await spawnNode(
+      DIST.executor,
+      {
+        ...VALID_ENV,
+        SQUADS_SIGNER_KEY: 'some-squads-signer-key-for-solana',
+        EXECUTOR_STUB_MODE: '1',
+      },
+      undefined,
+      solanaOrder,
+    );
     expect(result.stderr).not.toContain('[boot] signer keys must not be present');
+    const lines = result.stdout.trim().split('\n').filter(Boolean);
+    const lastLine = lines[lines.length - 1] ?? '{}';
+    const parsed = JSON.parse(lastLine) as { status: string };
+    expect(parsed.status).toBe('executed');
   });
 });
 
@@ -203,17 +258,29 @@ describe('apps/executor — config validation', () => {
     if (LOCAL_ENV_EXISTS) return;
     const env = { ...VALID_ENV };
     delete env.SAFE_ID;
-    const result = await spawnNode(DIST.executor, env);
+    const result = await spawnNode(DIST.executor, env, undefined, VALID_EXECUTOR_ORDER);
     expect(result.code).toBe(78);
     expect(result.stderr).toContain('[config] invalid env: SAFE_ID');
   });
 
-  it('prints P0 stub JSON on success', async () => {
-    const result = await spawnNode(DIST.executor, VALID_ENV);
+  it('prints stub JSON receipt on success with EXECUTOR_STUB_MODE=1', async () => {
+    // P1c-i: real executor produces a receipt via the stub path.
+    const result = await spawnNode(
+      DIST.executor,
+      {
+        ...VALID_ENV,
+        SAFE_SIGNER_KEY: 'test-evm-signer-key-for-base-chain',
+        EXECUTOR_STUB_MODE: '1',
+      },
+      undefined,
+      VALID_EXECUTOR_ORDER,
+    );
     expect(result.code).toBe(0);
-    const parsed = JSON.parse(result.stdout.trim());
-    expect(parsed.status).toBe('not_yet_implemented');
-    expect(parsed.phase).toBe('P0');
+    const lines = result.stdout.trim().split('\n').filter(Boolean);
+    const lastLine = lines[lines.length - 1] ?? '{}';
+    const parsed = JSON.parse(lastLine) as { status: string; tx_hash: string };
+    expect(parsed.status).toBe('executed');
+    expect(parsed.tx_hash).toMatch(/^0x[a-f0-9]{64}$/);
   });
 });
 
@@ -234,18 +301,26 @@ describe('apps/api — adversarial: empty SAFE_SIGNER_KEY must NOT reject (ADR-0
 });
 
 describe('apps/executor — adversarial: both signer keys set simultaneously (ADR-0010)', () => {
-  it('exits 0 when both SAFE_SIGNER_KEY and SQUADS_SIGNER_KEY are set', async () => {
+  it('exits 0 when both SAFE_SIGNER_KEY and SQUADS_SIGNER_KEY are set (P1c-i stub)', async () => {
     // Executor must not call assertNoSignerKeysInEnv at all. Setting both keys
-    // simultaneously must still result in exit 0 with the P0 stub JSON.
-    const result = await spawnNode(DIST.executor, {
-      ...VALID_ENV,
-      SAFE_SIGNER_KEY: 'some-safe-key',
-      SQUADS_SIGNER_KEY: 'some-squads-key',
-    });
+    // simultaneously must still result in exit 0 with a valid stub receipt.
+    const result = await spawnNode(
+      DIST.executor,
+      {
+        ...VALID_ENV,
+        SAFE_SIGNER_KEY: 'some-safe-key-for-base-chain',
+        SQUADS_SIGNER_KEY: 'some-squads-key-for-solana',
+        EXECUTOR_STUB_MODE: '1',
+      },
+      undefined,
+      VALID_EXECUTOR_ORDER,
+    );
     expect(result.code).toBe(0);
     expect(result.stderr).not.toContain('[boot] signer keys must not be present');
-    const parsed = JSON.parse(result.stdout.trim());
-    expect(parsed.status).toBe('not_yet_implemented');
+    const lines = result.stdout.trim().split('\n').filter(Boolean);
+    const lastLine = lines[lines.length - 1] ?? '{}';
+    const parsed = JSON.parse(lastLine) as { status: string };
+    expect(parsed.status).toBe('executed');
   });
 });
 
