@@ -147,8 +147,9 @@ describe('RouteWalkerService', () => {
     expect(processExitSpy).toHaveBeenCalledWith(78);
   });
 
-  it('emits the SPEC §4 #6 format error message naming the offending handler', () => {
+  it('emits the SPEC §4 #6 / ADR-0019 format: [boot] route <METHOD> <path> on <Controller>#<method> missing @Roles(...)', () => {
     const getHandler = makeHandler(GET);
+    Reflect.defineMetadata('path', '/test', getHandler);
     // Missing @Roles
 
     const ctrl = makeController('BadController', [{ name: 'list', handler: getHandler }]);
@@ -165,8 +166,8 @@ describe('RouteWalkerService', () => {
     const walker = makeWalker([ctrl]);
 
     expect(() => walker.onApplicationBootstrap()).toThrow();
-    expect(messages.join('')).toContain('[boot] route on BadController#list');
-    expect(messages.join('')).toContain('missing @Roles(...)');
+    // ADR-0019 format: [boot] route GET /test on BadController#list missing @Roles(...)
+    expect(messages.join('')).toContain('[boot] route GET /test on BadController#list missing @Roles(...)');
   });
 
   it('calls process.exit(78) when a DELETE handler is missing @Audited', () => {
