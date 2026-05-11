@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '@cclaw/auth';
@@ -29,6 +30,7 @@ export class HealthController {
   /** Liveness probe — returns 200 if the process is alive. */
   @Get('healthz')
   @Roles('agent', 'dashboard')
+  @SkipThrottle()
   @ApiOperation({ summary: 'Liveness probe' })
   @ApiResponse({ status: 200, description: 'Service is alive' })
   liveness() {
@@ -38,6 +40,7 @@ export class HealthController {
   /** Readiness probe — checks Prisma connectivity. */
   @Get('readyz')
   @Roles('agent', 'dashboard')
+  @SkipThrottle()
   @HealthCheck()
   @ApiOperation({ summary: 'Readiness probe' })
   @ApiResponse({ status: 200, description: 'Service is ready' })

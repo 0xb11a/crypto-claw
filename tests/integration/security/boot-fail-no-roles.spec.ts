@@ -85,9 +85,8 @@ describe('RouteWalkerService — SPEC §4 #3 boot-fail integration (ADR-0019)', 
       stderrSpy.mockRestore();
     }
 
-    // SPEC §4 #6 / ADR-0019 format: [boot] route on <ControllerClass>#<method> (path=…) missing @Roles(...)
-    expect(messages.join('')).toContain('[boot] route on OrdersController#propose');
-    expect(messages.join('')).toContain('missing @Roles(...)');
+    // ADR-0019 format (P1b): [boot] route <METHOD> <path> on <ControllerClass>#<method> missing @Roles(...)
+    expect(messages.join('')).toContain('on OrdersController#propose missing @Roles(...)');
   });
 
   it('exits 78 with the SPEC error format when a non-GET handler is missing @Audited', () => {
@@ -115,8 +114,7 @@ describe('RouteWalkerService — SPEC §4 #3 boot-fail integration (ADR-0019)', 
       stderrSpy.mockRestore();
     }
 
-    expect(messages.join('')).toContain('[boot] route on PositionsController#propose');
-    expect(messages.join('')).toContain('non-GET handler missing @Audited()');
+    expect(messages.join('')).toContain('on PositionsController#propose missing @Audited()');
   });
 
   it('does NOT exit when all handlers are properly decorated', () => {

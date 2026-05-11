@@ -13,7 +13,10 @@
       "@cclaw/audit": ["../../libs/audit/src/index.ts"],
       "@cclaw/health": ["../../libs/health/src/index.ts"],
       "@cclaw/positions": ["../../libs/modules/positions/src/index.ts"],
-      "@cclaw/orders": ["../../libs/modules/orders/src/index.ts"]
+      "@cclaw/orders": ["../../libs/modules/orders/src/index.ts"],
+      "@cclaw/receipts": ["../../libs/modules/receipts/src/index.ts"],
+      "@cclaw/alerts": ["../../libs/modules/alerts/src/index.ts"],
+      "@cclaw/heartbeat": ["../../libs/modules/heartbeat/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
@@ -26,6 +29,9 @@
     { "path": "../../libs/audit" },
     { "path": "../../libs/health" },
     { "path": "../../libs/modules/positions" },
-    { "path": "../../libs/modules/orders" }
+    { "path": "../../libs/modules/orders" },
+    { "path": "../../libs/modules/receipts" },
+    { "path": "../../libs/modules/alerts" },
+    { "path": "../../libs/modules/heartbeat" }
   ]
 }

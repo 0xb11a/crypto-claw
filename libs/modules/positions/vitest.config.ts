@@ -7,7 +7,11 @@ export default defineConfig({
     environment: 'node',
     coverage: {
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.spec.ts'],
+      exclude: [
+        'src/**/*.spec.ts',
+        // SPEC §14 / P1b OPEN-T — DTO files are decorator metadata only; excluded from coverage
+        'src/**/dto/**',
+      ],
     },
   },
 });

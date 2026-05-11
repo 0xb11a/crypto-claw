@@ -27,6 +27,14 @@ export class PrismaModule {
    * Configure Prisma with a specific DB path from AppConfig.
    *
    * @param dbPath - Resolved DB path from AppConfig.DB_PATH (e.g. ./data/myfund.db)
+   *
+   * @warning This method silently overwrites `process.env.DATABASE_URL` and
+   * `process.env.PRISMA_DISABLE_DOTENV` at call time. If a test or another module
+   * already set `DATABASE_URL` to a different value, it will be overridden.
+   * The override happens synchronously at module-import time (before NestFactory.create),
+   * so the first call wins when multiple test suites share a process. To avoid
+   * cross-test contamination, reset `process.env.DATABASE_URL` in `afterAll()` when
+   * testing against a different DB path in the same process (P1b OPEN-X).
    */
   static register(dbPath: string): DynamicModule {
     // Set DATABASE_URL before PrismaService instantiates PrismaClient.
