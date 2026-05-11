@@ -596,6 +596,12 @@ importers:
       '@cclaw/prisma':
         specifier: workspace:*
         version: link:../../prisma
+      '@cclaw/receipts':
+        specifier: workspace:*
+        version: link:../receipts
+      '@nestjs/bullmq':
+        specifier: ^10.0.0
+        version: 10.2.3(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(bullmq@5.76.7)
       '@nestjs/common':
         specifier: ^10.0.0
         version: 10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -608,6 +614,9 @@ importers:
       '@nestjs/swagger':
         specifier: ^7.0.0
         version: 7.4.2(@fastify/static@7.0.4)(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)
+      bullmq:
+        specifier: ^5.0.0
+        version: 5.76.7
       class-transformer:
         specifier: ^0.5.1
         version: 0.5.1

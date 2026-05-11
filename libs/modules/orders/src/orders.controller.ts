@@ -5,8 +5,10 @@ import { Audited } from '@cclaw/audit';
 import { OrdersService } from './orders.service.js';
 import { ProposeOrderDto } from './dto/propose-order.dto.js';
 import { ApproveOrderDto, RejectOrderDto, CancelOrderDto, RetryOrderDto } from './dto/order-state-change.dto.js';
+import { ExecuteOrderDto } from './dto/execute-order.dto.js';
 import { OrderListQueryDto } from './dto/order-list-query.dto.js';
 import type { OrderListResponseDto, OrderResponseDto } from './dto/order-response.dto.js';
+import type { ExecuteOrderAcceptedDto } from './dto/execute-order-response.dto.js';
 
 /**
  * Orders controller — HTTP surface for the orders module (SPEC §5).
@@ -19,7 +21,7 @@ import type { OrderListResponseDto, OrderResponseDto } from './dto/order-respons
  *   POST /v1/orders/:id/reject      - reject (agent only) @Audited
  *   POST /v1/orders/:id/cancel      - cancel (agent only) @Audited
  *   POST /v1/orders/:id/retry       - retry (agent only) @Audited
- *   POST /v1/orders/:id/execute     - execute (DEFERRED to P1c per ADR-0010)
+ *   POST /v1/orders/:id/execute     - execute (agent only) @Audited — P1c-i
  *
  * Every handler has @Roles(…). Every non-GET has @Audited().
  */
@@ -108,5 +110,20 @@ export class OrdersController {
   @ApiResponse({ status: 409, description: 'Only failed orders can be retried' })
   retry(@Param('id') id: string, @Body() dto: RetryOrderDto): Promise<OrderResponseDto> {
     return this.svc.retry(id, dto);
+  }
+
+  @Post(':id/execute')
+  @Roles('agent')
+  @Audited()
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Execute an approved order (enqueues BullMQ job in real mode; short-circuits in paper mode)',
+  })
+  @ApiParam({ name: 'id', description: 'Order ID' })
+  @ApiResponse({ status: 202, description: 'Order execution enqueued (real mode) or completed (paper mode)' })
+  @ApiResponse({ status: 404, description: 'Order not found' })
+  @ApiResponse({ status: 409, description: 'Order not in approved status' })
+  execute(@Param('id') id: string, @Body() _dto: ExecuteOrderDto): Promise<ExecuteOrderAcceptedDto> {
+    return this.svc.execute(id);
   }
 }
