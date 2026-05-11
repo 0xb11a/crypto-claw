@@ -7,3 +7,5 @@ export { Identities, IDENTITIES_KEY } from './identities.decorator.js';
 export { IdentityRegistry, type AuthenticatedUser, type IdentityName, type RoleName } from './identity-registry.js';
 export { RouteWalkerService } from './route-walker.service.js';
 export { AUDITED_KEY } from './audited-key.js';
+export { AppThrottlerModule } from './app-throttler.module.js';
+export { AppThrottlerGuard } from './app-throttler-guard.js';

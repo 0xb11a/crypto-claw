@@ -185,6 +185,210 @@ ordersCmd
   });
 
 // -------------------------------------------------------------------------
+// receipts
+// -------------------------------------------------------------------------
+
+const receiptsCmd = program.command('receipts').description('Receipt operations');
+
+receiptsCmd
+  .command('list')
+  .description('List receipts')
+  .option('--status <status>', 'Filter by status')
+  .option('--mode <mode>', 'Portfolio mode (real|paper)', 'real')
+  .option('--limit <n>', 'Maximum results', '50')
+  .option('--cursor <cursor>', 'Pagination cursor')
+  .action(async (opts: { status?: string; mode?: string; limit?: string; cursor?: string }) => {
+    const params = new URLSearchParams();
+    if (opts.status) params.set('status', opts.status);
+    if (opts.mode) params.set('mode', opts.mode);
+    if (opts.limit) params.set('limit', opts.limit);
+    if (opts.cursor) params.set('cursor', opts.cursor);
+    const query = params.toString();
+    const data = await apiCall<unknown>('GET', `/receipts${query ? '?' + query : ''}`);
+    output(data);
+  });
+
+receiptsCmd
+  .command('get')
+  .description('Get a receipt by ID')
+  .requiredOption('--id <id>', 'Receipt ID')
+  .option('--mode <mode>', 'Portfolio mode (real|paper)', 'real')
+  .action(async (opts: { id: string; mode?: string }) => {
+    const params = new URLSearchParams();
+    if (opts.mode) params.set('mode', opts.mode);
+    const query = params.toString();
+    const data = await apiCall<unknown>('GET', `/receipts/${opts.id}${query ? '?' + query : ''}`);
+    output(data);
+  });
+
+receiptsCmd
+  .command('create')
+  .description('Create a receipt (executor writes execution records)')
+  .requiredOption('--json <body>', 'JSON body for the receipt')
+  .action(async (opts: { json: string }) => {
+    let body: unknown;
+    try {
+      body = JSON.parse(opts.json);
+    } catch {
+      process.stderr.write('[cclaw] Error: --json must be valid JSON\n');
+      process.exit(1);
+    }
+    const data = await apiCall<unknown>('POST', '/receipts', body);
+    output(data);
+  });
+
+// -------------------------------------------------------------------------
+// alerts
+// -------------------------------------------------------------------------
+
+const alertsCmd = program.command('alerts').description('Alert operations');
+
+alertsCmd
+  .command('list')
+  .description('List sentinel alerts')
+  .option('--unprocessed', 'Show only unprocessed alerts')
+  .option('--limit <n>', 'Maximum results', '50')
+  .option('--cursor <cursor>', 'Pagination cursor')
+  .action(async (opts: { unprocessed?: boolean; limit?: string; cursor?: string }) => {
+    const params = new URLSearchParams();
+    if (opts.unprocessed) params.set('unprocessed', 'true');
+    if (opts.limit) params.set('limit', opts.limit);
+    if (opts.cursor) params.set('cursor', opts.cursor);
+    const query = params.toString();
+    const data = await apiCall<unknown>('GET', `/alerts${query ? '?' + query : ''}`);
+    output(data);
+  });
+
+alertsCmd
+  .command('get')
+  .description('Get an alert by ID')
+  .requiredOption('--id <id>', 'Alert ID')
+  .action(async (opts: { id: string }) => {
+    const data = await apiCall<unknown>('GET', `/alerts/${opts.id}`);
+    output(data);
+  });
+
+alertsCmd
+  .command('create')
+  .description('Create a sentinel alert')
+  .requiredOption('--json <body>', 'JSON body for the alert')
+  .action(async (opts: { json: string }) => {
+    let body: unknown;
+    try {
+      body = JSON.parse(opts.json);
+    } catch {
+      process.stderr.write('[cclaw] Error: --json must be valid JSON\n');
+      process.exit(1);
+    }
+    const data = await apiCall<unknown>('POST', '/alerts', body);
+    output(data);
+  });
+
+alertsCmd
+  .command('ack')
+  .description('Acknowledge a sentinel alert (idempotent)')
+  .requiredOption('--id <id>', 'Alert ID')
+  .option('--note <note>', 'Optional acknowledgment note')
+  .action(async (opts: { id: string; note?: string }) => {
+    const body: Record<string, string> = {};
+    if (opts.note) body['note'] = opts.note;
+    const data = await apiCall<unknown>('POST', `/alerts/${opts.id}/acknowledge`, body);
+    output(data);
+  });
+
+// -------------------------------------------------------------------------
+// heartbeat
+// -------------------------------------------------------------------------
+
+const heartbeatCmd = program.command('heartbeat').description('Heartbeat operations');
+
+heartbeatCmd
+  .command('list')
+  .description('List all heartbeat rows')
+  .option('--agent <agent>', 'Filter by agent name')
+  .action(async (opts: { agent?: string }) => {
+    const params = new URLSearchParams();
+    if (opts.agent) params.set('agent', opts.agent);
+    const query = params.toString();
+    const data = await apiCall<unknown>('GET', `/heartbeat${query ? '?' + query : ''}`);
+    output(data);
+  });
+
+heartbeatCmd
+  .command('get')
+  .description('Get heartbeat rows for a specific agent')
+  .requiredOption('--agent <agent>', 'Agent name')
+  .action(async (opts: { agent: string }) => {
+    const data = await apiCall<unknown>('GET', `/heartbeat/${opts.agent}`);
+    output(data);
+  });
+
+heartbeatCmd
+  .command('overdue')
+  .description('Get overdue checks for an agent')
+  .requiredOption('--agent <agent>', 'Agent name')
+  .action(async (opts: { agent: string }) => {
+    const data = await apiCall<unknown>('GET', `/heartbeat/${opts.agent}/overdue`);
+    output(data);
+  });
+
+heartbeatCmd
+  .command('ping')
+  .description('Ping (update) a heartbeat check')
+  .requiredOption('--agent <agent>', 'Agent name')
+  .requiredOption('--check <checkType>', 'Check type (e.g. price_check, process_orders)')
+  .action(async (opts: { agent: string; check: string }) => {
+    const data = await apiCall<unknown>('POST', `/heartbeat/${opts.agent}/${opts.check}/ping`, {});
+    output(data);
+  });
+
+// -------------------------------------------------------------------------
+// system (audit)
+// -------------------------------------------------------------------------
+
+const systemCmd = program.command('system').description('System operations');
+
+systemCmd
+  .command('audit')
+  .description('Query audit log entries')
+  .option('--identity <identity>', 'Filter by identity (e.g. RESEARCH, EXECUTOR)')
+  .option('--role <role>', 'Filter by role (agent|dashboard)')
+  .option('--method <method>', 'Filter by HTTP method')
+  .option('--path <path>', 'Substring match on path')
+  .option('--status <status>', 'Filter by HTTP status code')
+  .option('--since <since>', 'Return entries from this ISO timestamp')
+  .option('--until <until>', 'Return entries up to this ISO timestamp')
+  .option('--limit <n>', 'Maximum results', '100')
+  .option('--cursor <cursor>', 'Keyset cursor for pagination')
+  .action(
+    async (opts: {
+      identity?: string;
+      role?: string;
+      method?: string;
+      path?: string;
+      status?: string;
+      since?: string;
+      until?: string;
+      limit?: string;
+      cursor?: string;
+    }) => {
+      const params = new URLSearchParams();
+      if (opts.identity) params.set('identity', opts.identity);
+      if (opts.role) params.set('role', opts.role);
+      if (opts.method) params.set('method', opts.method);
+      if (opts.path) params.set('pathContains', opts.path);
+      if (opts.status) params.set('status', opts.status);
+      if (opts.since) params.set('since', opts.since);
+      if (opts.until) params.set('until', opts.until);
+      if (opts.limit) params.set('limit', opts.limit);
+      if (opts.cursor) params.set('cursor', opts.cursor);
+      const query = params.toString();
+      const data = await apiCall<unknown>('GET', `/system/audit${query ? '?' + query : ''}`);
+      output(data);
+    },
+  );
+
+// -------------------------------------------------------------------------
 // Run
 // -------------------------------------------------------------------------
 

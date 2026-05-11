@@ -318,9 +318,10 @@ if any handler:
 - Lacks `@Roles(...)` metadata.
 - Is a non-GET handler without `@Audited()` metadata.
 
-Boot-fail message format:
+Boot-fail message format (P1b aligned with ADR-0019 example):
 ```
-[boot] route on ControllerClass#methodName (path=/v1/...) missing @Roles(...)
+[boot] route GET /v1/orders on OrdersController#list missing @Roles(...)
+[boot] route POST /v1/orders on OrdersController#propose missing @Audited()
 ```
 
 Exit code: **78** (EX_CONFIG). This matches the config-validation boot-fail format.
@@ -404,6 +405,114 @@ As of this PR, the Codecov gate is enforcing (not advisory):
 - `codecov.yml` has no `if_no_uploads: pass`.
 - `pr.yml` step 15 (Upload coverage) has `fail_ci_if_error: true`.
 - Target: ≥80% line coverage on `libs/modules/positions/**` and `libs/modules/orders/**`.
+
+---
+
+## 0.8 P1b: Receipts, Alerts, Heartbeat, Audit query, Rate limits (P1b)
+
+### Rate Limits (SPEC §9.4, ADR-0021)
+
+All API routes are rate-limited per calling identity (not per IP). Quotas reset every 60 seconds.
+
+| Role | Quota | Named throttler |
+|------|-------|-----------------|
+| `agent` | 600 req / 60 s | `agent` |
+| `dashboard` | 60 req / 60 s | `dashboard` |
+
+- `/healthz` and `/readyz` are **exempt** (`@SkipThrottle()`).
+- Exceeding the quota returns HTTP 429 with a structured log line at `warn` level:
+  `{ msg: 'rate_limited', tracker: <identity>, role: <role>, path: <url>, throttlerName: <name> }`.
+- Counters are in-process (no Redis) and reset on API restart (ADR-0021 § Consequences).
+
+**Diagnosing a 429 in development:**
+
+```bash
+docker compose logs api | grep rate_limited
+```
+
+**Bumping limits for local testing** (not for production): edit `libs/auth/src/app-throttler.module.ts`, change `limit` in the named throttler config, rebuild.
+
+### Coverage Exclusions (SPEC §14, OPEN-T)
+
+DTO files under `src/**/dto/**` are excluded from coverage in every module's `vitest.config.ts`. These files contain only `class-validator` decorators and `@ApiProperty` metadata — no executable logic. The exclusion is intentional and documented as `// SPEC §14 / P1b OPEN-T — DTO files are decorator metadata only; excluded from coverage`.
+
+If a DTO gains non-trivial logic (e.g., a `transform()` method), the exclusion should be removed from that file and a unit test added.
+
+### Audit log query (SPEC §9.5, ADR-0018)
+
+The audit log is queryable via the API (P1b adds `GET /v1/system/audit`):
+
+```bash
+# Last 100 entries by default
+cclaw system audit
+
+# Filter by identity
+cclaw system audit --identity EXECUTOR --since 2h
+
+# Filter by HTTP method and status
+cclaw system audit --method POST --status 201 --limit 200
+
+# Paginate through a large result set (keyset pagination)
+cclaw system audit --limit 50 --cursor <last-id-from-previous-page>
+```
+
+The audit table name is `service_audit`. Fields: `id`, `ts`, `identity`, `role`, `method`, `path`, `body_sha256`, `body_redacted`, `status`, `latency_ms`, `error_kind`.
+
+**Direct DB query (bypasses auth, for emergencies):**
+
+```bash
+DATABASE_URL="file:./data/<SAFE_ID>.db" node -e "
+  const { PrismaClient } = require('@prisma/client');
+  const p = new PrismaClient();
+  p.serviceAudit.findMany({
+    where: { identity: 'EXECUTOR' },
+    orderBy: { ts: 'desc' },
+    take: 20
+  }).then(rows => { console.log(JSON.stringify(rows, null, 2)); p.\$disconnect(); });
+"
+```
+
+### cclaw CLI — P1b commands (12 new commands)
+
+```bash
+# Receipts
+cclaw receipts list [--status <status>] [--mode real|paper] [--limit <n>]
+cclaw receipts get --id <id> [--mode real|paper]
+cclaw receipts create --json '<json body>'
+
+# Alerts
+cclaw alerts list [--unprocessed] [--limit <n>]
+cclaw alerts get --id <id>
+cclaw alerts create --json '<json body>'
+cclaw alerts ack --id <id> [--note <text>]
+
+# Heartbeat
+cclaw heartbeat list [--agent <name>]
+cclaw heartbeat get --agent <name>
+cclaw heartbeat overdue --agent <name>
+cclaw heartbeat ping --agent <name> --check <checkType>
+
+# System audit
+cclaw system audit [--identity <name>] [--role agent|dashboard] [--method <verb>]
+  [--path <substring>] [--status <code>] [--since <ISO>] [--until <ISO>]
+  [--limit <n>] [--cursor <id>]
+```
+
+### Swagger UI auth (SPEC §11, ADR-0022)
+
+`/v1/docs` and `/v1/openapi.json` require an `agent`-role bearer token. Requests without a valid token receive HTTP 401:
+
+```
+{"error":{"code":"unauthorized","message":"Swagger UI requires agent role bearer token"}}
+```
+
+To access Swagger UI locally:
+
+```bash
+curl -H "Authorization: Bearer $CCLAW_API_TOKEN" http://127.0.0.1:7878/v1/docs
+```
+
+The auth is implemented via a Fastify `onRequest` hook registered before `SwaggerModule.setup()` (ADR-0022 — enforce path taken).
 
 ---
 

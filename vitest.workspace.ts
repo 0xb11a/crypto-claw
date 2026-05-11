@@ -10,6 +10,9 @@ export default defineWorkspace([
   'libs/health/vitest.config.ts',
   'libs/modules/positions/vitest.config.ts',
   'libs/modules/orders/vitest.config.ts',
+  'libs/modules/receipts/vitest.config.ts',
+  'libs/modules/alerts/vitest.config.ts',
+  'libs/modules/heartbeat/vitest.config.ts',
   // apps
   'apps/api/vitest.config.ts',
   'apps/worker/vitest.config.ts',

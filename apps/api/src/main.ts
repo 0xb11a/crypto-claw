@@ -4,7 +4,9 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { assertNoSignerKeysInEnv, assertConfigValid } from '@cclaw/config';
+import { IdentityRegistry } from '@cclaw/auth';
 import { AppModule } from './app.module.js';
+import { registerSwaggerGuard } from './swagger-guard.js';
 
 /**
  * Bootstrap the CryptoClaw API server.
@@ -13,9 +15,10 @@ import { AppModule } from './app.module.js';
  * 1. assertNoSignerKeysInEnv — exits non-zero if signer keys are present (ADR-0010)
  * 2. assertConfigValid — exits 78 (EX_CONFIG) if env is invalid (SPEC §4 #6)
  * 3. Create NestJS app with Fastify adapter
- * 4. Swagger setup — /v1/docs (UI) + /v1/openapi.json (raw JSON)
- * 5. Apply global prefix, bind 127.0.0.1:7878 (ADR-0006)
- * 6. Log readiness
+ * 4. Register Swagger UI auth hook BEFORE SwaggerModule.setup() (SPEC §11, ADR-0022)
+ * 5. Swagger setup — /v1/docs (UI) + /v1/openapi.json (raw JSON)
+ * 6. Apply global prefix, bind 127.0.0.1:7878 (ADR-0006)
+ * 7. Log readiness
  */
 async function bootstrap(): Promise<void> {
   // Step 1 — signer-key isolation check (SPEC §4 #4, ADR-0010)
@@ -30,11 +33,14 @@ async function bootstrap(): Promise<void> {
     bufferLogs: true,
   });
 
-  // Step 4 — Swagger (SPEC §11: /v1/docs + /v1/openapi.json, both behind agent auth)
-  // Note: auth is enforced by the global BearerAuthGuard + @Roles decorators on
-  // HealthController; Swagger UI and raw JSON endpoint are served by NestJS at
-  // the application level and are NOT behind the auth guard by default.
-  // This is acceptable because the API is localhost-only (ADR-0006).
+  // Step 4 — Swagger UI auth hook (SPEC §11, ADR-0022).
+  // Must run BEFORE SwaggerModule.setup() so the hook intercepts Swagger routes.
+  // Resolve IdentityRegistry from the DI container (already built in AppModule → AuthModule).
+  const registry = app.get(IdentityRegistry);
+  const fastifyInstance = app.getHttpAdapter().getInstance();
+  registerSwaggerGuard(fastifyInstance, registry);
+
+  // Step 5 — Swagger (SPEC §11: /v1/docs + /v1/openapi.json, both behind agent auth via hook above)
   const swaggerConfig = new DocumentBuilder()
     .setTitle('CryptoClaw')
     .setDescription('CryptoClaw API — auto-generated from controllers + DTOs')
@@ -49,7 +55,7 @@ async function bootstrap(): Promise<void> {
     res.send(document);
   });
 
-  // Step 5 — global prefix + binding (ADR-0006: localhost-only)
+  // Step 6 — global prefix + binding (ADR-0006: localhost-only)
   app.setGlobalPrefix('v1', {
     // Exclude health routes from /v1 prefix (they're top-level)
     exclude: ['healthz', 'readyz'],
@@ -61,7 +67,7 @@ async function bootstrap(): Promise<void> {
     process.exit(0);
   });
 
-  // Step 6 — listen on 127.0.0.1 only (ADR-0006)
+  // Step 7 — listen on 127.0.0.1 only (ADR-0006)
   await app.listen(7878, '127.0.0.1');
 
   // Log readiness — literal string checked in acceptance tests
