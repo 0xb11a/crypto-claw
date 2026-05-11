@@ -4,12 +4,16 @@ import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '@cclaw/auth';
 import { PrismaHealthIndicator } from './prisma-health.indicator.js';
+import { RedisHealthIndicator } from './redis-health.indicator.js';
+import { ExecutorHealthIndicator } from './executor-health.indicator.js';
 
 /**
  * Health check controller (SPEC §11).
  *
  * /healthz — liveness (always returns 200 if the process is running)
- * /readyz  — readiness (checks Prisma connectivity)
+ * /readyz  — readiness (checks Prisma + Redis + executor binary)
+ *
+ * P1c-i adds Redis ping and executor binary presence to /readyz.
  *
  * Both routes carry @Roles('agent', 'dashboard') as required by the
  * default-deny invariant (SPEC §4 #3). They are exempt from @Audited()
@@ -26,6 +30,8 @@ export class HealthController {
   constructor(
     private readonly health: HealthCheckService,
     private readonly prismaIndicator: PrismaHealthIndicator,
+    private readonly redisIndicator: RedisHealthIndicator,
+    private readonly executorIndicator: ExecutorHealthIndicator,
   ) {}
 
   /** Liveness probe — returns 200 if the process is alive. */
@@ -38,7 +44,12 @@ export class HealthController {
     return { status: 'ok' };
   }
 
-  /** Readiness probe — checks Prisma connectivity. */
+  /**
+   * Readiness probe — checks Prisma, Redis, and executor binary.
+   *
+   * Returns 503 if any check fails (BullMQ queue won't work without Redis;
+   * no orders can be executed without the executor binary).
+   */
   @Get('readyz')
   @Roles('agent', 'dashboard')
   @SkipThrottle({ agent: true, dashboard: true })
@@ -47,6 +58,10 @@ export class HealthController {
   @ApiResponse({ status: 200, description: 'Service is ready' })
   @ApiResponse({ status: 503, description: 'Service is not ready' })
   readiness() {
-    return this.health.check([() => this.prismaIndicator.isHealthy('prisma')]);
+    return this.health.check([
+      () => this.prismaIndicator.isHealthy('prisma'),
+      () => this.redisIndicator.isHealthy('redis'),
+      () => Promise.resolve(this.executorIndicator.isHealthy('executor')),
+    ]);
   }
 }
