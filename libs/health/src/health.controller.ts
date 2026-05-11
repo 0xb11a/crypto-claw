@@ -15,9 +15,10 @@ import { PrismaHealthIndicator } from './prisma-health.indicator.js';
  * default-deny invariant (SPEC §4 #3). They are exempt from @Audited()
  * because they are GET-only health probes.
  *
- * Note: per SPEC §9.4, healthz/readyz are throttler-exempt. The ThrottlerGuard
- * is applied globally but these routes can be overridden with @SkipThrottle()
- * if/when the custom ThrottlerStorage is implemented in P1b.
+ * Note: per SPEC §9.4, healthz/readyz are throttler-exempt.
+ * @SkipThrottle({ agent: true, dashboard: true }) explicitly targets the two
+ * named throttlers. @SkipThrottle() with no args defaults to { default: true }
+ * in @nestjs/throttler v5, which targets a non-existent throttler and is a no-op.
  */
 @ApiTags('health')
 @Controller()
@@ -30,7 +31,7 @@ export class HealthController {
   /** Liveness probe — returns 200 if the process is alive. */
   @Get('healthz')
   @Roles('agent', 'dashboard')
-  @SkipThrottle()
+  @SkipThrottle({ agent: true, dashboard: true })
   @ApiOperation({ summary: 'Liveness probe' })
   @ApiResponse({ status: 200, description: 'Service is alive' })
   liveness() {
@@ -40,7 +41,7 @@ export class HealthController {
   /** Readiness probe — checks Prisma connectivity. */
   @Get('readyz')
   @Roles('agent', 'dashboard')
-  @SkipThrottle()
+  @SkipThrottle({ agent: true, dashboard: true })
   @HealthCheck()
   @ApiOperation({ summary: 'Readiness probe' })
   @ApiResponse({ status: 200, description: 'Service is ready' })
