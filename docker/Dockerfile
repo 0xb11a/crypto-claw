@@ -55,6 +55,9 @@ COPY libs/portfolio/package.json libs/portfolio/
 COPY libs/execution/package.json libs/execution/
 COPY libs/modules/positions/package.json libs/modules/positions/
 COPY libs/modules/orders/package.json libs/modules/orders/
+COPY libs/modules/receipts/package.json libs/modules/receipts/
+COPY libs/modules/alerts/package.json libs/modules/alerts/
+COPY libs/modules/heartbeat/package.json libs/modules/heartbeat/
 COPY sdk/generated/package.json sdk/generated/
 COPY sdk/cclaw/package.json sdk/cclaw/
 COPY tests/integration/package.json tests/integration/

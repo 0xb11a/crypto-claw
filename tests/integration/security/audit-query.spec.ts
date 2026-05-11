@@ -16,7 +16,13 @@
 
 import { describe, it, expect } from 'vitest';
 
-const ENABLED = process.env['CCLAW_SECURITY_TESTS_ENABLED'] === '1';
+// Two gates: CCLAW_SECURITY_TESTS_ENABLED (opt-in) AND CCLAW_LIVE_API_AT_7878
+// (asserts a live API is reachable; this spec does NOT self-spawn one like
+// auth.spec.ts does — that's a P1c follow-up). In CI today, the integration job
+// sets CCLAW_SECURITY_TESTS_ENABLED=1 but no API is running, so this spec skips.
+const ENABLED =
+  process.env['CCLAW_SECURITY_TESTS_ENABLED'] === '1' &&
+  process.env['CCLAW_LIVE_API_AT_7878'] === '1';
 const API_BASE = process.env['CCLAW_API_BASE'] ?? 'http://127.0.0.1:7878';
 const RESEARCH_TOKEN = process.env['RESEARCH_API_KEY'] ?? '';
 const DASHBOARD_TOKEN = process.env['DASHBOARD_API_KEY'] ?? '';
