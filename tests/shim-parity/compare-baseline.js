@@ -39,17 +39,22 @@ const BASELINE = resolve(import.meta.dirname, 'baseline');
 const MANIFEST = resolve(BASELINE, 'manifest.json');
 
 /**
- * Commands that have a P1a implementation in the new Prisma/cclaw path.
+ * Commands that have a P1a/P1b implementation in the new Prisma/cclaw path.
  * Keys are module names (--only values); values are db-query.js command prefixes.
  *
  * Update this list as each module ships:
  * - P1a: positions, orders
- * - P1b: receipts, alerts, heartbeat (deferred)
+ * - P1b: receipts, alerts, heartbeat, audit
  * - P2+: remaining modules (deferred)
  */
 const IMPLEMENTED_COMMANDS = {
   positions: ['get-positions', 'get-position'],
   orders: ['get-orders', 'get-order-history', 'get-order'],
+  receipts: ['get-receipts', 'get-receipt', 'get-paper-receipts'],
+  alerts: ['get-alerts'],
+  heartbeat: ['get-heartbeats', 'get-heartbeat', 'get-overdue-checks'],
+  // No legacy db-query command for audit; entry exists so --only audit is accepted
+  audit: [],
 };
 
 const argv = Object.fromEntries(
