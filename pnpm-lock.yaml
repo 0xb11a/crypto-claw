@@ -386,6 +386,10 @@ importers:
         version: 5.9.3
 
   libs/execution:
+    dependencies:
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -393,6 +397,9 @@ importers:
       typescript:
         specifier: ^5.5.0
         version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@22.19.18)
 
   libs/health:
     dependencies:
