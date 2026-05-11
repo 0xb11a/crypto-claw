@@ -142,4 +142,67 @@ describe('ReceiptsRepository', () => {
       expect(prisma.paperReceipt.count).toHaveBeenCalled();
     });
   });
+
+  describe('create() — real mode', () => {
+    it('creates a real receipt and returns mapped row', async () => {
+      const dto = {
+        order_id: 'order-1',
+        action: 'buy' as const,
+        symbol: 'ETH',
+        address: '0xabc',
+        chain: 'base',
+        status: 'executed',
+        amount: 100.0,
+        quantity: 0.05,
+        expected_price: 2000.0,
+        executed_price: 2005.0,
+      };
+      const result = await repo.create(dto);
+      expect(result.id).toBe('receipt-1');
+      expect(result.mode).toBe('real');
+      expect(prisma.receipt.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'buy',
+            symbol: 'ETH',
+            chain: 'base',
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('create() — paper mode', () => {
+    it('creates a paper receipt when mode=paper and expected_price is set', async () => {
+      const dto = {
+        order_id: 'order-2',
+        action: 'sell' as const,
+        symbol: 'SOL',
+        address: 'So111',
+        chain: 'solana',
+        status: 'executed',
+        mode: 'paper' as const,
+        expected_price: 100.0,
+        quantity: 2.0,
+        amount: 200.0,
+      };
+      const result = await repo.create(dto);
+      expect(result.mode).toBe('paper');
+      expect(prisma.paperReceipt.create).toHaveBeenCalled();
+    });
+
+    it('throws when mode=paper and expected_price is missing', async () => {
+      const dto = {
+        order_id: 'order-2',
+        action: 'sell' as const,
+        symbol: 'SOL',
+        address: 'So111',
+        chain: 'solana',
+        status: 'executed',
+        mode: 'paper' as const,
+        // expected_price intentionally omitted
+      };
+      await expect(repo.create(dto)).rejects.toThrow('paper receipts require expected_price as proposed_price');
+    });
+  });
 });
