@@ -279,6 +279,10 @@
         "required": ["order_id", "action", "symbol", "address", "chain", "status"],
         "type": "object"
       },
+      "ExecuteOrderDto": {
+        "properties": {},
+        "type": "object"
+      },
       "PingHeartbeatDto": {
         "properties": {
           "note": {
@@ -1148,6 +1152,50 @@
           }
         ],
         "summary": "Cancel an order",
+        "tags": ["orders"]
+      }
+    },
+    "/v1/orders/{id}/execute": {
+      "post": {
+        "operationId": "OrdersController_execute",
+        "parameters": [
+          {
+            "description": "Order ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecuteOrderDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Order execution enqueued (real mode) or completed (paper mode)"
+          },
+          "404": {
+            "description": "Order not found"
+          },
+          "409": {
+            "description": "Order not in approved status"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Execute an approved order (enqueues BullMQ job in real mode; short-circuits in paper mode)",
         "tags": ["orders"]
       }
     },

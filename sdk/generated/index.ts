@@ -17,6 +17,7 @@ export type { ClosePositionDto } from './models/ClosePositionDto';
 export type { CreateAlertDto } from './models/CreateAlertDto';
 export type { CreatePositionDto } from './models/CreatePositionDto';
 export type { CreateReceiptDto } from './models/CreateReceiptDto';
+export type { ExecuteOrderDto } from './models/ExecuteOrderDto';
 export type { PingHeartbeatDto } from './models/PingHeartbeatDto';
 export type { ProposeOrderDto } from './models/ProposeOrderDto';
 export type { RejectOrderDto } from './models/RejectOrderDto';

@@ -184,6 +184,16 @@ ordersCmd
     output(data);
   });
 
+ordersCmd
+  .command('execute')
+  .description('Execute an approved order (enqueues BullMQ job or simulates in paper mode)')
+  .requiredOption('--id <id>', 'Order ID to execute')
+  .action(async (opts: { id: string }) => {
+    // POST with empty body — executor uses the order's stored data
+    const data = await apiCall<unknown>('POST', `/orders/${opts.id}/execute`, {});
+    output(data);
+  });
+
 // -------------------------------------------------------------------------
 // receipts
 // -------------------------------------------------------------------------
