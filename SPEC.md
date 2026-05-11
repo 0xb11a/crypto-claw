@@ -453,8 +453,20 @@ Authoritative phase definitions live in the implementation plan. Headline:
 - **P-prep** — SPEC + ADRs + env examples + baseline + runbook stub + DoD. (This document is part of P-prep.)
 - **P0** — Monorepo scaffolding + CI pipeline.
 - **P1** — Prisma schema + first 5 modules (positions/orders/receipts/alerts/heartbeat) + auth foundation.
+  - **P1a** — Positions + Orders + auth + audit + shim-parity baseline.
+  - **P1b** — Receipts + Alerts + Heartbeat + rate limiting + Swagger UI auth.
+  - **P1c-i** — Executor wiring + stub binary + BullMQ `execute-order` queue + signer-isolation enforcement.
+    **Rephase note:** Executor isolation was originally scheduled for P3 (SPEC §3's
+    "No rewrite of `apps/executor`" note). It was accelerated to P1c-i because
+    (a) the orders state machine (`approved → executing → executed`) couldn't be
+    demonstrated without some executor invocation, and (b) the signer-isolation
+    test infrastructure (ADR-0023) is a prerequisite for all P1c-ii/iii real-SDK
+    work. P1c-i ships with a deterministic stub (EXECUTOR_STUB_MODE=1); P1c-ii
+    wires the real Safe SDK; P1c-iii wires the real Squads SDK.
+  - **P1c-ii** — Real Safe SDK (EVM) in executor (deferred; ADR-0024 captures the per-Safe concurrency upgrade).
+  - **P1c-iii** — Real Squads SDK (Solana) in executor (deferred).
 - **P2** — Remaining DB-backed modules + cclaw covers all 79 db-query commands.
-- **P3** — External-adapter modules + worker jobs + executor isolation.
+- **P3** — External-adapter modules + worker jobs. *(Executor isolation moved to P1c-i.)*
 - **P4** — Cutover: agent markdown swept; entrypoint.sh simplified.
 - **P5** — Legacy deletion (`scripts/*` removed).
 - **P6** — Deployment hardening (release flow, signing verification, backup drill).

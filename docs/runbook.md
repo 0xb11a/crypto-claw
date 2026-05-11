@@ -516,6 +516,134 @@ The auth is implemented via a Fastify `onRequest` hook registered before `Swagge
 
 ---
 
+## 0.9 P1c-i: Executor wiring + stub mode (P1c-i)
+
+This section covers the executor subprocess wiring introduced in P1c-i.
+
+### Signer key setup (ADR-0023)
+
+Signer keys must live in `secrets/signer.env` (mode 0400), NOT in `.env.runtime`.
+The worker container bind-mounts this file read-only at `/run/secrets/signer.env`.
+
+**First-time setup:**
+
+```bash
+# Copy the example file
+cp secrets/signer.env.example secrets/signer.env
+
+# Set strict permissions (required)
+chmod 0400 secrets/signer.env
+
+# Edit with your real keys (or leave stub values for local dev with EXECUTOR_STUB_MODE=1)
+# SAFE_SIGNER_KEY=<64-char hex private key for EVM Safe>
+# SQUADS_SIGNER_KEY=<base58-encoded Solana keypair for Squads>
+```
+
+**Verify permissions:**
+
+```bash
+stat -c '%a %n' secrets/signer.env  # should show: 400 secrets/signer.env
+```
+
+### Stub mode (P1c-i development)
+
+Set `EXECUTOR_STUB_MODE=1` in `.env.runtime` (or in `docker-compose.dev.yml`)
+to run with fake receipts. The executor will output a deterministic tx_hash
+derived from the order ID without touching any blockchain.
+
+**Warning: you will see this log on every executor spawn:**
+
+```
+[WARN] ===================================================
+[WARN] EXECUTOR_STUB_MODE=true — NO REAL TRADES WILL EXECUTE
+[WARN] Do NOT run with this flag in production!
+[WARN] ===================================================
+```
+
+This is intentional. If you see this in production, flip `EXECUTOR_STUB_MODE=0`
+and restart the worker.
+
+### Executing an order
+
+```bash
+# 1. Propose an order
+cclaw orders propose --json '{"action":"buy","symbol":"ETH","address":"0x...","chain":"base","amount":"100"}'
+
+# 2. Approve it (or wait for auto-approve if AUTO_APPROVE_BUY=true)
+cclaw orders approve --id <order-id>
+
+# 3. Execute it (enqueues BullMQ job; worker spawns executor child)
+cclaw orders execute --id <order-id>
+
+# 4. Check the result
+cclaw orders get --id <order-id>    # status should become 'executed' or 'failed'
+cclaw receipts list --limit 5      # latest receipts
+```
+
+### Retrying a stuck 'executing' order
+
+If the worker crashes mid-execution, an order can get stuck in `status='executing'`.
+BullMQ retries the job automatically (up to 3 times with exponential backoff).
+If you need to manually intervene:
+
+```bash
+# 1. Check if a job is still in the queue
+#    (use redis-cli or a BullMQ dashboard like bull-board)
+
+# 2. If the job is gone but the order is stuck, retry it
+cclaw orders retry --id <order-id>   # re-approves it; worker will re-execute
+
+# 3. Or cancel it
+cclaw orders cancel --id <order-id> --reason "manual intervention"
+```
+
+### Upgrading stub → real (P1c-ii)
+
+P1c-ii replaces `libs/execution/execute-trade-stub.ts` with the real Safe SDK
+implementation. When it lands:
+
+1. Set `EXECUTOR_STUB_MODE=0` (or remove the var — default is false).
+2. Ensure `secrets/signer.env` has real key values (not stub values).
+3. Restart the worker container.
+4. Verify `/readyz` → executor binary check passes.
+
+### /readyz executor checks
+
+```bash
+# Check readiness (executor binary + Redis + Prisma)
+curl -s -H "Authorization: Bearer $CCLAW_API_TOKEN" http://127.0.0.1:7878/readyz | jq .
+```
+
+Expected response when healthy:
+
+```json
+{
+  "status": "ok",
+  "info": {
+    "prisma": {"status": "up"},
+    "redis": {"status": "up"},
+    "executor": {"status": "up", "path": "/app/apps/executor/dist/main.js"}
+  }
+}
+```
+
+If `executor.status` is `"down"`: the binary is missing at the configured path.
+Check `EXECUTOR_BIN_PATH` in your env or run `pnpm build`.
+
+### Worker audit log convention
+
+Worker jobs write `service_audit` rows with the `worker:` path prefix:
+
+```bash
+# Query worker audit rows
+cclaw system audit --path worker:execute-order
+```
+
+The `path` field format: `worker:execute-order:<order-id>`.
+This distinguishes worker jobs from HTTP audit entries in postmortems.
+
+---
+
 ## 1. Provisioning a fresh host
 
 [TBD — fills in during P6]
