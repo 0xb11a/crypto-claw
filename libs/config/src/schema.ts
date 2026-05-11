@@ -14,7 +14,10 @@ const MIN_KEY_LEN = 16;
 function apiKey(minLen = MIN_KEY_LEN) {
   return z
     .string()
-    .min(minLen, `must be at least ${minLen} characters (generate with: openssl rand -base64 32 | tr -d '/+=' | head -c 32)`);
+    .min(
+      minLen,
+      `must be at least ${minLen} characters (generate with: openssl rand -base64 32 | tr -d '/+=' | head -c 32)`,
+    );
 }
 
 /**
@@ -113,6 +116,38 @@ export const envSchema = z.object({
     .default('false'),
 
   // --------------------------------------------------------------------------
+  // Executor subprocess — consumed by apps/worker (SPEC §4 #4, ADR-0023)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Absolute path to the executor binary (apps/executor/dist/main.js).
+   * Optional — defaults are resolved at runtime by libs/execution/executor-path.ts.
+   * Override via EXECUTOR_BIN_PATH in .env.runtime for non-standard layouts.
+   */
+  EXECUTOR_BIN_PATH: z.string().optional(),
+
+  /**
+   * Stub mode flag for apps/executor.
+   * When '1', the executor returns deterministic fake receipts instead of
+   * making real Safe/Squads transactions. Must be '0' or unset in production.
+   *
+   * Default: false (production-safe default — stub mode must be opted in).
+   */
+  EXECUTOR_STUB_MODE: z
+    .enum(['1', '0', 'true', 'false', ''])
+    .transform((v) => v === '1' || v === 'true')
+    .default('0'),
+
+  /**
+   * Path to the signer env file (mode 0400).
+   * The worker reads this file at spawn time to inject SAFE_SIGNER_KEY and
+   * SQUADS_SIGNER_KEY into the executor child's env.
+   *
+   * Default: /run/secrets/signer.env (Docker bind-mount path per ADR-0023).
+   */
+  SIGNER_ENV_FILE: z.string().default('/run/secrets/signer.env'),
+
+  // --------------------------------------------------------------------------
   // Runtime behaviour — consumed by libs/logger (SPEC §11)
   // --------------------------------------------------------------------------
 
@@ -120,17 +155,13 @@ export const envSchema = z.object({
    * Pino log level. Default 'info'.
    * Controls verbosity across all NestJS apps at runtime.
    */
-  LOG_LEVEL: z
-    .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace'])
-    .default('info'),
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
   /**
    * Node runtime environment. Default 'development'.
    * Used by libs/logger to select pino-pretty transport in non-production mode.
    */
-  NODE_ENV: z
-    .enum(['development', 'production', 'test'])
-    .default('development'),
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });
 
 /** Typed AppConfig shape derived from the Zod schema. */
