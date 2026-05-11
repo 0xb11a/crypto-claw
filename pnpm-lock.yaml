@@ -204,6 +204,9 @@ importers:
       '@cclaw/config':
         specifier: workspace:*
         version: link:../../libs/config
+      '@cclaw/execution':
+        specifier: workspace:*
+        version: link:../../libs/execution
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
