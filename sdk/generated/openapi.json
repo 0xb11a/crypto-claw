@@ -1,6 +1,15 @@
 {
   "components": {
     "schemas": {
+      "AcknowledgeAlertDto": {
+        "properties": {
+          "note": {
+            "description": "Optional acknowledgment note",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ApproveOrderDto": {
         "properties": {
           "by": {
@@ -51,6 +60,49 @@
           }
         },
         "required": ["exit_price"],
+        "type": "object"
+      },
+      "CreateAlertDto": {
+        "properties": {
+          "action": {
+            "description": "Recommended action",
+            "type": "string"
+          },
+          "alert_type": {
+            "description": "Alert type (stop_loss|take_profit|rug_warning|liquidity_drop|smart_money_exit|price_drop|price_spike|other)",
+            "type": "string"
+          },
+          "chain": {
+            "description": "Chain identifier",
+            "type": "string"
+          },
+          "current_price": {
+            "description": "Current price at alert time",
+            "type": "number"
+          },
+          "details": {
+            "description": "Detailed alert information",
+            "type": "string"
+          },
+          "sell_amount": {
+            "description": "Suggested sell amount",
+            "type": "string"
+          },
+          "severity": {
+            "description": "Severity level",
+            "enum": ["low", "medium", "high", "critical"],
+            "type": "string"
+          },
+          "symbol": {
+            "description": "Token symbol",
+            "type": "string"
+          },
+          "trigger_price": {
+            "description": "Price that triggered the alert",
+            "type": "number"
+          }
+        },
+        "required": ["symbol", "chain", "alert_type", "severity"],
         "type": "object"
       },
       "CreatePositionDto": {
@@ -133,6 +185,107 @@
           "stop_loss",
           "take_profit_levels"
         ],
+        "type": "object"
+      },
+      "CreateReceiptDto": {
+        "properties": {
+          "action": {
+            "description": "Trade action",
+            "enum": ["buy", "sell"],
+            "type": "string"
+          },
+          "address": {
+            "description": "Token contract address",
+            "type": "string"
+          },
+          "amount": {
+            "description": "Amount traded in USD",
+            "type": "number"
+          },
+          "chain": {
+            "description": "Chain identifier",
+            "type": "string"
+          },
+          "error": {
+            "description": "Error message if execution failed",
+            "type": "string"
+          },
+          "executed_price": {
+            "description": "Actual executed price",
+            "type": "number"
+          },
+          "expected_price": {
+            "description": "Expected price at order time",
+            "type": "number"
+          },
+          "gas_used": {
+            "description": "Gas used (as string for large integers)",
+            "type": "string"
+          },
+          "mode": {
+            "description": "Portfolio mode (real|paper)",
+            "enum": ["real", "paper"],
+            "type": "string"
+          },
+          "notes": {
+            "description": "Additional notes",
+            "type": "string"
+          },
+          "onchain_tx_hash": {
+            "description": "On-chain transaction hash",
+            "type": "string"
+          },
+          "order_id": {
+            "description": "Associated order ID",
+            "type": "string"
+          },
+          "position_id": {
+            "description": "Associated position ID",
+            "type": "string"
+          },
+          "quantity": {
+            "description": "Token quantity",
+            "type": "number"
+          },
+          "safe_nonce": {
+            "description": "Safe nonce used",
+            "type": "number"
+          },
+          "safe_tx_hash": {
+            "description": "Safe transaction hash (EVM)",
+            "type": "string"
+          },
+          "signatures_collected": {
+            "description": "Number of signatures collected",
+            "type": "number"
+          },
+          "signatures_required": {
+            "description": "Number of signatures required",
+            "type": "number"
+          },
+          "slippage": {
+            "description": "Price slippage percentage",
+            "type": "number"
+          },
+          "status": {
+            "description": "Receipt status",
+            "type": "string"
+          },
+          "symbol": {
+            "description": "Token symbol",
+            "type": "string"
+          }
+        },
+        "required": ["order_id", "action", "symbol", "address", "chain", "status"],
+        "type": "object"
+      },
+      "PingHeartbeatDto": {
+        "properties": {
+          "note": {
+            "description": "Optional note for this ping",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "ProposeOrderDto": {
@@ -479,6 +632,307 @@
         },
         "summary": "Readiness probe",
         "tags": ["health"]
+      }
+    },
+    "/v1/alerts": {
+      "get": {
+        "operationId": "AlertsController_list",
+        "parameters": [
+          {
+            "description": "Return only unprocessed alerts",
+            "in": "query",
+            "name": "unprocessed",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Filter by alert type",
+            "in": "query",
+            "name": "alertType",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by chain",
+            "in": "query",
+            "name": "chain",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum results (default 50, max 200)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Cursor for pagination (last alert id)",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of alerts"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List sentinel alerts",
+        "tags": ["alerts"]
+      },
+      "post": {
+        "operationId": "AlertsController_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAlertDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Alert created"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a sentinel alert",
+        "tags": ["alerts"]
+      }
+    },
+    "/v1/alerts/{id}": {
+      "get": {
+        "operationId": "AlertsController_getById",
+        "parameters": [
+          {
+            "description": "Alert ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alert found"
+          },
+          "404": {
+            "description": "Alert not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a sentinel alert by ID",
+        "tags": ["alerts"]
+      }
+    },
+    "/v1/alerts/{id}/acknowledge": {
+      "post": {
+        "operationId": "AlertsController_acknowledge",
+        "parameters": [
+          {
+            "description": "Alert ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcknowledgeAlertDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Alert acknowledged (or already acknowledged — idempotent)"
+          },
+          "404": {
+            "description": "Alert not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Acknowledge a sentinel alert (idempotent)",
+        "tags": ["alerts"]
+      }
+    },
+    "/v1/heartbeat": {
+      "get": {
+        "operationId": "HeartbeatController_list",
+        "parameters": [
+          {
+            "description": "Filter by agent name (research|sentinel|executor|observer|system)",
+            "in": "query",
+            "name": "agent",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of heartbeat rows"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List all heartbeat rows",
+        "tags": ["heartbeat"]
+      }
+    },
+    "/v1/heartbeat/{agent}": {
+      "get": {
+        "operationId": "HeartbeatController_getByAgent",
+        "parameters": [
+          {
+            "description": "Agent name",
+            "in": "path",
+            "name": "agent",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent heartbeat rows"
+          },
+          "404": {
+            "description": "Agent not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get heartbeat rows for a specific agent",
+        "tags": ["heartbeat"]
+      }
+    },
+    "/v1/heartbeat/{agent}/overdue": {
+      "get": {
+        "operationId": "HeartbeatController_getOverdue",
+        "parameters": [
+          {
+            "description": "Agent name",
+            "in": "path",
+            "name": "agent",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Overdue check status"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get overdue checks for an agent",
+        "tags": ["heartbeat"]
+      }
+    },
+    "/v1/heartbeat/{agent}/{checkType}/ping": {
+      "post": {
+        "operationId": "HeartbeatController_ping",
+        "parameters": [
+          {
+            "description": "Agent name",
+            "in": "path",
+            "name": "agent",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Check type (e.g. price_check, process_orders)",
+            "in": "path",
+            "name": "checkType",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PingHeartbeatDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Heartbeat updated"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ping (update) a heartbeat check",
+        "tags": ["heartbeat"]
       }
     },
     "/v1/orders": {
@@ -1062,6 +1516,297 @@
         ],
         "summary": "Close a position",
         "tags": ["positions"]
+      }
+    },
+    "/v1/receipts": {
+      "get": {
+        "operationId": "ReceiptsController_list",
+        "parameters": [
+          {
+            "description": "Filter by status",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Portfolio mode (real|paper)",
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "enum": ["real", "paper"],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter receipts created after this ISO timestamp",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter receipts created before this ISO timestamp",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by order ID",
+            "in": "query",
+            "name": "orderId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum results (default 50, max 200)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Cursor for pagination (last receipt id)",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of receipts"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List receipts",
+        "tags": ["receipts"]
+      },
+      "post": {
+        "operationId": "ReceiptsController_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReceiptDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Receipt created"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a receipt (executor writes execution records)",
+        "tags": ["receipts"]
+      }
+    },
+    "/v1/receipts/{id}": {
+      "get": {
+        "operationId": "ReceiptsController_getById",
+        "parameters": [
+          {
+            "description": "Receipt ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mode",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Receipt found"
+          },
+          "404": {
+            "description": "Receipt not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a receipt by ID",
+        "tags": ["receipts"]
+      }
+    },
+    "/v1/system/audit": {
+      "get": {
+        "operationId": "AuditController_list",
+        "parameters": [
+          {
+            "description": "Filter by identity (e.g. RESEARCH, EXECUTOR)",
+            "in": "query",
+            "name": "identity",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by role (agent|dashboard)",
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "enum": ["agent", "dashboard"],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by HTTP method",
+            "in": "query",
+            "name": "method",
+            "required": false,
+            "schema": {
+              "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Substring match on path",
+            "in": "query",
+            "name": "pathContains",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by HTTP status code",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "description": "Return entries from this ISO timestamp onward",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Return entries up to this ISO timestamp",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum results (default 100, max 1000)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Keyset cursor (last seen id from previous page)",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated audit entries"
+          },
+          "400": {
+            "description": "Invalid query parameters"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Query audit log entries",
+        "tags": ["system"]
+      }
+    },
+    "/v1/system/audit/{id}": {
+      "get": {
+        "operationId": "AuditController_getById",
+        "parameters": [
+          {
+            "description": "Audit entry ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit entry found"
+          },
+          "404": {
+            "description": "Audit entry not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a single audit entry by ID",
+        "tags": ["system"]
       }
     }
   },
