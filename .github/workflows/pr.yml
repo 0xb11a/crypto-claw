@@ -40,6 +40,9 @@ env:
   PRISMA_DISABLE_DOTENV: '1'
   DATABASE_URL: file:./data/ci-test.db
 
+  # P1c-i: executor stub mode — no real Safe/Squads transactions in CI
+  EXECUTOR_STUB_MODE: '1'
+
 jobs:
   # ---------------------------------------------------------------------------
   # 1–4: Setup, typecheck, lint, unit tests
@@ -223,6 +226,15 @@ jobs:
         env:
           DATABASE_URL: file:./data/ci-test.db
 
+      # P1c-i: create a signer.env fixture for executor spawn tests (ADR-0023).
+      # The sentinel value is safe to commit in CI because it's not a real key
+      # and the executor is in stub mode.
+      - name: Create signer.env fixture for integration tests
+        run: |
+          mkdir -p secrets
+          printf 'SAFE_SIGNER_KEY=FAKE_SIGNER_KEY_DO_NOT_USE_DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF\nSQUADS_SIGNER_KEY=FAKE_SIGNER_KEY_DO_NOT_USE_DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF\n' > secrets/signer.env
+          chmod 0400 secrets/signer.env
+
       # Step 8 — Integration tests (includes parity tests + auth security suite)
       - name: Integration tests
         run: pnpm test:integration
@@ -233,6 +245,9 @@ jobs:
           AUTO_APPROVE_BUY: 'false'
           # Activate the auth 401/403/400/200 suite (DoD §F + SPEC §14)
           CCLAW_SECURITY_TESTS_ENABLED: '1'
+          # P1c-i: executor stub mode for integration tests that spawn the executor
+          EXECUTOR_STUB_MODE: '1'
+          SIGNER_ENV_FILE: ./secrets/signer.env
 
   # ---------------------------------------------------------------------------
   # 13: Container build smoke test
