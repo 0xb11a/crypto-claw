@@ -6,3 +6,5 @@ export * from './dto/propose-order.dto.js';
 export * from './dto/order-state-change.dto.js';
 export * from './dto/order-list-query.dto.js';
 export * from './dto/order-response.dto.js';
+export * from './dto/execute-order.dto.js';
+export * from './dto/execute-order-response.dto.js';

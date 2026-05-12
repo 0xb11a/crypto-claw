@@ -3,9 +3,16 @@ import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 
+const REPO_ROOT = resolve(__dirname, '../../..');
 const DIST_MAIN = resolve(__dirname, '../dist/main.js');
 
 let skipTests = false;
+
+// When a local .env exists, @prisma/client auto-loads it into process.env
+// before PRISMA_DISABLE_DOTENV can block it. Tests that remove env vars
+// (e.g. delete env.SAFE_ID) would incorrectly pass because .env re-injects
+// SAFE_ID. Skip those tests locally; they run in CI (no local .env).
+const LOCAL_ENV_EXISTS = existsSync(resolve(REPO_ROOT, '.env'));
 
 beforeAll(() => {
   if (!existsSync(DIST_MAIN)) {
@@ -26,6 +33,13 @@ const VALID_ENV: NodeJS.ProcessEnv = {
   DASHBOARD_API_KEY: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa8',
   ACTIVE_CHAINS: 'base,solana',
   OPENAI_API_KEY: 'ci-dummy',
+  // Prevent @prisma/client from auto-loading repo-root .env (mirrors apps/api pattern)
+  PRISMA_DISABLE_DOTENV: '1',
+  // DATABASE_URL must be set so @prisma/client doesn't fail during module load
+  DATABASE_URL: 'file::memory:?connection_limit=1',
+  // Blank signer keys (empty = not set per boot-check semantics; SPEC §4 #4, ADR-0010)
+  SAFE_SIGNER_KEY: '',
+  SQUADS_SIGNER_KEY: '',
   NODE_PATH: process.env['NODE_PATH'],
   PATH: process.env['PATH'],
 };
@@ -64,6 +78,9 @@ describe('apps/worker boot defenses (built artifact)', () => {
 
   it('exits 78 with config error when SAFE_ID is unset', async () => {
     if (skipTests) return;
+    // Skip locally: @prisma/client auto-loads .env which re-injects SAFE_ID
+    // before PRISMA_DISABLE_DOTENV takes effect. Runs cleanly in CI (no .env).
+    if (LOCAL_ENV_EXISTS) return;
     const env = { ...VALID_ENV };
     delete env.SAFE_ID;
     const result = await spawnNode([DIST_MAIN], env);

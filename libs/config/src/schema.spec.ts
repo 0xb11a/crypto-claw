@@ -63,6 +63,47 @@ describe('parseEnv — happy path', () => {
     const config = parseEnv(VALID_ENV);
     expect(config.AUTO_APPROVE_BUY).toBe(false);
   });
+
+  // Executor subprocess config (P1c-i)
+  it('defaults EXECUTOR_STUB_MODE to false', () => {
+    const config = parseEnv(VALID_ENV);
+    expect(config.EXECUTOR_STUB_MODE).toBe(false);
+  });
+
+  it('parses EXECUTOR_STUB_MODE=1 as true', () => {
+    const config = parseEnv({ ...VALID_ENV, EXECUTOR_STUB_MODE: '1' });
+    expect(config.EXECUTOR_STUB_MODE).toBe(true);
+  });
+
+  it('parses EXECUTOR_STUB_MODE=true as true', () => {
+    const config = parseEnv({ ...VALID_ENV, EXECUTOR_STUB_MODE: 'true' });
+    expect(config.EXECUTOR_STUB_MODE).toBe(true);
+  });
+
+  it('parses EXECUTOR_STUB_MODE=0 as false', () => {
+    const config = parseEnv({ ...VALID_ENV, EXECUTOR_STUB_MODE: '0' });
+    expect(config.EXECUTOR_STUB_MODE).toBe(false);
+  });
+
+  it('defaults SIGNER_ENV_FILE to /run/secrets/signer.env', () => {
+    const config = parseEnv(VALID_ENV);
+    expect(config.SIGNER_ENV_FILE).toBe('/run/secrets/signer.env');
+  });
+
+  it('accepts custom SIGNER_ENV_FILE path', () => {
+    const config = parseEnv({ ...VALID_ENV, SIGNER_ENV_FILE: '/custom/path/signer.env' });
+    expect(config.SIGNER_ENV_FILE).toBe('/custom/path/signer.env');
+  });
+
+  it('accepts EXECUTOR_BIN_PATH override', () => {
+    const config = parseEnv({ ...VALID_ENV, EXECUTOR_BIN_PATH: '/app/dist/executor.js' });
+    expect(config.EXECUTOR_BIN_PATH).toBe('/app/dist/executor.js');
+  });
+
+  it('EXECUTOR_BIN_PATH is undefined when not set', () => {
+    const config = parseEnv(VALID_ENV);
+    expect(config.EXECUTOR_BIN_PATH).toBeUndefined();
+  });
 });
 
 describe('parseEnv — missing required fields', () => {
@@ -91,9 +132,7 @@ describe('parseEnv — missing required fields', () => {
   });
 
   it('throws with [config] invalid env: prefix when REDIS_URL is not a URL', () => {
-    expect(() => parseEnv({ ...VALID_ENV, REDIS_URL: 'not-a-url' })).toThrow(
-      /^\[config\] invalid env: REDIS_URL/,
-    );
+    expect(() => parseEnv({ ...VALID_ENV, REDIS_URL: 'not-a-url' })).toThrow(/^\[config\] invalid env: REDIS_URL/);
   });
 });
 
@@ -103,24 +142,20 @@ describe('assertNoSignerKeysInEnv', () => {
   });
 
   it('throws when SAFE_SIGNER_KEY is set', () => {
-    expect(() =>
-      assertNoSignerKeysInEnv({ ...VALID_ENV, SAFE_SIGNER_KEY: 'deadbeef' }),
-    ).toThrow('[boot] signer keys must not be present in this process env (got: SAFE_SIGNER_KEY)');
+    expect(() => assertNoSignerKeysInEnv({ ...VALID_ENV, SAFE_SIGNER_KEY: 'deadbeef' })).toThrow(
+      '[boot] signer keys must not be present in this process env (got: SAFE_SIGNER_KEY)',
+    );
   });
 
   it('throws when SQUADS_SIGNER_KEY is set', () => {
-    expect(() =>
-      assertNoSignerKeysInEnv({ ...VALID_ENV, SQUADS_SIGNER_KEY: 'deadbeef' }),
-    ).toThrow(
+    expect(() => assertNoSignerKeysInEnv({ ...VALID_ENV, SQUADS_SIGNER_KEY: 'deadbeef' })).toThrow(
       '[boot] signer keys must not be present in this process env (got: SQUADS_SIGNER_KEY)',
     );
   });
 
   it('does not throw when signer keys are empty strings', () => {
     // Docker compose topology explicitly blanks these: SAFE_SIGNER_KEY=
-    expect(() =>
-      assertNoSignerKeysInEnv({ ...VALID_ENV, SAFE_SIGNER_KEY: '', SQUADS_SIGNER_KEY: '' }),
-    ).not.toThrow();
+    expect(() => assertNoSignerKeysInEnv({ ...VALID_ENV, SAFE_SIGNER_KEY: '', SQUADS_SIGNER_KEY: '' })).not.toThrow();
   });
 });
 
@@ -139,9 +174,7 @@ describe('parseEnv — adversarial: ACTIVE_CHAINS empty string', () => {
   it('throws config error when ACTIVE_CHAINS is an empty string', () => {
     // An empty string is set by some container runtimes (ACTIVE_CHAINS=) and
     // must be rejected identically to a missing field.
-    expect(() => parseEnv({ ...VALID_ENV, ACTIVE_CHAINS: '' })).toThrow(
-      /^\[config\] invalid env: ACTIVE_CHAINS/,
-    );
+    expect(() => parseEnv({ ...VALID_ENV, ACTIVE_CHAINS: '' })).toThrow(/^\[config\] invalid env: ACTIVE_CHAINS/);
   });
 });
 
@@ -202,15 +235,11 @@ describe('parseEnv — LOG_LEVEL', () => {
   });
 
   it('throws [config] invalid env: LOG_LEVEL for an invalid value', () => {
-    expect(() => parseEnv({ ...VALID_ENV, LOG_LEVEL: 'invalid' })).toThrow(
-      /^\[config\] invalid env: LOG_LEVEL/,
-    );
+    expect(() => parseEnv({ ...VALID_ENV, LOG_LEVEL: 'invalid' })).toThrow(/^\[config\] invalid env: LOG_LEVEL/);
   });
 
   it('throws the exact SPEC boot-fail string for LOG_LEVEL invalid', () => {
-    expect(() => parseEnv({ ...VALID_ENV, LOG_LEVEL: 'verbose' })).toThrow(
-      '[config] invalid env: LOG_LEVEL',
-    );
+    expect(() => parseEnv({ ...VALID_ENV, LOG_LEVEL: 'verbose' })).toThrow('[config] invalid env: LOG_LEVEL');
   });
 });
 
@@ -235,15 +264,11 @@ describe('parseEnv — NODE_ENV', () => {
   });
 
   it('throws [config] invalid env: NODE_ENV for an invalid value', () => {
-    expect(() => parseEnv({ ...VALID_ENV, NODE_ENV: 'staging' })).toThrow(
-      /^\[config\] invalid env: NODE_ENV/,
-    );
+    expect(() => parseEnv({ ...VALID_ENV, NODE_ENV: 'staging' })).toThrow(/^\[config\] invalid env: NODE_ENV/);
   });
 
   it('throws the exact SPEC boot-fail string for NODE_ENV invalid', () => {
-    expect(() => parseEnv({ ...VALID_ENV, NODE_ENV: 'staging' })).toThrow(
-      '[config] invalid env: NODE_ENV',
-    );
+    expect(() => parseEnv({ ...VALID_ENV, NODE_ENV: 'staging' })).toThrow('[config] invalid env: NODE_ENV');
   });
 });
 

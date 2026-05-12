@@ -34,6 +34,9 @@ const listResponse: OrderListResponseDto = {
   pagination: { total: 1, limit: 50, cursor: 'order-1', hasMore: false },
 };
 
+const enqueuedResponse = { jobId: 'execute-order-order-1', orderId: 'order-1', status: 'enqueued' as const };
+const paperResponse = { jobId: null, orderId: 'order-1', status: 'paper_executed' as const };
+
 function makeService(overrides?: Partial<OrdersService>): OrdersService {
   return {
     list: vi.fn().mockResolvedValue(listResponse),
@@ -43,6 +46,7 @@ function makeService(overrides?: Partial<OrdersService>): OrdersService {
     reject: vi.fn().mockResolvedValue(rejectedOrder),
     cancel: vi.fn().mockResolvedValue(cancelledOrder),
     retry: vi.fn().mockResolvedValue(approvedOrder),
+    execute: vi.fn().mockResolvedValue(enqueuedResponse),
     ...overrides,
   } as unknown as OrdersService;
 }
@@ -161,6 +165,33 @@ describe('OrdersController', () => {
     it('propagates ConflictException when retrying non-failed order', async () => {
       (svc.retry as ReturnType<typeof vi.fn>).mockRejectedValue(new ConflictException('only failed orders'));
       await expect(ctrl.retry('order-1', {})).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('execute()', () => {
+    it('delegates to service and returns 202 response in real mode', async () => {
+      const result = await ctrl.execute('order-1', {});
+      expect(svc.execute).toHaveBeenCalledWith('order-1');
+      expect(result).toBe(enqueuedResponse);
+    });
+
+    it('returns paper_executed response in paper mode', async () => {
+      (svc.execute as ReturnType<typeof vi.fn>).mockResolvedValue(paperResponse);
+      const result = await ctrl.execute('order-1', {});
+      expect(result.status).toBe('paper_executed');
+      expect(result.jobId).toBeNull();
+    });
+
+    it('propagates ConflictException for non-approved order', async () => {
+      (svc.execute as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new ConflictException('only approved orders can be executed'),
+      );
+      await expect(ctrl.execute('order-1', {})).rejects.toThrow(ConflictException);
+    });
+
+    it('propagates NotFoundException for missing order', async () => {
+      (svc.execute as ReturnType<typeof vi.fn>).mockRejectedValue(new NotFoundException('not found'));
+      await expect(ctrl.execute('order-1', {})).rejects.toThrow(NotFoundException);
     });
   });
 });

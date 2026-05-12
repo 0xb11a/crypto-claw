@@ -1,11 +1,18 @@
 import { Injectable, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import type { Queue } from 'bullmq';
 import { OrdersRepository } from './orders.repository.js';
+import { PaperExecutor } from './paper-executor.js';
 import type { ProposeOrderDto } from './dto/propose-order.dto.js';
 import type { ApproveOrderDto, RejectOrderDto, CancelOrderDto, RetryOrderDto } from './dto/order-state-change.dto.js';
 import type { OrderListQueryDto } from './dto/order-list-query.dto.js';
 import type { OrderResponseDto, OrderListResponseDto } from './dto/order-response.dto.js';
-import type { AppConfig } from '@cclaw/config';
+import type { ExecuteOrderAcceptedDto } from './dto/execute-order-response.dto.js';
+import { ReceiptsService } from '@cclaw/receipts';
+
+/** Name of the execute-order BullMQ queue (mirrors apps/worker/src/queues/execute-order.queue.ts). */
+const EXECUTE_ORDER_QUEUE = 'execute-order';
 
 /** Valid state transitions (migration 014 state machine). */
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -30,11 +37,17 @@ export class OrdersService {
   constructor(
     private readonly repo: OrdersRepository,
     private readonly configSvc: ConfigService,
+    @InjectQueue(EXECUTE_ORDER_QUEUE) private readonly executeQueue: Queue,
+    private readonly receiptsService: ReceiptsService,
+    private readonly paperExecutor: PaperExecutor,
   ) {}
 
   private get autoApproveBuy(): boolean {
-    const cfg = this.configSvc.get<AppConfig>('') as AppConfig;
-    return cfg?.AUTO_APPROVE_BUY ?? false;
+    // ConfigService.get() may return the raw process.env string ('false') rather than the
+    // Zod-transformed boolean (false) depending on NestJS version and load function shape.
+    // Normalise both string and boolean forms so the check is always correct.
+    const v = this.configSvc.get<boolean | string>('AUTO_APPROVE_BUY');
+    return v === true || v === 'true';
   }
 
   private assertTransition(currentStatus: string, targetStatus: string): void {
@@ -108,5 +121,82 @@ export class OrdersService {
       approvedAt: new Date().toISOString(),
       approvedBy: by,
     });
+  }
+
+  /**
+   * Execute an approved order.
+   *
+   * Paper mode (PAPER_MODE=true):
+   *   - Transitions order: approved → executing → executed
+   *   - Calls PaperExecutor.simulate() to produce a paper receipt
+   *   - Writes paper receipt via ReceiptsService.create({mode:'paper'})
+   *   - Returns {jobId: null, orderId, status: 'paper_executed'}
+   *   - NO BullMQ enqueue
+   *
+   * Real mode (PAPER_MODE=false):
+   *   - Transitions order: approved → executing
+   *   - Enqueues BullMQ job with deterministic jobId = 'execute-order:<id>'
+   *   - Returns {jobId, orderId, status: 'enqueued'}
+   *   - Worker processes the job asynchronously
+   *
+   * @param id - Order ID from URL param.
+   * @throws {ConflictException} if order is not in 'approved' status.
+   */
+  async execute(id: string): Promise<ExecuteOrderAcceptedDto> {
+    const order = await this.repo.findById(id);
+
+    // Validate: only 'approved' orders can be executed
+    if (order.status !== 'approved') {
+      throw new ConflictException(
+        `Order ${id} cannot be executed from status '${order.status}' — only 'approved' orders can be executed`,
+      );
+    }
+
+    // ConfigService.get() may return the raw process.env string ('true'/'false') rather
+    // than the Zod-transformed boolean. Normalise both forms to ensure the branch is
+    // always correct regardless of whether the NestJS loader returns the raw string or
+    // the Zod-transformed boolean.
+    const paperModeRaw = this.configSvc.get<boolean | string>('PAPER_MODE');
+    const isPaperMode = paperModeRaw === true || paperModeRaw === 'true';
+
+    if (isPaperMode) {
+      // -----------------------------------------------------------------------
+      // Paper mode: short-circuit — simulate receipt, no executor spawn
+      // -----------------------------------------------------------------------
+      await this.repo.transitionStatus(id, 'executing', 'orders-service');
+
+      // Simulate the trade
+      const receiptDto = this.paperExecutor.simulate(order);
+      await this.receiptsService.create(receiptDto);
+
+      // Transition to executed
+      await this.repo.transitionStatus(id, 'executed', 'orders-service');
+
+      return { jobId: null, orderId: id, status: 'paper_executed' };
+    }
+
+    // -----------------------------------------------------------------------
+    // Real mode: transition to executing + enqueue BullMQ job
+    // -----------------------------------------------------------------------
+    await this.repo.transitionStatus(id, 'executing', 'orders-service');
+
+    // Deterministic jobId: duplicate adds collapse silently (idempotency).
+    // BullMQ 5.x rejects jobIds containing ':' unless they are in the internal
+    // 3-part format. Use '-' as the separator to avoid this constraint while
+    // keeping the id globally unique and recognisable.
+    const jobId = `execute-order-${id}`;
+    await this.executeQueue.add(
+      'execute-order',
+      { orderId: id },
+      {
+        jobId,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: 100,
+        removeOnFail: false,
+      },
+    );
+
+    return { jobId, orderId: id, status: 'enqueued' };
   }
 }

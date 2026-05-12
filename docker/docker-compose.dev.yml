@@ -1,4 +1,4 @@
-# CryptoClaw — local development compose stack (P0b)
+# CryptoClaw — local development compose stack (P0b, updated P1c-i)
 #
 # This file is FOR LOCAL DEVELOPMENT ONLY. The production stack lives in
 # the legacy root /docker-compose.yml (replaced in P6).
@@ -16,6 +16,12 @@
 # - The /build/node_modules anonymous volume prevents the host node_modules
 #   from masking the in-image installation (critical on macOS with
 #   platform-specific native binaries).
+#
+# P1c-i additions:
+# - worker service: mounts ../secrets:/run/secrets:ro (ADR-0023) so it can
+#   load signer keys at spawn time.
+# - worker service: EXECUTOR_BIN_PATH points at the builder-stage dist.
+# - worker service: EXECUTOR_STUB_MODE=1 for local dev (real Safe SDK = P1c-ii).
 
 x-app-common: &app-common
   build:
@@ -46,18 +52,18 @@ services:
   redis:
     image: redis:7-alpine
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 10s
       timeout: 3s
       retries: 5
     ports:
-      - "127.0.0.1:6379:6379"
+      - '127.0.0.1:6379:6379'
 
   api:
     <<: *app-common
     command: pnpm --filter @cclaw/api dev
     ports:
-      - "127.0.0.1:7878:7878"
+      - '127.0.0.1:7878:7878'
     environment:
       <<: *worker-env
     depends_on:
@@ -69,6 +75,20 @@ services:
     command: pnpm --filter @cclaw/worker dev
     environment:
       <<: *worker-env
+      # P1c-i: executor wiring (ADR-0023, ADR-0024)
+      EXECUTOR_BIN_PATH: /build/apps/executor/dist/main.js
+      # Use stub mode in local dev — real Safe/Squads SDK is P1c-ii
+      EXECUTOR_STUB_MODE: '1'
+      # Signer env file is mounted from the secrets/ directory below
+      SIGNER_ENV_FILE: /run/secrets/signer.env
+    volumes:
+      - ..:/build
+      - /build/node_modules
+      # ADR-0023: mount secrets/ read-only at /run/secrets
+      # Before starting: cp secrets/signer.env.example secrets/signer.env
+      #                  chmod 0400 secrets/signer.env
+      #                  fill in real keys (or leave stub values for local dev)
+      - ../secrets:/run/secrets:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -83,12 +103,14 @@ services:
         condition: service_healthy
 
   executor:
-    # Stub only in P0b — exits with a boot-defense banner since no signer
-    # key is present. Signer-key injection is wired in P3 (ADR-0010).
+    # Stub only in P0b — signer-key injection is wired in P1c-i (ADR-0010).
+    # The executor is an ephemeral subprocess spawned by the worker, not a
+    # long-running service. This service entry is for dev debugging only.
     <<: *app-common
     command: pnpm --filter @cclaw/executor dev
     environment:
       <<: *worker-env
+      EXECUTOR_STUB_MODE: '1'
     depends_on:
       redis:
         condition: service_healthy

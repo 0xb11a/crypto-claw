@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { ApproveOrderDto } from '../models/ApproveOrderDto';
 import type { CancelOrderDto } from '../models/CancelOrderDto';
+import type { ExecuteOrderDto } from '../models/ExecuteOrderDto';
 import type { ProposeOrderDto } from '../models/ProposeOrderDto';
 import type { RejectOrderDto } from '../models/RejectOrderDto';
 import type { RetryOrderDto } from '../models/RetryOrderDto';
@@ -116,6 +117,28 @@ export class OrdersService {
       errors: {
         404: `Order not found`,
         409: `Invalid state transition`,
+      },
+    });
+  }
+  /**
+   * Execute an approved order (enqueues BullMQ job in real mode; short-circuits in paper mode)
+   * @param id Order ID
+   * @param requestBody
+   * @returns any Order execution enqueued (real mode) or completed (paper mode)
+   * @throws ApiError
+   */
+  public ordersControllerExecute(id: string, requestBody: ExecuteOrderDto): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'POST',
+      url: '/v1/orders/{id}/execute',
+      path: {
+        id: id,
+      },
+      body: requestBody,
+      mediaType: 'application/json',
+      errors: {
+        404: `Order not found`,
+        409: `Order not in approved status`,
       },
     });
   }

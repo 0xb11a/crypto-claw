@@ -6,12 +6,11 @@
     "module": "CommonJS",
     "moduleResolution": "node",
     "paths": {
-      "@cclaw/config": ["../../libs/config/src/index.ts"]
+      "@cclaw/config": ["../../libs/config/src/index.ts"],
+      "@cclaw/execution": ["../../libs/execution/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"],
-  "references": [
-    { "path": "../../libs/config" }
-  ]
+  "references": [{ "path": "../../libs/config" }, { "path": "../../libs/execution" }]
 }

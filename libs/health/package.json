@@ -11,10 +11,14 @@
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
+    "@nestjs/config": "^3.0.0",
     "@nestjs/terminus": "^10.0.0",
     "@nestjs/throttler": "^5.0.0",
     "@cclaw/auth": "workspace:*",
-    "@cclaw/prisma": "workspace:*"
+    "@cclaw/config": "workspace:*",
+    "@cclaw/execution": "workspace:*",
+    "@cclaw/prisma": "workspace:*",
+    "ioredis": "^5.3.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

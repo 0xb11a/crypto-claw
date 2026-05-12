@@ -1,5 +1,6 @@
 import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD, APP_PIPE } from '@nestjs/core';
+import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, assertConfigValid, assertNoSignerKeysInEnv } from '@cclaw/config';
 import { LoggerModule } from '@cclaw/logger';
 import { PrismaModule } from '@cclaw/prisma';
@@ -50,6 +51,15 @@ const _config = assertConfigValid(process.env);
 
     // Throttler — agent 600/min, dashboard 60/min, per-identity via AppThrottlerGuard (SPEC §9.4, ADR-0021)
     AppThrottlerModule.forRoot(),
+
+    // BullMQ connection (P1c-i, SPEC §8, ADR-0004). The api enqueues `execute-order`
+    // jobs onto Redis when OrdersService.execute() runs in real mode (non-paper).
+    // Without this forRoot(), enqueues default to localhost:6379 — works in dev/CI
+    // but silently breaks any topology with a non-localhost Redis. The worker has
+    // its own forRoot at apps/worker/src/app.module.ts; both must agree on connection.
+    BullModule.forRoot({
+      connection: { url: _config.REDIS_URL },
+    }),
 
     // -------------------------------------------------------------------------
     // Domain modules

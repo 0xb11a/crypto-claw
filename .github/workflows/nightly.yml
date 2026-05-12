@@ -46,6 +46,13 @@ env:
   # Node env
   NODE_ENV: test
 
+  # Prisma: prevent auto-loading .env files (no .env in CI)
+  PRISMA_DISABLE_DOTENV: '1'
+  DATABASE_URL: file:./data/ci-test.db
+
+  # P1c-i: executor stub mode
+  EXECUTOR_STUB_MODE: '1'
+
 jobs:
   # ---------------------------------------------------------------------------
   # audit — pnpm audit advisory (HIGH severity + prod deps only)

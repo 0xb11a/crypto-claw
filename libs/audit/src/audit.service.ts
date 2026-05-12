@@ -27,6 +27,13 @@ export interface AuditWriteInput {
  *
  * body_redacted is the string-level redacted version of JSON.stringify(body)
  * using libs/logger's redactor patterns (no new patterns added in P1a).
+ *
+ * **`path` convention:**
+ * - HTTP handlers: path = the HTTP URL path (e.g. `/v1/orders/abc/execute`).
+ * - Worker/background jobs: path uses the `'worker:'` prefix to distinguish
+ *   from HTTP audit entries. Format: `'worker:<queue-name>:<resource-id>'`.
+ *   Example: `'worker:execute-order:order-abc-123'`.
+ *   Postmortem query: `SELECT * FROM service_audit WHERE path LIKE 'worker:%'`.
  */
 @Injectable()
 export class AuditService {
