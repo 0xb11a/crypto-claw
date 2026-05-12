@@ -611,6 +611,9 @@ importers:
       '@cclaw/auth':
         specifier: workspace:*
         version: link:../../auth
+      '@cclaw/chain':
+        specifier: workspace:*
+        version: link:../../chain
       '@cclaw/config':
         specifier: workspace:*
         version: link:../../config

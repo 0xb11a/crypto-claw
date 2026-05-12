@@ -1,12 +1,17 @@
 /**
  * Unit tests for execute-order.processor.ts
  *
- * Uses mocked dependencies to test idempotency logic and status transitions
- * without spawning real child processes or hitting real DB.
+ * Tests both the concrete `ExecuteOrderProcessor` (legacy single-queue class)
+ * and the `createExecuteOrderProcessor` factory to verify that factory-generated
+ * processors inherit the same idempotency and state-machine logic.
+ *
+ * ADR-0026: ConfigService mock uses per-field gets, not bare-key get<AppConfig>('').
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   ExecuteOrderProcessor,
+  BaseExecuteOrderProcessor,
+  createExecuteOrderProcessor,
   type ExecuteOrderJobData,
   NotIdempotentInflightError,
 } from './execute-order.processor.js';
@@ -29,12 +34,21 @@ const mockAuditService = {
   write: vi.fn(),
 };
 
+/**
+ * Per-field ConfigService mock (ADR-0026).
+ * Returns typed values per field name — no bare-key get<AppConfig>('').
+ */
 const mockConfigService = {
-  get: vi.fn(() => ({
-    SIGNER_ENV_FILE: '/tmp/test-signer.env',
-    NODE_ENV: 'test',
-    EXECUTOR_BIN_PATH: undefined,
-  })),
+  get: vi.fn((key: string) => {
+    const map: Record<string, string | undefined> = {
+      SIGNER_ENV_FILE: '/tmp/test-signer.env',
+      NODE_ENV: 'test',
+      EXECUTOR_BIN_PATH: undefined,
+      PAPER_MODE: 'false',
+      EXECUTOR_STUB_MODE: '1',
+    };
+    return map[key];
+  }),
 };
 
 // Mock libs/execution functions
@@ -49,6 +63,19 @@ import { spawnExecutor } from '@cclaw/execution';
 function makeProcessor(): ExecuteOrderProcessor {
   const ProcessorClass = ExecuteOrderProcessor as new (...args: unknown[]) => ExecuteOrderProcessor;
   return new ProcessorClass(mockOrdersRepo, mockReceiptsService, mockAuditService, mockConfigService);
+}
+
+/**
+ * Create a processor via the factory (simulates the per-Safe dynamic-class path).
+ */
+function makeFactoryProcessor(queueName: string): BaseExecuteOrderProcessor {
+  const ProcessorClass = createExecuteOrderProcessor(queueName);
+  return new (ProcessorClass as new (...args: unknown[]) => BaseExecuteOrderProcessor)(
+    mockOrdersRepo,
+    mockReceiptsService,
+    mockAuditService,
+    mockConfigService,
+  );
 }
 
 function makeJob(orderId: string): Job<ExecuteOrderJobData> {
@@ -172,5 +199,74 @@ describe('ExecuteOrderProcessor.process()', () => {
 
     const auditCall = (mockAuditService.write as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(auditCall.path).toBe('worker:execute-order:order-001');
+  });
+
+  it('uses per-field ConfigService.get() — not bare-key get (ADR-0026)', async () => {
+    const processor = makeProcessor();
+    await processor.process(makeJob('order-001'));
+
+    // Verify that configService.get was called with specific field names, not ''
+    const getCalls = (mockConfigService.get as ReturnType<typeof vi.fn>).mock.calls.map((args: unknown[]) => args[0]);
+    expect(getCalls).toContain('SIGNER_ENV_FILE');
+    expect(getCalls).toContain('NODE_ENV');
+    expect(getCalls).not.toContain(''); // bare-key get is forbidden (ADR-0026)
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Factory processor tests (ADR-0024 addendum — per-Safe dynamic classes)
+// ---------------------------------------------------------------------------
+
+describe('createExecuteOrderProcessor() factory', () => {
+  it('returns a class that processes orders identically to the concrete class', async () => {
+    const processor = makeFactoryProcessor('execute-order-base-0xabc');
+    await processor.process(makeJob('order-001'));
+
+    expect(mockOrdersRepo.transitionStatus).toHaveBeenCalledWith('order-001', 'executing', 'WORKER');
+    expect(mockOrdersRepo.transitionStatus).toHaveBeenCalledWith('order-001', 'executed', 'WORKER');
+    expect(mockReceiptsService.create).toHaveBeenCalledOnce();
+  });
+
+  it('factory-created processor has idempotency guard for executed orders', async () => {
+    mockOrdersRepo.findById.mockResolvedValue({ ...APPROVED_ORDER, status: 'executed' });
+    const processor = makeFactoryProcessor('execute-order-base-0xabc');
+    await processor.process(makeJob('order-001'));
+
+    expect(spawnExecutor).not.toHaveBeenCalled();
+  });
+
+  it('factory-created processor throws NotIdempotentInflightError for executing orders', async () => {
+    mockOrdersRepo.findById.mockResolvedValue({ ...APPROVED_ORDER, status: 'executing' });
+    const processor = makeFactoryProcessor('execute-order-solana-vault123');
+    await expect(processor.process(makeJob('order-001'))).rejects.toThrow(NotIdempotentInflightError);
+  });
+
+  it('two factory processors for different queue names are distinct classes', () => {
+    const ProcessorA = createExecuteOrderProcessor('execute-order-base-0xabc');
+    const ProcessorB = createExecuteOrderProcessor('execute-order-ethereum-0xdef');
+    expect(ProcessorA).not.toBe(ProcessorB);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Queue name resolution tests (ADR-0024 addendum)
+// ---------------------------------------------------------------------------
+
+describe('executeOrderQueueName() helper', () => {
+  it('produces lowercase safe address in queue name', async () => {
+    const { executeOrderQueueName } = await import('../queues/execute-order.queue.js');
+    expect(executeOrderQueueName('base', '0xAbCdEf')).toBe('execute-order-base-0xabcdef');
+  });
+
+  it('uses - separator (not :)', async () => {
+    const { executeOrderQueueName } = await import('../queues/execute-order.queue.js');
+    const name = executeOrderQueueName('ethereum', '0x1234');
+    expect(name).not.toContain(':');
+    expect(name).toContain('-');
+  });
+
+  it('format is execute-order-<chain>-<safeAddressLower>', async () => {
+    const { executeOrderQueueName } = await import('../queues/execute-order.queue.js');
+    expect(executeOrderQueueName('solana', 'SoLaNaVaUlT')).toBe('execute-order-solana-solanavault');
   });
 });

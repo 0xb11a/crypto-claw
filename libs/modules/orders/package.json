@@ -16,6 +16,7 @@
     "@nestjs/swagger": "^7.0.0",
     "@cclaw/auth": "workspace:*",
     "@cclaw/audit": "workspace:*",
+    "@cclaw/chain": "workspace:*",
     "@cclaw/config": "workspace:*",
     "@cclaw/prisma": "workspace:*",
     "@cclaw/receipts": "workspace:*",

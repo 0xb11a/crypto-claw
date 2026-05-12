@@ -10,8 +10,10 @@
  *   6. Transition order to 'executed' or 'failed'.
  *   7. Write service_audit row via AuditService.
  *
- * Concurrency: global 1 (ADR-0024). See apps/worker/src/app.module.ts for
- * the BullMQ worker concurrency option.
+ * Concurrency (ADR-0024 addendum, P1c-ii):
+ *   Per-Safe queue topology — one Worker per queue, concurrency=1 per queue.
+ *   Cross-queue parallelism is unbounded. `createExecuteOrderProcessor(queueName)`
+ *   is called once per active (chain, safeAddress) pair in app.module.ts.
  *
  * Signer key isolation (ADR-0023, SPEC §4 #4):
  *   - Keys are loaded from SIGNER_ENV_FILE (default: /run/secrets/signer.env).
@@ -27,9 +29,13 @@
  *   - On executor failure: emits structured 'executor_failed_alert' log line
  *     (log-only stub per ADR-0025; real Telegram wired in a later slice).
  *   - BullMQ retries the job up to 3x with exponential backoff before marking failed.
+ *
+ * Config access (ADR-0026):
+ *   - Uses per-field configService.get<T>('FIELD') — not bare-key get<AppConfig>('').
+ *   - Boolean fields use === 'true' string-normalisation (Zod preserves raw string).
  */
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Job } from 'bullmq';
 import { loadSignerEnv, spawnExecutor, getExecutorPath } from '@cclaw/execution';
@@ -37,8 +43,6 @@ import type { OrderInput } from '@cclaw/execution';
 import { OrdersRepository } from '@cclaw/orders';
 import { ReceiptsService } from '@cclaw/receipts';
 import { AuditService } from '@cclaw/audit';
-import type { AppConfig } from '@cclaw/config';
-import { EXECUTE_ORDER_QUEUE } from '../queues/execute-order.queue.js';
 
 /** BullMQ job payload shape for execute-order jobs. */
 export interface ExecuteOrderJobData {
@@ -57,27 +61,21 @@ export class NotIdempotentInflightError extends Error {
 }
 
 /**
- * BullMQ processor for the execute-order queue.
+ * Base class holding all execute-order processing logic.
  *
- * Concurrency = 1 (global, per ADR-0024). P1c-ii MUST upgrade to per-Safe-address
- * groups when the real Safe/Squads SDK lands (see ADR-0024 for the derivation).
- *
- * @see apps/worker/src/app.module.ts for the BullModule.forRoot/forFeature wiring.
+ * This class is NOT decorated with @Processor — the per-queue decorator is
+ * applied by the `createExecuteOrderProcessor` factory below.  Splitting the
+ * logic from the decorator allows the same implementation to be reused across
+ * multiple queue-name-specific subclasses (one per active Safe).
  */
-@Processor(EXECUTE_ORDER_QUEUE, {
-  // ADR-0024: global concurrency=1 in P1c-i. P1c-ii MUST replace with
-  // per-Safe-address groups (group key = chain + ':' + safe_address, concurrency per group = 1).
-  concurrency: 1,
-})
-@Injectable()
-export class ExecuteOrderProcessor extends WorkerHost {
-  private readonly logger = new Logger(ExecuteOrderProcessor.name);
+export abstract class BaseExecuteOrderProcessor extends WorkerHost {
+  protected readonly logger = new Logger('ExecuteOrderProcessor');
 
   constructor(
-    private readonly ordersRepo: OrdersRepository,
-    private readonly receiptsService: ReceiptsService,
-    private readonly auditService: AuditService,
-    private readonly configService: ConfigService,
+    protected readonly ordersRepo: OrdersRepository,
+    protected readonly receiptsService: ReceiptsService,
+    protected readonly auditService: AuditService,
+    protected readonly configService: ConfigService,
   ) {
     super();
   }
@@ -85,7 +83,11 @@ export class ExecuteOrderProcessor extends WorkerHost {
   async process(job: Job<ExecuteOrderJobData>): Promise<void> {
     const { orderId } = job.data;
     const startMs = Date.now();
-    const cfg = this.configService.get<AppConfig>('') as AppConfig;
+
+    // ADR-0026: per-field gets — not bare-key get<AppConfig>('')
+    const signerEnvFile = this.configService.get<string>('SIGNER_ENV_FILE') ?? '/run/secrets/signer.env';
+    const executorBinPath = this.configService.get<string>('EXECUTOR_BIN_PATH');
+    const nodeEnv = this.configService.get<string>('NODE_ENV') ?? 'production';
 
     this.logger.log(`execute-order job started | orderId=${orderId} jobId=${job.id ?? 'n/a'}`);
 
@@ -105,9 +107,8 @@ export class ExecuteOrderProcessor extends WorkerHost {
     }
 
     if (order.status === 'executing') {
-      // A second concurrent job is attempting to run — this should not happen
-      // with concurrency=1 but could theoretically happen if a job was interrupted
-      // and retried. Throw a non-retriable error.
+      // A second concurrent job is attempting to run — should not happen with
+      // concurrency=1 per queue but could occur after a crash + retry.
       throw new NotIdempotentInflightError(orderId);
     }
 
@@ -124,12 +125,11 @@ export class ExecuteOrderProcessor extends WorkerHost {
     // ---------------------------------------------------------------------------
     // Step 3: load signer env + spawn executor
     // ---------------------------------------------------------------------------
-    const signerEnvFile = cfg.SIGNER_ENV_FILE;
     let executorResult;
 
     try {
-      const signerEnv = loadSignerEnv(signerEnvFile, cfg.NODE_ENV);
-      const executorPath = getExecutorPath({ EXECUTOR_BIN_PATH: cfg.EXECUTOR_BIN_PATH });
+      const signerEnv = loadSignerEnv(signerEnvFile, nodeEnv);
+      const executorPath = getExecutorPath({ EXECUTOR_BIN_PATH: executorBinPath });
 
       // Build OrderInput from order response DTO
       const orderInput: OrderInput = {
@@ -245,5 +245,65 @@ export class ExecuteOrderProcessor extends WorkerHost {
       latencyMs,
       errorKind,
     });
+  }
+}
+
+/**
+ * Factory that creates an execute-order processor for a specific BullMQ queue.
+ *
+ * Returns a class decorated with `@Processor(queueName)` and `@Injectable()`.
+ * Each returned class processes jobs from exactly one queue with concurrency=1,
+ * enforcing per-Safe nonce-collision protection (ADR-0024 addendum).
+ *
+ * Usage in app.module.ts:
+ * ```ts
+ * const processors = activeQueueNames.map(createExecuteOrderProcessor);
+ * @Module({ providers: [...processors] })
+ * ```
+ *
+ * @param queueName - The BullMQ queue name, e.g. 'execute-order-base-0xabc'.
+ * @returns A NestJS provider class for the given queue.
+ */
+export function createExecuteOrderProcessor(queueName: string): Type<BaseExecuteOrderProcessor> {
+  @Processor(queueName, {
+    // concurrency=1 per queue — prevents nonce collisions for the same Safe (ADR-0024)
+    concurrency: 1,
+  })
+  @Injectable()
+  class ExecuteOrderProcessorForQueue extends BaseExecuteOrderProcessor {
+    constructor(
+      ordersRepo: OrdersRepository,
+      receiptsService: ReceiptsService,
+      auditService: AuditService,
+      configService: ConfigService,
+    ) {
+      super(ordersRepo, receiptsService, auditService, configService);
+    }
+  }
+  return ExecuteOrderProcessorForQueue;
+}
+
+/**
+ * Concrete processor class for the legacy single queue name.
+ *
+ * Kept for backwards compatibility with the P1c-i spec:
+ *   - Unit tests (`execute-order.processor.spec.ts`) reference `ExecuteOrderProcessor`.
+ *   - The @Processor decorator is applied at class definition time so it cannot be
+ *     parameterised by a runtime variable — the factory pattern above is used for
+ *     per-Safe queues, and this concrete class covers the legacy path.
+ *
+ * @deprecated App modules should use `createExecuteOrderProcessor(queueName)` instead.
+ *   This class is retained until the test suite migrates to the factory pattern.
+ */
+@Processor('execute-order', { concurrency: 1 })
+@Injectable()
+export class ExecuteOrderProcessor extends BaseExecuteOrderProcessor {
+  constructor(
+    ordersRepo: OrdersRepository,
+    receiptsService: ReceiptsService,
+    auditService: AuditService,
+    configService: ConfigService,
+  ) {
+    super(ordersRepo, receiptsService, auditService, configService);
   }
 }

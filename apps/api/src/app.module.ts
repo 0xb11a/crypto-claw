@@ -8,7 +8,7 @@ import { AuthModule, AppThrottlerModule, AppThrottlerGuard } from '@cclaw/auth';
 import { AuditModule } from '@cclaw/audit';
 import { HealthModule } from '@cclaw/health';
 import { PositionsModule } from '@cclaw/positions';
-import { OrdersModule } from '@cclaw/orders';
+import { OrdersModule, CHAIN_QUEUE_MAP, resolveActiveQueueNames, buildChainQueueMap } from '@cclaw/orders';
 import { ReceiptsModule } from '@cclaw/receipts';
 import { AlertsModule } from '@cclaw/alerts';
 import { HeartbeatModule } from '@cclaw/heartbeat';
@@ -22,12 +22,32 @@ import { HeartbeatModule } from '@cclaw/heartbeat';
 assertNoSignerKeysInEnv(process.env);
 const _config = assertConfigValid(process.env);
 
+// ---------------------------------------------------------------------------
+// Per-Safe BullMQ queue enumeration (ADR-0024 addendum, P1c-ii)
+//
+// Resolve the queue names for all active (chain, safeAddress) pairs at boot.
+// process.env access is allowed in app.module.ts (ESLint exception block).
+// The resulting queue names are used to:
+//   1. Register BullMQ queues so OrdersService can enqueue jobs.
+//   2. Provide the CHAIN_QUEUE_MAP token so QueueResolver can route by chain.
+// ---------------------------------------------------------------------------
+const activeChains = (_config.ACTIVE_CHAINS as string)
+  .split(',')
+  .map((c) => c.trim())
+  .filter(Boolean);
+
+const activeQueueNames = resolveActiveQueueNames(activeChains, process.env);
+const chainQueueMap = buildChainQueueMap(activeChains, process.env);
+
 /**
  * Root application module for apps/api.
  *
- * P1b: wires receipts, alerts, heartbeat modules; replaces plain ThrottlerModule
- * with AppThrottlerModule (per-identity rate limiting); adds AppThrottlerGuard
- * AFTER BearerAuthGuard so req.user is populated before throttle tracking runs.
+ * P1c-i: BullMQ wired with Redis connection from config, execute-order
+ * queue registered, OrdersModule imports queue registration.
+ *
+ * P1c-ii: per-Safe BullMQ queue topology (ADR-0024 addendum).
+ * Registers one BullMQ queue per active (chain, safeAddress) pair.
+ * Provides CHAIN_QUEUE_MAP token so QueueResolver routes enqueues correctly.
  */
 @Module({
   imports: [
@@ -52,14 +72,27 @@ const _config = assertConfigValid(process.env);
     // Throttler — agent 600/min, dashboard 60/min, per-identity via AppThrottlerGuard (SPEC §9.4, ADR-0021)
     AppThrottlerModule.forRoot(),
 
-    // BullMQ connection (P1c-i, SPEC §8, ADR-0004). The api enqueues `execute-order`
-    // jobs onto Redis when OrdersService.execute() runs in real mode (non-paper).
-    // Without this forRoot(), enqueues default to localhost:6379 — works in dev/CI
-    // but silently breaks any topology with a non-localhost Redis. The worker has
-    // its own forRoot at apps/worker/src/app.module.ts; both must agree on connection.
+    // BullMQ global connection (P1c-i, SPEC §8, ADR-0004).
+    // The api enqueues execute-order jobs onto Redis when OrdersService.execute()
+    // runs in real mode. Without forRoot(), enqueues default to localhost:6379.
     BullModule.forRoot({
       connection: { url: _config.REDIS_URL },
     }),
+
+    // Per-Safe execute-order queues (ADR-0024 addendum, P1c-ii).
+    // One queue per active (chain, safeAddress) pair. The worker registers
+    // one Worker per queue with concurrency=1 to prevent nonce collisions.
+    ...activeQueueNames.map((name) =>
+      BullModule.registerQueue({
+        name,
+        defaultJobOptions: {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 2000 },
+          removeOnComplete: 100,
+          removeOnFail: false,
+        },
+      }),
+    ),
 
     // -------------------------------------------------------------------------
     // Domain modules
@@ -82,11 +115,15 @@ const _config = assertConfigValid(process.env);
     },
     // AppThrottlerGuard — registered AFTER BearerAuthGuard (which is in AuthModule's APP_GUARD list)
     // so that req.user.identity is populated by the time getTracker() runs (ADR-0021).
-    // Guard order in NestJS: providers with APP_GUARD token are applied in registration order.
-    // AuthModule registers BearerAuthGuard first; AppThrottlerGuard registers here after AuthModule.
     {
       provide: APP_GUARD,
       useClass: AppThrottlerGuard,
+    },
+    // CHAIN_QUEUE_MAP — provides the chain→queueName map to QueueResolver (ADR-0024 addendum).
+    // QueueResolver is a provider in OrdersModule; it reads this token to route enqueues.
+    {
+      provide: CHAIN_QUEUE_MAP,
+      useValue: chainQueueMap,
     },
   ],
 })

@@ -736,7 +736,24 @@ Outline:
 - `cclaw system queues drain --queue <name> --confirm` to drop pending jobs from a runaway queue.
 - Failed jobs land in BullMQ's dead-letter; inspect via `cclaw system queues failed --queue <name>`.
 
-## 10. Emergency stop
+## 10. Rotate or add a Safe address (P1c-ii, ADR-0024)
+
+Adding a new Safe to `ACTIVE_CHAINS` or changing an existing Safe address requires a worker restart. The per-Safe BullMQ queue is registered at boot time from the Safe address env var (`SAFE_ADDRESS_BASE`, `SQUADS_VAULT_ADDRESS`, etc.) — there is no hot-reload path.
+
+**Procedure:**
+1. Update the relevant Safe address env var in `.env.runtime` (e.g., set `SAFE_ADDRESS_BASE=0xNewSafeAddr`).
+2. Restart the worker so the new queue registers:
+   ```bash
+   docker compose up -d --no-deps --force-recreate worker
+   ```
+3. Confirm the queue appears in BullMQ (via Redis `KEYS execute-order-*`).
+4. Any pending orders for the old Safe address will stall in `executing` status (their queue no longer has a processor). Cancel them via `cclaw orders cancel --id <id>` before rotating.
+
+**Queue naming convention (ADR-0024 addendum):**
+Queue name format: `execute-order-<chain>-<safeAddressLowercase>` (e.g. `execute-order-base-0xabcdef`).
+Never construct this name by hand — use `executeOrderQueueName(chain, safeAddress)` from `@cclaw/orders`.
+
+## 11. Emergency stop
 
 [TBD]
 
