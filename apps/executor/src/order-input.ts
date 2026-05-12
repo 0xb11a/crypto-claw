@@ -1,30 +1,37 @@
 /**
- * order-input.ts — Reads order JSON from stdin.
+ * order-input.ts — Reads order JSON from a Readable stream (default: stdin).
  *
  * The worker writes a single JSON line to the executor's stdin before
- * closing it. This module reads all of stdin, parses it as JSON, and
- * validates it against OrderInputSchema.
+ * closing it. This module reads the stream to end, parses the content as
+ * JSON, and validates it against OrderInputSchema.
+ *
+ * The `stream` parameter defaults to `process.stdin` so the CLI entry point
+ * (`main.ts`) calls `readOrderFromStdin()` with no arguments. Tests inject a
+ * `Readable.from([...])` shim so the function can be exercised in-process
+ * without spawning a subprocess.
  *
  * @see libs/execution/src/types.ts — shared OrderInputSchema
  */
+import { Readable } from 'node:stream';
 import { OrderInputSchema, type OrderInput } from '@cclaw/execution';
 
 /**
- * Read and validate the order from stdin.
+ * Read and validate the order from a Readable stream.
  *
+ * @param stream - Readable to consume (defaults to `process.stdin`).
  * @returns Validated OrderInput object.
- * @throws {Error} if stdin is empty, not valid JSON, or fails Zod validation.
+ * @throws {Error} if the stream is empty, not valid JSON, or fails Zod validation.
  */
-export async function readOrderFromStdin(): Promise<OrderInput> {
+export async function readOrderFromStdin(stream: Readable = process.stdin): Promise<OrderInput> {
   return new Promise((resolve, reject) => {
     let raw = '';
 
-    process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk: string) => {
+    stream.setEncoding('utf8');
+    stream.on('data', (chunk: string) => {
       raw += chunk;
     });
 
-    process.stdin.on('end', () => {
+    stream.on('end', () => {
       const trimmed = raw.trim();
       if (!trimmed) {
         reject(new Error('[order-input] stdin was empty — expected order JSON'));
@@ -53,7 +60,7 @@ export async function readOrderFromStdin(): Promise<OrderInput> {
       resolve(result.data);
     });
 
-    process.stdin.on('error', (err) => {
+    stream.on('error', (err) => {
       reject(new Error(`[order-input] stdin read error: ${String(err)}`));
     });
   });

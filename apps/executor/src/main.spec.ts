@@ -1,47 +1,68 @@
 /**
- * Integration tests for apps/executor/src/main.ts (built artifact).
+ * Unit tests for apps/executor/src/main.ts — runExecutor() bootstrap function.
  *
- * These tests spawn the compiled binary as a child process and assert
- * on stdout/stderr/exit code. Tests are skipped if the dist artifact
- * doesn't exist (requires prior `pnpm build`).
+ * These tests call runExecutor() directly (in-process) so v8 coverage captures
+ * every branch. The prior subprocess-based tests lived here before the refactor;
+ * they contributed zero in-process coverage because they spawned a child process.
+ *
+ * The integration smoke (spawning the compiled binary) is now covered by the
+ * signer-isolation.spec.ts integration suite.
  */
-import { describe, it, expect, beforeAll } from 'vitest';
-import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
-import { existsSync } from 'node:fs';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { Readable, Writable } from 'node:stream';
+import { runExecutor, classifyError } from './main.js';
 
-const DIST_MAIN = resolve(__dirname, '../dist/main.js');
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-let skipTests = false;
+/** Build a Readable that emits a JSON string and ends immediately. */
+function stdinFrom(obj: unknown): Readable {
+  return Readable.from([JSON.stringify(obj)]);
+}
 
-beforeAll(() => {
-  if (!existsSync(DIST_MAIN)) {
-    skipTests = true;
-  }
-});
+/** Build a Readable that emits a raw string (for error path tests). */
+function stdinRaw(content: string): Readable {
+  return Readable.from([content]);
+}
 
+/**
+ * Capture-writable: collects everything written to it as a string.
+ * Used to assert on stdout / stderr output without touching real FDs.
+ */
+function makeCapture(): { stream: Writable; get: () => string } {
+  let buf = '';
+  const stream = new Writable({
+    write(chunk: Buffer | string, _enc: string, cb: () => void) {
+      buf += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      cb();
+    },
+  });
+  return { stream, get: () => buf };
+}
+
+/** Minimal valid env matching AppConfig (uses 16-char keys to pass CI schema). */
 const VALID_ENV: NodeJS.ProcessEnv = {
   SAFE_ID: 'ci-test',
   REDIS_URL: 'redis://localhost:6379',
-  RESEARCH_API_KEY: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1',
-  SENTINEL_API_KEY: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2',
-  EXECUTOR_API_KEY: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3',
-  OBSERVER_API_KEY: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa4',
-  LOOP_API_KEY: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5',
-  WORKER_API_KEY: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6',
-  SCHEDULER_API_KEY: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7',
-  DASHBOARD_API_KEY: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa8',
+  RESEARCH_API_KEY: 'aaaaaaaaaaaaaaaa',
+  SENTINEL_API_KEY: 'bbbbbbbbbbbbbbbb',
+  EXECUTOR_API_KEY: 'cccccccccccccccc',
+  OBSERVER_API_KEY: 'dddddddddddddddd',
+  LOOP_API_KEY: 'eeeeeeeeeeeeeeee',
+  WORKER_API_KEY: 'ffffffffffffffff',
+  SCHEDULER_API_KEY: 'gggggggggggggggg',
+  DASHBOARD_API_KEY: 'hhhhhhhhhhhhhhhh',
   ACTIVE_CHAINS: 'base,solana',
   OPENAI_API_KEY: 'ci-dummy',
   EXECUTOR_STUB_MODE: '1',
-  SAFE_SIGNER_KEY: 'ci-stub-signer-key-for-executor-only',
-  NODE_PATH: process.env['NODE_PATH'],
-  PATH: process.env['PATH'],
+  SAFE_SIGNER_KEY: 'ci-stub-signer-key-for-executor',
 };
 
+/** Minimal valid order matching OrderInputSchema. */
 const VALID_ORDER = {
-  id: 'test-order-00000001',
-  action: 'buy',
+  id: 'test-order-main-001',
+  action: 'buy' as const,
   symbol: 'ETH',
   address: '0x0000000000000000000000000000000000000001',
   chain: 'base',
@@ -51,97 +72,366 @@ const VALID_ORDER = {
   tier: 'conviction',
 };
 
-function spawnExecutor(
-  env: NodeJS.ProcessEnv,
-  stdinData?: string,
-): Promise<{ code: number | null; stderr: string; stdout: string }> {
-  return new Promise((resolve) => {
-    const child = spawn('node', [DIST_MAIN], {
-      env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    let stderr = '';
-    let stdout = '';
-    child.stderr.on('data', (d: Buffer) => {
-      stderr += d.toString();
-    });
-    child.stdout.on('data', (d: Buffer) => {
-      stdout += d.toString();
-    });
-    child.on('close', (code) => {
-      resolve({ code, stderr, stdout });
-    });
-    if (stdinData) {
-      child.stdin.write(stdinData + '\n');
-    }
-    child.stdin.end();
-    setTimeout(() => child.kill(), 10000);
-  });
-}
+// ---------------------------------------------------------------------------
+// classifyError() — pure function, no I/O
+// ---------------------------------------------------------------------------
 
-describe('apps/executor boot behavior (built artifact)', () => {
-  it('exits 0 even when SAFE_SIGNER_KEY is set (executor is allowed)', async () => {
-    if (skipTests) return;
-    const result = await spawnExecutor(
-      { ...VALID_ENV, SAFE_SIGNER_KEY: 'allowed-signer-key' },
-      JSON.stringify(VALID_ORDER),
-    );
-    // Should NOT complain about signer keys (executor is exempt from that check)
-    expect(result.stderr).not.toContain('[boot] signer keys must not be present');
-    // May exit 0 (success) or 1 (stub needs stub mode) but should not fail on signer
-    expect([0, 1]).toContain(result.code);
+describe('classifyError()', () => {
+  it('classifies signer_balance_insufficient', () => {
+    expect(classifyError('signer_balance_insufficient: not enough ETH')).toBe('signer_balance_insufficient');
   });
 
-  it('exits 78 with config error when SAFE_ID is unset', async () => {
-    if (skipTests) return;
-    const env = { ...VALID_ENV };
-    delete env.SAFE_ID;
-    const result = await spawnExecutor(env, JSON.stringify(VALID_ORDER));
-    expect(result.code).toBe(78);
-    expect(result.stderr).toContain('[config] invalid env: SAFE_ID');
+  it('classifies slippage_exceeded', () => {
+    expect(classifyError('slippage_exceeded: 300bps exceeds max 200bps')).toBe('slippage_exceeded');
   });
 
-  it('prints stub JSON receipt on success (EXECUTOR_STUB_MODE=1)', async () => {
-    if (skipTests) return;
-    const result = await spawnExecutor(VALID_ENV, JSON.stringify(VALID_ORDER));
-    expect(result.code).toBe(0);
-    const parsed = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '{}');
-    expect(parsed.status).toBe('executed');
-    expect(parsed.tx_hash).toMatch(/^0x[a-f0-9]{64}$/);
+  it('classifies stale_price', () => {
+    expect(classifyError('stale_price: drift is 15%')).toBe('stale_price');
   });
 
-  it('prints failure receipt when EXECUTOR_STUB_MODE is off', async () => {
-    if (skipTests) return;
+  it('classifies missing_signer_key when message contains SIGNER_KEY', () => {
+    expect(classifyError('SAFE_SIGNER_KEY is required but not set')).toBe('missing_signer_key');
+  });
+
+  it('classifies not_yet_implemented_real_mode', () => {
+    expect(classifyError('not_yet_implemented_real_mode')).toBe('not_yet_implemented_real_mode');
+  });
+
+  it('classifies order_validation_failed', () => {
+    expect(classifyError('[order-input] order validation failed: id — Required')).toBe('order_validation_failed');
+  });
+
+  it('falls back to executor_error for unrecognized messages', () => {
+    expect(classifyError('some unexpected runtime exception')).toBe('executor_error');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runExecutor() — happy path
+// ---------------------------------------------------------------------------
+
+describe('runExecutor() — happy path', () => {
+  it('resolves and writes a receipt JSON line to stdout', async () => {
+    const out = makeCapture();
+    const err = makeCapture();
+
+    await runExecutor({
+      stdin: stdinFrom(VALID_ORDER),
+      stdout: out.stream,
+      stderr: err.stream,
+      env: VALID_ENV,
+    });
+
+    const receiptLine = out.get().trim();
+    const receipt = JSON.parse(receiptLine) as Record<string, unknown>;
+    expect(receipt['status']).toBe('executed');
+    expect(typeof receipt['tx_hash']).toBe('string');
+    expect(receipt['tx_hash'] as string).toMatch(/^0x[a-f0-9]{64}$/);
+  });
+
+  it('receipt tx_hash is deterministic for the same order id', async () => {
+    const run = () => {
+      const out = makeCapture();
+      return runExecutor({
+        stdin: stdinFrom(VALID_ORDER),
+        stdout: out.stream,
+        stderr: makeCapture().stream,
+        env: VALID_ENV,
+      }).then(() => JSON.parse(out.get().trim()) as Record<string, unknown>);
+    };
+
+    const [r1, r2] = await Promise.all([run(), run()]);
+    expect(r1['tx_hash']).toBe(r2['tx_hash']);
+  });
+
+  it('writes EXECUTOR_STUB_MODE warning to stderr', async () => {
+    const err = makeCapture();
+
+    await runExecutor({
+      stdin: stdinFrom(VALID_ORDER),
+      stdout: makeCapture().stream,
+      stderr: err.stream,
+      env: VALID_ENV,
+    });
+
+    expect(err.get()).toContain('EXECUTOR_STUB_MODE=true');
+  });
+
+  it('does NOT write stub warning to stderr when EXECUTOR_STUB_MODE is not 1', async () => {
+    // Real-mode throws not_yet_implemented_real_mode, so we expect a rejection.
+    const err = makeCapture();
     const env = { ...VALID_ENV, EXECUTOR_STUB_MODE: '0' };
-    const result = await spawnExecutor(env, JSON.stringify(VALID_ORDER));
-    expect(result.code).toBe(1);
-    const parsed = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '{}');
-    expect(parsed.status).toBe('failed');
-    expect(parsed.error_kind).toBe('not_yet_implemented_real_mode');
+
+    await expect(
+      runExecutor({
+        stdin: stdinFrom(VALID_ORDER),
+        stdout: makeCapture().stream,
+        stderr: err.stream,
+        env,
+      }),
+    ).rejects.toThrow('not_yet_implemented_real_mode');
+
+    expect(err.get()).not.toContain('EXECUTOR_STUB_MODE=true');
   });
 
-  it('prints failure receipt when SAFE_SIGNER_KEY is missing (EVM order)', async () => {
-    if (skipTests) return;
+  it('receipt actual_amount_in matches order amount', async () => {
+    const out = makeCapture();
+
+    await runExecutor({
+      stdin: stdinFrom(VALID_ORDER),
+      stdout: out.stream,
+      stderr: makeCapture().stream,
+      env: VALID_ENV,
+    });
+
+    const receipt = JSON.parse(out.get().trim()) as Record<string, unknown>;
+    expect(receipt['actual_amount_in']).toBe(VALID_ORDER.amount);
+  });
+
+  it('works for a solana order with SQUADS_SIGNER_KEY', async () => {
+    const solanaOrder = { ...VALID_ORDER, id: 'sol-order-001', chain: 'solana' };
+    const env = {
+      ...VALID_ENV,
+      SQUADS_SIGNER_KEY: 'ci-stub-squads-key-for-executor',
+    };
+    const out = makeCapture();
+
+    await runExecutor({
+      stdin: stdinFrom(solanaOrder),
+      stdout: out.stream,
+      stderr: makeCapture().stream,
+      env,
+    });
+
+    const receipt = JSON.parse(out.get().trim()) as Record<string, unknown>;
+    expect(receipt['status']).toBe('executed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runExecutor() — config validation failures
+// ---------------------------------------------------------------------------
+
+describe('runExecutor() — config validation failures', () => {
+  it('throws when SAFE_ID is missing', async () => {
     const env = { ...VALID_ENV };
-    delete env.SAFE_SIGNER_KEY;
-    const result = await spawnExecutor(env, JSON.stringify(VALID_ORDER));
-    expect(result.code).toBe(1);
-    const parsed = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '{}');
-    expect(parsed.status).toBe('failed');
-    expect(parsed.error_kind).toBe('missing_signer_key');
+    delete env['SAFE_ID'];
+
+    // assertConfigValid() calls process.exit(78) internally — we test that the
+    // function throws (the exit is mocked at the process level in integration
+    // tests; here we rely on the fact that vitest catches process.exit via the
+    // thrown error signal or the test runner's exit intercept).
+    //
+    // In practice, assertConfigValid() calls process.exit(78) which throws in
+    // the vitest environment because vitest overrides process.exit to throw
+    // a special ExitError. We assert the promise rejects rather than asserting
+    // on exit code (which is the integration test's job).
+    await expect(
+      runExecutor({
+        stdin: stdinFrom(VALID_ORDER),
+        stdout: makeCapture().stream,
+        stderr: makeCapture().stream,
+        env,
+      }),
+    ).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runExecutor() — missing signer keys
+// ---------------------------------------------------------------------------
+
+describe('runExecutor() — missing signer keys', () => {
+  it('throws missing_signer_key when SAFE_SIGNER_KEY is absent for EVM order', async () => {
+    const env = { ...VALID_ENV };
+    delete env['SAFE_SIGNER_KEY'];
+
+    await expect(
+      runExecutor({
+        stdin: stdinFrom(VALID_ORDER),
+        stdout: makeCapture().stream,
+        stderr: makeCapture().stream,
+        env,
+      }),
+    ).rejects.toThrow('SAFE_SIGNER_KEY');
   });
 
-  it('logs EXECUTOR_STUB_MODE warning to stderr', async () => {
-    if (skipTests) return;
-    const result = await spawnExecutor(VALID_ENV, JSON.stringify(VALID_ORDER));
-    expect(result.stderr).toContain('EXECUTOR_STUB_MODE=true');
+  it('throws missing_signer_key when SQUADS_SIGNER_KEY is absent for Solana order', async () => {
+    const solanaOrder = { ...VALID_ORDER, chain: 'solana' };
+    const env = { ...VALID_ENV }; // no SQUADS_SIGNER_KEY
+
+    await expect(
+      runExecutor({
+        stdin: stdinFrom(solanaOrder),
+        stdout: makeCapture().stream,
+        stderr: makeCapture().stream,
+        env,
+      }),
+    ).rejects.toThrow('SQUADS_SIGNER_KEY');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runExecutor() — stub mode guard
+// ---------------------------------------------------------------------------
+
+describe('runExecutor() — stub mode guard', () => {
+  it('throws not_yet_implemented_real_mode when EXECUTOR_STUB_MODE is "0"', async () => {
+    const env = { ...VALID_ENV, EXECUTOR_STUB_MODE: '0' };
+
+    await expect(
+      runExecutor({
+        stdin: stdinFrom(VALID_ORDER),
+        stdout: makeCapture().stream,
+        stderr: makeCapture().stream,
+        env,
+      }),
+    ).rejects.toThrow('not_yet_implemented_real_mode');
   });
 
-  it('prints failure receipt on empty stdin', async () => {
-    if (skipTests) return;
-    const result = await spawnExecutor(VALID_ENV, '');
-    expect(result.code).toBe(1);
-    const parsed = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '{}');
-    expect(parsed.status).toBe('failed');
+  it('throws not_yet_implemented_real_mode when EXECUTOR_STUB_MODE is absent', async () => {
+    const env = { ...VALID_ENV };
+    delete env['EXECUTOR_STUB_MODE'];
+
+    await expect(
+      runExecutor({
+        stdin: stdinFrom(VALID_ORDER),
+        stdout: makeCapture().stream,
+        stderr: makeCapture().stream,
+        env,
+      }),
+    ).rejects.toThrow('not_yet_implemented_real_mode');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runExecutor() — order parsing failures
+// ---------------------------------------------------------------------------
+
+describe('runExecutor() — order parsing failures', () => {
+  it('throws order_validation_failed when stdin is empty', async () => {
+    await expect(
+      runExecutor({
+        stdin: stdinRaw(''),
+        stdout: makeCapture().stream,
+        stderr: makeCapture().stream,
+        env: VALID_ENV,
+      }),
+    ).rejects.toThrow('[order-input] stdin was empty');
+  });
+
+  it('throws when stdin contains invalid JSON', async () => {
+    await expect(
+      runExecutor({
+        stdin: stdinRaw('{not valid json'),
+        stdout: makeCapture().stream,
+        stderr: makeCapture().stream,
+        env: VALID_ENV,
+      }),
+    ).rejects.toThrow('[order-input] stdin is not valid JSON');
+  });
+
+  it('throws order_validation_failed when order schema is invalid', async () => {
+    const badOrder = { ...VALID_ORDER, action: 'hold' }; // invalid enum
+    await expect(
+      runExecutor({
+        stdin: stdinFrom(badOrder),
+        stdout: makeCapture().stream,
+        stderr: makeCapture().stream,
+        env: VALID_ENV,
+      }),
+    ).rejects.toThrow('[order-input] order validation failed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runExecutor() — preflight failures
+// ---------------------------------------------------------------------------
+
+describe('runExecutor() — preflight slippage check', () => {
+  it('throws slippage_exceeded when slippage_bps exceeds conviction limit', async () => {
+    const overslippedOrder = { ...VALID_ORDER, slippage_bps: 300, tier: 'conviction' };
+
+    await expect(
+      runExecutor({
+        stdin: stdinFrom(overslippedOrder),
+        stdout: makeCapture().stream,
+        stderr: makeCapture().stream,
+        env: VALID_ENV,
+      }),
+    ).rejects.toThrow('slippage_exceeded');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runExecutor() — stdout receipt is the last (and only) line
+// ---------------------------------------------------------------------------
+
+describe('runExecutor() — stdout is a single JSON line', () => {
+  it('stdout contains exactly one non-empty line', async () => {
+    const out = makeCapture();
+
+    await runExecutor({
+      stdin: stdinFrom(VALID_ORDER),
+      stdout: out.stream,
+      stderr: makeCapture().stream,
+      env: VALID_ENV,
+    });
+
+    const lines = out
+      .get()
+      .split('\n')
+      .filter((l) => l.trim().length > 0);
+    expect(lines).toHaveLength(1);
+  });
+
+  it('stdout line parses as valid JSON', async () => {
+    const out = makeCapture();
+
+    await runExecutor({
+      stdin: stdinFrom(VALID_ORDER),
+      stdout: out.stream,
+      stderr: makeCapture().stream,
+      env: VALID_ENV,
+    });
+
+    const lines = out
+      .get()
+      .split('\n')
+      .filter((l) => l.trim().length > 0);
+    expect(() => JSON.parse(lines[0] ?? '')).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// beforeEach guard — ensure tests don't bleed into each other
+// ---------------------------------------------------------------------------
+
+// Defensive reset: vitest isolates module state between describe blocks
+// but we document that no global state is mutated here.
+describe('isolation sanity', () => {
+  beforeEach(() => {
+    // No shared mutable state in these tests — documented for future maintainers.
+  });
+
+  it('two sequential runExecutor calls produce independent receipts', async () => {
+    const run = async (orderId: string) => {
+      const out = makeCapture();
+      const order = { ...VALID_ORDER, id: orderId };
+      await runExecutor({
+        stdin: stdinFrom(order),
+        stdout: out.stream,
+        stderr: makeCapture().stream,
+        env: VALID_ENV,
+      });
+      return JSON.parse(out.get().trim()) as Record<string, unknown>;
+    };
+
+    const r1 = await run('order-seq-001');
+    const r2 = await run('order-seq-002');
+
+    expect(r1['tx_hash']).not.toBe(r2['tx_hash']);
+    expect(r1['status']).toBe('executed');
+    expect(r2['status']).toBe('executed');
   });
 });
