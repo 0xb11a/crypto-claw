@@ -29,14 +29,8 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawn, execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-
-const REPO_ROOT = resolve(__dirname, '../../..');
-const API_DIST = resolve(REPO_ROOT, 'apps/api/dist/main.js');
-const PRISMA_BIN = resolve(REPO_ROOT, 'node_modules/.bin/prisma');
+import { startApi } from '../_spawn-api.js';
+import type { StartApiResult } from '../_spawn-api.js';
 
 // Skip when not explicitly enabled — tests spawn a real API on port 7878 and
 // can conflict with other integration tests. Set CCLAW_SECURITY_TESTS_ENABLED=1
@@ -72,10 +66,7 @@ const BASE_ENV: NodeJS.ProcessEnv = {
   PATH: process.env['PATH'],
 };
 
-let apiProcess: ReturnType<typeof spawn> | null = null;
-let tempDir: string;
-let dbPath: string;
-let apiPort: number;
+let api: StartApiResult;
 
 // ---------------------------------------------------------------------------
 // Start the API server once for the whole test suite
@@ -83,78 +74,18 @@ let apiPort: number;
 
 beforeAll(async () => {
   if (SKIP_REASON) return;
-  tempDir = mkdtempSync(resolve(tmpdir(), 'cclaw-auth-test-'));
-  dbPath = resolve(tempDir, 'auth-test.db');
-  apiPort = 7879; // Different port from the smoke test to avoid conflicts
-
-  // Run prisma migrate deploy to create tables in the fresh temp DB.
-  // Without this, the API returns 500 on any route that queries Prisma
-  // (auth guards fire before DB is touched, so 401/403 work fine;
-  //  but 200-response tests fail because the positions/orders tables
-  //  don't exist in a fresh SQLite file).
-  //
-  // Important: pass DB_PATH (not just DATABASE_URL) so PrismaModule.register()
-  // doesn't overwrite DATABASE_URL with the default ./data/<SAFE_ID>.db path.
-  execFileSync(PRISMA_BIN, ['migrate', 'deploy'], {
-    env: {
-      ...process.env,
-      DATABASE_URL: `file:${dbPath}?connection_limit=1`,
-      PRISMA_DISABLE_DOTENV: '1',
-    },
-    cwd: REPO_ROOT,
-    stdio: 'ignore',
+  api = await startApi({
+    dbPath: '',
+    env: BASE_ENV,
+    port: 7878,
+    readyTimeoutMs: 15_000,
+    tmpPrefix: 'cclaw-auth-test',
   });
-
-  await new Promise<void>((resolve, reject) => {
-    apiProcess = spawn('node', [API_DIST], {
-      env: {
-        ...BASE_ENV,
-        // Pass DB_PATH so PrismaModule.register() constructs DATABASE_URL as
-        // file:${dbPath}?connection_limit=1 instead of the default
-        // ./data/ci-auth-test.db (which would be an empty/nonexistent file).
-        DB_PATH: dbPath,
-        DATABASE_URL: `file:${dbPath}?connection_limit=1`,
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let started = false;
-    const timeout = setTimeout(() => {
-      if (!started) reject(new Error('API failed to start within 10s'));
-    }, 10000);
-
-    apiProcess.stdout?.on('data', (d: Buffer) => {
-      if (d.toString().includes('api ready on')) {
-        started = true;
-        clearTimeout(timeout);
-        resolve();
-      }
-    });
-
-    apiProcess.stderr?.on('data', (_d: Buffer) => {
-      // Suppress Nest startup noise
-    });
-
-    apiProcess.on('exit', (code) => {
-      if (!started) {
-        clearTimeout(timeout);
-        reject(new Error(`API exited with code ${String(code)} before becoming ready`));
-      }
-    });
-
-    // Override listen port — the API defaults to 7878; we need to avoid clash
-    // Unfortunately the API hardcodes port 7878 in main.ts. We'll use the default.
-    // This test can only run if port 7878 is free.
-  });
-}, 15000);
+}, 20_000);
 
 afterAll(async () => {
   if (SKIP_REASON) return;
-  if (apiProcess) {
-    apiProcess.kill('SIGTERM');
-    await new Promise<void>((r) => apiProcess!.on('exit', () => r()));
-  }
-  if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+  await api.kill();
 });
 
 // ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@
  *   - audit row written (service_audit via @Audited())
  *   - response shape: { jobId, orderId, status }
  *
- * Self-spawns the compiled API binary (same pattern as auth.spec.ts).
+ * Self-spawns the compiled API binary via startApi() helper.
  * Gated by CCLAW_SECURITY_TESTS_ENABLED=1 to avoid port-conflict issues
  * when run in parallel with other integration tests.
  *
@@ -23,14 +23,8 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawn, execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-
-const REPO_ROOT = resolve(__dirname, '../../..');
-const API_DIST = resolve(REPO_ROOT, 'apps/api/dist/main.js');
-const PRISMA_BIN = resolve(REPO_ROOT, 'node_modules/.bin/prisma');
+import { startApi } from '../_spawn-api.js';
+import type { StartApiResult } from '../_spawn-api.js';
 
 const ENABLED = process.env['CCLAW_SECURITY_TESTS_ENABLED'] === '1';
 
@@ -60,9 +54,7 @@ const BASE_ENV: NodeJS.ProcessEnv = {
   PATH: process.env['PATH'],
 };
 
-let apiProcess: ReturnType<typeof spawn> | null = null;
-let tempDir: string;
-let dbPath: string;
+let api: StartApiResult;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -128,59 +120,18 @@ async function createApprovedOrder(): Promise<string> {
 
 beforeAll(async () => {
   if (!ENABLED) return;
-
-  tempDir = mkdtempSync(resolve(tmpdir(), 'cclaw-execute-route-'));
-  dbPath = resolve(tempDir, 'execute-route-test.db');
-
-  execFileSync(PRISMA_BIN, ['migrate', 'deploy'], {
-    env: {
-      ...process.env,
-      DATABASE_URL: `file:${dbPath}?connection_limit=1`,
-      PRISMA_DISABLE_DOTENV: '1',
-    },
-    cwd: REPO_ROOT,
-    stdio: 'ignore',
+  api = await startApi({
+    dbPath: '',
+    env: BASE_ENV,
+    port: 7878,
+    readyTimeoutMs: 15_000,
+    tmpPrefix: 'cclaw-execute-route',
   });
-
-  await new Promise<void>((resolve, reject) => {
-    apiProcess = spawn('node', [API_DIST], {
-      env: {
-        ...BASE_ENV,
-        DB_PATH: dbPath,
-        DATABASE_URL: `file:${dbPath}?connection_limit=1`,
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let started = false;
-    const timeout = setTimeout(() => {
-      if (!started) reject(new Error('API failed to start within 15s'));
-    }, 15000);
-
-    apiProcess.stdout?.on('data', (d: Buffer) => {
-      if (d.toString().includes('api ready on')) {
-        started = true;
-        clearTimeout(timeout);
-        resolve();
-      }
-    });
-
-    apiProcess.on('exit', (code) => {
-      if (!started) {
-        clearTimeout(timeout);
-        reject(new Error(`API exited with code ${String(code)} before becoming ready`));
-      }
-    });
-  });
-}, 20000);
+}, 20_000);
 
 afterAll(async () => {
   if (!ENABLED) return;
-  if (apiProcess) {
-    apiProcess.kill('SIGTERM');
-    await new Promise<void>((r) => apiProcess!.on('exit', () => r()));
-  }
-  if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+  await api.kill();
 });
 
 // ---------------------------------------------------------------------------
