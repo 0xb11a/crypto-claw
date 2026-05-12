@@ -250,17 +250,17 @@ describe.skipIf(!ENABLED)(
       const responseBody = body as { jobId: string; orderId: string; status: string };
       expect(responseBody.status).toBe('enqueued');
       expect(responseBody.orderId).toBe(orderId);
-      expect(responseBody.jobId).toBe(`execute-order:${orderId}`);
+      expect(responseBody.jobId).toBe(`execute-order-${orderId}`);
     });
 
-    it('response jobId uses deterministic pattern execute-order:<id>', async () => {
+    it('response jobId uses deterministic pattern execute-order-<id>', async () => {
       const orderId = await createApprovedOrder();
       const { body } = await request('POST', `/v1/orders/${orderId}/execute`, {
         token: AGENT_TOKEN,
         body: {},
       });
       const responseBody = body as { jobId: string };
-      expect(responseBody.jobId).toMatch(/^execute-order:/);
+      expect(responseBody.jobId).toMatch(/^execute-order-/);
     });
 
     it('order transitions to executing status after execute call', async () => {

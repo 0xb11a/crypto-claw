@@ -35,7 +35,12 @@ function makeRepo(overrides?: Partial<OrdersRepository>): OrdersRepository {
 
 function makeConfig(overrides: Partial<AppConfig> = {}): ConfigService {
   const cfg: Partial<AppConfig> = { AUTO_APPROVE_BUY: false, PAPER_MODE: false, ...overrides };
-  return { get: vi.fn().mockReturnValue(cfg) } as unknown as ConfigService;
+  // Use mockImplementation so that per-field get('KEY') calls return the individual value.
+  // The service uses === true || === 'true' to normalise both boolean and string forms,
+  // so returning the boolean directly here is correct.
+  return {
+    get: vi.fn().mockImplementation((key: string) => cfg[key as keyof typeof cfg]),
+  } as unknown as ConfigService;
 }
 
 function makeQueue(): Queue {
@@ -171,11 +176,11 @@ describe('OrdersService', () => {
 
       expect(result.status).toBe('enqueued');
       expect(result.orderId).toBe('order-1');
-      expect(result.jobId).toBe('execute-order:order-1');
+      expect(result.jobId).toBe('execute-order-order-1');
       expect(queue.add).toHaveBeenCalledWith(
         'execute-order',
         { orderId: 'order-1' },
-        expect.objectContaining({ jobId: 'execute-order:order-1' }),
+        expect.objectContaining({ jobId: 'execute-order-order-1' }),
       );
     });
 

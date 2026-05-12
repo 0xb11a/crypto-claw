@@ -209,10 +209,11 @@ describe.skipIf(!ENABLED)(
         body: {},
       });
 
-      // Check that a receipt exists for this order
+      // Check that a receipt exists for this order.
+      // The DTO field is orderId (camelCase) and mode=paper routes to paper_receipts table.
       const { body: receiptsBody } = await request(
         'GET',
-        `/v1/receipts?order_id=${orderId}`,
+        `/v1/receipts?mode=paper&orderId=${orderId}`,
         { token: AGENT_TOKEN },
       );
       const receipts = (receiptsBody as { data: Array<{ order_id: string; mode: string }> }).data;

@@ -170,7 +170,7 @@ describe.skipIf(!ENABLED)(
         body: {},
       });
       expect(status).toBe(202);
-      expect((body as { jobId: string }).jobId).toBe(`execute-order:${orderId}`);
+      expect((body as { jobId: string }).jobId).toBe(`execute-order-${orderId}`);
     });
 
     it('second execute call on same order returns 409 (order is now executing)', async () => {
@@ -202,7 +202,7 @@ describe.skipIf(!ENABLED)(
       const firstJobId = (firstBody as { jobId: string }).jobId;
 
       // The expected deterministic jobId regardless of how many times execute was called
-      expect(firstJobId).toBe(`execute-order:${orderId}`);
+      expect(firstJobId).toBe(`execute-order-${orderId}`);
     });
 
     it('order status only transitions to executing once (not doubled)', async () => {

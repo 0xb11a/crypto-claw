@@ -34,7 +34,7 @@ const listResponse: OrderListResponseDto = {
   pagination: { total: 1, limit: 50, cursor: 'order-1', hasMore: false },
 };
 
-const enqueuedResponse = { jobId: 'execute-order:order-1', orderId: 'order-1', status: 'enqueued' as const };
+const enqueuedResponse = { jobId: 'execute-order-order-1', orderId: 'order-1', status: 'enqueued' as const };
 const paperResponse = { jobId: null, orderId: 'order-1', status: 'paper_executed' as const };
 
 function makeService(overrides?: Partial<OrdersService>): OrdersService {

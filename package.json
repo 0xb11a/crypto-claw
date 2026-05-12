@@ -16,7 +16,7 @@
     "lint:fix": "eslint --fix 'apps/**/*.ts' 'libs/**/*.ts' 'sdk/**/*.ts' && eslint --fix 'scripts/**/*.js' 'tests/**/*.js'",
     "test": "pnpm test:unit && pnpm test:integration",
     "test:unit": "vitest run --project '*:unit'",
-    "test:integration": "vitest run --project 'integration'",
+    "test:integration": "vitest run --project 'integration' --no-file-parallelism",
     "test:e2e": "vitest run --project 'e2e'",
     "build": "tsc --build",
     "build:openapi": "tsx tools/build-openapi.ts",

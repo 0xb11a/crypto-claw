@@ -9,7 +9,6 @@ import type { ApproveOrderDto, RejectOrderDto, CancelOrderDto, RetryOrderDto } f
 import type { OrderListQueryDto } from './dto/order-list-query.dto.js';
 import type { OrderResponseDto, OrderListResponseDto } from './dto/order-response.dto.js';
 import type { ExecuteOrderAcceptedDto } from './dto/execute-order-response.dto.js';
-import type { AppConfig } from '@cclaw/config';
 import { ReceiptsService } from '@cclaw/receipts';
 
 /** Name of the execute-order BullMQ queue (mirrors apps/worker/src/queues/execute-order.queue.ts). */
@@ -44,8 +43,11 @@ export class OrdersService {
   ) {}
 
   private get autoApproveBuy(): boolean {
-    const cfg = this.configSvc.get<AppConfig>('') as AppConfig;
-    return cfg?.AUTO_APPROVE_BUY ?? false;
+    // ConfigService.get() may return the raw process.env string ('false') rather than the
+    // Zod-transformed boolean (false) depending on NestJS version and load function shape.
+    // Normalise both string and boolean forms so the check is always correct.
+    const v = this.configSvc.get<boolean | string>('AUTO_APPROVE_BUY');
+    return v === true || v === 'true';
   }
 
   private assertTransition(currentStatus: string, targetStatus: string): void {
@@ -150,9 +152,14 @@ export class OrdersService {
       );
     }
 
-    const cfg = this.configSvc.get<AppConfig>('') as AppConfig;
+    // ConfigService.get() may return the raw process.env string ('true'/'false') rather
+    // than the Zod-transformed boolean. Normalise both forms to ensure the branch is
+    // always correct regardless of whether the NestJS loader returns the raw string or
+    // the Zod-transformed boolean.
+    const paperModeRaw = this.configSvc.get<boolean | string>('PAPER_MODE');
+    const isPaperMode = paperModeRaw === true || paperModeRaw === 'true';
 
-    if (cfg.PAPER_MODE) {
+    if (isPaperMode) {
       // -----------------------------------------------------------------------
       // Paper mode: short-circuit — simulate receipt, no executor spawn
       // -----------------------------------------------------------------------
@@ -173,8 +180,11 @@ export class OrdersService {
     // -----------------------------------------------------------------------
     await this.repo.transitionStatus(id, 'executing', 'orders-service');
 
-    // Deterministic jobId: duplicate adds collapse silently (idempotency)
-    const jobId = `execute-order:${id}`;
+    // Deterministic jobId: duplicate adds collapse silently (idempotency).
+    // BullMQ 5.x rejects jobIds containing ':' unless they are in the internal
+    // 3-part format. Use '-' as the separator to avoid this constraint while
+    // keeping the id globally unique and recognisable.
+    const jobId = `execute-order-${id}`;
     await this.executeQueue.add(
       'execute-order',
       { orderId: id },
