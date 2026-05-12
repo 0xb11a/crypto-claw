@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@cclaw/prisma';
-import type { AppConfig } from '@cclaw/config';
 
 /**
  * Idleness predicates for executor and sentinel agents.
@@ -13,6 +12,10 @@ import type { AppConfig } from '@cclaw/config';
  * there is work to do. When idle, their heartbeat rows legitimately stop
  * refreshing, which would otherwise look like a dead agent. idle_ok=true
  * tells dead-agent detectors to suppress the alert.
+ *
+ * ADR-0026: uses per-field configService.get<string>('PAPER_MODE') — not bare-key
+ * get<AppConfig>('').  Boolean fields use === 'true' string-normalisation because
+ * the Zod schema preserves the raw string value.
  */
 @Injectable()
 export class IdlenessService {
@@ -22,8 +25,9 @@ export class IdlenessService {
   ) {}
 
   private get paperMode(): boolean {
-    const cfg = this.configSvc.get<AppConfig>('');
-    return (cfg as AppConfig | undefined)?.PAPER_MODE ?? false;
+    // ADR-0026: per-field get; normalise string 'true'/'false' to boolean.
+    const raw = this.configSvc.get<string>('PAPER_MODE');
+    return raw === 'true' || raw === '1';
   }
 
   /**

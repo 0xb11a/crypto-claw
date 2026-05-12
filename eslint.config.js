@@ -91,6 +91,15 @@ export default [
           selector: "MemberExpression[object.name='process'][property.name='env']",
           message: 'Direct process.env access is forbidden. Use the typed AppConfig from @cclaw/config instead.',
         },
+        // ADR-0026: ban configService.get<T>('') (bare empty-key access).
+        // Use per-field gets: configService.get<string>('FIELD_NAME') instead.
+        // This rule fires if the first argument to .get() is an empty string literal.
+        {
+          selector: "CallExpression[callee.property.name='get'][arguments.0.type='Literal'][arguments.0.value='']",
+          message:
+            "Bare-key configService.get<AppConfig>('') is forbidden (ADR-0026). " +
+            "Use per-field gets: configService.get<string>('FIELD_NAME').",
+        },
       ],
 
       // No console.log in committed source (pre-commit hook also blocks this).
@@ -132,6 +141,13 @@ export default [
         {
           selector: "MemberExpression[object.name='process'][property.name='env']",
           message: 'Direct process.env access is forbidden. Use the typed AppConfig from @cclaw/config instead.',
+        },
+        // ADR-0026: ban configService.get<T>('') (bare empty-key access).
+        {
+          selector: "CallExpression[callee.property.name='get'][arguments.0.type='Literal'][arguments.0.value='']",
+          message:
+            "Bare-key configService.get<AppConfig>('') is forbidden (ADR-0026). " +
+            "Use per-field gets: configService.get<string>('FIELD_NAME').",
         },
       ],
       'no-console': ['error', { allow: ['warn', 'error'] }],
@@ -231,6 +247,13 @@ export default [
         {
           selector: "MemberExpression[object.name='process'][property.name='env']",
           message: 'Direct process.env access is forbidden. Use the typed AppConfig from @cclaw/config instead.',
+        },
+        // ADR-0026: ban configService.get<T>('') (bare empty-key access).
+        {
+          selector: "CallExpression[callee.property.name='get'][arguments.0.type='Literal'][arguments.0.value='']",
+          message:
+            "Bare-key configService.get<AppConfig>('') is forbidden (ADR-0026). " +
+            "Use per-field gets: configService.get<string>('FIELD_NAME').",
         },
       ],
       'no-console': ['error', { allow: ['warn', 'error'] }],

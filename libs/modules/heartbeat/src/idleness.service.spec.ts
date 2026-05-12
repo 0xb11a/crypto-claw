@@ -8,7 +8,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { IdlenessService } from './idleness.service.js';
 import type { PrismaService } from '@cclaw/prisma';
 import type { ConfigService } from '@nestjs/config';
-import type { AppConfig } from '@cclaw/config';
 
 function makePrisma(overrides?: Partial<PrismaService>): PrismaService {
   return {
@@ -26,8 +25,14 @@ function makePrisma(overrides?: Partial<PrismaService>): PrismaService {
 }
 
 function makeConfig(paperMode = false): ConfigService {
-  const cfg: Partial<AppConfig> = { PAPER_MODE: paperMode };
-  return { get: vi.fn().mockReturnValue(cfg) } as unknown as ConfigService;
+  // ADR-0026: per-field get mock. Returns the value for the specific key requested.
+  // The service reads PAPER_MODE as a string ('true'/'false') via configSvc.get<string>('PAPER_MODE').
+  return {
+    get: vi.fn().mockImplementation((key: string) => {
+      if (key === 'PAPER_MODE') return paperMode ? 'true' : 'false';
+      return undefined;
+    }),
+  } as unknown as ConfigService;
 }
 
 describe('IdlenessService', () => {

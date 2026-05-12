@@ -18,8 +18,10 @@ vi.mock('@cclaw/execution', () => ({
 import { existsSync } from 'node:fs';
 
 function makeConfigService(overrides: Record<string, unknown> = {}) {
+  // ADR-0026: per-field get mock. Returns the value for the specific key requested.
+  const cfg: Record<string, unknown> = { EXECUTOR_BIN_PATH: undefined, ...overrides };
   return {
-    get: vi.fn(() => ({ EXECUTOR_BIN_PATH: undefined, ...overrides })),
+    get: vi.fn((key: string) => cfg[key]),
   };
 }
 
