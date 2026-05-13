@@ -8,19 +8,25 @@ import { FetchHttpRequest } from './core/FetchHttpRequest';
 import { AlertsService } from './services/AlertsService';
 import { HealthService } from './services/HealthService';
 import { HeartbeatService } from './services/HeartbeatService';
+import { LiquidityService } from './services/LiquidityService';
 import { OrdersService } from './services/OrdersService';
 import { PositionsService } from './services/PositionsService';
 import { ReceiptsService } from './services/ReceiptsService';
 import { SystemService } from './services/SystemService';
+import { WalletsService } from './services/WalletsService';
+import { WatchlistService } from './services/WatchlistService';
 type HttpRequestConstructor = new (config: OpenAPIConfig) => BaseHttpRequest;
 export class CClawClient {
   public readonly alerts: AlertsService;
   public readonly health: HealthService;
   public readonly heartbeat: HeartbeatService;
+  public readonly liquidity: LiquidityService;
   public readonly orders: OrdersService;
   public readonly positions: PositionsService;
   public readonly receipts: ReceiptsService;
   public readonly system: SystemService;
+  public readonly wallets: WalletsService;
+  public readonly watchlist: WatchlistService;
   public readonly request: BaseHttpRequest;
   constructor(config?: Partial<OpenAPIConfig>, HttpRequest: HttpRequestConstructor = FetchHttpRequest) {
     this.request = new HttpRequest({
@@ -37,9 +43,12 @@ export class CClawClient {
     this.alerts = new AlertsService(this.request);
     this.health = new HealthService(this.request);
     this.heartbeat = new HeartbeatService(this.request);
+    this.liquidity = new LiquidityService(this.request);
     this.orders = new OrdersService(this.request);
     this.positions = new PositionsService(this.request);
     this.receipts = new ReceiptsService(this.request);
     this.system = new SystemService(this.request);
+    this.wallets = new WalletsService(this.request);
+    this.watchlist = new WatchlistService(this.request);
   }
 }
