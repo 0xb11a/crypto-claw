@@ -35,7 +35,7 @@ PR-A (P1c-ii infrastructure) is the slice that pre-installs the per-Safe topolog
 - **BullMQ Pro `group` semantics.** Solves the problem cleanly but adds a paid license. Unjustified given SPEC §17's multi-fund topology is one Safe per compose stack today; the queue count stays small and a future migration to Pro `group`s is a swap of the enumerator, not an API change.
 
 **Implementation locus:**
-- `apps/worker/src/queues/execute-order.queue.ts` — exports `executeOrderQueueName(chain, safe)` (the single source of truth for the naming convention).
+- `libs/modules/orders/src/queue-names.ts` — exports `executeOrderQueueName(chain, safe)` (the single canonical source of truth for the naming convention; `apps/worker/src/queues/execute-order.queue.ts` is a re-export shim that points here).
 - `apps/worker/src/app.module.ts` — enumerates queues at boot from `ACTIVE_CHAINS` config and registers a Worker per queue.
 - `libs/modules/orders/src/orders.service.ts` — routes enqueues via the helper; no caller constructs queue names by hand.
 
