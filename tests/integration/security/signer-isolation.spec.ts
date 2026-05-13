@@ -79,16 +79,30 @@ const BASE_EXECUTOR_ENV: NodeJS.ProcessEnv = {
 /**
  * Minimal valid order JSON for executor stdin.
  *
- * chain: 'solana' — intentional.  The test at line ~173 asserts
- * error_kind === 'not_yet_implemented_real_mode' in EXECUTOR_STUB_MODE=0.
- * PR-B added checkStalePrice() to runPreflight(), which runs BEFORE the
- * chain dispatch.  With chain='base' + entry_price=2000 the preflight
- * fetches the live WETH price from DEXScreener; ETH ≠ $2000 → stale_price
- * fires before dispatch → wrong error_kind in CI.
- * Using chain='solana' routes through the Solana dispatch branch which
- * returns 'not_yet_implemented_real_mode' cleanly (Solana is not yet
- * preflighted past chain dispatch).  The load-bearing signer-isolation
- * assertions (Groups 2–4) are unaffected by chain name.
+ * chain: 'solana', no entry_price — intentional.
+ *
+ * The test at line ~173 asserts error_kind === 'not_yet_implemented_real_mode'
+ * when EXECUTOR_STUB_MODE=0.  PR-B added checkStalePrice() to runPreflight(),
+ * which runs BEFORE the chain dispatch in main.ts (step 5 vs step 6).
+ *
+ * Two reasons for this shape:
+ *
+ *   1. chain='base' + entry_price=2000 was wrong: checkStalePrice fetches the
+ *      live WETH/ETH price from DEXScreener.  ETH price ≠ $2000 in CI →
+ *      preflight throws stale_price before dispatch → wrong error_kind.
+ *
+ *   2. chain='solana' alone is not enough if entry_price is set, because
+ *      checkStalePrice has no Solana skip — it would fetch the WSOL price
+ *      and could still fire stale_price if SOL drifts >10% from the value.
+ *
+ * Omitting entry_price causes checkStalePrice to short-circuit immediately
+ * (entry_price === undefined → return {ok:true}) — no network call, no drift
+ * check.  Preflight passes, flow reaches executeTrade which returns
+ * {status:'failed', error_kind:'not_yet_implemented_real_mode'} for Solana
+ * in real mode (P1c-iii is not yet implemented).
+ *
+ * The load-bearing signer-isolation assertions (Groups 2–4) are unaffected
+ * by chain name or the presence/absence of entry_price.
  */
 const SAMPLE_ORDER = JSON.stringify({
   id: 'signer-isolation-test-001',
@@ -98,7 +112,8 @@ const SAMPLE_ORDER = JSON.stringify({
   chain: 'solana',
   amount: '100',
   tier: 'conviction',
-  entry_price: 100,
+  // entry_price intentionally omitted: checkStalePrice short-circuits on
+  // undefined entry_price (no DEXScreener call) so the test is network-free.
   stop_loss: 80,
 });
 
