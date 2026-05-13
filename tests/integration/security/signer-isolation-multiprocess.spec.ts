@@ -153,20 +153,49 @@ async function pollOrderStatus(
 }
 
 // ---------------------------------------------------------------------------
-// Spawn worker process with captured output
+// Spawn worker process with captured output and readiness detection
 // ---------------------------------------------------------------------------
 
+/**
+ * Handle returned by spawnWorker().
+ *
+ * `ready` resolves when the worker prints '[boot] worker ready' on stdout.
+ * Callers MUST await `worker.ready` in beforeAll() before posting orders —
+ * the 3-second blind sleep was the root cause of the original timeout failures
+ * (jobs enqueued before BullMQ worker consumers registered).
+ *
+ * `kill()` is async so teardown can drain in-flight DB writes before the
+ * process exits.
+ */
 interface WorkerProcess {
-  kill: () => void;
+  /** Resolves when the worker prints its readiness line; rejects on timeout or early exit. */
+  ready: Promise<void>;
+  /** Send SIGTERM and wait for the process to exit. Safe to call if already exited. */
+  kill: () => Promise<void>;
+  /** Lines emitted on stdout (accumulated, useful for signer-key leak assertions). */
   stdoutLines: string[];
+  /** Lines emitted on stderr (accumulated, useful for diagnosing boot crashes). */
   stderrLines: string[];
 }
 
-function spawnWorker(env: NodeJS.ProcessEnv, dbPath: string): WorkerProcess {
+/**
+ * Spawn the compiled worker binary and wait for it to declare readiness.
+ *
+ * Root cause fix: apps/worker/src/main.ts prints `[boot] worker ready` after
+ * successful NestJS bootstrap and BullMQ consumer registration. The original
+ * implementation did a 3-second blind sleep which was not long enough on cold
+ * boots — jobs were enqueued before any BullMQ Worker had registered for the
+ * queue, so they sat in Redis with no consumer.
+ *
+ * @param env   Extra env vars (merged on top of PATH/NODE_PATH from parent).
+ * @param dbPath Absolute path to the SQLite DB file the worker should use.
+ * @param readyTimeoutMs How long to wait for '[boot] worker ready'. Default 20s.
+ */
+function spawnWorker(env: NodeJS.ProcessEnv, dbPath: string, readyTimeoutMs = 20_000): WorkerProcess {
   const stdoutLines: string[] = [];
   const stderrLines: string[] = [];
 
-  const worker = spawn('node', [DIST.worker], {
+  const workerProcess = spawn('node', [DIST.worker], {
     env: {
       PATH: process.env['PATH'],
       NODE_PATH: process.env['NODE_PATH'],
@@ -178,24 +207,68 @@ function spawnWorker(env: NodeJS.ProcessEnv, dbPath: string): WorkerProcess {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  worker.stdout.on('data', (chunk: Buffer) => {
+  // Accumulate output before the readiness promise settles so the readiness
+  // handler can see lines emitted immediately at boot.
+  workerProcess.stdout.on('data', (chunk: Buffer) => {
     stdoutLines.push(...chunk.toString().split('\n').filter(Boolean));
   });
-  worker.stderr.on('data', (chunk: Buffer) => {
+  workerProcess.stderr.on('data', (chunk: Buffer) => {
     stderrLines.push(...chunk.toString().split('\n').filter(Boolean));
   });
 
-  return {
-    kill: () => {
-      try {
-        worker.kill('SIGTERM');
-      } catch {
-        /* already exited */
+  // ---------------------------------------------------------------------------
+  // Readiness detection — mirrors _spawn-api.ts pattern for 'api ready on'.
+  // The worker prints exactly: "[boot] worker ready — execute-order processor active"
+  // ---------------------------------------------------------------------------
+  const ready = new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        // Dump accumulated output so CI logs show why the worker didn't boot.
+        console.error('[spawnWorker] TIMEOUT: worker did not print readiness within', readyTimeoutMs, 'ms');
+        console.error('[spawnWorker] worker stdout so far:\n', stdoutLines.join('\n'));
+        console.error('[spawnWorker] worker stderr so far:\n', stderrLines.join('\n'));
+        reject(new Error(`Worker did not become ready within ${readyTimeoutMs}ms`));
       }
-    },
-    stdoutLines,
-    stderrLines,
-  };
+    }, readyTimeoutMs);
+
+    // Watch stdout for the readiness line.
+    workerProcess.stdout.on('data', (chunk: Buffer) => {
+      if (!settled && chunk.toString().includes('[boot] worker ready')) {
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+
+    // If the worker exits before printing readiness, reject immediately.
+    workerProcess.on('exit', (code) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        console.error('[spawnWorker] worker exited with code', code, 'before ready');
+        console.error('[spawnWorker] worker stdout:\n', stdoutLines.join('\n'));
+        console.error('[spawnWorker] worker stderr:\n', stderrLines.join('\n'));
+        reject(new Error(`Worker exited with code ${String(code)} before becoming ready`));
+      }
+    });
+  });
+
+  const kill = (): Promise<void> =>
+    new Promise<void>((resolve) => {
+      // If already exited, on('exit') fires synchronously.
+      workerProcess.on('exit', () => resolve());
+      try {
+        workerProcess.kill('SIGTERM');
+      } catch {
+        // Already exited — the 'exit' handler above will still fire.
+        resolve();
+      }
+    });
+
+  return { ready, kill, stdoutLines, stderrLines };
 }
 
 // ---------------------------------------------------------------------------
@@ -230,7 +303,11 @@ describe.skipIf(!SECURITY_TESTS_ENABLED || !ALL_DISTS_EXIST)(
         readyTimeoutMs: 25000,
       });
 
-      // Start worker pointing at same DB, with SIGNER_ENV_FILE
+      // Start worker pointing at same DB, with SIGNER_ENV_FILE.
+      // spawnWorker() returns immediately; worker.ready resolves once the
+      // worker has printed '[boot] worker ready' (BullMQ consumers registered).
+      // Awaiting this instead of a blind sleep is the fix for the original
+      // timeout failures: jobs were enqueued before any consumer was registered.
       worker = spawnWorker(
         {
           ...BASE_API_ENV,
@@ -241,12 +318,12 @@ describe.skipIf(!SECURITY_TESTS_ENABLED || !ALL_DISTS_EXIST)(
         api.dbPath,
       );
 
-      // Give worker time to connect to Redis and register queue consumers
-      await new Promise<void>((r) => setTimeout(r, 3000));
-    }, 35000);
+      // Wait for worker to register its BullMQ consumers before posting orders.
+      await worker.ready;
+    }, 40000);
 
     afterAll(async () => {
-      worker.kill();
+      await worker.kill();
       await api.kill();
       if (tempDir) rmSync(tempDir, { recursive: true, force: true });
     });
@@ -342,12 +419,12 @@ describe.skipIf(!SECURITY_TESTS_ENABLED || !ALL_DISTS_EXIST)(
         api.dbPath,
       );
 
-      // Give worker time to connect to Redis
-      await new Promise<void>((r) => setTimeout(r, 3000));
-    }, 35000);
+      // Wait for worker readiness before posting orders.
+      await worker.ready;
+    }, 40000);
 
     afterAll(async () => {
-      worker.kill();
+      await worker.kill();
       await api.kill();
       if (tempDir) rmSync(tempDir, { recursive: true, force: true });
     });
@@ -366,9 +443,11 @@ describe.skipIf(!SECURITY_TESTS_ENABLED || !ALL_DISTS_EXIST)(
 
       // Fire execute then immediately kill the worker
       const executePromise = apiPost(api.url, `/v1/orders/${orderId}/execute`, {}, executorToken).catch(() => null);
-      // Give the execute request 200ms to be received, then SIGTERM the worker
+      // Give the execute request 200ms to be received, then SIGTERM the worker.
+      // Intentionally not awaited — we want fire-and-forget here to simulate an
+      // abrupt kill while the API is still handling the execute request.
       await new Promise<void>((r) => setTimeout(r, 200));
-      worker.kill();
+      void worker.kill();
 
       // Wait for the execute request to resolve (or timeout)
       await executePromise;
@@ -442,11 +521,12 @@ describe.skipIf(!SECURITY_TESTS_ENABLED || !ALL_DISTS_EXIST)(
         api.dbPath,
       );
 
-      await new Promise<void>((r) => setTimeout(r, 3000));
-    }, 35000);
+      // Wait for worker readiness before posting orders.
+      await worker.ready;
+    }, 40000);
 
     afterAll(async () => {
-      worker.kill();
+      await worker.kill();
       await api.kill();
       if (tempDir) rmSync(tempDir, { recursive: true, force: true });
     });
