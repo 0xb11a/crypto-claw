@@ -1,6 +1,7 @@
 export {
   CHAINS,
   PORTFOLIO_RULES,
+  LAMPORTS_PER_SOL,
   getChain,
   getActiveChains,
   getAllChains,

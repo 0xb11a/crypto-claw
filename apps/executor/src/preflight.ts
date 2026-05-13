@@ -14,7 +14,7 @@
  * @see scripts/process-order.js:171 — slippage limits source of truth
  */
 import type { OrderInput } from '@cclaw/execution';
-import { getChain, isEvm } from '@cclaw/chain';
+import { getChain, isEvm, LAMPORTS_PER_SOL } from '@cclaw/chain';
 import { createPublicClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -62,6 +62,87 @@ export function assertSignerKeysPresent(chain: string, env: Record<string, strin
 }
 
 // ---------------------------------------------------------------------------
+// Solana signer balance helper (P1c-iii)
+// ---------------------------------------------------------------------------
+
+/**
+ * Check the Squads signer account's SOL balance against the chain's
+ * signerThreshold (expressed in SOL from libs/chain).
+ *
+ * Only called when EXECUTOR_STUB_MODE !== '1' and chain === 'solana'.
+ * Fails gracefully (ok:true) if RPC is unreachable — mirrors EVM behaviour.
+ * Fails hard (ok:false) if base58 key is unparseable — that is a configuration
+ * error that should be surfaced before attempting the trade.
+ */
+async function checkSolanaSignerBalance(env: Record<string, string | undefined>): Promise<SignerBalanceResult> {
+  const signerKeyBase58 = env['SQUADS_SIGNER_KEY'];
+  const rpcUrl = env['RPC_SOL'];
+
+  if (!signerKeyBase58 || !rpcUrl) {
+    // assertSignerKeysPresent handles the absent-key case; skip here.
+    return { ok: true, message: 'balance check skipped (missing SQUADS_SIGNER_KEY or RPC_SOL)' };
+  }
+
+  // Derive signer public key from base58 secret key.
+  // @solana/web3.js and bs58 are dynamic-imported to stay out of stub-mode paths.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let web3: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let bs58Module: any;
+  try {
+    [web3, bs58Module] = await Promise.all([import('@solana/web3.js'), import('bs58')]);
+  } catch {
+    // Packages not installed (CI stub path) — skip gracefully
+    return { ok: true, message: 'balance check skipped (Solana SDK not installed)' };
+  }
+  const bs58 = bs58Module.default ?? bs58Module;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let keypair: any;
+  try {
+    keypair = web3.Keypair.fromSecretKey(bs58.decode(signerKeyBase58));
+  } catch {
+    return {
+      ok: false,
+      message: 'signer_balance_insufficient: could not derive signer address from SQUADS_SIGNER_KEY (invalid base58)',
+    };
+  }
+
+  const signerPublicKey = keypair.publicKey;
+
+  let balanceLamports: number;
+  try {
+    const connection = new web3.Connection(rpcUrl, 'confirmed');
+    balanceLamports = (await connection.getBalance(signerPublicKey)) as number;
+  } catch (err) {
+    process.stderr.write(`[preflight] Solana balance check RPC error: ${(err as Error).message} — proceeding\n`);
+    return { ok: true, message: `balance check skipped (RPC error: ${(err as Error).message})` };
+  }
+
+  // signerThreshold for Solana is 0.05 SOL (see libs/chain/src/chains.ts)
+  let thresholdSol: number;
+  try {
+    thresholdSol = getChain('solana').signerThreshold;
+  } catch {
+    thresholdSol = 0.05; // fallback if chain config unavailable
+  }
+  const thresholdLamports = BigInt(Math.floor(thresholdSol * Number(LAMPORTS_PER_SOL)));
+
+  if (BigInt(balanceLamports) < thresholdLamports) {
+    const balanceSol = balanceLamports / Number(LAMPORTS_PER_SOL);
+    return {
+      ok: false,
+      message:
+        `signer_balance_insufficient: solana signer=${signerPublicKey.toString()} has ` +
+        `${balanceSol.toFixed(6)} SOL, need ≥ ${thresholdSol} SOL for gas`,
+    };
+  }
+
+  const balanceSol = balanceLamports / Number(LAMPORTS_PER_SOL);
+  return { ok: true, message: `balance ok: ${balanceSol.toFixed(6)} SOL (threshold: ${thresholdSol} SOL)` };
+}
+
+// ---------------------------------------------------------------------------
 // 2. checkSignerBalance — real viem getBalance (P1c-ii)
 // ---------------------------------------------------------------------------
 
@@ -97,12 +178,12 @@ export async function checkSignerBalance(
     return { ok: true, message: 'balance ok (stub mode)' };
   }
 
-  // Solana: P1c-iii wires real check
+  // Solana: real balance check (P1c-iii)
   if (chain === 'solana') {
-    return { ok: true, message: 'balance check skipped (solana — P1c-iii)' };
+    return checkSolanaSignerBalance(env);
   }
 
-  // EVM: real viem balance check
+  // EVM chain falls through to real viem balance check below
   let chainConfig: ReturnType<typeof getChain>;
   try {
     chainConfig = getChain(chain);
