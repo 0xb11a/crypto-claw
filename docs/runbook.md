@@ -753,7 +753,71 @@ Adding a new Safe to `ACTIVE_CHAINS` or changing an existing Safe address requir
 Queue name format: `execute-order-<chain>-<safeAddressLowercase>` (e.g. `execute-order-base-0xabcdef`).
 Never construct this name by hand — use `executeOrderQueueName(chain, safeAddress)` from `@cclaw/orders`.
 
-## 11. Emergency stop
+## 11. Solana execution prerequisites (P1c-iii)
+
+`apps/executor/src/execute-trade-solana.ts` is the real Squads V4 + Jupiter swap
+implementation for Solana orders. Before enabling real-mode Solana execution:
+
+### RPC endpoint
+
+The public `api.mainnet-beta.solana.com` endpoint has aggressive rate limits
+and is incompatible with production swap traffic (Jupiter `/swap-instructions`
+alone can require 3-5 requests per order). Use a paid RPC:
+
+- **Helius:** `https://mainnet.helius-rpc.com/?api-key=<YOUR_KEY>` (recommended)
+- **Quicknode:** `https://<endpoint>.quiknode.pro/<YOUR_KEY>/`
+
+Both hostnames are in `libs/chain/src/chains.ts` `SOLANA_RPC_ALLOWLIST.suffix`.
+Set `RPC_VALIDATION_MODE=strict` (the default) in production.
+
+### Vault funding
+
+The Squads signer account needs SOL for transaction fees. Minimum recommended:
+**0.05 SOL** (the `signerThreshold` from `libs/chain/src/chains.ts` for Solana).
+Below this threshold `checkSignerBalance` in `preflight.ts` blocks execution with
+`signer_balance_insufficient`.
+
+### signer.env
+
+```bash
+# Set SQUADS_SIGNER_KEY to the base58-encoded private key of the Squads signer
+# wallet in secrets/signer.env:
+echo "SQUADS_SIGNER_KEY=<base58_key>" >> secrets/signer.env
+chmod 0400 secrets/signer.env
+```
+
+The file must be mode 0400. The worker's production-mode load checks this and
+exits hard if the mode is world-readable.
+
+### Address configuration
+
+Both `SQUADS_VAULT_ADDRESS` and `SQUADS_MULTISIG_ADDRESS` are required for
+real-mode execution:
+
+- `SQUADS_VAULT_ADDRESS`: the Squads vault PDA (direct address, takes priority).
+- `SQUADS_MULTISIG_ADDRESS`: the Squads multisig PDA. Required for
+  `vaultTransactionCreate` / `proposalCreate` / `proposalApprove` even when
+  `SQUADS_VAULT_ADDRESS` is set.
+
+Both are set in `.env.runtime` (not in `secrets/signer.env`).
+
+### Squads transactionIndex monotonicity
+
+The Squads transactionIndex is monotonically increasing per vault. The
+`execute-order` BullMQ queue for Solana runs with `concurrency=1` per vault
+(ADR-0024) — this serializes orders and prevents index collisions.
+
+### Verification checklist
+
+- [ ] `RPC_SOL` points to Helius or Quicknode (not `api.mainnet-beta.solana.com`).
+- [ ] Signer wallet has ≥ 0.05 SOL.
+- [ ] `secrets/signer.env` is mode 0400 with `SQUADS_SIGNER_KEY=<base58>`.
+- [ ] Both `SQUADS_VAULT_ADDRESS` and `SQUADS_MULTISIG_ADDRESS` are set in `.env.runtime`.
+- [ ] `EXECUTOR_STUB_MODE=0` in `.env.runtime`.
+
+---
+
+## 12. Emergency stop
 
 [TBD]
 
