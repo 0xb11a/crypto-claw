@@ -151,4 +151,136 @@ describe('WatchlistRepository', () => {
       await expect(r.softDelete('missing')).rejects.toThrow(NotFoundException);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Adversarial: soft-delete idempotency (coder-flagged check 4)
+  //
+  // The repository's softDelete() checks for row existence via findUnique, then
+  // calls update(). After the first delete the row still exists with status='removed'.
+  // A second call to softDelete() must succeed because the row is still findable.
+  // This is the expected soft-delete contract: no 404 on the second call.
+  // ---------------------------------------------------------------------------
+
+  describe('softDelete() idempotency', () => {
+    it('second soft-delete on already-removed entry succeeds (row still findable)', async () => {
+      // After the first delete the row persists with status='removed'.
+      // makePrisma() returns rawRow on findUnique (status='watching') but we simulate
+      // a row that already has status='removed'.
+      const alreadyRemovedRow = { ...rawRow, status: 'removed' };
+      const p = makePrisma({
+        watchlist: {
+          findUnique: vi.fn().mockResolvedValue(alreadyRemovedRow),
+          update: vi.fn().mockResolvedValue(alreadyRemovedRow),
+        },
+      });
+      const r = new WatchlistRepository(p);
+      // Second call: row exists (status=removed) → findUnique returns it → update proceeds
+      const result = await r.softDelete('watch-1');
+      expect(result.ok).toBe(true);
+      expect(result.id).toBe('watch-1');
+    });
+
+    it('does NOT throw when called twice on the same entry', async () => {
+      // Simulate the first call: row exists → soft-deleted
+      await repo.softDelete('watch-1');
+      // Simulate the second call: row still exists (with removed status)
+      // The mock always returns rawRow for findUnique, so the second call also succeeds.
+      await expect(repo.softDelete('watch-1')).resolves.toMatchObject({ ok: true, id: 'watch-1' });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Coverage: mapRow null branches (watchlist.repository.ts lines 25-34)
+  // ---------------------------------------------------------------------------
+
+  describe('mapRow with all-null optional fields', () => {
+    it('returns null for all optional fields when they are null in the DB row', async () => {
+      const minimalRow = {
+        id: 'min-1',
+        symbol: 'SOL',
+        address: '0xsol',
+        chain: 'solana',
+        targetEntry: null,
+        currentPrice: null,
+        analysisScore: null,
+        riskScore: null,
+        narrative: null,
+        reason: null,
+        expiresAt: null,
+        status: 'watching',
+        createdAt: null,
+        updatedAt: null,
+      };
+      const p = makePrisma({
+        watchlist: {
+          findMany: vi.fn().mockResolvedValue([minimalRow]),
+          findUnique: vi.fn().mockResolvedValue(minimalRow),
+          create: vi.fn(),
+          update: vi.fn(),
+        },
+      });
+      const r = new WatchlistRepository(p);
+      const result = await r.findMany({});
+      const row = result[0]!;
+      expect(row.target_entry).toBeNull();
+      expect(row.current_price).toBeNull();
+      expect(row.analysis_score).toBeNull();
+      expect(row.risk_score).toBeNull();
+      expect(row.narrative).toBeNull();
+      expect(row.reason).toBeNull();
+      expect(row.expires_at).toBeNull();
+      expect(row.created_at).toBeNull();
+      expect(row.updated_at).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Coverage: update() conditional field spreading (lines 102-112)
+  // ---------------------------------------------------------------------------
+
+  describe('update() conditional field spreading', () => {
+    it('includes all optional fields in update data when all are provided', async () => {
+      const fullDto = {
+        symbol: 'BTC',
+        address: '0xbtc',
+        chain: 'eth',
+        target_entry: 50000,
+        current_price: 52000,
+        analysis_score: 85,
+        risk_score: 15,
+        narrative: 'digital gold',
+        reason: 'store of value',
+        expires_at: '2026-12-31',
+        status: 'entry_hit',
+      };
+      await repo.update('watch-1', fullDto);
+      const call = (prisma.watchlist.update as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        data: Record<string, unknown>;
+      };
+      expect(call.data.symbol).toBe('BTC');
+      expect(call.data.address).toBe('0xbtc');
+      expect(call.data.chain).toBe('eth');
+      expect(call.data.targetEntry).toBe(50000);
+      expect(call.data.currentPrice).toBe(52000);
+      expect(call.data.analysisScore).toBe(85);
+      expect(call.data.riskScore).toBe(15);
+      expect(call.data.narrative).toBe('digital gold');
+      expect(call.data.reason).toBe('store of value');
+      expect(call.data.expiresAt).toBe('2026-12-31');
+      expect(call.data.status).toBe('entry_hit');
+    });
+
+    it('omits undefined fields from update data (only updated_at is always set)', async () => {
+      // Only update current_price — all other fields are undefined
+      await repo.update('watch-1', { current_price: 2500 });
+      const call = (prisma.watchlist.update as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        data: Record<string, unknown>;
+      };
+      expect(call.data.currentPrice).toBe(2500);
+      expect(call.data.symbol).toBeUndefined();
+      expect(call.data.address).toBeUndefined();
+      expect(call.data.chain).toBeUndefined();
+      expect(call.data.updatedAt).toBeDefined();
+    });
+  });
 });

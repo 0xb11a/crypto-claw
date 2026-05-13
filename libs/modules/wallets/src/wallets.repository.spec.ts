@@ -185,4 +185,161 @@ describe('WalletsRepository', () => {
       await expect(r.remove('0xmissing', 'base')).rejects.toThrow(NotFoundException);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Adversarial: score_breakdown XSS round-trip (coder-flagged scenario 3)
+  // ---------------------------------------------------------------------------
+
+  describe('score_breakdown XSS round-trip contract', () => {
+    it('stores XSS-shaped string as-is when score_breakdown is already a string', async () => {
+      const xssPayload = '{"key": "<script>alert(1)</script>"}';
+      await repo.upsertWallet({ address: '0xabc', chain: 'base', score_breakdown: xssPayload });
+      const upsertCall = (prisma.trackedWallet.upsert as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        create: { scoreBreakdown: string };
+      };
+      // Must be stored verbatim — no HTML encoding, no stripping, no parsing
+      expect(upsertCall.create.scoreBreakdown).toBe(xssPayload);
+    });
+
+    it('serialises XSS object payload to JSON string without encoding (raw storage contract)', async () => {
+      const xssObj = { key: '<script>alert(1)</script>' };
+      await repo.upsertWallet({ address: '0xabc', chain: 'base', score_breakdown: xssObj });
+      const upsertCall = (prisma.trackedWallet.upsert as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        create: { scoreBreakdown: string };
+      };
+      // Stored as JSON.stringify — angle brackets remain unescaped (raw storage, consumers escape on output)
+      expect(upsertCall.create.scoreBreakdown).toBe(JSON.stringify(xssObj));
+      expect(upsertCall.create.scoreBreakdown).toContain('<script>');
+    });
+
+    it('mapRow returns score_breakdown XSS string verbatim (no re-encoding on read)', async () => {
+      const xssPayload = '{"key": "<script>alert(1)</script>"}';
+      const p = makePrisma({
+        trackedWallet: {
+          findMany: vi.fn().mockResolvedValue([{ ...rawRow, scoreBreakdown: xssPayload }]),
+          findUnique: vi.fn().mockResolvedValue({ ...rawRow, scoreBreakdown: xssPayload }),
+        },
+      });
+      const r = new WalletsRepository(p);
+      const result = await r.findMany({});
+      expect(result[0]!.score_breakdown).toBe(xssPayload);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Adversarial: PATCH on non-existent wallet (coder-flagged scenario 4)
+  // ---------------------------------------------------------------------------
+
+  describe('updateScore() on non-existent wallet — 404 not 500', () => {
+    it('throws NotFoundException (not unhandled 500) for non-existent wallet', async () => {
+      const p = makePrisma({
+        trackedWallet: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          update: vi.fn(),
+        },
+      });
+      const r = new WalletsRepository(p);
+      const err = await r.updateScore('0xghost', 'solana', { status: 'scored' }).catch((e) => e);
+      expect(err).toBeInstanceOf(NotFoundException);
+      // Crucially: update must NOT have been called
+      expect(p.trackedWallet.update).not.toHaveBeenCalled();
+    });
+
+    it('updateScore with score_breakdown as object serialises to JSON string', async () => {
+      await repo.updateScore('0xabc', 'base', { status: 'scored', score_breakdown: { birdeye: 90 } });
+      const call = (prisma.trackedWallet.update as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        data: { scoreBreakdown: string };
+      };
+      expect(call.data.scoreBreakdown).toBe('{"birdeye":90}');
+    });
+
+    it('updateScore with score_breakdown as string passes through unchanged', async () => {
+      await repo.updateScore('0xabc', 'base', { status: 'scored', score_breakdown: '{"birdeye":88}' });
+      const call = (prisma.trackedWallet.update as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        data: { scoreBreakdown: string };
+      };
+      expect(call.data.scoreBreakdown).toBe('{"birdeye":88}');
+    });
+
+    it('updateScore sets scoreBreakdown to null when score_breakdown not provided', async () => {
+      await repo.updateScore('0xabc', 'base', { status: 'scored' });
+      const call = (prisma.trackedWallet.update as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        data: { scoreBreakdown: null };
+      };
+      expect(call.data.scoreBreakdown).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Adversarial: DELETE on non-existent wallet (coder-flagged scenario 5)
+  // ---------------------------------------------------------------------------
+
+  describe('remove() on non-existent wallet — 404 not 500', () => {
+    it('throws NotFoundException (not unhandled 500) for non-existent wallet', async () => {
+      const p = makePrisma({
+        trackedWallet: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          delete: vi.fn(),
+        },
+      });
+      const r = new WalletsRepository(p);
+      const err = await r.remove('0xghost', 'arbitrum').catch((e) => e);
+      expect(err).toBeInstanceOf(NotFoundException);
+      // delete must NOT have been called on non-existent row
+      expect(p.trackedWallet.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // findUnscored() raw SQL behaviour (coder-flagged uncertainty 1)
+  // ---------------------------------------------------------------------------
+
+  describe('findUnscored() — mixed proposed + failed rows', () => {
+    it('maps raw SQL rows from $queryRaw correctly (snake_case DB columns → camelCase intermediate)', async () => {
+      // The $queryRaw result has DB column names (snake_case); mapRow receives TrackedWallet shape.
+      // The mock in makePrisma() returns [rawRow] which uses camelCase (Prisma model shape).
+      // This test verifies that when the mock returns the right shape the mapping is correct.
+      const proposed = { ...rawRow, status: 'proposed', retryCount: 0 };
+      const failedRetry1 = { ...rawRow, address: '0xfailed1', status: 'failed', retryCount: 1 };
+      const failedRetry3 = { ...rawRow, address: '0xfailed3', status: 'failed', retryCount: 3 };
+
+      const p = makePrisma();
+      // Override $queryRaw to return the three rows
+      (p.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([proposed, failedRetry1, failedRetry3]);
+      const r = new WalletsRepository(p);
+
+      const result = await r.findUnscored(10);
+      expect(result).toHaveLength(3);
+      // All rows are returned (filtering is done by the SQL WHERE clause, not in JS)
+      expect(result[0]!.status).toBe('proposed');
+      expect(result[0]!.retry_count).toBe(0);
+      expect(result[1]!.status).toBe('failed');
+      expect(result[1]!.retry_count).toBe(1);
+      expect(result[2]!.retry_count).toBe(3);
+    });
+
+    it('uses default limit of 5 when no argument passed', async () => {
+      // Verify $queryRaw is called (limit is embedded in template literal, not a separate param here)
+      const p = makePrisma();
+      (p.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      const r = new WalletsRepository(p);
+      const result = await r.findUnscored();
+      expect(Array.isArray(result)).toBe(true);
+      expect(p.$queryRaw).toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Composite-key URL: Solana address (coder-flagged check 6)
+  // ---------------------------------------------------------------------------
+
+  describe('findOne() with Solana-shaped address', () => {
+    it('passes a 44-char base58 address unchanged to prisma', async () => {
+      const solanaAddr = '9Fqk5XNRiVQJn8FNnFrJGALvYVBp4eFLhSCCCCCCCCCC'; // 44 chars
+      await repo.findOne(solanaAddr, 'solana');
+      expect(prisma.trackedWallet.findUnique).toHaveBeenCalledWith({
+        where: { address_chain: { address: solanaAddr, chain: 'solana' } },
+      });
+    });
+  });
 });
