@@ -43,6 +43,12 @@ env:
   # P1c-i: executor stub mode — no real Safe/Squads transactions in CI
   EXECUTOR_STUB_MODE: '1'
 
+  # P1c-ii (ADR-0024 addendum): per-Safe BullMQ queues require a Safe address
+  # per active chain so the app module can enumerate queue names at boot.
+  # Stub-mode test values — not used for any real RPC (EXECUTOR_STUB_MODE=1).
+  SAFE_ADDRESS_BASE: '0x0000000000000000000000000000000000000001'
+  SQUADS_VAULT_ADDRESS: '11111111111111111111111111111111'
+
 jobs:
   # ---------------------------------------------------------------------------
   # 1–4: Setup, typecheck, lint, unit tests

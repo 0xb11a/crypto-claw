@@ -43,6 +43,10 @@ const BASE_ENV: NodeJS.ProcessEnv = {
   SCHEDULER_API_KEY: 'ci-scheduler-key-aaaaaaaaaaaaaaa',
   DASHBOARD_API_KEY: 'ci-dashboard-key-aaaaaaaaaaaaaaaa',
   ACTIVE_CHAINS: 'base,solana',
+  // P1c-ii (ADR-0024 addendum): per-Safe queue registration requires a Safe
+  // address per active chain. Stub-mode test values; not used for any RPC.
+  SAFE_ADDRESS_BASE: '0x0000000000000000000000000000000000000001',
+  SQUADS_VAULT_ADDRESS: '11111111111111111111111111111111',
   OPENAI_API_KEY: 'ci-openai-dummy',
   NODE_ENV: 'test',
   PRISMA_DISABLE_DOTENV: '1',
