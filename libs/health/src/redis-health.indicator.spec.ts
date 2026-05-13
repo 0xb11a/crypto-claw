@@ -18,8 +18,12 @@ import { createClient } from './redis-client.js';
 import { RedisHealthIndicator } from './redis-health.indicator.js';
 
 function makeConfigService(redisUrl = 'redis://localhost:6379') {
+  // ADR-0026: per-field get mock. Returns the string value for 'REDIS_URL'.
   return {
-    get: vi.fn(() => ({ REDIS_URL: redisUrl })),
+    get: vi.fn((key: string) => {
+      if (key === 'REDIS_URL') return redisUrl;
+      return undefined;
+    }),
   };
 }
 

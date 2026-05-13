@@ -4,10 +4,9 @@ import { ConfigModule, assertConfigValid, assertNoSignerKeysInEnv } from '@cclaw
 import { LoggerModule } from '@cclaw/logger';
 import { PrismaModule } from '@cclaw/prisma';
 import { AuditModule } from '@cclaw/audit';
-import { OrdersModule } from '@cclaw/orders';
+import { OrdersModule, resolveActiveQueueNames, buildChainQueueMap } from '@cclaw/orders';
 import { ReceiptsModule } from '@cclaw/receipts';
-import { EXECUTE_ORDER_QUEUE } from './queues/execute-order.queue.js';
-import { ExecuteOrderProcessor } from './processors/execute-order.processor.js';
+import { createExecuteOrderProcessor } from './processors/execute-order.processor.js';
 
 // Boot self-checks run at module-import time so they fire before NestFactory
 // touches anything. Order matches main.ts (SPEC §4 #4 then §4 #6): signer-key
@@ -17,14 +16,38 @@ import { ExecuteOrderProcessor } from './processors/execute-order.processor.js';
 assertNoSignerKeysInEnv(process.env);
 const _config = assertConfigValid(process.env);
 
+// ---------------------------------------------------------------------------
+// Per-Safe BullMQ queue enumeration (ADR-0024 addendum, P1c-ii)
+//
+// Resolve queue names at boot from ACTIVE_CHAINS + Safe address env vars.
+// process.env access is allowed in app.module.ts (ESLint exception block).
+//
+// Operational note (ADR-0024 addendum): adding a new Safe to ACTIVE_CHAINS
+// requires a worker restart so the new queue's Worker registers.
+// See docs/runbook.md "rotate / add a Safe" for the procedure.
+// ---------------------------------------------------------------------------
+const activeChains = (_config.ACTIVE_CHAINS as string)
+  .split(',')
+  .map((c) => c.trim())
+  .filter(Boolean);
+
+const activeQueueNames = resolveActiveQueueNames(activeChains, process.env);
+const chainQueueMap = buildChainQueueMap(activeChains, process.env);
+
+// One processor class per queue (one per active Safe).
+const processorProviders = activeQueueNames.map(createExecuteOrderProcessor);
+
 /**
  * Root application module for apps/worker.
  *
- * P1c-i: BullMQ wired with Redis connection from config, execute-order
- * queue registered, ExecuteOrderProcessor registered.
+ * P1c-i: BullMQ wired with Redis, single execute-order queue + processor.
  *
- * Concurrency = 1 globally (ADR-0024). P1c-ii upgrades to per-Safe groups
- * when the real Safe/Squads SDK lands.
+ * P1c-ii: per-Safe BullMQ queue topology (ADR-0024 addendum).
+ *   - Registers one BullMQ queue per active (chain, safeAddress) pair.
+ *   - Registers one ExecuteOrderProcessor per queue (concurrency=1 each).
+ *   - Provides CHAIN_QUEUE_MAP token so QueueResolver (in OrdersModule) routes
+ *     enqueues from the API to the correct per-Safe queue.
+ *   - Cross-queue parallelism is unbounded — distinct Safes never block each other.
  */
 @Module({
   imports: [
@@ -41,25 +64,30 @@ const _config = assertConfigValid(process.env);
       },
     }),
 
-    // Register the execute-order queue with retry + backoff policy (ADR-0024)
-    BullModule.registerQueue({
-      name: EXECUTE_ORDER_QUEUE,
-      defaultJobOptions: {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 2000 },
-        removeOnComplete: 100,
-        removeOnFail: false,
-      },
-    }),
+    // Per-Safe execute-order queues (ADR-0024 addendum).
+    // One queue per active (chain, safeAddress) pair with retry + backoff policy.
+    ...activeQueueNames.map((name) =>
+      BullModule.registerQueue({
+        name,
+        defaultJobOptions: {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 2000 },
+          removeOnComplete: 100,
+          removeOnFail: false,
+        },
+      }),
+    ),
 
-    // Domain modules required by the processor
-    OrdersModule,
+    // Domain modules required by the processors.
+    // OrdersModule.forRoot owns the CHAIN_QUEUE_MAP provider (ADR-0024 addendum, P1c-ii).
+    OrdersModule.forRoot({ chainQueueMap }),
     ReceiptsModule,
     AuditModule,
   ],
   providers: [
-    // Processor must be in providers for NestJS DI + BullMQ @Processor decorator
-    ExecuteOrderProcessor,
+    // Per-Safe processor instances (factory pattern — one class per queue name).
+    // Each has concurrency=1 to prevent nonce collisions for the same Safe.
+    ...processorProviders,
   ],
 })
 export class AppModule {}

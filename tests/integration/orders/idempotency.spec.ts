@@ -16,14 +16,8 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawn, execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-
-const REPO_ROOT = resolve(__dirname, '../../..');
-const API_DIST = resolve(REPO_ROOT, 'apps/api/dist/main.js');
-const PRISMA_BIN = resolve(REPO_ROOT, 'node_modules/.bin/prisma');
+import { startApi } from '../_spawn-api.js';
+import type { StartApiResult } from '../_spawn-api.js';
 
 const ENABLED = process.env['CCLAW_SECURITY_TESTS_ENABLED'] === '1';
 
@@ -41,6 +35,10 @@ const BASE_ENV: NodeJS.ProcessEnv = {
   SCHEDULER_API_KEY: 'ci-scheduler-key-aaaaaaaaaaaaaaa',
   DASHBOARD_API_KEY: 'ci-dashboard-key-aaaaaaaaaaaaaaaa',
   ACTIVE_CHAINS: 'base,solana',
+  // P1c-ii (ADR-0024 addendum): per-Safe queue registration requires a Safe
+  // address per active chain. Stub-mode test values; not used for any RPC.
+  SAFE_ADDRESS_BASE: '0x0000000000000000000000000000000000000001',
+  SQUADS_VAULT_ADDRESS: '11111111111111111111111111111111',
   OPENAI_API_KEY: 'ci-openai-dummy',
   NODE_ENV: 'test',
   PRISMA_DISABLE_DOTENV: '1',
@@ -52,9 +50,7 @@ const BASE_ENV: NodeJS.ProcessEnv = {
   PATH: process.env['PATH'],
 };
 
-let apiProcess: ReturnType<typeof spawn> | null = null;
-let tempDir: string;
-let dbPath: string;
+let api: StartApiResult;
 
 async function request(
   method: string,
@@ -105,59 +101,18 @@ async function createApprovedOrder(): Promise<string> {
 
 beforeAll(async () => {
   if (!ENABLED) return;
-
-  tempDir = mkdtempSync(resolve(tmpdir(), 'cclaw-idempotency-'));
-  dbPath = resolve(tempDir, 'idempotency-test.db');
-
-  execFileSync(PRISMA_BIN, ['migrate', 'deploy'], {
-    env: {
-      ...process.env,
-      DATABASE_URL: `file:${dbPath}?connection_limit=1`,
-      PRISMA_DISABLE_DOTENV: '1',
-    },
-    cwd: REPO_ROOT,
-    stdio: 'ignore',
+  api = await startApi({
+    dbPath: '',
+    env: BASE_ENV,
+    port: 7878,
+    readyTimeoutMs: 15_000,
+    tmpPrefix: 'cclaw-idempotency',
   });
-
-  await new Promise<void>((resolve, reject) => {
-    apiProcess = spawn('node', [API_DIST], {
-      env: {
-        ...BASE_ENV,
-        DB_PATH: dbPath,
-        DATABASE_URL: `file:${dbPath}?connection_limit=1`,
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let started = false;
-    const timeout = setTimeout(() => {
-      if (!started) reject(new Error('API failed to start within 15s'));
-    }, 15000);
-
-    apiProcess.stdout?.on('data', (d: Buffer) => {
-      if (d.toString().includes('api ready on')) {
-        started = true;
-        clearTimeout(timeout);
-        resolve();
-      }
-    });
-
-    apiProcess.on('exit', (code) => {
-      if (!started) {
-        clearTimeout(timeout);
-        reject(new Error(`API exited with code ${String(code)} before becoming ready`));
-      }
-    });
-  });
-}, 20000);
+}, 20_000);
 
 afterAll(async () => {
   if (!ENABLED) return;
-  if (apiProcess) {
-    apiProcess.kill('SIGTERM');
-    await new Promise<void>((r) => apiProcess!.on('exit', () => r()));
-  }
-  if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+  await api.kill();
 });
 
 describe.skipIf(!ENABLED)(

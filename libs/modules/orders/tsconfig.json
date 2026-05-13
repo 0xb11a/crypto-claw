@@ -10,7 +10,8 @@
       "@cclaw/prisma": ["../../prisma/src/index.ts"],
       "@cclaw/auth": ["../../auth/src/index.ts"],
       "@cclaw/audit": ["../../audit/src/index.ts"],
-      "@cclaw/receipts": ["../receipts/src/index.ts"]
+      "@cclaw/receipts": ["../receipts/src/index.ts"],
+      "@cclaw/chain": ["../../chain/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
@@ -20,6 +21,7 @@
     { "path": "../../prisma" },
     { "path": "../../auth" },
     { "path": "../../audit" },
-    { "path": "../receipts" }
+    { "path": "../receipts" },
+    { "path": "../../chain" }
   ]
 }

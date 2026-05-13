@@ -7,11 +7,11 @@
  *
  * SPEC §11 — /readyz checks Redis ping.
  * @see DoD §E — health check updated because execute-order queue liveness affects readiness.
+ * ADR-0026: uses per-field configService.get<T>('FIELD') — not bare-key get<AppConfig>('').
  */
 import { Injectable } from '@nestjs/common';
 import { HealthIndicator, HealthIndicatorResult, HealthCheckError } from '@nestjs/terminus';
 import { ConfigService } from '@nestjs/config';
-import type { AppConfig } from '@cclaw/config';
 import { createClient } from './redis-client.js';
 
 /**
@@ -34,8 +34,8 @@ export class RedisHealthIndicator extends HealthIndicator {
    * @throws HealthCheckError on connection failure.
    */
   async isHealthy(key: string): Promise<HealthIndicatorResult> {
-    const cfg = this.configService.get<AppConfig>('') as AppConfig;
-    const redisUrl = cfg.REDIS_URL;
+    // ADR-0026: per-field get — not bare-key get<AppConfig>('')
+    const redisUrl = this.configService.get<string>('REDIS_URL') ?? 'redis://localhost:6379';
 
     try {
       await pingRedis(redisUrl);

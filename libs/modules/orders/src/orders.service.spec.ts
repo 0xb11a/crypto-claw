@@ -8,6 +8,7 @@ import type { AppConfig } from '@cclaw/config';
 import type { Queue } from 'bullmq';
 import type { ReceiptsService } from '@cclaw/receipts';
 import { PaperExecutor } from './paper-executor.js';
+import type { QueueResolver } from './queue-resolver.js';
 
 const pendingOrder: OrderResponseDto = {
   id: 'order-1',
@@ -49,6 +50,14 @@ function makeQueue(): Queue {
   } as unknown as Queue;
 }
 
+/** Create a QueueResolver mock that delegates getQueueForChain to the provided queue. */
+function makeQueueResolver(queue: Queue): QueueResolver {
+  return {
+    getQueueForChain: vi.fn().mockReturnValue(queue),
+    getQueueNameForChain: vi.fn().mockReturnValue('execute-order-base-0xtest'),
+  } as unknown as QueueResolver;
+}
+
 function makeReceiptsService(): ReceiptsService {
   return {
     create: vi.fn().mockResolvedValue({ id: 'receipt-1' }),
@@ -59,16 +68,18 @@ describe('OrdersService', () => {
   let svc: OrdersService;
   let repo: OrdersRepository;
   let queue: Queue;
+  let queueResolver: QueueResolver;
   let receiptsService: ReceiptsService;
   let paperExecutor: PaperExecutor;
 
   function buildSvc(config?: ConfigService): OrdersService {
-    return new OrdersService(repo, config ?? makeConfig(), queue, receiptsService, paperExecutor);
+    return new OrdersService(repo, config ?? makeConfig(), queueResolver, receiptsService, paperExecutor);
   }
 
   beforeEach(() => {
     repo = makeRepo();
     queue = makeQueue();
+    queueResolver = makeQueueResolver(queue);
     receiptsService = makeReceiptsService();
     paperExecutor = new PaperExecutor();
     svc = buildSvc();
@@ -162,7 +173,7 @@ describe('OrdersService', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // execute() — P1c-i
+  // execute() — P1c-i / P1c-ii
   // ---------------------------------------------------------------------------
   describe('execute()', () => {
     it('throws ConflictException when order is not in approved status', async () => {
@@ -182,6 +193,13 @@ describe('OrdersService', () => {
         { orderId: 'order-1' },
         expect.objectContaining({ jobId: 'execute-order-order-1' }),
       );
+    });
+
+    it('routes to the per-chain queue via QueueResolver (ADR-0024)', async () => {
+      (repo.findById as ReturnType<typeof vi.fn>).mockResolvedValue(approvedOrder);
+      await svc.execute('order-1');
+      // The resolver should be asked for the queue by chain name
+      expect(queueResolver.getQueueForChain).toHaveBeenCalledWith('base');
     });
 
     it('transitions order to executing in real mode before enqueue', async () => {

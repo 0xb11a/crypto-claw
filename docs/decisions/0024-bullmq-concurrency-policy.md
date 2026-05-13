@@ -23,3 +23,22 @@ The single source of truth for the policy in P1c-i is the `@Processor` decorator
 - Locked: P1c-i = global concurrency 1. P1c-ii MUST replace this with per-Safe groups AND reference this ADR. The global cap is time-bound to P1c-i; any PR landing after P1c-ii that re-introduces global=1 supersedes this ADR.
 
 Cross-links: ADR-0004 (BullMQ + Redis — the substrate), ADR-0010 (executor isolation — the consumer of the queue), SPEC §8 (background jobs), `apps/worker/src/processors/execute-order.processor.ts` (the decorator that encodes the policy).
+
+## Addendum (2026-05-13) — Mechanism choice locked: OSS queue-per-Safe
+
+PR-A (P1c-ii infrastructure) is the slice that pre-installs the per-Safe topology ahead of PR-B's real Safe SDK. The mechanism sub-decision that the body of this ADR explicitly parked is now resolved.
+
+**Choice:** one BullMQ queue per `(chain, safe_address)` pair; queue name `execute-order-<chain>-<safeAddressLowercase>`; one Worker per queue with `concurrency: 1`. Cross-queue parallelism is unbounded — distinct Safes never block each other.
+
+**Rejected alternatives:**
+- **OSS mutex on a single shared queue** (Redis `SETNX` lease keyed by `chain:safe`, taken at the top of the processor and released in a `finally`). Hand-rolled distributed locking is a known foot-gun: lease TTLs vs job duration, crash-during-release, clock skew, double-release races. The queue-per-Safe form gets the same property from BullMQ's existing per-queue concurrency invariant — no new locking primitive.
+- **BullMQ Pro `group` semantics.** Solves the problem cleanly but adds a paid license. Unjustified given SPEC §17's multi-fund topology is one Safe per compose stack today; the queue count stays small and a future migration to Pro `group`s is a swap of the enumerator, not an API change.
+
+**Implementation locus:**
+- `libs/modules/orders/src/queue-names.ts` — exports `executeOrderQueueName(chain, safe)` (the single canonical source of truth for the naming convention; `apps/worker/src/queues/execute-order.queue.ts` is a re-export shim that points here).
+- `apps/worker/src/app.module.ts` — enumerates queues at boot from `ACTIVE_CHAINS` config and registers a Worker per queue.
+- `libs/modules/orders/src/orders.service.ts` — routes enqueues via the helper; no caller constructs queue names by hand.
+
+**Operational consequence:** adding a new Safe to `ACTIVE_CHAINS` requires a worker restart so the new queue's Worker registers. There is no hot-reload path in P1c-ii; the `docs/runbook.md` "rotate / add a Safe" section MUST call this out in the same PR.
+
+**Scope note:** this addendum closes the ADR-0024 mandate that the per-Safe concurrency mechanism land in the same PR as the real Safe SDK consumer. PR-A pre-installs the topology so PR-B's real Safe SDK lands into a queue layout that already enforces the nonce-collision invariant; PR-B is the first consumer. The body of this ADR (Context / Decision / Consequences) remains the canonical record of *why* per-Safe concurrency is required; this addendum records *how* it is implemented. Status remains **Accepted** — the mechanism choice is a refinement, not a supersession.

@@ -6,12 +6,12 @@
  *
  * SPEC §11 — /readyz checks executor binary present.
  * @see DoD §E — health check updated because executor binary affects readiness.
+ * ADR-0026: uses per-field configService.get<T>('FIELD') — not bare-key get<AppConfig>('').
  */
 import { Injectable } from '@nestjs/common';
 import { HealthIndicator, HealthIndicatorResult, HealthCheckError } from '@nestjs/terminus';
 import { existsSync } from 'node:fs';
 import { ConfigService } from '@nestjs/config';
-import type { AppConfig } from '@cclaw/config';
 import { getExecutorPath } from '@cclaw/execution';
 
 /**
@@ -33,8 +33,9 @@ export class ExecutorHealthIndicator extends HealthIndicator {
    * @throws HealthCheckError if binary is missing.
    */
   isHealthy(key: string): HealthIndicatorResult {
-    const cfg = this.configService.get<AppConfig>('') as AppConfig;
-    const executorPath = getExecutorPath({ EXECUTOR_BIN_PATH: cfg.EXECUTOR_BIN_PATH });
+    // ADR-0026: per-field get — not bare-key get<AppConfig>('')
+    const executorBinPath = this.configService.get<string>('EXECUTOR_BIN_PATH');
+    const executorPath = getExecutorPath({ EXECUTOR_BIN_PATH: executorBinPath });
     const exists = existsSync(executorPath);
 
     if (!exists) {

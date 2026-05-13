@@ -1,18 +1,14 @@
 import { Injectable, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectQueue } from '@nestjs/bullmq';
-import type { Queue } from 'bullmq';
 import { OrdersRepository } from './orders.repository.js';
 import { PaperExecutor } from './paper-executor.js';
+import { QueueResolver } from './queue-resolver.js';
 import type { ProposeOrderDto } from './dto/propose-order.dto.js';
 import type { ApproveOrderDto, RejectOrderDto, CancelOrderDto, RetryOrderDto } from './dto/order-state-change.dto.js';
 import type { OrderListQueryDto } from './dto/order-list-query.dto.js';
 import type { OrderResponseDto, OrderListResponseDto } from './dto/order-response.dto.js';
 import type { ExecuteOrderAcceptedDto } from './dto/execute-order-response.dto.js';
 import { ReceiptsService } from '@cclaw/receipts';
-
-/** Name of the execute-order BullMQ queue (mirrors apps/worker/src/queues/execute-order.queue.ts). */
-const EXECUTE_ORDER_QUEUE = 'execute-order';
 
 /** Valid state transitions (migration 014 state machine). */
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -31,13 +27,16 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
  *   approved → cancelled
  *   executing/approved → failed → approved (retry) | cancelled
  *   pending → expired
+ *
+ * P1c-ii: replaces static @InjectQueue('execute-order') with QueueResolver for
+ * per-Safe BullMQ queue routing (ADR-0024 addendum).
  */
 @Injectable()
 export class OrdersService {
   constructor(
     private readonly repo: OrdersRepository,
     private readonly configSvc: ConfigService,
-    @InjectQueue(EXECUTE_ORDER_QUEUE) private readonly executeQueue: Queue,
+    private readonly queueResolver: QueueResolver,
     private readonly receiptsService: ReceiptsService,
     private readonly paperExecutor: PaperExecutor,
   ) {}
@@ -135,7 +134,8 @@ export class OrdersService {
    *
    * Real mode (PAPER_MODE=false):
    *   - Transitions order: approved → executing
-   *   - Enqueues BullMQ job with deterministic jobId = 'execute-order:<id>'
+   *   - Enqueues BullMQ job into the per-Safe queue for order.chain (ADR-0024)
+   *   - Deterministic jobId = 'execute-order-<id>' (no colons — BullMQ constraint)
    *   - Returns {jobId, orderId, status: 'enqueued'}
    *   - Worker processes the job asynchronously
    *
@@ -180,12 +180,16 @@ export class OrdersService {
     // -----------------------------------------------------------------------
     await this.repo.transitionStatus(id, 'executing', 'orders-service');
 
+    // Resolve the per-Safe queue for this order's chain (ADR-0024 addendum).
+    // QueueResolver throws if the chain has no configured Safe address.
+    const executeQueue = this.queueResolver.getQueueForChain(order.chain);
+
     // Deterministic jobId: duplicate adds collapse silently (idempotency).
     // BullMQ 5.x rejects jobIds containing ':' unless they are in the internal
     // 3-part format. Use '-' as the separator to avoid this constraint while
     // keeping the id globally unique and recognisable.
     const jobId = `execute-order-${id}`;
-    await this.executeQueue.add(
+    await executeQueue.add(
       'execute-order',
       { orderId: id },
       {
