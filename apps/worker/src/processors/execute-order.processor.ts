@@ -3,12 +3,27 @@
  *
  * Processes a single order execution request:
  *   1. Re-read order from DB (idempotency guard).
- *   2. Transition to 'executing'.
- *   3. Load signer env + spawn executor child.
- *   4. Parse receipt from child stdout.
- *   5. Write Receipt row via ReceiptsService.
- *   6. Transition order to 'executed' or 'failed'.
- *   7. Write service_audit row via AuditService.
+ *   2. Load signer env + spawn executor child.
+ *   3. Parse receipt from child stdout.
+ *   4. Write Receipt row via ReceiptsService.
+ *   5. Transition order to 'executed' or 'failed'.
+ *   6. Write service_audit row via AuditService.
+ *
+ * State machine contract (orders.service.ts owns approved→executing):
+ *   The API layer transitions the order from 'approved' to 'executing' BEFORE
+ *   the BullMQ job is enqueued (orders.service.ts:181).  This achieves
+ *   synchronous idempotency: a second concurrent POST /execute is rejected with
+ *   409 because the order is already 'executing', not 'approved'.
+ *
+ *   As a result the processor ALWAYS receives orders in 'executing' status.
+ *   It does NOT call transitionStatus(orderId, 'executing') — that would be
+ *   a no-op at best and a state-machine bug at worst.
+ *
+ *   Valid processor entry states:
+ *     'executing' → proceed to spawn executor (normal path)
+ *     'executed'  → skip (idempotent, job was replayed)
+ *     'failed'    → skip (idempotent, job was replayed after terminal failure)
+ *     anything else → log warning and skip (unexpected; api bug upstream)
  *
  * Concurrency (ADR-0024 addendum, P1c-ii):
  *   Per-Safe queue topology — one Worker per queue, concurrency=1 per queue.
@@ -50,8 +65,15 @@ export interface ExecuteOrderJobData {
 }
 
 /**
- * Error thrown when the processor finds a job already in-flight.
- * BullMQ will NOT retry this error (it indicates a programming bug).
+ * Error retained for backwards compatibility with the test suite.
+ *
+ * This error is NO LONGER thrown by the processor in normal operation.
+ * The api owns the approved→executing transition; the processor expects
+ * to receive orders already in 'executing' status.  'executing' is now
+ * the happy-path entry state, not a duplicate-job signal.
+ *
+ * @deprecated Kept only so existing test imports do not break.  Will be
+ *   removed once the test suite is fully migrated.
  */
 export class NotIdempotentInflightError extends Error {
   constructor(orderId: string) {
@@ -93,6 +115,13 @@ export abstract class BaseExecuteOrderProcessor extends WorkerHost {
 
     // ---------------------------------------------------------------------------
     // Step 1: idempotency guard — re-read order
+    //
+    // The API layer already transitioned approved → executing before enqueueing.
+    // Valid entry states:
+    //   'executing' — normal path; proceed to spawn
+    //   'executed'  — idempotent replay; skip
+    //   'failed'    — idempotent replay after terminal failure; skip
+    //   anything else — unexpected (api bug); log and skip
     // ---------------------------------------------------------------------------
     const order = await this.ordersRepo.findById(orderId);
 
@@ -106,24 +135,20 @@ export abstract class BaseExecuteOrderProcessor extends WorkerHost {
       return;
     }
 
-    if (order.status === 'executing') {
-      // A second concurrent job is attempting to run — should not happen with
-      // concurrency=1 per queue but could occur after a crash + retry.
-      throw new NotIdempotentInflightError(orderId);
-    }
-
-    if (order.status !== 'approved') {
-      this.logger.warn(`execute-order: unexpected status='${order.status}', skipping | orderId=${orderId}`);
+    if (order.status !== 'executing') {
+      // Any status other than 'executing' at this point is unexpected.
+      // The API should have transitioned approved→executing before enqueueing.
+      // Log and skip rather than throw, so BullMQ does not retry endlessly.
+      this.logger.warn(
+        `execute-order: unexpected status='${order.status}', expected 'executing' — skipping | orderId=${orderId}`,
+      );
       return;
     }
 
-    // ---------------------------------------------------------------------------
-    // Step 2: transition to 'executing'
-    // ---------------------------------------------------------------------------
-    await this.ordersRepo.transitionStatus(orderId, 'executing', 'WORKER');
+    // order.status === 'executing' — proceed to spawn executor
 
     // ---------------------------------------------------------------------------
-    // Step 3: load signer env + spawn executor
+    // Step 2: load signer env + spawn executor
     // ---------------------------------------------------------------------------
     let executorResult;
 
@@ -161,7 +186,7 @@ export abstract class BaseExecuteOrderProcessor extends WorkerHost {
     }
 
     // ---------------------------------------------------------------------------
-    // Step 4: parse receipt and determine outcome
+    // Step 3: parse receipt and determine outcome
     // ---------------------------------------------------------------------------
     const { receipt, exitCode, latencyMs } = executorResult;
     const totalLatencyMs = Date.now() - startMs;
@@ -184,7 +209,7 @@ export abstract class BaseExecuteOrderProcessor extends WorkerHost {
     }
 
     // ---------------------------------------------------------------------------
-    // Step 5: write Receipt row
+    // Step 4: write Receipt row
     // ---------------------------------------------------------------------------
     const successReceipt = receipt; // status === 'executed'
     await this.receiptsService.create({
@@ -205,12 +230,12 @@ export abstract class BaseExecuteOrderProcessor extends WorkerHost {
     });
 
     // ---------------------------------------------------------------------------
-    // Step 6: transition order to 'executed'
+    // Step 5: transition order to 'executed'
     // ---------------------------------------------------------------------------
     await this.ordersRepo.transitionStatus(orderId, 'executed', 'WORKER');
 
     // ---------------------------------------------------------------------------
-    // Step 7: write service_audit row
+    // Step 6: write service_audit row
     // ---------------------------------------------------------------------------
     await this.writeAudit(orderId, order, 200, totalLatencyMs, undefined);
 
