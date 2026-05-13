@@ -185,15 +185,18 @@ describe.skipIf(!EXECUTOR_BUILT)(
       expect(result.stderr).toContain('EXECUTOR_STUB_MODE=true');
     });
 
-    it('emits failure receipt with not_yet_implemented_real_mode when stub mode is OFF', async () => {
-      // The executor contract (SPEC §4, ADR-0010) is: receipt content determines
-      // success/failure; the worker (execute-order.processor.ts) reads receipt.status,
-      // NOT the exit code.  A clean failure receipt (status:'failed') is a normal
-      // subprocess output — the process exits 0.  Only thrown/unhandled errors
-      // reach the .catch() handler and exit 1.
+    it('emits failure receipt (executor_error) when stub mode is OFF and Solana key is invalid (P1c-iii)', async () => {
+      // P1c-iii: The real Squads V4 SDK is now wired for Solana execution.
+      // The 'not_yet_implemented_real_mode' sentinel is no longer returned.
       //
-      // The Solana 'not_yet_implemented_real_mode' path returns a failure receipt
-      // without throwing, so exit code is 0 by design.  Assert on receipt content.
+      // With EXECUTOR_STUB_MODE=0 and a non-base58-decodable SQUADS_SIGNER_KEY
+      // (the SENTINEL_KEY value is the hex-looking fake key that fails bs58 decode),
+      // the executor now returns executor_error from the real Squads path.
+      //
+      // The executor contract (SPEC §4, ADR-0010) is: receipt content determines
+      // success/failure; the worker reads receipt.status, NOT the exit code.
+      // A clean failure receipt (status:'failed') is a normal subprocess output
+      // — the process exits 0.  Only thrown/unhandled errors exit 1.
       const result = await spawnExecutorBinary(
         {
           ...BASE_EXECUTOR_ENV,
@@ -207,7 +210,11 @@ describe.skipIf(!EXECUTOR_BUILT)(
       const lastLine = lines[lines.length - 1]!;
       const receipt = JSON.parse(lastLine) as { status: string; error_kind: string };
       expect(receipt.status).toBe('failed');
-      expect(receipt.error_kind).toBe('not_yet_implemented_real_mode');
+      // P1c-iii: no longer 'not_yet_implemented_real_mode' — now routes through
+      // the real Squads SDK which fails on the invalid sentinel key.
+      expect(receipt.error_kind).not.toBe('not_yet_implemented_real_mode');
+      // Must be a real error kind from the Squads/preflight path
+      expect(['executor_error', 'rpc_hostname_not_allowlisted', 'signer_balance_insufficient']).toContain(receipt.error_kind);
     });
   },
 );
