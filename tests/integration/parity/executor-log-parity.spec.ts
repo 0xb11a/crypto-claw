@@ -17,6 +17,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import { startApi } from '../_spawn-api.js';
 import type { StartApiResult } from '../_spawn-api.js';
 
@@ -24,6 +25,22 @@ const SKIP = process.env['CCLAW_SECURITY_TESTS_ENABLED'] !== '1';
 
 const REPO_ROOT = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '');
 const SCRIPTS_DIR = `${REPO_ROOT}/scripts`;
+
+/**
+ * All 27 legacy migration names from scripts/db.js.
+ * See research-log-parity.spec.ts for the full explanation of why this is needed.
+ */
+const LEGACY_MIGRATION_NAMES = [
+  '001_initial', '002_paper_mode', '003_tracked_wallets_deployer_type',
+  '004_wallet_scoring_pipeline', '005_market_regime', '006_analysis_cache',
+  '007_wallet_source', '008_portfolio_sync', '009_per_chain_cash',
+  '010_heartbeat_seeds_research', '011_position_exit_columns', '012_unified_orders',
+  '013_contract_snapshots', '014_order_status', '015_multisig_tracking',
+  '016_db_improvements', '017_narrative_deep_scan_heartbeat', '018_trailing_stops',
+  '019_research_log', '020_ethereum_chain_cash', '021_observer_log',
+  '022_approval_bot', '023_memory_backup_heartbeat', '024_smart_money_signals',
+  '025_split_harvest_and_health_keys', '026_log_summary_columns', '027_cleanup_invalid_tiers',
+];
 
 const AGENT_TOKEN = 'ci-research-key-aaaaaaaaaaaaaaaa';
 
@@ -59,6 +76,23 @@ beforeAll(async () => {
     port: PORT,
     readyTimeoutMs: 20_000,
     tmpPrefix: 'cclaw-el-parity',
+  });
+
+  // Pre-seed the legacy _migrations table so that applyMigrations() in scripts/db.js
+  // skips all DDL statements when db-query.js is called below.
+  const seedMigrationsScript = `
+    const Database = require('better-sqlite3');
+    const db = new Database(process.env.DB_PATH);
+    db.exec('CREATE TABLE IF NOT EXISTS _migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT DEFAULT (datetime(\\'now\\')))');
+    const insert = db.prepare('INSERT OR IGNORE INTO _migrations (name) VALUES (?)');
+    ${LEGACY_MIGRATION_NAMES.map((n) => `insert.run(${JSON.stringify(n)});`).join('\n    ')}
+    db.close();
+  `;
+  execFileSync('node', ['--eval', seedMigrationsScript], {
+    env: { ...process.env, DB_PATH: api.dbPath },
+    cwd: resolve(REPO_ROOT, 'scripts'),
+    encoding: 'utf8',
+    timeout: 10000,
   });
 
   const legacyEnv = {
