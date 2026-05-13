@@ -332,12 +332,14 @@ describe('agent-logs — audit rows (DoD §A)', () => {
       body: { check_type: 'audit_check_test' },
     });
 
-    // Then GET /v1/audit to verify the row was audited
-    const { status: auditStatus, body: auditBody } = await req('GET', '/v1/audit', {
-      token: DASHBOARD_TOKEN,
+    // Then GET /v1/system/audit to verify the row was audited.
+    // The audit controller lives at /v1/system/audit (SPEC §9.5, ADR-0018).
+    // The response is a paginated wrapper: { data: [...], pagination: { ... } }.
+    const { status: auditStatus, body: auditBody } = await req('GET', '/v1/system/audit', {
+      token: AGENT_TOKEN,
     });
     expect(auditStatus).toBe(200);
-    const rows = auditBody as Array<Record<string, unknown>>;
+    const rows = (auditBody as { data: Array<Record<string, unknown>> }).data;
     // At least one audit row should reference the logs/research path
     const logAuditRow = rows.find(
       (r) => typeof r['path'] === 'string' && r['path'].includes('/v1/logs/research'),
