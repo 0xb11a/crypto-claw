@@ -4,7 +4,7 @@ import { ConfigModule, assertConfigValid, assertNoSignerKeysInEnv } from '@cclaw
 import { LoggerModule } from '@cclaw/logger';
 import { PrismaModule } from '@cclaw/prisma';
 import { AuditModule } from '@cclaw/audit';
-import { OrdersModule, CHAIN_QUEUE_MAP, resolveActiveQueueNames, buildChainQueueMap } from '@cclaw/orders';
+import { OrdersModule, resolveActiveQueueNames, buildChainQueueMap } from '@cclaw/orders';
 import { ReceiptsModule } from '@cclaw/receipts';
 import { createExecuteOrderProcessor } from './processors/execute-order.processor.js';
 
@@ -78,8 +78,9 @@ const processorProviders = activeQueueNames.map(createExecuteOrderProcessor);
       }),
     ),
 
-    // Domain modules required by the processors
-    OrdersModule,
+    // Domain modules required by the processors.
+    // OrdersModule.forRoot owns the CHAIN_QUEUE_MAP provider (ADR-0024 addendum, P1c-ii).
+    OrdersModule.forRoot({ chainQueueMap }),
     ReceiptsModule,
     AuditModule,
   ],
@@ -87,12 +88,6 @@ const processorProviders = activeQueueNames.map(createExecuteOrderProcessor);
     // Per-Safe processor instances (factory pattern — one class per queue name).
     // Each has concurrency=1 to prevent nonce collisions for the same Safe.
     ...processorProviders,
-
-    // CHAIN_QUEUE_MAP — provides the chain→queueName map to QueueResolver (ADR-0024 addendum).
-    {
-      provide: CHAIN_QUEUE_MAP,
-      useValue: chainQueueMap,
-    },
   ],
 })
 export class AppModule {}

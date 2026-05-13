@@ -8,7 +8,7 @@ import { AuthModule, AppThrottlerModule, AppThrottlerGuard } from '@cclaw/auth';
 import { AuditModule } from '@cclaw/audit';
 import { HealthModule } from '@cclaw/health';
 import { PositionsModule } from '@cclaw/positions';
-import { OrdersModule, CHAIN_QUEUE_MAP, resolveActiveQueueNames, buildChainQueueMap } from '@cclaw/orders';
+import { OrdersModule, resolveActiveQueueNames, buildChainQueueMap } from '@cclaw/orders';
 import { ReceiptsModule } from '@cclaw/receipts';
 import { AlertsModule } from '@cclaw/alerts';
 import { HeartbeatModule } from '@cclaw/heartbeat';
@@ -98,7 +98,10 @@ const chainQueueMap = buildChainQueueMap(activeChains, process.env);
     // Domain modules
     // -------------------------------------------------------------------------
     PositionsModule,
-    OrdersModule,
+    // OrdersModule.forRoot owns the CHAIN_QUEUE_MAP provider (ADR-0024 addendum, P1c-ii).
+    // Providing it here (at AppModule level) would fail because NestJS does not
+    // propagate non-exported providers across module boundaries.
+    OrdersModule.forRoot({ chainQueueMap }),
     ReceiptsModule,
     AlertsModule,
     HeartbeatModule,
@@ -118,12 +121,6 @@ const chainQueueMap = buildChainQueueMap(activeChains, process.env);
     {
       provide: APP_GUARD,
       useClass: AppThrottlerGuard,
-    },
-    // CHAIN_QUEUE_MAP — provides the chain→queueName map to QueueResolver (ADR-0024 addendum).
-    // QueueResolver is a provider in OrdersModule; it reads this token to route enqueues.
-    {
-      provide: CHAIN_QUEUE_MAP,
-      useValue: chainQueueMap,
     },
   ],
 })
