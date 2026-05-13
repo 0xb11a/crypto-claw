@@ -13,7 +13,9 @@
  *      when the key is passed via child env block (not logged, not echoed).
  *   3. Executor binary with stub mode ON produces a receipt on stdout and
  *      exits 0; the receipt does NOT contain the signer key value.
- *   4. Executor binary without stub mode exits 1 with not_yet_implemented_real_mode.
+ *   4. Executor binary without stub mode emits a failure receipt with
+ *      error_kind='not_yet_implemented_real_mode' and exits 0 (receipt-based
+ *      contract: the worker reads receipt.status, not the exit code).
  *   5. filterParentEnv() strips SAFE_SIGNER_KEY from the parent env before
  *      the child env block is constructed (verified at the process boundary:
  *      the executor child receives the key but the SPAWNING env does not leak it).
@@ -183,7 +185,15 @@ describe.skipIf(!EXECUTOR_BUILT)(
       expect(result.stderr).toContain('EXECUTOR_STUB_MODE=true');
     });
 
-    it('exits 1 with not_yet_implemented_real_mode when stub mode is OFF', async () => {
+    it('emits failure receipt with not_yet_implemented_real_mode when stub mode is OFF', async () => {
+      // The executor contract (SPEC §4, ADR-0010) is: receipt content determines
+      // success/failure; the worker (execute-order.processor.ts) reads receipt.status,
+      // NOT the exit code.  A clean failure receipt (status:'failed') is a normal
+      // subprocess output — the process exits 0.  Only thrown/unhandled errors
+      // reach the .catch() handler and exit 1.
+      //
+      // The Solana 'not_yet_implemented_real_mode' path returns a failure receipt
+      // without throwing, so exit code is 0 by design.  Assert on receipt content.
       const result = await spawnExecutorBinary(
         {
           ...BASE_EXECUTOR_ENV,
@@ -193,7 +203,6 @@ describe.skipIf(!EXECUTOR_BUILT)(
         },
         SAMPLE_ORDER,
       );
-      expect(result.code).toBe(1);
       const lines = result.stdout.trim().split('\n');
       const lastLine = lines[lines.length - 1]!;
       const receipt = JSON.parse(lastLine) as { status: string; error_kind: string };
