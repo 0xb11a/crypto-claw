@@ -259,6 +259,101 @@ model ServiceAudit {
 }
 
 // ---------------------------------------------------------------------------
+// tracked_wallets — migrations 001 + 003 + 004 + 007 + 024 (smart-money pipeline)
+// ---------------------------------------------------------------------------
+
+model TrackedWallet {
+  address        String
+  chain          String
+  label          String?
+  /// smart_money | dev | whale | deployer | trader | retail (NULL = unscored)
+  type           String?
+  notes          String?
+  status         String  @default("proposed") // proposed | scoring | scored | failed
+  score          Int?
+  /// JSON-as-string; stored raw (bug-for-bug parity with db-query.js)
+  scoreBreakdown String? @map("score_breakdown")
+  sourceToken    String? @map("source_token")
+  scoredAt       String? @map("scored_at")
+  scoreError     String? @map("score_error")
+  retryCount     Int     @default(0) @map("retry_count")
+  source         String? @default("agent")
+  lastCheckedAt  String? @map("last_checked_at")
+  createdAt      String? @map("created_at")
+
+  @@id([address, chain])
+  @@map("tracked_wallets")
+}
+
+// ---------------------------------------------------------------------------
+// smart_money_signals — migration 024
+// ---------------------------------------------------------------------------
+
+model SmartMoneySignal {
+  id                  Int     @id @default(autoincrement())
+  txHash              String  @map("tx_hash")
+  chain               String
+  walletAddress       String  @map("wallet_address")
+  walletScore         Int?    @map("wallet_score")
+  walletLabel         String? @map("wallet_label")
+  /// buy | sell
+  action              String
+  tokenAddress        String  @map("token_address")
+  tokenSymbol         String? @map("token_symbol")
+  counterTokenAddress String? @map("counter_token_address")
+  counterTokenSymbol  String? @map("counter_token_symbol")
+  amountToken         String? @map("amount_token")
+  txTimestamp         String  @map("tx_timestamp")
+  createdAt           String? @map("created_at")
+
+  @@unique([txHash, walletAddress, action, tokenAddress])
+  @@index([createdAt], map: "idx_smart_money_signals_created_at")
+  @@index([tokenAddress, chain, createdAt], map: "idx_smart_money_signals_token")
+  @@index([chain, createdAt], map: "idx_smart_money_signals_chain")
+  @@map("smart_money_signals")
+}
+
+// ---------------------------------------------------------------------------
+// liquidity_snapshots — migration 001
+// ---------------------------------------------------------------------------
+
+model LiquiditySnapshot {
+  id           Int     @id @default(autoincrement())
+  address      String
+  chain        String
+  liquidityUsd Float   @map("liquidity_usd")
+  checkedAt    String? @map("checked_at")
+
+  @@index([address, chain], map: "idx_liquidity_address")
+  @@map("liquidity_snapshots")
+}
+
+// ---------------------------------------------------------------------------
+// watchlist — migration 001
+// ---------------------------------------------------------------------------
+
+model Watchlist {
+  id            String  @id
+  symbol        String
+  address       String
+  chain         String
+  targetEntry   Float?  @map("target_entry")
+  currentPrice  Float?  @map("current_price")
+  analysisScore Int?    @map("analysis_score")
+  riskScore     Int?    @map("risk_score")
+  narrative     String?
+  reason        String?
+  expiresAt     String? @map("expires_at")
+  status        String  @default("watching") // watching | entry_hit | expired | removed
+  createdAt     String? @map("created_at")
+  updatedAt     String? @map("updated_at")
+
+  @@index([status], map: "idx_watchlist_status")
+  @@index([address, chain], map: "idx_watchlist_address_chain")
+  @@map("watchlist")
+}
+
+// ---------------------------------------------------------------------------
 // trades — migration 001 (included for schema completeness; no module in P1a)
 // ---------------------------------------------------------------------------
 

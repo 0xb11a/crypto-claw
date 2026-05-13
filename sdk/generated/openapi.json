@@ -10,6 +10,121 @@
         },
         "type": "object"
       },
+      "AddLiquiditySnapshotDto": {
+        "properties": {
+          "address": {
+            "description": "Token or pool contract address",
+            "type": "string"
+          },
+          "chain": {
+            "description": "Chain identifier (e.g. base, solana, eth)",
+            "type": "string"
+          },
+          "liquidity_usd": {
+            "description": "Liquidity in USD; must be >= 0",
+            "type": "number"
+          }
+        },
+        "required": ["address", "chain", "liquidity_usd"],
+        "type": "object"
+      },
+      "AddTrackedWalletDto": {
+        "properties": {
+          "address": {
+            "description": "Wallet address",
+            "type": "string"
+          },
+          "chain": {
+            "description": "Chain identifier (e.g. base, solana, eth)",
+            "type": "string"
+          },
+          "label": {
+            "description": "Human-readable label",
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "retry_count": {
+            "type": "number"
+          },
+          "score": {
+            "type": "number"
+          },
+          "score_breakdown": {
+            "type": "object"
+          },
+          "source": {
+            "type": "string"
+          },
+          "source_token": {
+            "type": "string"
+          },
+          "status": {
+            "description": "Override status (default derived from type)",
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": ["address", "chain"],
+        "type": "object"
+      },
+      "AddWatchlistDto": {
+        "properties": {
+          "address": {
+            "description": "Token contract address",
+            "type": "string"
+          },
+          "analysis_score": {
+            "description": "Analysis score (0-100)",
+            "type": "number"
+          },
+          "chain": {
+            "description": "Chain identifier",
+            "type": "string"
+          },
+          "current_price": {
+            "description": "Current price in USD",
+            "type": "number"
+          },
+          "expires_at": {
+            "description": "ISO8601 expiry timestamp",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique ID for this watchlist entry",
+            "type": "string"
+          },
+          "narrative": {
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason for adding to watchlist",
+            "type": "string"
+          },
+          "risk_score": {
+            "description": "Risk score (0-100)",
+            "type": "number"
+          },
+          "status": {
+            "description": "Status (default: watching)",
+            "enum": ["watching", "entry_hit", "expired", "removed"],
+            "type": "string"
+          },
+          "symbol": {
+            "description": "Token symbol",
+            "type": "string"
+          },
+          "target_entry": {
+            "description": "Target entry price in USD",
+            "type": "number"
+          }
+        },
+        "required": ["id", "symbol", "address", "chain"],
+        "type": "object"
+      },
       "ApproveOrderDto": {
         "properties": {
           "by": {
@@ -374,6 +489,33 @@
         "required": ["action", "symbol", "address", "chain", "amount"],
         "type": "object"
       },
+      "ProposeWalletDto": {
+        "properties": {
+          "address": {
+            "description": "Wallet address",
+            "type": "string"
+          },
+          "chain": {
+            "description": "Chain identifier (e.g. base, solana, eth)",
+            "type": "string"
+          },
+          "label": {
+            "description": "Human-readable label",
+            "type": "string"
+          },
+          "source": {
+            "default": "agent",
+            "description": "Source of proposal (default: agent)",
+            "type": "string"
+          },
+          "source_token": {
+            "description": "Token address that led to this wallet being proposed",
+            "type": "string"
+          }
+        },
+        "required": ["address", "chain"],
+        "type": "object"
+      },
       "RejectOrderDto": {
         "properties": {
           "reason": {
@@ -448,6 +590,70 @@
           },
           "value_usd": {
             "description": "Updated value in USD",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "UpdateWalletScoreDto": {
+        "properties": {
+          "retry_count": {
+            "type": "number"
+          },
+          "score": {
+            "type": "number"
+          },
+          "score_breakdown": {
+            "type": "object"
+          },
+          "score_error": {
+            "type": "string"
+          },
+          "status": {
+            "default": "scored",
+            "description": "proposed | scoring | scored | failed",
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UpdateWatchlistDto": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "analysis_score": {
+            "type": "number"
+          },
+          "chain": {
+            "type": "string"
+          },
+          "current_price": {
+            "type": "number"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "narrative": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "risk_score": {
+            "type": "number"
+          },
+          "status": {
+            "enum": ["watching", "entry_hit", "expired", "removed"],
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "target_entry": {
             "type": "number"
           }
         },
@@ -937,6 +1143,82 @@
         ],
         "summary": "Ping (update) a heartbeat check",
         "tags": ["heartbeat"]
+      }
+    },
+    "/v1/liquidity": {
+      "get": {
+        "operationId": "LiquidityController_list",
+        "parameters": [
+          {
+            "description": "Filter by contract address",
+            "in": "query",
+            "name": "address",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by chain",
+            "in": "query",
+            "name": "chain",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum rows to return (default: 2 per address/chain pair)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 2,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of liquidity snapshots"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List liquidity snapshots",
+        "tags": ["liquidity"]
+      },
+      "post": {
+        "operationId": "LiquidityController_add",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddLiquiditySnapshotDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Snapshot created"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add a liquidity snapshot",
+        "tags": ["liquidity"]
       }
     },
     "/v1/orders": {
@@ -1855,6 +2137,521 @@
         ],
         "summary": "Get a single audit entry by ID",
         "tags": ["system"]
+      }
+    },
+    "/v1/wallets": {
+      "get": {
+        "operationId": "WalletsController_list",
+        "parameters": [
+          {
+            "description": "Filter by status (proposed | scoring | scored | failed)",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by type (smart_money | dev | whale | deployer | trader | retail)",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by chain",
+            "in": "query",
+            "name": "chain",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum number of rows to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of tracked wallets"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List tracked wallets",
+        "tags": ["wallets"]
+      },
+      "post": {
+        "operationId": "WalletsController_add",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTrackedWalletDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Wallet upserted"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add or replace a tracked wallet (INSERT OR REPLACE)",
+        "tags": ["wallets"]
+      }
+    },
+    "/v1/wallets/propose": {
+      "post": {
+        "operationId": "WalletsController_propose",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposeWalletDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Wallet proposed (or already exists — no-op)"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Propose a wallet for scoring (INSERT OR IGNORE)",
+        "tags": ["wallets"]
+      }
+    },
+    "/v1/wallets/signals": {
+      "get": {
+        "operationId": "SignalsController_getSignals",
+        "parameters": [
+          {
+            "description": "Time window (e.g. 35m, 2h, 1d)",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "default": "35m",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by action (buy | sell)",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by chain",
+            "in": "query",
+            "name": "chain",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Group results by token",
+            "in": "query",
+            "name": "group_by",
+            "required": false,
+            "schema": {
+              "enum": ["token"],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Minimum wallet count (requires group_by=token)",
+            "in": "query",
+            "name": "min_wallets",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Maximum rows to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Only return signals for tokens currently in open positions",
+            "in": "query",
+            "name": "tokens_in_positions",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of smart-money signals (ungrouped or aggregated by token)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get smart-money signals (supports --since, --action, --chain, --group_by=token, --min_wallets, --tokens_in_positions)",
+        "tags": ["wallets"]
+      }
+    },
+    "/v1/wallets/unscored": {
+      "get": {
+        "operationId": "WalletsController_listUnscored",
+        "parameters": [
+          {
+            "description": "Max rows (default 5)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Unscored wallet list"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List wallets pending scoring (proposed or failed with retry_count < 3)",
+        "tags": ["wallets"]
+      }
+    },
+    "/v1/wallets/{address}/{chain}": {
+      "delete": {
+        "operationId": "WalletsController_remove",
+        "parameters": [
+          {
+            "description": "Wallet address",
+            "in": "path",
+            "name": "address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Chain identifier",
+            "in": "path",
+            "name": "chain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Wallet removed"
+          },
+          "404": {
+            "description": "Wallet not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove a tracked wallet",
+        "tags": ["wallets"]
+      },
+      "get": {
+        "operationId": "WalletsController_getOne",
+        "parameters": [
+          {
+            "description": "Wallet address",
+            "in": "path",
+            "name": "address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Chain identifier",
+            "in": "path",
+            "name": "chain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tracked wallet"
+          },
+          "404": {
+            "description": "Wallet not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a tracked wallet by address and chain",
+        "tags": ["wallets"]
+      }
+    },
+    "/v1/wallets/{address}/{chain}/score": {
+      "patch": {
+        "operationId": "WalletsController_updateScore",
+        "parameters": [
+          {
+            "description": "Wallet address",
+            "in": "path",
+            "name": "address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Chain identifier",
+            "in": "path",
+            "name": "chain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWalletScoreDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Score updated"
+          },
+          "404": {
+            "description": "Wallet not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update wallet score and status",
+        "tags": ["wallets"]
+      }
+    },
+    "/v1/watchlist": {
+      "get": {
+        "operationId": "WatchlistController_list",
+        "parameters": [
+          {
+            "description": "Filter by status. Use 'watching' for active-only, 'all' or omit for all rows.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": ["watching", "entry_hit", "expired", "removed", "all"],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of watchlist entries"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List watchlist entries",
+        "tags": ["watchlist"]
+      },
+      "post": {
+        "operationId": "WatchlistController_add",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddWatchlistDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Entry created"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add a token to the watchlist",
+        "tags": ["watchlist"]
+      }
+    },
+    "/v1/watchlist/{id}": {
+      "delete": {
+        "operationId": "WatchlistController_remove",
+        "parameters": [
+          {
+            "description": "Watchlist entry ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Entry removed (status=removed)"
+          },
+          "404": {
+            "description": "Entry not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Soft-delete a watchlist entry (sets status=removed)",
+        "tags": ["watchlist"]
+      },
+      "get": {
+        "operationId": "WatchlistController_getById",
+        "parameters": [
+          {
+            "description": "Watchlist entry ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Watchlist entry"
+          },
+          "404": {
+            "description": "Entry not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a watchlist entry by ID",
+        "tags": ["watchlist"]
+      },
+      "patch": {
+        "operationId": "WatchlistController_update",
+        "parameters": [
+          {
+            "description": "Watchlist entry ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWatchlistDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Entry updated"
+          },
+          "404": {
+            "description": "Entry not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a watchlist entry",
+        "tags": ["watchlist"]
       }
     }
   },

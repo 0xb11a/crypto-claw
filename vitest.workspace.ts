@@ -15,6 +15,9 @@ export default defineWorkspace([
   'libs/modules/receipts/vitest.config.ts',
   'libs/modules/alerts/vitest.config.ts',
   'libs/modules/heartbeat/vitest.config.ts',
+  'libs/modules/wallets/vitest.config.ts',
+  'libs/modules/liquidity/vitest.config.ts',
+  'libs/modules/watchlist/vitest.config.ts',
   // apps
   'apps/api/vitest.config.ts',
   'apps/worker/vitest.config.ts',
