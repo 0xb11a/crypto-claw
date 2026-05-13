@@ -85,6 +85,14 @@ const RE_JWT = /eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g;
 const RE_RPC_CREDS = /https?:\/\/[^@\s]+:[^@\s]+@[^\s]+/g;
 
 /**
+ * Base58-encoded Solana private keys.
+ * Squads/Solana signer keys are base58-encoded 64-byte secrets (87-88 chars).
+ * Pattern: base58 alphabet chars (1-9A-HJ-NP-Za-km-z), at least 87 chars long.
+ * This catches SQUADS_SIGNER_KEY values that leak into error strings or logs.
+ */
+const RE_BASE58_PRIVATE_KEY = /\b[1-9A-HJ-NP-Za-km-z]{87,88}\b/g;
+
+/**
  * Redact sensitive patterns from a raw string value.
  *
  * Applies the same patterns as `scripts/redact.js` in a TypeScript context.
@@ -100,6 +108,7 @@ export function redactString(text: string): string {
 
   result = result.replace(RE_XPRV, '[REDACTED]');
   result = result.replace(RE_ETH_PRIVATE_KEY, '[REDACTED]');
+  result = result.replace(RE_BASE58_PRIVATE_KEY, '[REDACTED]'); // Solana/Squads signer keys (base58 ≥87 chars)
   result = result.replace(RE_API_KEY_SK, '[REDACTED]');
   result = result.replace(RE_BEARER, 'Bearer [REDACTED]');
   result = result.replace(RE_JWT, '[REDACTED]');

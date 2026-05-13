@@ -331,12 +331,16 @@ describe('runExecutor() — real mode (no stub)', () => {
     expect(receipt['status']).toBe('failed');
   });
 
-  it('Solana real mode returns not_yet_implemented_real_mode receipt', async () => {
+  it('Solana real mode dispatches to executeTradeSolana (P1c-iii — no longer not_yet_implemented)', async () => {
+    // P1c-iii: Solana now dispatches to execute-trade-solana.ts.
+    // With no valid SQUADS config in env, it returns executor_error (missing config)
+    // instead of not_yet_implemented_real_mode.
     const solanaOrder = { ...VALID_ORDER, id: 'sol-real-001', chain: 'solana' };
     const env = {
       ...VALID_ENV,
       EXECUTOR_STUB_MODE: '0',
       SQUADS_SIGNER_KEY: 'ci-squads-key-for-executor',
+      // RPC_SOL not set — will cause executor_error (or rpc check), not not_yet_implemented_real_mode
     };
     const out = makeCapture();
 
@@ -350,7 +354,10 @@ describe('runExecutor() — real mode (no stub)', () => {
     const receiptLine = out.get().trim();
     const receipt = JSON.parse(receiptLine) as Record<string, unknown>;
     expect(receipt['status']).toBe('failed');
-    expect(receipt['error_kind']).toBe('not_yet_implemented_real_mode');
+    // P1c-iii: must NOT return not_yet_implemented_real_mode anymore
+    expect(receipt['error_kind']).not.toBe('not_yet_implemented_real_mode');
+    // The actual error_kind will be executor_error (missing RPC_SOL) or similar
+    expect(typeof receipt['error_kind']).toBe('string');
   });
 });
 

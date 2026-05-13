@@ -28,3 +28,20 @@ Cross-links: ADR-0010 (executor subprocess isolation — the invariant this ADR 
 ## Addendum (2026-05-13) — Real consumer landed in PR-15
 
 `apps/executor/src/execute-trade-evm.ts` is now the first real consumer of the signer.env mount: it reads `SAFE_SIGNER_KEY` from the env block injected by `spawn-executor.ts` and passes it to the Safe Protocol Kit. The boundary held under multi-process E2E (`tests/integration/security/signer-isolation-multiprocess.spec.ts`): the sentinel key never appeared in worker stdout, stderr, or the audit log across all three test groups (single-Safe isolation, SIGTERM mid-execution, two-Safes parallelism). ADR-0023 status remains Accepted.
+
+## Addendum #2 (2026-05-13) — Solana real consumer landed in P1c-iii
+
+`apps/executor/src/execute-trade-solana.ts` is the second real consumer of the
+signer.env mount mechanism, reading `SQUADS_SIGNER_KEY` to sign Squads V4
+proposals on Solana.
+
+Multi-process E2E in `tests/integration/security/signer-isolation-multiprocess.spec.ts`
+group 4 asserts the boundary holds under Solana load: the sentinel
+`SQUADS_SIGNER_KEY` value never appears in worker stdout/stderr.
+
+`redactSignerKey()` in `execute-trade-solana.ts` provides a last-resort scrub
+of base58 key material from error messages before they are written to stdout
+(the receipt JSON). The `libs/logger/src/redactor.ts` regex `RE_BASE58_PRIVATE_KEY`
+covers base58 strings ≥87 chars (Solana private key length) in log output.
+
+Status: Accepted (unchanged).

@@ -106,6 +106,22 @@ export const envSchema = z.object({
   SAFE_ADDRESS_ETH: z.string().optional(),
 
   // --------------------------------------------------------------------------
+  // Squads multisig addresses (P1c-iii — consumed by apps/executor Solana SDK)
+  // --------------------------------------------------------------------------
+  /**
+   * Squads vault address (direct). Takes priority over SQUADS_MULTISIG_ADDRESS.
+   * If set, the executor uses this address directly as the vault PDA.
+   * At least one of SQUADS_VAULT_ADDRESS / SQUADS_MULTISIG_ADDRESS is required
+   * when ACTIVE_CHAINS includes 'solana' and EXECUTOR_STUB_MODE is not '1'.
+   */
+  SQUADS_VAULT_ADDRESS: z.string().optional(),
+  /**
+   * Squads multisig PDA address. Used to derive the vault PDA when
+   * SQUADS_VAULT_ADDRESS is not set.
+   */
+  SQUADS_MULTISIG_ADDRESS: z.string().optional(),
+
+  // --------------------------------------------------------------------------
   // RPC security (P1c-ii)
   // --------------------------------------------------------------------------
   /**

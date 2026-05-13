@@ -15,6 +15,17 @@
  */
 
 // ---------------------------------------------------------------------------
+// Solana unit constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Number of lamports in one SOL.
+ * Exported so consumer modules (e.g. apps/executor/src/preflight.ts) can
+ * express SOL thresholds without magic numbers.
+ */
+export const LAMPORTS_PER_SOL = 1_000_000_000n;
+
+// ---------------------------------------------------------------------------
 // RPC hostname allowlists (PR 2.8)
 //
 // Two match modes per chain:
