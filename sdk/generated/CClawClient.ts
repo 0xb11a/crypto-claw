@@ -5,6 +5,7 @@
 import type { BaseHttpRequest } from './core/BaseHttpRequest';
 import type { OpenAPIConfig } from './core/OpenAPI';
 import { FetchHttpRequest } from './core/FetchHttpRequest';
+import { AgentLogsService } from './services/AgentLogsService';
 import { AlertsService } from './services/AlertsService';
 import { HealthService } from './services/HealthService';
 import { HeartbeatService } from './services/HeartbeatService';
@@ -17,6 +18,7 @@ import { WalletsService } from './services/WalletsService';
 import { WatchlistService } from './services/WatchlistService';
 type HttpRequestConstructor = new (config: OpenAPIConfig) => BaseHttpRequest;
 export class CClawClient {
+  public readonly agentLogs: AgentLogsService;
   public readonly alerts: AlertsService;
   public readonly health: HealthService;
   public readonly heartbeat: HeartbeatService;
@@ -40,6 +42,7 @@ export class CClawClient {
       HEADERS: config?.HEADERS,
       ENCODE_PATH: config?.ENCODE_PATH,
     });
+    this.agentLogs = new AgentLogsService(this.request);
     this.alerts = new AlertsService(this.request);
     this.health = new HealthService(this.request);
     this.heartbeat = new HeartbeatService(this.request);
