@@ -82,7 +82,12 @@ const BASE_API_ENV: NodeJS.ProcessEnv = {
   // NOTE: NO SAFE_SIGNER_KEY or SQUADS_SIGNER_KEY — this is the invariant under test
 };
 
-/** Minimal order payload. */
+/** Minimal order payload.
+ *
+ * slippage_bps is intentionally absent: ProposeOrderDto does not include it
+ * (forbidNonWhitelisted: true rejects unknown properties).  The executor
+ * subprocess applies its own slippage defaults from SPEC §4.
+ */
 function makeOrder(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     action: 'buy',
@@ -91,7 +96,6 @@ function makeOrder(overrides: Record<string, unknown> = {}): Record<string, unkn
     chain: 'base',
     amount: '100.00',
     entry_price: 2000,
-    slippage_bps: 200,
     tier: 'conviction',
     stop_loss: 1600,
     ...overrides,
