@@ -76,17 +76,30 @@ const BASE_EXECUTOR_ENV: NodeJS.ProcessEnv = {
   PATH: process.env['PATH'],
 };
 
-/** Minimal valid order JSON for executor stdin. */
+/**
+ * Minimal valid order JSON for executor stdin.
+ *
+ * chain: 'solana' — intentional.  The test at line ~173 asserts
+ * error_kind === 'not_yet_implemented_real_mode' in EXECUTOR_STUB_MODE=0.
+ * PR-B added checkStalePrice() to runPreflight(), which runs BEFORE the
+ * chain dispatch.  With chain='base' + entry_price=2000 the preflight
+ * fetches the live WETH price from DEXScreener; ETH ≠ $2000 → stale_price
+ * fires before dispatch → wrong error_kind in CI.
+ * Using chain='solana' routes through the Solana dispatch branch which
+ * returns 'not_yet_implemented_real_mode' cleanly (Solana is not yet
+ * preflighted past chain dispatch).  The load-bearing signer-isolation
+ * assertions (Groups 2–4) are unaffected by chain name.
+ */
 const SAMPLE_ORDER = JSON.stringify({
   id: 'signer-isolation-test-001',
   action: 'buy',
-  symbol: 'ETH',
-  address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-  chain: 'base',
+  symbol: 'SOL',
+  address: 'So11111111111111111111111111111111111111112',
+  chain: 'solana',
   amount: '100',
   tier: 'conviction',
-  entry_price: 2000,
-  stop_loss: 1600,
+  entry_price: 100,
+  stop_loss: 80,
 });
 
 function spawnExecutorBinary(

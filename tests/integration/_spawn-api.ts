@@ -55,7 +55,7 @@ export interface StartApiOpts {
 
   /**
    * TCP port the API listens on.
-   * Default: 7878 (matches the API's hardcoded default in apps/api/src/main.ts).
+   * Default: 7878 (matches the API default; overridden via PORT env var in apps/api/src/main.ts).
    * Override for parallel-spec scenarios to avoid port collisions.
    */
   port?: number;
@@ -154,8 +154,8 @@ export async function startApi(opts: StartApiOpts): Promise<StartApiResult> {
     DB_PATH: dbPath,
     DATABASE_URL: `file:${dbPath}?connection_limit=1`,
     PRISMA_DISABLE_DOTENV: '1',
-    // Allow port override via PORT env var if the API reads it
-    // (currently the API hardcodes 7878 but PR-B may wire this)
+    // PORT env var is read by apps/api/src/main.ts (PR-B wired this).
+    // Only inject when non-default to keep production env clean.
     ...(port !== 7878 ? { PORT: String(port) } : {}),
   };
 
