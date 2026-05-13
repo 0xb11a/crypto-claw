@@ -487,13 +487,14 @@ describe('apps/api — route walker success (SPEC §4 #3, ADR-0019)', () => {
     expect(result.stderr).toContain('all handlers decorated');
   });
 
-  it('emits the exact controller count (11: Health, Positions, Orders, Receipts, Alerts, Heartbeat, Audit, Wallets, Signals, Liquidity, Watchlist)', async () => {
+  it('emits the exact controller count (15: Health, Positions, Orders, Receipts, Alerts, Heartbeat, Audit, Wallets, Signals, Liquidity, Watchlist, ResearchLog, SentinelLog, ExecutorLog, ObserverLog)', async () => {
     const result = await spawnNode(DIST.api, VALID_ENV);
     // Pins the controller count so a future addition of an undecorated controller
     // would break the walker (it exits 78) or change the count (test catches the drift).
     // P1b added: ReceiptsController, AlertsController, HeartbeatController, AuditController = 7 total.
-    // P2 added: WalletsController, SignalsController, LiquidityController, WatchlistController = 11 total.
-    expect(result.stderr).toMatch(/\[boot\] route walker: inspected 11 controllers/);
+    // P2 group 1 added: WalletsController, SignalsController, LiquidityController, WatchlistController = 11 total.
+    // P2 group 2 added: ResearchLogController, SentinelLogController, ExecutorLogController, ObserverLogController = 15 total.
+    expect(result.stderr).toMatch(/\[boot\] route walker: inspected 15 controllers/);
   });
 });
 
