@@ -68,10 +68,15 @@ async function bootstrap(): Promise<void> {
   });
 
   // Step 7 — listen on 127.0.0.1 only (ADR-0006)
-  await app.listen(7878, '127.0.0.1');
+  // PORT env var is accepted for test scenarios (e.g. parallel integration-test
+  // instances via tests/integration/_spawn-api.ts).  Production deploys should
+  // leave PORT unset so the default (7878) applies.
+  // process.env access is allowed in apps/*/src/main.ts (bootstrap exception block).
+  const port = parseInt(process.env['PORT'] ?? '7878', 10);
+  await app.listen(port, '127.0.0.1');
 
-  // Log readiness — literal string checked in acceptance tests
-  process.stdout.write('[boot] api ready on 127.0.0.1:7878 — config OK; signer keys absent\n');
+  // Log readiness — literal string checked by _spawn-api.ts readiness detection
+  process.stdout.write(`[boot] api ready on 127.0.0.1:${port} — config OK; signer keys absent\n`);
 }
 
 bootstrap().catch((err: unknown) => {

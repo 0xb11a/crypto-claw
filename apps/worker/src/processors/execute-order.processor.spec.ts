@@ -13,7 +13,6 @@ import {
   BaseExecuteOrderProcessor,
   createExecuteOrderProcessor,
   type ExecuteOrderJobData,
-  NotIdempotentInflightError,
 } from './execute-order.processor.js';
 import type { Job } from 'bullmq';
 
@@ -85,6 +84,11 @@ function makeJob(orderId: string): Job<ExecuteOrderJobData> {
   } as unknown as Job<ExecuteOrderJobData>;
 }
 
+/**
+ * Order fixture in 'executing' status — the state the API layer produces before
+ * enqueueing the BullMQ job (orders.service.ts:181).  The processor always
+ * receives orders already in 'executing'; 'approved' is never seen at job pickup.
+ */
 const APPROVED_ORDER = {
   id: 'order-001',
   action: 'buy',
@@ -92,7 +96,7 @@ const APPROVED_ORDER = {
   address: '0x0001',
   chain: 'base',
   amount: '100',
-  status: 'approved',
+  status: 'executing',
   entry_price: 2000,
   tier: 'conviction',
   stop_loss: undefined,
@@ -124,11 +128,15 @@ beforeEach(() => {
 });
 
 describe('ExecuteOrderProcessor.process()', () => {
-  it('processes approved order successfully', async () => {
+  it('processes executing order successfully (api owns approved→executing transition)', async () => {
+    // The API layer transitions approved→executing before enqueueing; the
+    // processor receives the order already in 'executing' status.
     const processor = makeProcessor();
     await processor.process(makeJob('order-001'));
 
-    expect(mockOrdersRepo.transitionStatus).toHaveBeenCalledWith('order-001', 'executing', 'WORKER');
+    // Worker must NOT re-transition to 'executing' (api already did it)
+    expect(mockOrdersRepo.transitionStatus).not.toHaveBeenCalledWith('order-001', 'executing', 'WORKER');
+    // Worker MUST transition to 'executed' after successful spawn
     expect(mockOrdersRepo.transitionStatus).toHaveBeenCalledWith('order-001', 'executed', 'WORKER');
     expect(mockReceiptsService.create).toHaveBeenCalledOnce();
     expect(mockAuditService.write).toHaveBeenCalledWith(
@@ -159,10 +167,16 @@ describe('ExecuteOrderProcessor.process()', () => {
     expect(spawnExecutor).not.toHaveBeenCalled();
   });
 
-  it('throws NotIdempotentInflightError for executing orders', async () => {
-    mockOrdersRepo.findById.mockResolvedValue({ ...APPROVED_ORDER, status: 'executing' });
+  it('skips (warn) when order is in unexpected status — e.g. approved (api bug upstream)', async () => {
+    // 'approved' should never reach the worker: the api always transitions to
+    // 'executing' before enqueueing.  If it does, the processor warns and skips
+    // rather than throwing, so BullMQ does not retry endlessly.
+    mockOrdersRepo.findById.mockResolvedValue({ ...APPROVED_ORDER, status: 'approved' });
     const processor = makeProcessor();
-    await expect(processor.process(makeJob('order-001'))).rejects.toThrow(NotIdempotentInflightError);
+    await processor.process(makeJob('order-001'));
+
+    expect(spawnExecutor).not.toHaveBeenCalled();
+    expect(mockOrdersRepo.transitionStatus).not.toHaveBeenCalled();
   });
 
   it('transitions to failed and re-throws when spawn fails', async () => {
@@ -218,11 +232,14 @@ describe('ExecuteOrderProcessor.process()', () => {
 // ---------------------------------------------------------------------------
 
 describe('createExecuteOrderProcessor() factory', () => {
-  it('returns a class that processes orders identically to the concrete class', async () => {
+  it('returns a class that processes executing orders identically to the concrete class', async () => {
+    // Factory-generated processor receives 'executing' orders (api owns approved→executing).
     const processor = makeFactoryProcessor('execute-order-base-0xabc');
     await processor.process(makeJob('order-001'));
 
-    expect(mockOrdersRepo.transitionStatus).toHaveBeenCalledWith('order-001', 'executing', 'WORKER');
+    // Must NOT re-transition to 'executing'
+    expect(mockOrdersRepo.transitionStatus).not.toHaveBeenCalledWith('order-001', 'executing', 'WORKER');
+    // Must transition to 'executed'
     expect(mockOrdersRepo.transitionStatus).toHaveBeenCalledWith('order-001', 'executed', 'WORKER');
     expect(mockReceiptsService.create).toHaveBeenCalledOnce();
   });
@@ -235,10 +252,15 @@ describe('createExecuteOrderProcessor() factory', () => {
     expect(spawnExecutor).not.toHaveBeenCalled();
   });
 
-  it('factory-created processor throws NotIdempotentInflightError for executing orders', async () => {
-    mockOrdersRepo.findById.mockResolvedValue({ ...APPROVED_ORDER, status: 'executing' });
+  it('factory-created processor skips (warn) for unexpected status — approved is never the entry state', async () => {
+    // The api always transitions approved→executing before enqueueing.
+    // If a job somehow arrives with 'approved', the processor skips rather than throwing.
+    mockOrdersRepo.findById.mockResolvedValue({ ...APPROVED_ORDER, status: 'approved' });
     const processor = makeFactoryProcessor('execute-order-solana-vault123');
-    await expect(processor.process(makeJob('order-001'))).rejects.toThrow(NotIdempotentInflightError);
+    await processor.process(makeJob('order-001'));
+
+    expect(spawnExecutor).not.toHaveBeenCalled();
+    expect(mockOrdersRepo.transitionStatus).not.toHaveBeenCalled();
   });
 
   it('two factory processors for different queue names are distinct classes', () => {

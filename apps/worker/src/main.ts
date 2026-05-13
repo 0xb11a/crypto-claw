@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { existsSync, statSync } from 'node:fs';
 import { assertNoSignerKeysInEnv, assertConfigValid } from '@cclaw/config';
+import { resolveActiveQueueNames } from '@cclaw/orders';
 import { AppModule } from './app.module.js';
 
 /**
@@ -50,11 +51,19 @@ async function bootstrap(): Promise<void> {
   }
 
   // Step 4 — create standalone application context (no HTTP server)
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    bufferLogs: true,
-  });
+  // bufferLogs is intentionally absent: the default ConsoleLogger emits
+  // immediately to stdout/stderr. bufferLogs: true was set previously but
+  // app.useLogger() was never called, causing all NestJS log output —
+  // including BullMQ failure handler errors — to be silently dropped.
+  const app = await NestFactory.createApplicationContext(AppModule);
 
-  // Step 5 — log readiness
+  // Step 5 — log readiness with active queue names so CI logs are diagnostic
+  const activeChains = (cfg.ACTIVE_CHAINS as string)
+    .split(',')
+    .map((c) => c.trim())
+    .filter(Boolean);
+  const activeQueueNames = resolveActiveQueueNames(activeChains, process.env);
+  process.stdout.write(`[boot] worker subscribed to queues: ${activeQueueNames.join(', ')}\n`);
   process.stdout.write('[boot] worker ready — execute-order processor active\n');
 
   // Stay alive until SIGTERM

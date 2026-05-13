@@ -104,6 +104,33 @@ describe('classifyError()', () => {
   it('falls back to executor_error for unrecognized messages', () => {
     expect(classifyError('some unexpected runtime exception')).toBe('executor_error');
   });
+
+  // P1c-ii new error kinds
+  it('classifies rpc_hostname_not_allowlisted', () => {
+    expect(classifyError('rpc_hostname_not_allowlisted: evil.rpc.example on base')).toBe(
+      'rpc_hostname_not_allowlisted',
+    );
+  });
+
+  it('classifies safe_propose_failed when message contains safe_propose_failed', () => {
+    expect(classifyError('safe_propose_failed: Safe TX Service returned 422')).toBe('safe_propose_failed');
+  });
+
+  it('classifies safe_propose_failed when message contains proposeTransaction', () => {
+    expect(classifyError('proposeTransaction: HTTP 422 [invalid nonce]')).toBe('safe_propose_failed');
+  });
+
+  it('classifies oneinch_failed', () => {
+    expect(classifyError('oneinch_failed: 1inch API error (500): Internal Server Error')).toBe('oneinch_failed');
+  });
+
+  it('classifies transaction_reverted on execution reverted', () => {
+    expect(classifyError('execution reverted: gas limit exceeded')).toBe('transaction_reverted');
+  });
+
+  it('classifies transaction_reverted on transaction_reverted prefix', () => {
+    expect(classifyError('transaction_reverted: SafeL2: 0x01')).toBe('transaction_reverted');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -158,18 +185,16 @@ describe('runExecutor() — happy path', () => {
   });
 
   it('does NOT write stub warning to stderr when EXECUTOR_STUB_MODE is not 1', async () => {
-    // Real-mode throws not_yet_implemented_real_mode, so we expect a rejection.
+    // Real-mode with missing config resolves with a failure receipt — no stub warning.
     const err = makeCapture();
     const env = { ...VALID_ENV, EXECUTOR_STUB_MODE: '0' };
 
-    await expect(
-      runExecutor({
-        stdin: stdinFrom(VALID_ORDER),
-        stdout: makeCapture().stream,
-        stderr: err.stream,
-        env,
-      }),
-    ).rejects.toThrow('not_yet_implemented_real_mode');
+    await runExecutor({
+      stdin: stdinFrom(VALID_ORDER),
+      stdout: makeCapture().stream,
+      stderr: err.stream,
+      env,
+    });
 
     expect(err.get()).not.toContain('EXECUTOR_STUB_MODE=true');
   });
@@ -275,32 +300,57 @@ describe('runExecutor() — missing signer keys', () => {
 // runExecutor() — stub mode guard
 // ---------------------------------------------------------------------------
 
-describe('runExecutor() — stub mode guard', () => {
-  it('throws not_yet_implemented_real_mode when EXECUTOR_STUB_MODE is "0"', async () => {
-    const env = { ...VALID_ENV, EXECUTOR_STUB_MODE: '0' };
+// ---------------------------------------------------------------------------
+// NOTE (P1c-ii): The real EVM SDK path is now wired.
+// When EXECUTOR_STUB_MODE is OFF for an EVM chain, executeTrade() dispatches to
+// executeTradeEvm() which catches config/env errors and returns a FailureReceipt
+// rather than throwing. runExecutor() resolves (writes failure receipt to stdout)
+// and only throws if something unexpected happens upstream of executeTrade().
+//
+// The P1c-i tests below checked for the stub's "not_yet_implemented_real_mode" throw.
+// P1c-ii updates them to check that missing-config is handled cleanly.
+// ---------------------------------------------------------------------------
 
-    await expect(
-      runExecutor({
-        stdin: stdinFrom(VALID_ORDER),
-        stdout: makeCapture().stream,
-        stderr: makeCapture().stream,
-        env,
-      }),
-    ).rejects.toThrow('not_yet_implemented_real_mode');
+describe('runExecutor() — real mode (no stub)', () => {
+  it('writes a failure receipt to stdout when EXECUTOR_STUB_MODE is "0" and config is missing', async () => {
+    // VALID_ENV does NOT include SAFE_ADDRESS_BASE or RPC_BASE.
+    // executeTradeEvm() catches the missing-config error and returns a FailureReceipt.
+    const env = { ...VALID_ENV, EXECUTOR_STUB_MODE: '0' };
+    const out = makeCapture();
+
+    await runExecutor({
+      stdin: stdinFrom(VALID_ORDER),
+      stdout: out.stream,
+      stderr: makeCapture().stream,
+      env,
+    });
+
+    const receiptLine = out.get().trim();
+    const receipt = JSON.parse(receiptLine) as Record<string, unknown>;
+    // Expect a failure receipt (not a throw) — config error caught cleanly
+    expect(receipt['status']).toBe('failed');
   });
 
-  it('throws not_yet_implemented_real_mode when EXECUTOR_STUB_MODE is absent', async () => {
-    const env = { ...VALID_ENV };
-    delete env['EXECUTOR_STUB_MODE'];
+  it('Solana real mode returns not_yet_implemented_real_mode receipt', async () => {
+    const solanaOrder = { ...VALID_ORDER, id: 'sol-real-001', chain: 'solana' };
+    const env = {
+      ...VALID_ENV,
+      EXECUTOR_STUB_MODE: '0',
+      SQUADS_SIGNER_KEY: 'ci-squads-key-for-executor',
+    };
+    const out = makeCapture();
 
-    await expect(
-      runExecutor({
-        stdin: stdinFrom(VALID_ORDER),
-        stdout: makeCapture().stream,
-        stderr: makeCapture().stream,
-        env,
-      }),
-    ).rejects.toThrow('not_yet_implemented_real_mode');
+    await runExecutor({
+      stdin: stdinFrom(solanaOrder),
+      stdout: out.stream,
+      stderr: makeCapture().stream,
+      env,
+    });
+
+    const receiptLine = out.get().trim();
+    const receipt = JSON.parse(receiptLine) as Record<string, unknown>;
+    expect(receipt['status']).toBe('failed');
+    expect(receipt['error_kind']).toBe('not_yet_implemented_real_mode');
   });
 });
 

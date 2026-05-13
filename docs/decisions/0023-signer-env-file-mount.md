@@ -24,3 +24,7 @@ The reader lives in `libs/execution/src/signer-env-loader.ts`: it `stat`s the fi
 - Locked: signer keys live ONLY in `secrets/signer.env`. No `SAFE_SIGNER_KEY` / `SQUADS_SIGNER_KEY` in repo-root `.env`, no Docker Compose `secrets:` stanza, no external secrets-manager dependency in P1–P5. Any future move to k8s `Secret`-via-env or a cloud secrets-manager supersedes this ADR.
 
 Cross-links: ADR-0010 (executor subprocess isolation — the invariant this ADR operationalises), SPEC §4 #4 (signer-key boot self-check), SPEC §9.7 (secret hygiene), SPEC §17 (compose mount points), `libs/execution/src/signer-env-loader.ts` (the loader), `libs/execution/src/spawn-executor.ts` (the consumer), `docker/docker-compose.dev.yml` (the mount), `tests/e2e/signer-isolation.spec.ts` (the structural assertion).
+
+## Addendum (2026-05-13) — Real consumer landed in PR-15
+
+`apps/executor/src/execute-trade-evm.ts` is now the first real consumer of the signer.env mount: it reads `SAFE_SIGNER_KEY` from the env block injected by `spawn-executor.ts` and passes it to the Safe Protocol Kit. The boundary held under multi-process E2E (`tests/integration/security/signer-isolation-multiprocess.spec.ts`): the sentinel key never appeared in worker stdout, stderr, or the audit log across all three test groups (single-Safe isolation, SIGTERM mid-execution, two-Safes parallelism). ADR-0023 status remains Accepted.

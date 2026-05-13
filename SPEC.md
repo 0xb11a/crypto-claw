@@ -463,7 +463,7 @@ Authoritative phase definitions live in the implementation plan. Headline:
     test infrastructure (ADR-0023) is a prerequisite for all P1c-ii/iii real-SDK
     work. P1c-i ships with a deterministic stub (EXECUTOR_STUB_MODE=1); P1c-ii
     wires the real Safe SDK; P1c-iii wires the real Squads SDK.
-  - **P1c-ii** — Real Safe SDK (EVM) in executor (deferred; ADR-0024 captures the per-Safe concurrency upgrade).
+  - **P1c-ii** — Real Safe SDK (EVM) in executor + per-Safe BullMQ queue topology (ADR-0024 addendum) + multi-process signer-isolation E2E. Delivered in PR-A (infra: per-Safe queues, `_spawn-api.ts` helper, ADR-0026 typed-config) + PR-B (real EVM SDK, `execute-trade-evm.ts`, `checkSignerBalance`/`checkStalePrice` preflight, `signer-isolation-multiprocess.spec.ts`).
   - **P1c-iii** — Real Squads SDK (Solana) in executor (deferred).
 - **P2** — Remaining DB-backed modules + cclaw covers all 79 db-query commands.
 - **P3** — External-adapter modules + worker jobs. *(Executor isolation moved to P1c-i.)*

@@ -13,7 +13,9 @@
  *      when the key is passed via child env block (not logged, not echoed).
  *   3. Executor binary with stub mode ON produces a receipt on stdout and
  *      exits 0; the receipt does NOT contain the signer key value.
- *   4. Executor binary without stub mode exits 1 with not_yet_implemented_real_mode.
+ *   4. Executor binary without stub mode emits a failure receipt with
+ *      error_kind='not_yet_implemented_real_mode' and exits 0 (receipt-based
+ *      contract: the worker reads receipt.status, not the exit code).
  *   5. filterParentEnv() strips SAFE_SIGNER_KEY from the parent env before
  *      the child env block is constructed (verified at the process boundary:
  *      the executor child receives the key but the SPAWNING env does not leak it).
@@ -76,17 +78,45 @@ const BASE_EXECUTOR_ENV: NodeJS.ProcessEnv = {
   PATH: process.env['PATH'],
 };
 
-/** Minimal valid order JSON for executor stdin. */
+/**
+ * Minimal valid order JSON for executor stdin.
+ *
+ * chain: 'solana', no entry_price — intentional.
+ *
+ * The test at line ~173 asserts error_kind === 'not_yet_implemented_real_mode'
+ * when EXECUTOR_STUB_MODE=0.  PR-B added checkStalePrice() to runPreflight(),
+ * which runs BEFORE the chain dispatch in main.ts (step 5 vs step 6).
+ *
+ * Two reasons for this shape:
+ *
+ *   1. chain='base' + entry_price=2000 was wrong: checkStalePrice fetches the
+ *      live WETH/ETH price from DEXScreener.  ETH price ≠ $2000 in CI →
+ *      preflight throws stale_price before dispatch → wrong error_kind.
+ *
+ *   2. chain='solana' alone is not enough if entry_price is set, because
+ *      checkStalePrice has no Solana skip — it would fetch the WSOL price
+ *      and could still fire stale_price if SOL drifts >10% from the value.
+ *
+ * Omitting entry_price causes checkStalePrice to short-circuit immediately
+ * (entry_price === undefined → return {ok:true}) — no network call, no drift
+ * check.  Preflight passes, flow reaches executeTrade which returns
+ * {status:'failed', error_kind:'not_yet_implemented_real_mode'} for Solana
+ * in real mode (P1c-iii is not yet implemented).
+ *
+ * The load-bearing signer-isolation assertions (Groups 2–4) are unaffected
+ * by chain name or the presence/absence of entry_price.
+ */
 const SAMPLE_ORDER = JSON.stringify({
   id: 'signer-isolation-test-001',
   action: 'buy',
-  symbol: 'ETH',
-  address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-  chain: 'base',
+  symbol: 'SOL',
+  address: 'So11111111111111111111111111111111111111112',
+  chain: 'solana',
   amount: '100',
   tier: 'conviction',
-  entry_price: 2000,
-  stop_loss: 1600,
+  // entry_price intentionally omitted: checkStalePrice short-circuits on
+  // undefined entry_price (no DEXScreener call) so the test is network-free.
+  stop_loss: 80,
 });
 
 function spawnExecutorBinary(
@@ -155,7 +185,15 @@ describe.skipIf(!EXECUTOR_BUILT)(
       expect(result.stderr).toContain('EXECUTOR_STUB_MODE=true');
     });
 
-    it('exits 1 with not_yet_implemented_real_mode when stub mode is OFF', async () => {
+    it('emits failure receipt with not_yet_implemented_real_mode when stub mode is OFF', async () => {
+      // The executor contract (SPEC §4, ADR-0010) is: receipt content determines
+      // success/failure; the worker (execute-order.processor.ts) reads receipt.status,
+      // NOT the exit code.  A clean failure receipt (status:'failed') is a normal
+      // subprocess output — the process exits 0.  Only thrown/unhandled errors
+      // reach the .catch() handler and exit 1.
+      //
+      // The Solana 'not_yet_implemented_real_mode' path returns a failure receipt
+      // without throwing, so exit code is 0 by design.  Assert on receipt content.
       const result = await spawnExecutorBinary(
         {
           ...BASE_EXECUTOR_ENV,
@@ -165,7 +203,6 @@ describe.skipIf(!EXECUTOR_BUILT)(
         },
         SAMPLE_ORDER,
       );
-      expect(result.code).toBe(1);
       const lines = result.stdout.trim().split('\n');
       const lastLine = lines[lines.length - 1]!;
       const receipt = JSON.parse(lastLine) as { status: string; error_kind: string };

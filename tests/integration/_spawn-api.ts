@@ -55,7 +55,7 @@ export interface StartApiOpts {
 
   /**
    * TCP port the API listens on.
-   * Default: 7878 (matches the API's hardcoded default in apps/api/src/main.ts).
+   * Default: 7878 (matches the API default; overridden via PORT env var in apps/api/src/main.ts).
    * Override for parallel-spec scenarios to avoid port collisions.
    */
   port?: number;
@@ -93,6 +93,10 @@ export interface StartApiResult {
    * Safe to call even if the process already exited.
    */
   kill: () => Promise<void>;
+  /** Lines emitted on stdout (accumulated; useful for diagnosing boot failures). */
+  stdoutLines: string[];
+  /** Lines emitted on stderr (accumulated; useful for diagnosing boot failures). */
+  stderrLines: string[];
 }
 
 /**
@@ -154,12 +158,16 @@ export async function startApi(opts: StartApiOpts): Promise<StartApiResult> {
     DB_PATH: dbPath,
     DATABASE_URL: `file:${dbPath}?connection_limit=1`,
     PRISMA_DISABLE_DOTENV: '1',
-    // Allow port override via PORT env var if the API reads it
-    // (currently the API hardcodes 7878 but PR-B may wire this)
+    // PORT env var is read by apps/api/src/main.ts (PR-B wired this).
+    // Only inject when non-default to keep production env clean.
     ...(port !== 7878 ? { PORT: String(port) } : {}),
   };
 
   let apiProcess: ReturnType<typeof spawn> | null = null;
+
+  // Accumulate API output so callers can dump it on test failure.
+  const stdoutLines: string[] = [];
+  const stderrLines: string[] = [];
 
   const started = await new Promise<void>((resolve, reject) => {
     apiProcess = spawn('node', [API_DIST], {
@@ -176,11 +184,16 @@ export async function startApi(opts: StartApiOpts): Promise<StartApiResult> {
     }, readyTimeoutMs);
 
     apiProcess.stdout?.on('data', (chunk: Buffer) => {
+      stdoutLines.push(...chunk.toString().split('\n').filter(Boolean));
       if (!ready && chunk.toString().includes('api ready on')) {
         ready = true;
         clearTimeout(timer);
         resolve();
       }
+    });
+
+    apiProcess.stderr?.on('data', (chunk: Buffer) => {
+      stderrLines.push(...chunk.toString().split('\n').filter(Boolean));
     });
 
     apiProcess.on('exit', (code) => {
@@ -213,5 +226,7 @@ export async function startApi(opts: StartApiOpts): Promise<StartApiResult> {
     port,
     dbPath,
     kill,
+    stdoutLines,
+    stderrLines,
   };
 }
