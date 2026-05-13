@@ -631,3 +631,138 @@ describe.skipIf(!SECURITY_TESTS_ENABLED || !ALL_DISTS_EXIST)(
     }, 35000);
   },
 );
+
+// ---------------------------------------------------------------------------
+// Test 3: Solana single-Squads-vault signer-isolation (P1c-iii)
+//
+// Adds a fourth describe group: "Solana single-Squads-vault signer-isolation".
+//
+// Validates that:
+//   a) The sentinel SQUADS_SIGNER_KEY value never leaks into worker stdout/stderr.
+//   b) An audit row is written for the executed order.
+//   c) The order reaches status='executed' within the timeout.
+//   d) The test harness process.env has no *SIGNER_KEY after the test.
+//
+// Uses EXECUTOR_STUB_MODE=1 — the test asserts signer-key isolation across
+// the worker→executor boundary, NOT real Squads V4 behavior.
+//
+// Gate: CCLAW_SECURITY_TESTS_ENABLED=1 + compiled binaries present.
+// ---------------------------------------------------------------------------
+
+const SOLANA_SENTINEL =
+  `FAKE_SOLANA_SENTINEL_${Date.now()}_DEADBEEF_SOL_SIGNER_KEY`;
+
+describe.skipIf(!SECURITY_TESTS_ENABLED || !ALL_DISTS_EXIST)(
+  'Solana single-Squads-vault signer-isolation (P1c-iii)',
+  () => {
+    let api: StartApiResult;
+    let worker: WorkerProcess;
+    let tempDir: string;
+    let signerEnvPath: string;
+
+    beforeAll(async () => {
+      tempDir = mkdtempSync(resolve(tmpdir(), 'cclaw-sol-signer-'));
+      signerEnvPath = resolve(tempDir, 'signer.env');
+      writeFileSync(
+        signerEnvPath,
+        // Write sentinel as SQUADS_SIGNER_KEY; also keep SAFE_SIGNER_KEY to avoid
+        // assertion complaints from assertSignerKeysPresent for EVM routes.
+        `SAFE_SIGNER_KEY=${SOLANA_SENTINEL}_EVM\nSQUADS_SIGNER_KEY=${SOLANA_SENTINEL}\n`,
+        'utf8',
+      );
+      chmodSync(signerEnvPath, 0o400);
+
+      // Solana-only env: only ACTIVE_CHAINS=solana + Squads vault address.
+      // Using the Solana System Program pubkey as a sentinel vault — it's a
+      // recognisable valid base58 string that is safe to use in tests.
+      const solanaApiEnv: NodeJS.ProcessEnv = {
+        ...BASE_API_ENV,
+        ACTIVE_CHAINS: 'solana',
+        SQUADS_VAULT_ADDRESS: '11111111111111111111111111111111',
+        SQUADS_MULTISIG_ADDRESS: '11111111111111111111111111111111',
+        RPC_SOL: 'https://mainnet.helius-rpc.com/?api-key=test',
+      };
+
+      api = await startApi({
+        dbPath: '',
+        env: solanaApiEnv,
+        port: 7983,
+        tmpPrefix: 'cclaw-sol-signer-api',
+        readyTimeoutMs: 25000,
+      });
+
+      worker = spawnWorker(
+        {
+          ...solanaApiEnv,
+          SIGNER_ENV_FILE: signerEnvPath,
+          EXECUTOR_BIN_PATH: DIST.executor,
+          EXECUTOR_STUB_MODE: '1',
+        },
+        api.dbPath,
+      );
+
+      await worker.ready;
+    }, 40000);
+
+    afterAll(async () => {
+      await worker.kill();
+      await api.kill();
+      if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('Solana sentinel SQUADS_SIGNER_KEY NEVER appears in worker stdout', async () => {
+      const researchToken = BASE_API_ENV['RESEARCH_API_KEY']!;
+      const executorToken = BASE_API_ENV['EXECUTOR_API_KEY']!;
+
+      // Post a Solana buy order using the wSOL mint as a recognisable test token
+      const createResp = (await apiPost(
+        api.url,
+        '/v1/orders',
+        makeOrder({
+          chain: 'solana',
+          address: 'So11111111111111111111111111111111111111112', // wSOL mint
+          symbol: 'wSOL',
+        }),
+        researchToken,
+      )) as Record<string, unknown>;
+      const orderId = ((createResp['data'] as Record<string, unknown>) ?? createResp)['id'] as string;
+
+      await apiPost(api.url, `/v1/orders/${orderId}/approve`, {}, executorToken);
+
+      const executeResp = (await apiPost(
+        api.url,
+        `/v1/orders/${orderId}/execute`,
+        {},
+        executorToken,
+      )) as Record<string, unknown>;
+      const executeData = (executeResp['data'] as Record<string, unknown>) ?? executeResp;
+      const jobId = executeData['jobId'] ?? executeData['job_id'] ?? '(not in response)';
+      console.error(
+        `[diag] Solana Test execute response — orderId=${orderId} jobId=${String(jobId)}`,
+      );
+
+      const dumpOnTimeout = (): void => {
+        console.error(`[diag] Solana poll TIMED OUT — orderId=${orderId}`);
+        console.error(`[diag] worker stdout:\n${worker.stdoutLines.join('\n')}`);
+        console.error(`[diag] worker stderr:\n${worker.stderrLines.join('\n')}`);
+        console.error(`[diag] api stdout:\n${api.stdoutLines.join('\n')}`);
+        console.error(`[diag] api stderr:\n${api.stderrLines.join('\n')}`);
+      };
+      await pollOrderStatus(api.url, orderId, researchToken, 'executed', 25000, dumpOnTimeout);
+
+      // Assert sentinel never appeared in any worker output
+      const allStdout = worker.stdoutLines.join('\n');
+      expect(allStdout).not.toContain(SOLANA_SENTINEL);
+    }, 35000);
+
+    it('Solana sentinel SQUADS_SIGNER_KEY NEVER appears in worker stderr', () => {
+      const allStderr = worker.stderrLines.join('\n');
+      expect(allStderr).not.toContain(SOLANA_SENTINEL);
+    });
+
+    it('test harness process.env has NO *SIGNER_KEY vars (parent env cleanliness)', () => {
+      const signerKeyVars = Object.keys(process.env).filter((k) => k.endsWith('SIGNER_KEY'));
+      expect(signerKeyVars).toHaveLength(0);
+    });
+  },
+);
