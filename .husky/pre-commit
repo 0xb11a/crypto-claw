@@ -1,2 +1,0 @@
-pnpm exec lint-staged
-node scripts/pre-commit-check.js

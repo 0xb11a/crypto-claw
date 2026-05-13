@@ -31,28 +31,3 @@ Thumbs.db
 
 # Logs
 *.log
-
-# TypeScript build output (P0 monorepo)
-# dist/ is produced by tsc --build; committed only for SDK generated files
-apps/*/dist/
-libs/*/dist/
-libs/modules/*/dist/
-sdk/cclaw/dist/
-
-# Compiled JS artefacts that must not land in src/ (leftover from earlier outDir misconfiguration)
-# tsc --build now writes exclusively to dist/; any .js/.d.ts in src/ is a stale leftover.
-# Applies to all libs/*/src/ trees (config, logger, prisma, auth, audit, health, modules/*).
-libs/*/src/**/*.js
-libs/*/src/**/*.js.map
-libs/*/src/**/*.d.ts
-libs/*/src/**/*.d.ts.map
-libs/modules/*/src/**/*.js
-libs/modules/*/src/**/*.js.map
-libs/modules/*/src/**/*.d.ts
-libs/modules/*/src/**/*.d.ts.map
-
-# TypeScript incremental build info
-*.tsbuildinfo
-
-# Vitest coverage output (build artifact — never commit)
-coverage/

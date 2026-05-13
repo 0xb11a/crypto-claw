@@ -5,7 +5,7 @@
  * shim-parity gate during P1–P4.
  *
  * Usage:
- *   node tests/shim-parity/compare-baseline.js --safe-id <id> [--cclaw] [--only positions,orders]
+ *   node tests/shim-parity/compare-baseline.js --safe-id <id> [--cclaw]
  *
  * Without --cclaw: re-runs against the legacy `node scripts/db-query.js …`.
  *   This is the sanity check during P-prep — confirms the baseline is
@@ -14,19 +14,9 @@
  * With --cclaw: re-runs against `cclaw …`. This is the P1–P3 gate — confirms
  *   the new CLI emits identical JSON.
  *
- * --only positions,orders
- *   Filter the manifest to only compare entries whose command matches one of
- *   the provided module names. Commands not in the list are skipped (printed
- *   as "skipped" rather than "fail"). The list maps to commands like:
- *     positions → get-positions, get-position
- *     orders → get-orders, get-order-history, get-order
- *
- * IMPLEMENTED_COMMANDS: the allowlist of commands that have a P1a implementation.
- * Update this list as each module ships in subsequent PRs.
- *
  * Exit codes:
- *   0 — every in-scope snapshot matches (or was skipped)
- *   1 — at least one in-scope snapshot drifted; per-snapshot diffs printed to stderr
+ *   0 — every snapshot matches
+ *   1 — at least one snapshot drifted; per-snapshot diffs printed to stderr
  *   2 — invalid invocation or missing manifest
  */
 
@@ -37,25 +27,6 @@ import { resolve } from 'node:path';
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
 const BASELINE = resolve(import.meta.dirname, 'baseline');
 const MANIFEST = resolve(BASELINE, 'manifest.json');
-
-/**
- * Commands that have a P1a/P1b implementation in the new Prisma/cclaw path.
- * Keys are module names (--only values); values are db-query.js command prefixes.
- *
- * Update this list as each module ships:
- * - P1a: positions, orders
- * - P1b: receipts, alerts, heartbeat, audit
- * - P2+: remaining modules (deferred)
- */
-const IMPLEMENTED_COMMANDS = {
-  positions: ['get-positions', 'get-position'],
-  orders: ['get-orders', 'get-order-history', 'get-order'],
-  receipts: ['get-receipts', 'get-receipt', 'get-paper-receipts'],
-  alerts: ['get-alerts'],
-  heartbeat: ['get-heartbeats', 'get-heartbeat', 'get-overdue-checks'],
-  // No legacy db-query command for audit; entry exists so --only audit is accepted
-  audit: [],
-};
 
 const argv = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, arr) => {
@@ -70,7 +41,6 @@ const argv = Object.fromEntries(
 
 const SAFE_ID = argv['safe-id'];
 const USE_CCLAW = argv.cclaw === 'true';
-const ONLY_MODULES = argv.only ? argv.only.split(',').map((s) => s.trim()) : null;
 
 if (!SAFE_ID) {
   console.error('error: --safe-id <id> is required');
@@ -82,25 +52,6 @@ if (!existsSync(MANIFEST)) {
 }
 
 const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));
-
-// Build set of command prefixes that are in scope
-const inScopeCommands = ONLY_MODULES
-  ? new Set(
-      ONLY_MODULES.flatMap((module) => {
-        const cmds = IMPLEMENTED_COMMANDS[module];
-        if (!cmds) {
-          console.error(`[warn] --only module '${module}' not recognised; skipping`);
-          return [];
-        }
-        return cmds;
-      }),
-    )
-  : null; // null = all commands in scope
-
-function isInScope(command) {
-  if (!inScopeCommands) return true;
-  return inScopeCommands.has(command);
-}
 
 function runLegacy(name, args) {
   const dbq = resolve(REPO_ROOT, 'scripts', 'db-query.js');
@@ -127,14 +78,8 @@ function runCclaw(name, args) {
 
 let drift = 0;
 let matched = 0;
-let skipped = 0;
 
 for (const entry of manifest.entries) {
-  if (!isInScope(entry.command)) {
-    skipped++;
-    continue;
-  }
-
   const expected = readFileSync(resolve(REPO_ROOT, entry.path), 'utf8');
   let actual;
   try {
@@ -155,8 +100,5 @@ for (const entry of manifest.entries) {
   }
 }
 
-const scopeMsg = ONLY_MODULES ? ` (--only ${ONLY_MODULES.join(',')})` : '';
-console.error(
-  `\n[baseline] matched ${matched} / drift ${drift} / skipped ${skipped} of ${manifest.entries.length}${scopeMsg}`,
-);
+console.error(`\n[baseline] matched ${matched} / drift ${drift} of ${manifest.entries.length}`);
 process.exit(drift === 0 ? 0 : 1);
