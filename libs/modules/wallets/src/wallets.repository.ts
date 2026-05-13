@@ -139,14 +139,24 @@ export class WalletsRepository {
     return { ok: true, address: dto.address, status: 'proposed', source };
   }
 
-  /** List wallets pending scoring (proposed OR failed with retry_count < 3). */
+  /**
+   * List wallets pending scoring (proposed OR failed with retry_count < 3).
+   *
+   * Uses Prisma findMany instead of $queryRaw so that Prisma handles the
+   * snake_case → camelCase column-name mapping automatically. The previous
+   * $queryRaw<TrackedWallet[]> with SELECT * returned physical column names
+   * (retry_count, score_breakdown, etc.) from SQLite, but mapRow() accessed
+   * camelCase keys (retryCount, scoreBreakdown) — resulting in undefined values
+   * for those fields. findMany always returns the Prisma model shape.
+   */
   async findUnscored(limit = 5): Promise<TrackedWalletResponseDto[]> {
-    const rows = await this.prisma.$queryRaw<TrackedWallet[]>`
-      SELECT * FROM tracked_wallets
-      WHERE status = 'proposed' OR (status = 'failed' AND retry_count < 3)
-      ORDER BY created_at ASC
-      LIMIT ${limit}
-    `;
+    const rows = await this.prisma.trackedWallet.findMany({
+      where: {
+        OR: [{ status: 'proposed' }, { AND: [{ status: 'failed' }, { retryCount: { lt: 3 } }] }],
+      },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+    });
     return rows.map((r) => this.mapRow(r));
   }
 

@@ -36,7 +36,6 @@ function makePrisma(overrides?: Record<string, unknown>): PrismaService {
       update: vi.fn().mockResolvedValue(rawRow),
       delete: vi.fn().mockResolvedValue(rawRow),
     },
-    $queryRaw: vi.fn().mockResolvedValue([rawRow]),
     ...overrides,
   } as unknown as PrismaService;
 }
@@ -291,41 +290,65 @@ describe('WalletsRepository', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // findUnscored() raw SQL behaviour (coder-flagged uncertainty 1)
+  // findUnscored() — now uses Prisma findMany (Concern 2 fix: was $queryRaw)
+  //
+  // The previous $queryRaw<TrackedWallet[]> implementation returned physical
+  // SQLite column names (retry_count, score_breakdown) but mapRow() accessed
+  // camelCase keys (retryCount, scoreBreakdown), producing undefined values.
+  // Replacing with findMany lets Prisma handle the mapping; the tests below
+  // verify the correct Prisma call shape and that mapping still works.
   // ---------------------------------------------------------------------------
 
   describe('findUnscored() — mixed proposed + failed rows', () => {
-    it('maps raw SQL rows from $queryRaw correctly (snake_case DB columns → camelCase intermediate)', async () => {
-      // The $queryRaw result has DB column names (snake_case); mapRow receives TrackedWallet shape.
-      // The mock in makePrisma() returns [rawRow] which uses camelCase (Prisma model shape).
-      // This test verifies that when the mock returns the right shape the mapping is correct.
+    it('maps Prisma findMany rows correctly (camelCase keys → snake_case response)', async () => {
       const proposed = { ...rawRow, status: 'proposed', retryCount: 0 };
       const failedRetry1 = { ...rawRow, address: '0xfailed1', status: 'failed', retryCount: 1 };
       const failedRetry3 = { ...rawRow, address: '0xfailed3', status: 'failed', retryCount: 3 };
 
-      const p = makePrisma();
-      // Override $queryRaw to return the three rows
-      (p.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([proposed, failedRetry1, failedRetry3]);
+      const p = makePrisma({
+        trackedWallet: {
+          findMany: vi.fn().mockResolvedValue([proposed, failedRetry1, failedRetry3]),
+          findUnique: vi.fn().mockResolvedValue(rawRow),
+          upsert: vi.fn().mockResolvedValue(rawRow),
+          update: vi.fn().mockResolvedValue(rawRow),
+          delete: vi.fn().mockResolvedValue(rawRow),
+        },
+      });
       const r = new WalletsRepository(p);
 
       const result = await r.findUnscored(10);
       expect(result).toHaveLength(3);
-      // All rows are returned (filtering is done by the SQL WHERE clause, not in JS)
+      // Filtering is done by Prisma WHERE; all returned rows are mapped
       expect(result[0]!.status).toBe('proposed');
+      // Crucially: retry_count must be a real number, not undefined (the bug this fixes)
       expect(result[0]!.retry_count).toBe(0);
       expect(result[1]!.status).toBe('failed');
       expect(result[1]!.retry_count).toBe(1);
       expect(result[2]!.retry_count).toBe(3);
     });
 
-    it('uses default limit of 5 when no argument passed', async () => {
-      // Verify $queryRaw is called (limit is embedded in template literal, not a separate param here)
-      const p = makePrisma();
-      (p.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    it('passes correct WHERE and take=5 to findMany when no argument given', async () => {
+      const p = makePrisma({
+        trackedWallet: {
+          findMany: vi.fn().mockResolvedValue([]),
+          findUnique: vi.fn(),
+          upsert: vi.fn(),
+          update: vi.fn(),
+          delete: vi.fn(),
+        },
+      });
       const r = new WalletsRepository(p);
       const result = await r.findUnscored();
       expect(Array.isArray(result)).toBe(true);
-      expect(p.$queryRaw).toHaveBeenCalled();
+      expect(p.trackedWallet.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            OR: [{ status: 'proposed' }, { AND: [{ status: 'failed' }, { retryCount: { lt: 3 } }] }],
+          },
+          take: 5,
+          orderBy: { createdAt: 'asc' },
+        }),
+      );
     });
   });
 
