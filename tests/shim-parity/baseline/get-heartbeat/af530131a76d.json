@@ -1,0 +1,27 @@
+[
+  {
+    "agent": "sentinel",
+    "check_type": "contract_check",
+    "last_run": null
+  },
+  {
+    "agent": "sentinel",
+    "check_type": "liquidity_check",
+    "last_run": null
+  },
+  {
+    "agent": "sentinel",
+    "check_type": "price_check",
+    "last_run": null
+  },
+  {
+    "agent": "sentinel",
+    "check_type": "smart_money_exits",
+    "last_run": null
+  },
+  {
+    "agent": "sentinel",
+    "check_type": "wallet_check",
+    "last_run": null
+  }
+]

@@ -340,12 +340,16 @@ GitHub Actions; three workflows.
 11. E2E (PR sample) — single smoke flow.
 
 ### `.github/workflows/main.yml` — merge to `main`
-- All PR checks PLUS multi-arch build (`linux/amd64,linux/arm64`), trivy vulnerability scan (fail on HIGH/CRITICAL with fix), syft SBOM, cosign keyless signing, push to `ghcr.io/<owner>/cryptoclaw:sha-<sha>` and `:main`, OpenAPI artifact published.
+- All PR checks PLUS multi-arch build (`linux/amd64,linux/arm64`), trivy vulnerability scan (fail on CRITICAL with fix per ADR-0016), syft SBOM, cosign keyless signing, push to `ghcr.io/<owner>/crypto-claw:sha-<sha>` and `:main`, OpenAPI artifact published.
+- **`post-publish-smoke`** job runs after `build-and-publish` + `sign`; pulls the just-published image by digest (deterministic, no tag race) and runs the Docker boot-defense integration tests. Gated on `v2` / `main` refs.
+- Triggers on push to `v2` and `main` during the rewrite; reduces to `main` only at P4 cutover (ADR-0011).
 
 ### `.github/workflows/nightly.yml`
-- Full e2e via testcontainers.
-- 60-min synthetic-load soak; asserts no `SQLITE_BUSY`, p99 latency budgets met.
-- `npm audit --audit-level=moderate` (issues a tracking issue on new finding).
+- Runs on schedule `'17 2 * * *'` (02:17 UTC) and on `workflow_dispatch`. Four jobs:
+  1. **`audit`** — `pnpm audit --audit-level=high --prod` (advisory; `continue-on-error: true`).
+  2. **`trivy-info`** — Information-only trivy scan of the latest `:v2` image (`severity: HIGH,CRITICAL`, `ignore-unfixed: false`, `exit-code: '0'`, no suppressions); SARIF output uploaded to GitHub Code Scanning via `github/codeql-action/upload-sarif@v3`. See ADR-0017 for the CVE suppression policy.
+  3. **`container-smoke-nightly`** — pulls `:v2`, builds fresh dist, runs the Docker boot-defense integration tests via `pnpm test:integration`. Catches base-image drift overnight.
+  4. **`e2e-full`** — placeholder for testcontainers full E2E (deferred to P1).
 - Renovate handles dep updates between nightly runs.
 
 **Branch protection on `main`:** all PR checks required, signed commits required, 1 approving review.
@@ -356,7 +360,7 @@ GitHub Actions; three workflows.
 Deployment unit: `docker compose` on a single host. Image, release flow, and runbook upgraded.
 
 ### Image and release flow
-- Registry: `ghcr.io/<owner>/cryptoclaw`.
+- Registry: `ghcr.io/<owner>/crypto-claw` (derived from `${{ github.repository }}` in workflow; see ADR-0014).
 - Tags: `:sha-<commit>` (immutable per main build), `:main` (rolling), `:vMAJOR.MINOR.PATCH` (release tag), `:latest` (release only).
 - `release-please` automates `CHANGELOG.md` and tag creation from conventional commits.
 - Operator upgrade: bump tag in `docker-compose.yml`, `docker compose pull && docker compose up -d`.
@@ -366,7 +370,7 @@ Deployment unit: `docker compose` on a single host. Image, release flow, and run
 ```yaml
 services:
   api:
-    image: ghcr.io/<owner>/cryptoclaw:vX.Y.Z
+    image: ghcr.io/<owner>/crypto-claw:vX.Y.Z
     command: node dist/apps/api/main.js
     env_file: .env.runtime
     environment:
@@ -383,7 +387,7 @@ services:
         condition: service_healthy
 
   worker:
-    image: ghcr.io/<owner>/cryptoclaw:vX.Y.Z
+    image: ghcr.io/<owner>/crypto-claw:vX.Y.Z
     command: node dist/apps/worker/main.js
     env_file: .env.runtime
     environment:
@@ -397,7 +401,7 @@ services:
       redis: { condition: service_healthy }
 
   scheduler:
-    image: ghcr.io/<owner>/cryptoclaw:vX.Y.Z
+    image: ghcr.io/<owner>/crypto-claw:vX.Y.Z
     command: node dist/apps/scheduler/main.js
     env_file: .env.runtime
     depends_on:
@@ -449,8 +453,20 @@ Authoritative phase definitions live in the implementation plan. Headline:
 - **P-prep** — SPEC + ADRs + env examples + baseline + runbook stub + DoD. (This document is part of P-prep.)
 - **P0** — Monorepo scaffolding + CI pipeline.
 - **P1** — Prisma schema + first 5 modules (positions/orders/receipts/alerts/heartbeat) + auth foundation.
+  - **P1a** — Positions + Orders + auth + audit + shim-parity baseline.
+  - **P1b** — Receipts + Alerts + Heartbeat + rate limiting + Swagger UI auth.
+  - **P1c-i** — Executor wiring + stub binary + BullMQ `execute-order` queue + signer-isolation enforcement.
+    **Rephase note:** Executor isolation was originally scheduled for P3 (SPEC §3's
+    "No rewrite of `apps/executor`" note). It was accelerated to P1c-i because
+    (a) the orders state machine (`approved → executing → executed`) couldn't be
+    demonstrated without some executor invocation, and (b) the signer-isolation
+    test infrastructure (ADR-0023) is a prerequisite for all P1c-ii/iii real-SDK
+    work. P1c-i ships with a deterministic stub (EXECUTOR_STUB_MODE=1); P1c-ii
+    wires the real Safe SDK; P1c-iii wires the real Squads SDK.
+  - **P1c-ii** — Real Safe SDK (EVM) in executor (deferred; ADR-0024 captures the per-Safe concurrency upgrade).
+  - **P1c-iii** — Real Squads SDK (Solana) in executor (deferred).
 - **P2** — Remaining DB-backed modules + cclaw covers all 79 db-query commands.
-- **P3** — External-adapter modules + worker jobs + executor isolation.
+- **P3** — External-adapter modules + worker jobs. *(Executor isolation moved to P1c-i.)*
 - **P4** — Cutover: agent markdown swept; entrypoint.sh simplified.
 - **P5** — Legacy deletion (`scripts/*` removed).
 - **P6** — Deployment hardening (release flow, signing verification, backup drill).

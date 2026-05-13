@@ -1,0 +1,15 @@
+{
+  "total_trades": 0,
+  "wins": null,
+  "losses": null,
+  "avg_win_percent": null,
+  "avg_loss_percent": null,
+  "total_pnl_usd": null,
+  "best_trade_pnl": null,
+  "worst_trade_pnl": null,
+  "win_rate": 0,
+  "total_return_percent": 0,
+  "current_value": 10000,
+  "initial_balance": 10000,
+  "_mode": "paper"
+}

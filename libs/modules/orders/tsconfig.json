@@ -1,0 +1,27 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "paths": {
+      "@cclaw/config": ["../../config/src/index.ts"],
+      "@cclaw/prisma": ["../../prisma/src/index.ts"],
+      "@cclaw/auth": ["../../auth/src/index.ts"],
+      "@cclaw/audit": ["../../audit/src/index.ts"],
+      "@cclaw/receipts": ["../receipts/src/index.ts"],
+      "@cclaw/chain": ["../../chain/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"],
+  "references": [
+    { "path": "../../config" },
+    { "path": "../../prisma" },
+    { "path": "../../auth" },
+    { "path": "../../audit" },
+    { "path": "../receipts" },
+    { "path": "../../chain" }
+  ]
+}

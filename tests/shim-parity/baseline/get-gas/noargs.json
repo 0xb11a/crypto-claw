@@ -1,0 +1,15 @@
+{
+  "base": {
+    "symbol": null,
+    "balance": 0,
+    "price": 0,
+    "value_usd": 0
+  },
+  "solana": {
+    "symbol": null,
+    "balance": 0,
+    "price": 0,
+    "value_usd": 0
+  },
+  "_mode": "paper"
+}

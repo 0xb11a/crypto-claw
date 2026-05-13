@@ -1,0 +1,37 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "paths": {
+      "@cclaw/config": ["../../libs/config/src/index.ts"],
+      "@cclaw/logger": ["../../libs/logger/src/index.ts"],
+      "@cclaw/prisma": ["../../libs/prisma/src/index.ts"],
+      "@cclaw/auth": ["../../libs/auth/src/index.ts"],
+      "@cclaw/audit": ["../../libs/audit/src/index.ts"],
+      "@cclaw/health": ["../../libs/health/src/index.ts"],
+      "@cclaw/positions": ["../../libs/modules/positions/src/index.ts"],
+      "@cclaw/orders": ["../../libs/modules/orders/src/index.ts"],
+      "@cclaw/receipts": ["../../libs/modules/receipts/src/index.ts"],
+      "@cclaw/alerts": ["../../libs/modules/alerts/src/index.ts"],
+      "@cclaw/heartbeat": ["../../libs/modules/heartbeat/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"],
+  "references": [
+    { "path": "../../libs/config" },
+    { "path": "../../libs/logger" },
+    { "path": "../../libs/prisma" },
+    { "path": "../../libs/auth" },
+    { "path": "../../libs/audit" },
+    { "path": "../../libs/health" },
+    { "path": "../../libs/modules/positions" },
+    { "path": "../../libs/modules/orders" },
+    { "path": "../../libs/modules/receipts" },
+    { "path": "../../libs/modules/alerts" },
+    { "path": "../../libs/modules/heartbeat" }
+  ]
+}

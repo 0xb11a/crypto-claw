@@ -59,6 +59,16 @@ These are CI-enforced or boot-enforced. Don't try to work around them:
 - Add business logic to test files.
 - Touch files under `agents/{research,sentinel,executor,observer}/` casually — those are OpenClaw runtime agent surfaces. Hand off to `instruction-auditor` if you need to coordinate with them.
 
+## Escalation menu (before handoff to tester)
+
+Before writing your "Handoff to tester" block, request a specialist pre-pass when any of these match. Each specialist returns the same shared verdict block (`APPROVE | APPROVE_WITH_NITS | REQUEST_CHANGES | BLOCK`); fix any blockers before tester handoff so they don't surface at reviewer time:
+
+- **DoD §F diff** (touches auth/guards, secrets, `@Audited()` decorators, signer-key paths, logger redactor, throttler, CORS, or adds a runtime dependency) — request a `security-auditor` pre-pass via the Agent tool. The `reviewer` will invoke it again at review time (mandatory there); your pre-pass catches the easy fixes early.
+- **Non-trivial DoD §D diff** (new migration, schema reshape, new repository, hot-path query, SQLite-only feature usage, transaction-boundary question) — request a `database-specialist` pass.
+- **Non-trivial type design** (new generics, complex narrowing, public-API type surface change, you find yourself reaching for `as unknown as` or unjustified `any`) — request a `typescript-specialist` pass.
+
+You remain owner of typecheck / lint / Prisma-migration gates; the specialists add depth where the gates don't reach.
+
 ## Handoff to tester
 
 End every response that produced code with a **Handoff to tester** block:

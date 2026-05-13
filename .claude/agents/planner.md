@@ -82,6 +82,12 @@ Currently in Phase <X> per SPEC §18. This work delivers part of <X>'s scope: <q
 - Idempotency (BullMQ processors): if §E applies — assert second-run shape unchanged
 - Coverage target per SPEC §14: ≥ 80% line on `libs/modules/*`; aggregate budget from CI
 
+### Specialist consultations
+- **`security-auditor`** (mandatory if §F): the acceptance list below MUST include `[ ] security-auditor: APPROVE or APPROVE_WITH_NITS` as a checkbox. The `reviewer` invokes this specialist as a mandatory gate on §F PRs; flagging it in the plan tells the `coder` to request a pre-pass too.
+- **`database-specialist`** (recommended if §D): list as `[ ] database-specialist: APPROVE or APPROVE_WITH_NITS` when the change introduces new tables, hot-path queries, or migrations with non-trivial index / portability / transaction implications.
+- **`typescript-specialist`** (optional): list as `[ ] typescript-specialist: APPROVE or APPROVE_WITH_NITS` when the plan changes the public type surface, introduces generic abstractions, or anticipates `as unknown as` usage.
+- "none" if the change doesn't touch §D/§F and has no type-design risk.
+
 ### Risk / care items
 - <item> — why it matters
 - <item> — why it matters

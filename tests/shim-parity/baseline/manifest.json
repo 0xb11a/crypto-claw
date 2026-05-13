@@ -1,0 +1,241 @@
+{
+  "safeId": "dev1",
+  "capturedAt": "2026-05-10T08:56:40.335Z",
+  "entries": [
+    {
+      "command": "get-positions",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-positions/noargs.json"
+    },
+    {
+      "command": "get-positions",
+      "args": ["--status", "open"],
+      "path": "tests/shim-parity/baseline/get-positions/7946eb628b34.json"
+    },
+    {
+      "command": "get-positions",
+      "args": ["--status", "closed"],
+      "path": "tests/shim-parity/baseline/get-positions/cdd397ea1975.json"
+    },
+    {
+      "command": "get-portfolio",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-portfolio/noargs.json"
+    },
+    {
+      "command": "get-cash",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-cash/noargs.json"
+    },
+    {
+      "command": "get-gas",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-gas/noargs.json"
+    },
+    {
+      "command": "get-chains",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-chains/noargs.json"
+    },
+    {
+      "command": "get-orders",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-orders/noargs.json"
+    },
+    {
+      "command": "get-orders",
+      "args": ["--pending"],
+      "path": "tests/shim-parity/baseline/get-orders/e6915342ce28.json"
+    },
+    {
+      "command": "get-order-history",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-order-history/noargs.json"
+    },
+    {
+      "command": "get-order-history",
+      "args": ["--limit", "20"],
+      "path": "tests/shim-parity/baseline/get-order-history/b797f9148c93.json"
+    },
+    {
+      "command": "get-receipts",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-receipts/noargs.json"
+    },
+    {
+      "command": "get-alerts",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-alerts/noargs.json"
+    },
+    {
+      "command": "get-alerts",
+      "args": ["--unprocessed"],
+      "path": "tests/shim-parity/baseline/get-alerts/7fcc06a50318.json"
+    },
+    {
+      "command": "get-watchlist",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-watchlist/noargs.json"
+    },
+    {
+      "command": "get-watchlist",
+      "args": ["--active"],
+      "path": "tests/shim-parity/baseline/get-watchlist/a6aff39f8294.json"
+    },
+    {
+      "command": "get-tracked-wallets",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-tracked-wallets/noargs.json"
+    },
+    {
+      "command": "get-tracked-wallets",
+      "args": ["--status", "scored"],
+      "path": "tests/shim-parity/baseline/get-tracked-wallets/908d6c51b552.json"
+    },
+    {
+      "command": "get-tracked-wallets",
+      "args": ["--status", "proposed"],
+      "path": "tests/shim-parity/baseline/get-tracked-wallets/6fb177e30c1d.json"
+    },
+    {
+      "command": "get-unscored-wallets",
+      "args": ["--limit", "5"],
+      "path": "tests/shim-parity/baseline/get-unscored-wallets/cda1cb309e3b.json"
+    },
+    {
+      "command": "get-smart-money-signals",
+      "args": ["--since", "24h"],
+      "path": "tests/shim-parity/baseline/get-smart-money-signals/d9c378baee0d.json"
+    },
+    {
+      "command": "get-smart-money-signals",
+      "args": ["--since", "24h", "--action", "buy"],
+      "path": "tests/shim-parity/baseline/get-smart-money-signals/7a9e0a83b755.json"
+    },
+    {
+      "command": "get-smart-money-signals",
+      "args": ["--since", "24h", "--action", "sell"],
+      "path": "tests/shim-parity/baseline/get-smart-money-signals/0c5c76bc6ba0.json"
+    },
+    {
+      "command": "get-heartbeats",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-heartbeats/noargs.json"
+    },
+    {
+      "command": "get-trades",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-trades/noargs.json"
+    },
+    {
+      "command": "get-trade-stats",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-trade-stats/noargs.json"
+    },
+    {
+      "command": "get-paper-positions",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-paper-positions/noargs.json"
+    },
+    {
+      "command": "get-paper-portfolio",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-paper-portfolio/noargs.json"
+    },
+    {
+      "command": "get-paper-cash",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-paper-cash/noargs.json"
+    },
+    {
+      "command": "get-paper-stats",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-paper-stats/noargs.json"
+    },
+    {
+      "command": "get-paper-receipts",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-paper-receipts/noargs.json"
+    },
+    {
+      "command": "get-sentinel-log",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-sentinel-log/noargs.json"
+    },
+    {
+      "command": "get-executor-log",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-executor-log/noargs.json"
+    },
+    {
+      "command": "get-research-log",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-research-log/noargs.json"
+    },
+    {
+      "command": "get-observer-log",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-observer-log/noargs.json"
+    },
+    {
+      "command": "get-analysis-cache",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-analysis-cache/noargs.json"
+    },
+    {
+      "command": "get-sync-status",
+      "args": [],
+      "path": "tests/shim-parity/baseline/get-sync-status/noargs.json"
+    },
+    {
+      "command": "get-chain-config",
+      "args": ["--chain", "base"],
+      "path": "tests/shim-parity/baseline/get-chain-config/a32aaf5af4fe.json"
+    },
+    {
+      "command": "get-heartbeat",
+      "args": ["--agent", "research"],
+      "path": "tests/shim-parity/baseline/get-heartbeat/9bbc5bc1203a.json"
+    },
+    {
+      "command": "get-heartbeat",
+      "args": ["--agent", "sentinel"],
+      "path": "tests/shim-parity/baseline/get-heartbeat/af530131a76d.json"
+    },
+    {
+      "command": "get-heartbeat",
+      "args": ["--agent", "executor"],
+      "path": "tests/shim-parity/baseline/get-heartbeat/06969b44bcac.json"
+    },
+    {
+      "command": "get-heartbeat",
+      "args": ["--agent", "observer"],
+      "path": "tests/shim-parity/baseline/get-heartbeat/1eece3922785.json"
+    },
+    {
+      "command": "get-overdue-checks",
+      "args": ["--agent", "sentinel"],
+      "path": "tests/shim-parity/baseline/get-overdue-checks/af530131a76d.json"
+    },
+    {
+      "command": "get-overdue-checks",
+      "args": ["--agent", "executor"],
+      "path": "tests/shim-parity/baseline/get-overdue-checks/06969b44bcac.json"
+    },
+    {
+      "command": "get-meta",
+      "args": ["--key", "last_birdeye_harvest_at"],
+      "path": "tests/shim-parity/baseline/get-meta/62a9b17dc054.json"
+    },
+    {
+      "command": "get-meta",
+      "args": ["--key", "last_score_wallets_bg_at"],
+      "path": "tests/shim-parity/baseline/get-meta/50c9e5e2390b.json"
+    },
+    {
+      "command": "get-meta",
+      "args": ["--key", "last_activity_wallets_bg_at"],
+      "path": "tests/shim-parity/baseline/get-meta/b452da5dea69.json"
+    }
+  ]
+}
