@@ -138,6 +138,8 @@ async function pollOrderStatus(
   token: string,
   targetStatus: string,
   timeoutMs = 30000,
+  /** Optional callback invoked just before the timeout error is thrown — use to dump diagnostic output. */
+  onTimeout?: () => void,
 ): Promise<Record<string, unknown>> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -149,6 +151,7 @@ async function pollOrderStatus(
     }
     await new Promise<void>((r) => setTimeout(r, 500));
   }
+  onTimeout?.();
   throw new Error(`Order ${orderId} did not reach status=${targetStatus} within ${timeoutMs}ms`);
 }
 
@@ -349,11 +352,29 @@ describe.skipIf(!SECURITY_TESTS_ENABLED || !ALL_DISTS_EXIST)(
       // Approve the order
       await apiPost(api.url, `/v1/orders/${orderId}/approve`, {}, executorToken);
 
-      // Execute it
-      await apiPost(api.url, `/v1/orders/${orderId}/execute`, {}, executorToken);
+      // Execute it — capture the execute response to extract the BullMQ jobId
+      const executeResp = (await apiPost(api.url, `/v1/orders/${orderId}/execute`, {}, executorToken)) as Record<
+        string,
+        unknown
+      >;
+      const executeData = (executeResp['data'] as Record<string, unknown>) ?? executeResp;
+      const jobId = executeData['jobId'] ?? executeData['job_id'] ?? '(not in response)';
+      console.error(
+        `[diag] Test 1 execute response — orderId=${orderId} jobId=${String(jobId)}`,
+      );
+      console.error(
+        `[diag] Worker boot lines:\n${worker.stdoutLines.slice(0, 10).join('\n')}`,
+      );
 
-      // Poll for execution
-      await pollOrderStatus(api.url, orderId, researchToken, 'executed', 25000);
+      // Poll for execution — dump worker+api output if the poll times out
+      const dumpOnTimeout = (): void => {
+        console.error(`[diag] pollOrderStatus TIMED OUT — orderId=${orderId} targetStatus=executed`);
+        console.error(`[diag] worker stdout (${worker.stdoutLines.length} lines):\n${worker.stdoutLines.join('\n')}`);
+        console.error(`[diag] worker stderr (${worker.stderrLines.length} lines):\n${worker.stderrLines.join('\n')}`);
+        console.error(`[diag] api stdout (${api.stdoutLines.length} lines):\n${api.stdoutLines.join('\n')}`);
+        console.error(`[diag] api stderr (${api.stderrLines.length} lines):\n${api.stderrLines.join('\n')}`);
+      };
+      await pollOrderStatus(api.url, orderId, researchToken, 'executed', 25000, dumpOnTimeout);
 
       // Assert sentinel never appeared
       const allOutput = worker.stdoutLines.join('\n');
@@ -549,15 +570,36 @@ describe.skipIf(!SECURITY_TESTS_ENABLED || !ALL_DISTS_EXIST)(
         apiPost(api.url, `/v1/orders/${baseOrderId}/approve`, {}, executorToken),
         apiPost(api.url, `/v1/orders/${ethOrderId}/approve`, {}, executorToken),
       ]);
-      await Promise.all([
+      const [baseExecResp, ethExecResp] = await Promise.all([
         apiPost(api.url, `/v1/orders/${baseOrderId}/execute`, {}, executorToken),
         apiPost(api.url, `/v1/orders/${ethOrderId}/execute`, {}, executorToken),
-      ]);
+      ]) as [Record<string, unknown>, Record<string, unknown>];
 
-      // Poll both to completion
+      // Log BullMQ jobIds from execute responses so CI shows queue routing
+      const baseJobId = ((baseExecResp['data'] as Record<string, unknown>) ?? baseExecResp)['jobId']
+        ?? ((baseExecResp['data'] as Record<string, unknown>) ?? baseExecResp)['job_id']
+        ?? '(not in response)';
+      const ethJobId = ((ethExecResp['data'] as Record<string, unknown>) ?? ethExecResp)['jobId']
+        ?? ((ethExecResp['data'] as Record<string, unknown>) ?? ethExecResp)['job_id']
+        ?? '(not in response)';
+      console.error(
+        `[diag] Test 2 execute responses — base orderId=${baseOrderId} jobId=${String(baseJobId)} | eth orderId=${ethOrderId} jobId=${String(ethJobId)}`,
+      );
+      console.error(
+        `[diag] Worker boot lines:\n${worker.stdoutLines.slice(0, 10).join('\n')}`,
+      );
+
+      // Poll both to completion — dump worker+api output if either poll times out
+      const dumpOnTimeout = (label: string, id: string): void => {
+        console.error(`[diag] pollOrderStatus TIMED OUT — ${label} orderId=${id} targetStatus=executed`);
+        console.error(`[diag] worker stdout (${worker.stdoutLines.length} lines):\n${worker.stdoutLines.join('\n')}`);
+        console.error(`[diag] worker stderr (${worker.stderrLines.length} lines):\n${worker.stderrLines.join('\n')}`);
+        console.error(`[diag] api stdout (${api.stdoutLines.length} lines):\n${api.stdoutLines.join('\n')}`);
+        console.error(`[diag] api stderr (${api.stderrLines.length} lines):\n${api.stderrLines.join('\n')}`);
+      };
       const [baseOrder, ethOrder] = await Promise.all([
-        pollOrderStatus(api.url, baseOrderId, researchToken, 'executed', 25000),
-        pollOrderStatus(api.url, ethOrderId, researchToken, 'executed', 25000),
+        pollOrderStatus(api.url, baseOrderId, researchToken, 'executed', 25000, () => dumpOnTimeout('base', baseOrderId)),
+        pollOrderStatus(api.url, ethOrderId, researchToken, 'executed', 25000, () => dumpOnTimeout('eth', ethOrderId)),
       ]);
 
       expect(baseOrder['status']).toBe('executed');
