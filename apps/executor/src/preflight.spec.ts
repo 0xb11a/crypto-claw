@@ -103,10 +103,13 @@ describe('checkSignerBalance() — env arg (P1c-ii signature)', () => {
     expect(result.message).toContain('stub mode');
   });
 
-  it('returns ok=true for solana (P1c-iii stub path)', async () => {
+  it('returns ok=true for solana when env is empty (missing SQUADS_SIGNER_KEY or RPC_SOL)', async () => {
+    // P1c-iii: real Solana balance check is now wired. With empty env,
+    // the check skips gracefully (assertSignerKeysPresent handles absent-key separately).
     const result = await checkSignerBalance('solana', {});
     expect(result.ok).toBe(true);
-    expect(result.message).toContain('solana');
+    // Message should indicate why it was skipped (missing keys)
+    expect(result.message).toContain('skipped');
   });
 
   it('returns ok=true when env arg is omitted (default {} is backward-compatible)', async () => {
