@@ -1,6 +1,0 @@
-packages:
-  - 'apps/*'
-  - 'libs/*'
-  - 'libs/modules/*'
-  - 'sdk/*'
-  - 'tests/integration'
