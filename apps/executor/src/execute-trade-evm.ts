@@ -453,16 +453,13 @@ async function buildAndSubmitSafeTx(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const SafeInit: any = Safe.init || Safe.default?.init || Safe;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const protocolKit: any = await withStep<any>(
-    'safe_init',
-    ctx,
+  const protocolKit: any = await withStep<any>('safe_init', ctx, () => // any justified: protocol-kit dynamic class
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    () =>
-      (SafeInit as any)({
-        provider: config.rpcUrl,
-        signer: config.signerKey,
-        safeAddress: config.safeAddress,
-      }),
+    (SafeInit as any)({
+      provider: config.rpcUrl,
+      signer: config.signerKey,
+      safeAddress: config.safeAddress,
+    }),
   );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -525,8 +522,8 @@ async function buildAndSubmitSafeTx(
   await withStep<void>(
     'proposeTransaction',
     ctx,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     () =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (apiKit as any).proposeTransaction({
         safeAddress: config.safeAddress,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -555,8 +552,8 @@ async function buildAndSubmitSafeTx(
       const executionResult: any = await (protocolKit as any).executeTransaction(signedTx);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const onchainReceipt: any = await (executionResult as any)?.transactionResponse?.wait?.();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const txHash =
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ((onchainReceipt as any)?.hash as string | undefined) || String((executionResult as any)?.hash ?? '');
       return { status: 'executed', safeHash: safeTxHash, txHash };
     } catch (execErr) {
