@@ -21,7 +21,7 @@
             "type": "string"
           },
           "liquidity_usd": {
-            "description": "Liquidity in USD",
+            "description": "Liquidity in USD; must be >= 0",
             "type": "number"
           }
         },

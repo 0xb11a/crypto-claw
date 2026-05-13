@@ -12,7 +12,7 @@ export type AddLiquiditySnapshotDto = {
    */
   chain: string;
   /**
-   * Liquidity in USD
+   * Liquidity in USD; must be >= 0
    */
   liquidity_usd: number;
 };
