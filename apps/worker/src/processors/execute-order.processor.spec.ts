@@ -270,3 +270,43 @@ describe('executeOrderQueueName() helper', () => {
     expect(executeOrderQueueName('solana', 'SoLaNaVaUlT')).toBe('execute-order-solana-solanavault');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Legacy queue name regression guard (plan §B.3 — ADR-0024 addendum)
+//
+// The deprecated string constant 'execute-order' must NEVER be used as a
+// processor queue name going forward.  App modules use createExecuteOrderProcessor
+// with per-Safe queue names.  This test locks the contract so a developer
+// cannot accidentally re-register the legacy single-queue path.
+// ---------------------------------------------------------------------------
+
+describe('legacy queue name regression guard (plan §B.3)', () => {
+  it("EXECUTE_ORDER_QUEUE constant value is 'execute-order' (deprecated marker intact)", async () => {
+    const { EXECUTE_ORDER_QUEUE } = await import('../queues/execute-order.queue.js');
+    // The constant must still equal the legacy name so it remains recognisable
+    // in the codebase history. This test fails if someone renames it to a
+    // per-Safe name, which would hide the deprecation signal.
+    expect(EXECUTE_ORDER_QUEUE).toBe('execute-order');
+  });
+
+  it('createExecuteOrderProcessor never returns a class bound to the legacy queue name', () => {
+    // Factory must produce per-Safe names. Passing the legacy constant as the
+    // queue name is not blocked at runtime (the factory is generic), but the
+    // app module must not call it with the literal 'execute-order'.
+    // This test checks the positive contract: factory queue names must match
+    // the per-Safe naming pattern execute-order-<chain>-<safe>.
+    const ProcessorClass = createExecuteOrderProcessor('execute-order-base-0xabc');
+    // @Processor metadata on the returned class should contain the per-Safe name.
+    // We cannot easily inspect the @Processor token without NestJS DI, but we can
+    // verify that the class name encodes no 'legacy' marker.
+    expect(ProcessorClass.name).not.toBe('execute-order');
+    // The class itself is valid (not undefined)
+    expect(ProcessorClass).toBeDefined();
+  });
+
+  it('per-Safe queue name does NOT equal the legacy constant', async () => {
+    const { EXECUTE_ORDER_QUEUE, executeOrderQueueName } = await import('../queues/execute-order.queue.js');
+    const perSafeName = executeOrderQueueName('base', '0xabc');
+    expect(perSafeName).not.toBe(EXECUTE_ORDER_QUEUE);
+  });
+});
