@@ -84,7 +84,37 @@ export const envSchema = z.object({
   BIRDEYE_API_KEY: apiKey().optional(),
   HELIUS_API_KEY: apiKey().optional(),
   ZERION_API_KEY: apiKey().optional(),
+  /** 1inch DEX aggregator API key. Required for EVM real-mode execution (P1c-ii). */
   ONEINCH_API_KEY: apiKey().optional(),
+
+  // --------------------------------------------------------------------------
+  // Chain RPC URLs (P1c-ii — consumed by apps/executor real EVM SDK)
+  // --------------------------------------------------------------------------
+  /** RPC URL for Base chain (required when ACTIVE_CHAINS includes 'base'). */
+  RPC_BASE: z.string().url().optional(),
+  /** RPC URL for Ethereum chain (required when ACTIVE_CHAINS includes 'ethereum'). */
+  RPC_ETH: z.string().url().optional(),
+  /** RPC URL for Solana (required when ACTIVE_CHAINS includes 'solana'). */
+  RPC_SOL: z.string().url().optional(),
+
+  // --------------------------------------------------------------------------
+  // Safe wallet addresses (P1c-ii — consumed by apps/executor real EVM SDK)
+  // --------------------------------------------------------------------------
+  /** Safe multisig address on Base. */
+  SAFE_ADDRESS_BASE: z.string().optional(),
+  /** Safe multisig address on Ethereum mainnet. */
+  SAFE_ADDRESS_ETH: z.string().optional(),
+
+  // --------------------------------------------------------------------------
+  // RPC security (P1c-ii)
+  // --------------------------------------------------------------------------
+  /**
+   * RPC URL allowlist validation mode.
+   *   strict (default) — reject if hostname not in allowlist (fail-closed).
+   *   warn             — log warning but continue (rollout mode).
+   *   skip             — bypass check entirely (genuine outage / new provider).
+   */
+  RPC_VALIDATION_MODE: z.enum(['strict', 'warn', 'skip']).default('strict'),
 
   // --------------------------------------------------------------------------
   // Telegram (SPEC §10)

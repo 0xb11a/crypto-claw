@@ -33,7 +33,7 @@ import { Readable } from 'node:stream';
 import { assertConfigValid } from '@cclaw/config';
 import { readOrderFromStdin } from './order-input.js';
 import { runPreflight, assertSignerKeysPresent } from './preflight.js';
-import { executeTrade } from './execute-trade-stub.js';
+import { executeTrade } from './execute-trade.js';
 
 /** Classify an error message into a machine-readable kind. */
 export function classifyError(message: string): string {
@@ -43,6 +43,11 @@ export function classifyError(message: string): string {
   if (message.includes('SIGNER_KEY')) return 'missing_signer_key';
   if (message.includes('not_yet_implemented_real_mode')) return 'not_yet_implemented_real_mode';
   if (message.includes('order validation failed')) return 'order_validation_failed';
+  // New error_kinds from real EVM SDK (P1c-ii)
+  if (message.includes('rpc_hostname_not_allowlisted')) return 'rpc_hostname_not_allowlisted';
+  if (message.includes('safe_propose_failed') || message.includes('proposeTransaction')) return 'safe_propose_failed';
+  if (message.includes('oneinch_failed')) return 'oneinch_failed';
+  if (message.includes('transaction_reverted') || message.includes('execution reverted')) return 'transaction_reverted';
   return 'executor_error';
 }
 
