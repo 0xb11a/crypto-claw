@@ -16,7 +16,10 @@
       "@cclaw/orders": ["../../libs/modules/orders/src/index.ts"],
       "@cclaw/receipts": ["../../libs/modules/receipts/src/index.ts"],
       "@cclaw/alerts": ["../../libs/modules/alerts/src/index.ts"],
-      "@cclaw/heartbeat": ["../../libs/modules/heartbeat/src/index.ts"]
+      "@cclaw/heartbeat": ["../../libs/modules/heartbeat/src/index.ts"],
+      "@cclaw/wallets": ["../../libs/modules/wallets/src/index.ts"],
+      "@cclaw/liquidity": ["../../libs/modules/liquidity/src/index.ts"],
+      "@cclaw/watchlist": ["../../libs/modules/watchlist/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
@@ -32,6 +35,9 @@
     { "path": "../../libs/modules/orders" },
     { "path": "../../libs/modules/receipts" },
     { "path": "../../libs/modules/alerts" },
-    { "path": "../../libs/modules/heartbeat" }
+    { "path": "../../libs/modules/heartbeat" },
+    { "path": "../../libs/modules/wallets" },
+    { "path": "../../libs/modules/liquidity" },
+    { "path": "../../libs/modules/watchlist" }
   ]
 }
