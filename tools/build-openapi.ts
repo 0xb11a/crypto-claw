@@ -101,10 +101,28 @@ async function main(): Promise<void> {
   process.stdout.write(`[build:openapi] Paths: ${pathCount}\n`);
 }
 
-main().catch((err: unknown) => {
-  process.stderr.write(`[build:openapi] FAILED: ${String(err)}\n`);
-  if (String(err).includes('dist/app.module.js')) {
-    process.stderr.write('[build:openapi] Hint: Run `pnpm build` first to compile the app.\n');
-  }
-  process.exit(1);
+// Bulletproof error logging: catch synchronous throws, uncaught promise
+// rejections, and main()'s catch so a failure cannot exit silently.
+process.on('uncaughtException', (err: Error) => {
+  process.stderr.write(`[build:openapi] UNCAUGHT_EXCEPTION: ${err?.stack ?? String(err)}\n`);
+  process.exit(11);
 });
+process.on('unhandledRejection', (err: unknown) => {
+  const msg = err instanceof Error ? err.stack : String(err);
+  process.stderr.write(`[build:openapi] UNHANDLED_REJECTION: ${msg ?? '<empty>'}\n`);
+  process.exit(12);
+});
+
+process.stderr.write('[build:openapi] starting (probe)\n');
+main()
+  .then(() => {
+    process.stderr.write('[build:openapi] main() resolved\n');
+  })
+  .catch((err: unknown) => {
+    const msg = err instanceof Error ? err.stack : String(err);
+    process.stderr.write(`[build:openapi] FAILED: ${msg ?? '<empty>'}\n`);
+    if (String(err).includes('dist/app.module.js')) {
+      process.stderr.write('[build:openapi] Hint: Run `pnpm build` first to compile the app.\n');
+    }
+    process.exit(1);
+  });
