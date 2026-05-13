@@ -605,9 +605,13 @@ describe.skipIf(!SECURITY_TESTS_ENABLED || !ALL_DISTS_EXIST)(
       expect(baseOrder['status']).toBe('executed');
       expect(ethOrder['status']).toBe('executed');
 
-      // Check they executed in parallel (within 500ms of each other)
-      const baseTs = new Date(baseOrder['executed_at'] as string).getTime();
-      const ethTs = new Date(ethOrder['executed_at'] as string).getTime();
+      // Check they executed in parallel (within 500ms of each other).
+      // `status_changed_at` is set by the state machine when status transitions
+      // to 'executed' — this is the canonical "executed-at" timestamp.
+      // (No dedicated `executed_at` column exists; status changes are tracked
+      // generically via `status_changed_at` per the unified order state machine.)
+      const baseTs = new Date(baseOrder['status_changed_at'] as string).getTime();
+      const ethTs = new Date(ethOrder['status_changed_at'] as string).getTime();
       const diff = Math.abs(baseTs - ethTs);
 
       // ADR-0024 plan requirement is 500ms.  We use 2000ms to absorb process
