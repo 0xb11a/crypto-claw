@@ -354,6 +354,92 @@ model Watchlist {
 }
 
 // ---------------------------------------------------------------------------
+// research_log — migration 019 (P2 group 2)
+// ---------------------------------------------------------------------------
+
+model ResearchLog {
+  id              Int     @id @default(autoincrement())
+  checkType       String  @map("check_type")
+  tokensScanned   Int     @default(0) @map("tokens_scanned")
+  tokensAnalyzed  Int     @default(0) @map("tokens_analyzed")
+  tradesProposed  Int     @default(0) @map("trades_proposed")
+  alertsProcessed Int     @default(0) @map("alerts_processed")
+  watchlistHits   Int     @default(0) @map("watchlist_hits")
+  summary         String?
+  status          String  @default("ok")
+  /// created_at is a String? matching the SQLite DEFAULT (datetime('now')) format
+  /// (e.g. "2026-05-13 10:30:00" — non-Z ISO). Omit in create so SQLite default fires.
+  createdAt       String? @map("created_at")
+
+  @@index([createdAt])
+  @@map("research_log")
+}
+
+// ---------------------------------------------------------------------------
+// sentinel_log — migration 001 + 026 (P2 group 2)
+// ---------------------------------------------------------------------------
+
+model SentinelLog {
+  id               Int     @id @default(autoincrement())
+  checkType        String  @map("check_type")
+  positionsChecked Int     @default(0) @map("positions_checked")
+  alertsGenerated  Int     @default(0) @map("alerts_generated")
+  sellsExecuted    Int     @default(0) @map("sells_executed")
+  status           String  @default("ok")
+  /// summary column added by migration 026 (was missing pre-026). Omit in
+  /// legacy SQLite rows — those NULL values survive the ALTER TABLE correctly.
+  summary          String?
+  /// created_at is a String? matching the SQLite DEFAULT (datetime('now')) format.
+  /// Omit in create so SQLite default fires (bug-for-bug parity with db-query.js).
+  createdAt        String? @map("created_at")
+
+  @@index([createdAt])
+  @@map("sentinel_log")
+}
+
+// ---------------------------------------------------------------------------
+// executor_log — migration 001 + 026 (P2 group 2)
+// ---------------------------------------------------------------------------
+
+model ExecutorLog {
+  id                  Int     @id @default(autoincrement())
+  sellOrdersProcessed Int     @default(0) @map("sell_orders_processed")
+  buyOrdersProcessed  Int     @default(0) @map("buy_orders_processed")
+  pendingChecked      Int     @default(0) @map("pending_checked")
+  successCount        Int     @default(0) @map("success_count")
+  failCount           Int     @default(0) @map("fail_count")
+  queuedCount         Int     @default(0) @map("queued_count")
+  status              String  @default("ok")
+  /// summary column added by migration 026. See sentinel_log note above.
+  summary             String?
+  /// created_at is a String? matching the SQLite DEFAULT (datetime('now')) format.
+  /// Omit in create so SQLite default fires (bug-for-bug parity with db-query.js).
+  createdAt           String? @map("created_at")
+
+  @@index([createdAt])
+  @@map("executor_log")
+}
+
+// ---------------------------------------------------------------------------
+// observer_log — migration 021 (P2 group 2)
+// ---------------------------------------------------------------------------
+
+model ObserverLog {
+  id             Int     @id @default(autoincrement())
+  errorsAnalyzed Int     @default(0) @map("errors_analyzed")
+  issuesCreated  Int     @default(0) @map("issues_created")
+  alertsSent     Int     @default(0) @map("alerts_sent")
+  summary        String?
+  status         String  @default("ok")
+  /// created_at is a String? matching the SQLite DEFAULT (datetime('now')) format.
+  /// Omit in create so SQLite default fires (bug-for-bug parity with db-query.js).
+  createdAt      String? @map("created_at")
+
+  @@index([createdAt])
+  @@map("observer_log")
+}
+
+// ---------------------------------------------------------------------------
 // trades — migration 001 (included for schema completeness; no module in P1a)
 // ---------------------------------------------------------------------------
 
