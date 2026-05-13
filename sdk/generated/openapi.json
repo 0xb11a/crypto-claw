@@ -125,6 +125,155 @@
         "required": ["id", "symbol", "address", "chain"],
         "type": "object"
       },
+      "AppendExecutorLogDto": {
+        "properties": {
+          "buy_orders_processed": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "fail_count": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "pending_checked": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "queued_count": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "sell_orders_processed": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "status": {
+            "enum": ["ok", "warn", "error"],
+            "type": "string"
+          },
+          "success_count": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "summary": {
+            "maxLength": 8192,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AppendObserverLogDto": {
+        "properties": {
+          "alerts_sent": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "errors_analyzed": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "issues_created": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "status": {
+            "enum": ["ok", "warn", "error"],
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 8192,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AppendResearchLogDto": {
+        "properties": {
+          "alerts_processed": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "check_type": {
+            "description": "Heartbeat check type (e.g. token_scan, smart_money)",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "status": {
+            "enum": ["ok", "warn", "error"],
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 8192,
+            "type": "string"
+          },
+          "tokens_analyzed": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "tokens_scanned": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "trades_proposed": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "watchlist_hits": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": ["check_type"],
+        "type": "object"
+      },
+      "AppendSentinelLogDto": {
+        "properties": {
+          "alerts_generated": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "check_type": {
+            "description": "Heartbeat check type (e.g. price_check, liquidity_check)",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "positions_checked": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "sells_executed": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "status": {
+            "enum": ["ok", "warn", "error"],
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 8192,
+            "type": "string"
+          }
+        },
+        "required": ["check_type"],
+        "type": "object"
+      },
       "ApproveOrderDto": {
         "properties": {
           "by": {
@@ -1219,6 +1368,434 @@
         ],
         "summary": "Add a liquidity snapshot",
         "tags": ["liquidity"]
+      }
+    },
+    "/v1/logs/executor": {
+      "get": {
+        "operationId": "ExecutorLogController_list",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "description": "ISO-8601 datetime — return rows created at or after this time",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by status (ok | warn | error)",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Executor log list"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List recent executor log rows",
+        "tags": ["agent-logs"]
+      },
+      "post": {
+        "operationId": "ExecutorLogController_append",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendExecutorLogDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Row appended"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Append an executor log row",
+        "tags": ["agent-logs"]
+      }
+    },
+    "/v1/logs/executor/{id}": {
+      "get": {
+        "operationId": "ExecutorLogController_getById",
+        "parameters": [
+          {
+            "description": "Row integer ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Executor log row"
+          },
+          "404": {
+            "description": "Row not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get an executor log row by ID",
+        "tags": ["agent-logs"]
+      }
+    },
+    "/v1/logs/observer": {
+      "get": {
+        "operationId": "ObserverLogController_list",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "description": "ISO-8601 datetime — return rows created at or after this time",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by status (ok | warn | error)",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Observer log list"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List recent observer log rows",
+        "tags": ["agent-logs"]
+      },
+      "post": {
+        "operationId": "ObserverLogController_append",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendObserverLogDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Row appended"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Append an observer log row",
+        "tags": ["agent-logs"]
+      }
+    },
+    "/v1/logs/observer/{id}": {
+      "get": {
+        "operationId": "ObserverLogController_getById",
+        "parameters": [
+          {
+            "description": "Row integer ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Observer log row"
+          },
+          "404": {
+            "description": "Row not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get an observer log row by ID",
+        "tags": ["agent-logs"]
+      }
+    },
+    "/v1/logs/research": {
+      "get": {
+        "operationId": "ResearchLogController_list",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "description": "ISO-8601 datetime — return rows created at or after this time",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by status (ok | warn | error)",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Research log list"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List recent research log rows",
+        "tags": ["agent-logs"]
+      },
+      "post": {
+        "operationId": "ResearchLogController_append",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendResearchLogDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Row appended"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Append a research log row",
+        "tags": ["agent-logs"]
+      }
+    },
+    "/v1/logs/research/{id}": {
+      "get": {
+        "operationId": "ResearchLogController_getById",
+        "parameters": [
+          {
+            "description": "Row integer ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Research log row"
+          },
+          "404": {
+            "description": "Row not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a research log row by ID",
+        "tags": ["agent-logs"]
+      }
+    },
+    "/v1/logs/sentinel": {
+      "get": {
+        "operationId": "SentinelLogController_list",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "description": "ISO-8601 datetime — return rows created at or after this time",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by status (ok | warn | error)",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sentinel log list"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List recent sentinel log rows",
+        "tags": ["agent-logs"]
+      },
+      "post": {
+        "operationId": "SentinelLogController_append",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendSentinelLogDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Row appended"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Append a sentinel log row",
+        "tags": ["agent-logs"]
+      }
+    },
+    "/v1/logs/sentinel/{id}": {
+      "get": {
+        "operationId": "SentinelLogController_getById",
+        "parameters": [
+          {
+            "description": "Row integer ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sentinel log row"
+          },
+          "404": {
+            "description": "Row not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a sentinel log row by ID",
+        "tags": ["agent-logs"]
       }
     },
     "/v1/orders": {

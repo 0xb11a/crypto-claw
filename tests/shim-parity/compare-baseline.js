@@ -55,6 +55,8 @@ const IMPLEMENTED_COMMANDS = {
   heartbeat: ['get-heartbeats', 'get-heartbeat', 'get-overdue-checks'],
   // No legacy db-query command for audit; entry exists so --only audit is accepted
   audit: [],
+  // P2 group 2: agent log tables
+  'agent-logs': ['get-research-log', 'get-sentinel-log', 'get-executor-log', 'get-observer-log'],
 };
 
 const argv = Object.fromEntries(

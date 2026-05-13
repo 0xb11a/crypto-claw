@@ -14,6 +14,10 @@ export type { AcknowledgeAlertDto } from './models/AcknowledgeAlertDto';
 export type { AddLiquiditySnapshotDto } from './models/AddLiquiditySnapshotDto';
 export type { AddTrackedWalletDto } from './models/AddTrackedWalletDto';
 export type { AddWatchlistDto } from './models/AddWatchlistDto';
+export type { AppendExecutorLogDto } from './models/AppendExecutorLogDto';
+export type { AppendObserverLogDto } from './models/AppendObserverLogDto';
+export type { AppendResearchLogDto } from './models/AppendResearchLogDto';
+export type { AppendSentinelLogDto } from './models/AppendSentinelLogDto';
 export type { ApproveOrderDto } from './models/ApproveOrderDto';
 export type { CancelOrderDto } from './models/CancelOrderDto';
 export type { ClosePositionDto } from './models/ClosePositionDto';
@@ -30,6 +34,7 @@ export type { UpdatePositionDto } from './models/UpdatePositionDto';
 export type { UpdateWalletScoreDto } from './models/UpdateWalletScoreDto';
 export type { UpdateWatchlistDto } from './models/UpdateWatchlistDto';
 
+export { AgentLogsService } from './services/AgentLogsService';
 export { AlertsService } from './services/AlertsService';
 export { HealthService } from './services/HealthService';
 export { HeartbeatService } from './services/HeartbeatService';

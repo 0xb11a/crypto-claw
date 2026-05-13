@@ -19,7 +19,8 @@
       "@cclaw/heartbeat": ["../../libs/modules/heartbeat/src/index.ts"],
       "@cclaw/wallets": ["../../libs/modules/wallets/src/index.ts"],
       "@cclaw/liquidity": ["../../libs/modules/liquidity/src/index.ts"],
-      "@cclaw/watchlist": ["../../libs/modules/watchlist/src/index.ts"]
+      "@cclaw/watchlist": ["../../libs/modules/watchlist/src/index.ts"],
+      "@cclaw/agent-logs": ["../../libs/modules/agent-logs/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
@@ -38,6 +39,7 @@
     { "path": "../../libs/modules/heartbeat" },
     { "path": "../../libs/modules/wallets" },
     { "path": "../../libs/modules/liquidity" },
-    { "path": "../../libs/modules/watchlist" }
+    { "path": "../../libs/modules/watchlist" },
+    { "path": "../../libs/modules/agent-logs" }
   ]
 }
