@@ -53,9 +53,16 @@ async function main(): Promise<void> {
 
   // Boot app without listening
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  process.stderr.write('[build:openapi] creating Nest app\n');
   const app = await NestFactory.create(AppModule, new FastifyAdapter(), {
-    logger: false,
+    // NestJS calls process.exit(1) on bootstrap errors and writes the cause
+    // to its logger. With logger:false, the cause is silenced and the process
+    // exits without our main().catch firing. Re-enable the logger here so
+    // CI captures the underlying error (probe — remove once root cause found).
+    logger: ['error', 'warn'],
+    abortOnError: false,
   });
+  process.stderr.write('[build:openapi] Nest app created\n');
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (app as any).setGlobalPrefix('v1', {
