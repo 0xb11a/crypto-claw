@@ -15,6 +15,7 @@ import { HeartbeatModule } from '@cclaw/heartbeat';
 import { WalletsModule } from '@cclaw/wallets';
 import { LiquidityModule } from '@cclaw/liquidity';
 import { WatchlistModule } from '@cclaw/watchlist';
+import { AgentLogsModule } from '@cclaw/agent-logs';
 
 // Boot self-checks run at module-import time so they fire before NestFactory
 // touches anything. Order matches main.ts (SPEC §4 #4 then §4 #6): signer-key
@@ -112,6 +113,8 @@ const chainQueueMap = buildChainQueueMap(activeChains, process.env);
     WalletsModule,
     LiquidityModule,
     WatchlistModule,
+    // P2 group 2: agent log tables
+    AgentLogsModule,
   ],
   providers: [
     // Global ValidationPipe (SPEC §9.3)

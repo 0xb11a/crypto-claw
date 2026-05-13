@@ -25,6 +25,7 @@
     "@cclaw/wallets": "workspace:*",
     "@cclaw/liquidity": "workspace:*",
     "@cclaw/watchlist": "workspace:*",
+    "@cclaw/agent-logs": "workspace:*",
     "@nestjs/bullmq": "^10.0.0",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.0.0",
