@@ -261,12 +261,19 @@ function spawnWorker(env: NodeJS.ProcessEnv, dbPath: string, readyTimeoutMs = 20
 
   const kill = (): Promise<void> =>
     new Promise<void>((resolve) => {
-      // If already exited, on('exit') fires synchronously.
+      // If already exited, on('exit') will NEVER fire for an already-past event —
+      // check exitCode synchronously first. (The SIGTERM test fires worker.kill()
+      // mid-test, then afterAll calls worker.kill() again; the second call must
+      // resolve immediately or the afterAll hook times out at 10s.)
+      if (workerProcess.exitCode !== null || workerProcess.signalCode !== null) {
+        resolve();
+        return;
+      }
       workerProcess.on('exit', () => resolve());
       try {
         workerProcess.kill('SIGTERM');
       } catch {
-        // Already exited — the 'exit' handler above will still fire.
+        // Already exited — resolve.
         resolve();
       }
     });
