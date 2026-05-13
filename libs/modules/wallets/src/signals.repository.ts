@@ -97,7 +97,13 @@ export class SignalsRepository {
 
     if (query.group_by === 'token') {
       const minWallets = query.min_wallets ?? 0;
-      const havingClause = minWallets > 0 ? `HAVING n_wallets >= ${minWallets}` : '';
+      // Use a parameterized HAVING clause so that minWallets is passed as a
+      // positional '?' binding rather than interpolated into the SQL string.
+      // This is consistent with the '?' placeholder pattern used for the WHERE
+      // clauses above, and avoids relying on TypeScript's number type to guarantee
+      // injection safety for this value.
+      const havingClause = minWallets > 0 ? 'HAVING n_wallets >= ?' : '';
+      const havingParams = minWallets > 0 ? [minWallets] : [];
 
       const sql = `
         SELECT token_address, chain, token_symbol,
@@ -115,7 +121,12 @@ export class SignalsRepository {
         ORDER BY n_wallets DESC, signal_count DESC
         LIMIT ?
       `;
-      const rows = await this.prisma.$queryRawUnsafe<SmartMoneySignalGroupedResponseDto[]>(sql, ...params, limit);
+      const rows = await this.prisma.$queryRawUnsafe<SmartMoneySignalGroupedResponseDto[]>(
+        sql,
+        ...params,
+        ...havingParams,
+        limit,
+      );
       return rows;
     } else {
       const sql = `

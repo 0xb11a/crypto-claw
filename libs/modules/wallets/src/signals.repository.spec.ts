@@ -47,11 +47,17 @@ describe('SignalsRepository', () => {
     expect(prisma.$queryRawUnsafe).toHaveBeenCalled();
   });
 
-  it('calls $queryRawUnsafe for grouped query', async () => {
+  it('calls $queryRawUnsafe for grouped query with parameterized HAVING', async () => {
+    // min_wallets is now passed as a positional '?' param, not interpolated.
     await repo.getSignals({ group_by: 'token', min_wallets: 2 });
-    const sql = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
+    const callArgs = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[];
+    const sql = callArgs[0] as string;
     expect(sql).toContain('COUNT(*) AS signal_count');
-    expect(sql).toContain('HAVING n_wallets >= 2');
+    // SQL must use placeholder, not the literal value
+    expect(sql).toContain('HAVING n_wallets >= ?');
+    expect(sql).not.toContain('HAVING n_wallets >= 2');
+    // The value must appear as a positional param after the sinceClause param
+    expect(callArgs).toContain(2);
   });
 
   it('includes action filter in WHERE when action is provided', async () => {
