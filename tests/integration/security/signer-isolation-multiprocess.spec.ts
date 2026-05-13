@@ -292,6 +292,109 @@ describe.skipIf(!SECURITY_TESTS_ENABLED || !ALL_DISTS_EXIST)(
 );
 
 // ---------------------------------------------------------------------------
+// Test 1b: SIGTERM mid-execution (adversarial 6)
+//
+// Spawn worker, post + approve + execute an order, send SIGTERM to the worker
+// immediately after posting the execute request. Assert order ends up NOT stuck
+// in 'executing' — it must settle to either 'executed' or 'failed', never
+// 'executing' after the worker dies.
+//
+// Gate: CCLAW_SECURITY_TESTS_ENABLED=1 + compiled binaries present.
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!SECURITY_TESTS_ENABLED || !ALL_DISTS_EXIST)(
+  'worker SIGTERM mid-execution: order must not be stuck in executing',
+  () => {
+    let api: StartApiResult;
+    let worker: WorkerProcess;
+    let tempDir: string;
+    let signerEnvPath: string;
+
+    beforeAll(async () => {
+      tempDir = mkdtempSync(resolve(tmpdir(), 'cclaw-sigterm-'));
+      signerEnvPath = resolve(tempDir, 'signer.env');
+      writeFileSync(
+        signerEnvPath,
+        `SAFE_SIGNER_KEY=${MULTIPROCESS_SENTINEL}_SIGTERM\nSQUADS_SIGNER_KEY=${MULTIPROCESS_SENTINEL}_SIGTERM\n`,
+        'utf8',
+      );
+      chmodSync(signerEnvPath, 0o400);
+
+      api = await startApi({
+        dbPath: '',
+        env: BASE_API_ENV,
+        port: 7982,
+        tmpPrefix: 'cclaw-sigterm-api',
+        readyTimeoutMs: 25000,
+      });
+
+      worker = spawnWorker(
+        {
+          ...BASE_API_ENV,
+          SIGNER_ENV_FILE: signerEnvPath,
+          EXECUTOR_BIN_PATH: DIST.executor,
+          EXECUTOR_STUB_MODE: '1',
+        },
+        api.dbPath,
+      );
+
+      // Give worker time to connect to Redis
+      await new Promise<void>((r) => setTimeout(r, 3000));
+    }, 35000);
+
+    afterAll(async () => {
+      worker.kill();
+      await api.kill();
+      if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('order does not remain stuck in executing after worker SIGTERM', async () => {
+      const researchToken = BASE_API_ENV['RESEARCH_API_KEY']!;
+      const executorToken = BASE_API_ENV['EXECUTOR_API_KEY']!;
+
+      const createResp = (await apiPost(api.url, '/v1/orders', makeOrder(), researchToken)) as Record<
+        string,
+        unknown
+      >;
+      const orderId = ((createResp['data'] as Record<string, unknown>) ?? createResp)['id'] as string;
+
+      await apiPost(api.url, `/v1/orders/${orderId}/approve`, {}, executorToken);
+
+      // Fire execute then immediately kill the worker
+      const executePromise = apiPost(api.url, `/v1/orders/${orderId}/execute`, {}, executorToken).catch(() => null);
+      // Give the execute request 200ms to be received, then SIGTERM the worker
+      await new Promise<void>((r) => setTimeout(r, 200));
+      worker.kill();
+
+      // Wait for the execute request to resolve (or timeout)
+      await executePromise;
+
+      // Poll for terminal state — must NOT remain 'executing' forever.
+      // Allow up to 10s for the system to detect the dead worker and
+      // mark the job as failed (BullMQ stalled job detection).
+      const deadline = Date.now() + 15000;
+      let lastStatus = 'unknown';
+      while (Date.now() < deadline) {
+        try {
+          const order = (await apiGet(api.url, `/v1/orders/${orderId}`, researchToken)) as Record<string, unknown>;
+          const data = (order['data'] as Record<string, unknown>) ?? order;
+          lastStatus = String(data['status'] ?? 'unknown');
+          if (lastStatus !== 'executing' && lastStatus !== 'approved' && lastStatus !== 'pending') {
+            break;
+          }
+        } catch {
+          /* API may be busy — keep polling */
+        }
+        await new Promise<void>((r) => setTimeout(r, 1000));
+      }
+
+      // The order must not be indefinitely stuck in 'executing'
+      expect(lastStatus).not.toBe('executing');
+    }, 30000);
+  },
+);
+
+// ---------------------------------------------------------------------------
 // Test 2: Two-Safes parallelism (ADR-0024 E2E)
 // ---------------------------------------------------------------------------
 
@@ -381,8 +484,12 @@ describe.skipIf(!SECURITY_TESTS_ENABLED || !ALL_DISTS_EXIST)(
       const ethTs = new Date(ethOrder['executed_at'] as string).getTime();
       const diff = Math.abs(baseTs - ethTs);
 
-      // Generous window: 500ms is the plan requirement; we use 2000ms here
-      // to avoid CI flakiness from process startup variance.
+      // ADR-0024 plan requirement is 500ms.  We use 2000ms to absorb process
+      // startup variance in CI (each order spawns a worker→executor child process
+      // pair; the first process to start incurs ~100-500ms JIT cold-start that the
+      // second does not).  Never tighten below 1000ms (plan's own caveat on timing
+      // sensitivity).  If this assertion flakes at 2000ms, the per-Safe queue
+      // topology is not achieving the intended parallelism.
       expect(diff).toBeLessThan(2000);
     }, 35000);
   },

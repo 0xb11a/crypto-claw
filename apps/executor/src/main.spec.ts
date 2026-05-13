@@ -104,6 +104,33 @@ describe('classifyError()', () => {
   it('falls back to executor_error for unrecognized messages', () => {
     expect(classifyError('some unexpected runtime exception')).toBe('executor_error');
   });
+
+  // P1c-ii new error kinds
+  it('classifies rpc_hostname_not_allowlisted', () => {
+    expect(classifyError('rpc_hostname_not_allowlisted: evil.rpc.example on base')).toBe(
+      'rpc_hostname_not_allowlisted',
+    );
+  });
+
+  it('classifies safe_propose_failed when message contains safe_propose_failed', () => {
+    expect(classifyError('safe_propose_failed: Safe TX Service returned 422')).toBe('safe_propose_failed');
+  });
+
+  it('classifies safe_propose_failed when message contains proposeTransaction', () => {
+    expect(classifyError('proposeTransaction: HTTP 422 [invalid nonce]')).toBe('safe_propose_failed');
+  });
+
+  it('classifies oneinch_failed', () => {
+    expect(classifyError('oneinch_failed: 1inch API error (500): Internal Server Error')).toBe('oneinch_failed');
+  });
+
+  it('classifies transaction_reverted on execution reverted', () => {
+    expect(classifyError('execution reverted: gas limit exceeded')).toBe('transaction_reverted');
+  });
+
+  it('classifies transaction_reverted on transaction_reverted prefix', () => {
+    expect(classifyError('transaction_reverted: SafeL2: 0x01')).toBe('transaction_reverted');
+  });
 });
 
 // ---------------------------------------------------------------------------

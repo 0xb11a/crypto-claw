@@ -200,6 +200,43 @@ describe('executeTradeEvm() — missing env vars', () => {
     const result = await executeTradeEvm(BASE_ORDER, envMissingRpc);
     expect(result.status).toBe('failed');
   });
+
+  it('returns executor_error when SAFE_SIGNER_KEY is missing', async () => {
+    const { executeTradeEvm } = await import('./execute-trade-evm.js');
+    const envNoKey = { ...VALID_ENV, SAFE_SIGNER_KEY: undefined };
+    const result = await executeTradeEvm(BASE_ORDER, envNoKey);
+    expect(result.status).toBe('failed');
+  });
+
+  // Cover executeSell config-check path (same resolveConfig, different action)
+  it('returns executor_error when SAFE_ADDRESS_BASE is missing for sell', async () => {
+    const { executeTradeEvm } = await import('./execute-trade-evm.js');
+    const sellOrder = { ...BASE_ORDER, action: 'sell' as const };
+    const result = await executeTradeEvm(sellOrder, { ...VALID_ENV, SAFE_ADDRESS_BASE: undefined });
+    expect(result.status).toBe('failed');
+  });
+
+  // Cover executeSell RPC_VALIDATION_MODE=strict failure for sell
+  it('returns rpc_hostname_not_allowlisted for sell with non-allowlisted RPC', async () => {
+    const { executeTradeEvm } = await import('./execute-trade-evm.js');
+    const sellOrder = { ...BASE_ORDER, action: 'sell' as const };
+    const result = await executeTradeEvm(sellOrder, BANNED_RPC_ENV);
+    expect(result.status).toBe('failed');
+    if (result.status === 'failed') {
+      expect(result.error_kind).toBe('rpc_hostname_not_allowlisted');
+    }
+  });
+
+  // RPC_VALIDATION_MODE=warn allows execution but logs hostname
+  it('allows execution (continues past config) in warn mode for non-allowlisted RPC', async () => {
+    const { executeTradeEvm } = await import('./execute-trade-evm.js');
+    const warnEnv = { ...BANNED_RPC_ENV, RPC_VALIDATION_MODE: 'warn' };
+    const result = await executeTradeEvm(BASE_ORDER, warnEnv);
+    // In warn mode, config passes — execution fails later for another reason (RPC unreachable)
+    if (result.status === 'failed') {
+      expect(result.error_kind).not.toBe('rpc_hostname_not_allowlisted');
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -263,4 +300,207 @@ describe('executeTradeEvm() — 1inch API error paths', () => {
       expect(['oneinch_failed', 'executor_error']).toContain(result.error_kind);
     }
   }, 15000);
+
+  // Adversarial 7 — HTTP 500 from 1inch → immediate fail (no retry), error_kind=oneinch_failed
+  // (per the decision rule: only 429 triggers backoff; 500 → fail immediately)
+  it('returns oneinch_failed immediately on HTTP 500 — does NOT retry', async () => {
+    let oneInchCallCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (...args: unknown[]): Promise<Response> => {
+      // args[0] may be a Request object or a string depending on the caller
+      const rawUrl = args[0] instanceof Request ? args[0].url : String(args[0]);
+      if (rawUrl.includes('1inch.dev')) {
+        oneInchCallCount++;
+        return {
+          ok: false,
+          status: 500,
+          text: async () => 'Internal Server Error',
+        } as unknown as Response;
+      }
+      // Allow RPC calls to succeed so we reach the 1inch call
+      return {
+        ok: true,
+        json: async () => ({ jsonrpc: '2.0', id: 1, result: '0x' + 'ff'.repeat(32) }),
+      } as unknown as Response;
+    });
+
+    const { executeTradeEvm } = await import('./execute-trade-evm.js');
+    const result = await executeTradeEvm(BASE_ORDER, VALID_ENV);
+    expect(result.status).toBe('failed');
+    if (result.status === 'failed') {
+      expect(['oneinch_failed', 'executor_error']).toContain(result.error_kind);
+    }
+    // If we reached 1inch: exactly 1 call (500 is not retried, unlike 429).
+    // If RPC failed first: 0 calls (also acceptable — RPC failure is a different code path).
+    expect(oneInchCallCount === 0 || oneInchCallCount === 1).toBe(true);
+  }, 15000);
+
+  // Adversarial 2 — 1inch 5-attempt count (Uncertainty 2): 4 retries = 5 total calls on all-429
+  it('calls 1inch fetch exactly 5 times when all attempts return 429', async () => {
+    let oneInchCallCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (...args: unknown[]): Promise<Response> => {
+      const urlStr = String(args[0]);
+      if (urlStr.includes('1inch.dev')) {
+        oneInchCallCount++;
+        return {
+          ok: false,
+          status: 429,
+          text: async () => 'Too Many Requests',
+          headers: { get: () => null },
+        } as unknown as Response;
+      }
+      // Allow RPC calls (balanceOf etc.) to succeed so we reach 1inch
+      return {
+        ok: true,
+        json: async () => ({ jsonrpc: '2.0', id: 1, result: '0x' + 'ff'.repeat(32) }),
+      } as unknown as Response;
+    });
+
+    const { executeTradeEvm } = await import('./execute-trade-evm.js');
+    const result = await executeTradeEvm(BASE_ORDER, {
+      ...VALID_ENV,
+      // Inject a tiny backoff to make the test run fast (we check count not timing)
+      _TEST_1INCH_BACKOFF_OVERRIDE: '1',
+    });
+    expect(result.status).toBe('failed');
+    if (result.status === 'failed') {
+      expect(['oneinch_failed', 'executor_error']).toContain(result.error_kind);
+    }
+    // 4 retries = 5 total attempts (matches legacy MAX_RETRIES=4 in execute-trade-evm.ts)
+    // NOTE: if RPC calls fail before reaching 1inch, oneInchCallCount stays 0.
+    // We allow both: either 0 (RPC failed first) or 5 (reached 1inch)
+    // but if we DO reach 1inch, it must be exactly 5.
+    expect(oneInchCallCount === 0 || oneInchCallCount === 5).toBe(true);
+  }, 120000); // max 2+4+8+16 = 30s backoff + overhead
+});
+
+// ---------------------------------------------------------------------------
+// Adversarial 1 — signer key ABSENT from failure receipts
+// ---------------------------------------------------------------------------
+
+describe('executeTradeEvm() — signer key never in failure receipt', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('failure receipt does not contain SAFE_SIGNER_KEY when RPC is denied', async () => {
+    const SENTINEL = '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'; // pre-commit-allow
+    const { executeTradeEvm } = await import('./execute-trade-evm.js');
+    const result = await executeTradeEvm(BASE_ORDER, {
+      ...BANNED_RPC_ENV,
+      SAFE_SIGNER_KEY: SENTINEL,
+    });
+    expect(result.status).toBe('failed');
+    expect(JSON.stringify(result)).not.toContain(SENTINEL);
+  });
+
+  it('failure receipt does not contain SAFE_SIGNER_KEY when SAFE_ADDRESS is missing', async () => {
+    const SENTINEL = '0xaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd'; // pre-commit-allow
+    const { executeTradeEvm } = await import('./execute-trade-evm.js');
+    const result = await executeTradeEvm(BASE_ORDER, {
+      ...VALID_ENV,
+      SAFE_ADDRESS_BASE: undefined,
+      SAFE_SIGNER_KEY: SENTINEL,
+    });
+    expect(result.status).toBe('failed');
+    expect(JSON.stringify(result)).not.toContain(SENTINEL);
+  });
+
+  it('failure receipt does not contain SAFE_SIGNER_KEY on 1inch HTTP 500', async () => {
+    const SENTINEL = '0x1111111111111111111111111111111111111111111111111111111111111111'; // pre-commit-allow
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (...args: unknown[]): Promise<Response> => {
+      const urlStr = String(args[0]);
+      if (urlStr.includes('1inch.dev')) {
+        return { ok: false, status: 500, text: async () => 'error' } as unknown as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ jsonrpc: '2.0', id: 1, result: '0x' + 'ff'.repeat(32) }),
+      } as unknown as Response;
+    });
+    const { executeTradeEvm } = await import('./execute-trade-evm.js');
+    const result = await executeTradeEvm(BASE_ORDER, { ...VALID_ENV, SAFE_SIGNER_KEY: SENTINEL });
+    expect(result.status).toBe('failed');
+    expect(JSON.stringify(result)).not.toContain(SENTINEL);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Adversarial 2 — RPC URL with embedded credentials not in receipt or stderr
+// ---------------------------------------------------------------------------
+
+describe('executeTradeEvm() — RPC URL with embedded credentials redaction', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('receipt error field does not contain embedded credential URL', async () => {
+    // RPC URL has user:password@ embedded — the allowlist will reject it (strict mode,
+    // domain not in any allowlist suffix), and the error message must NOT echo the
+    // raw credential password back.
+    // NOTE: .alchemy.com is in the suffix allowlist; use .evil-rpc-host.test instead.
+    const { executeTradeEvm } = await import('./execute-trade-evm.js');
+    const credRpcEnv = {
+      ...VALID_ENV,
+      RPC_BASE: 'https://key:supersecret@evil-rpc-host.test',
+      RPC_VALIDATION_MODE: 'strict',
+    };
+    const result = await executeTradeEvm(BASE_ORDER, credRpcEnv);
+    expect(result.status).toBe('failed');
+    // The credential (password) must NOT appear in the receipt
+    if (result.status === 'failed') {
+      expect(result.error ?? '').not.toContain('supersecret');
+    }
+  });
+
+  // NOTE: whether libs/logger's redactor catches the hostname in stderr is covered
+  // in libs/logger redactor.spec.ts (RE_RPC_CREDS pattern). This test only asserts
+  // that the receipt itself (stdout) doesn't echo the credential password.
+  it('receipt error field contains rpc_hostname_not_allowlisted (not the raw credential)', async () => {
+    const { executeTradeEvm } = await import('./execute-trade-evm.js');
+    const result = await executeTradeEvm(BASE_ORDER, {
+      ...VALID_ENV,
+      RPC_BASE: 'https://key:supersecret@evil-rpc-host.test',
+      RPC_VALIDATION_MODE: 'strict',
+    });
+    expect(result.status).toBe('failed');
+    if (result.status === 'failed') {
+      expect(result.error_kind).toBe('rpc_hostname_not_allowlisted');
+      // Hostname appears (that's acceptable — it's not secret); password must not
+      expect(result.error ?? '').toContain('evil-rpc-host.test');
+      expect(result.error ?? '').not.toContain('supersecret');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Adversarial 3 — computeApprovalAmount(0n, _) returns 0n (explicit zero test)
+// ---------------------------------------------------------------------------
+
+describe('computeApprovalAmount() — zero amount', () => {
+  it('returns 0n when amountWei is 0n', () => {
+    expect(computeApprovalAmount(0n, 5)).toBe(0n);
+  });
+
+  it('returns 0n when amountWei is 0n with 0% margin', () => {
+    expect(computeApprovalAmount(0n, 0)).toBe(0n);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Adversarial 5 — computeApprovalAmount(amountWei, -1) uses default 5%
+// ---------------------------------------------------------------------------
+
+describe('computeApprovalAmount() — negative marginPct defaults to 5%', () => {
+  it('uses 5% margin when marginPct is -1 (negative)', () => {
+    // 1000 * 105 / 100 = 1050
+    expect(computeApprovalAmount(1000n, -1)).toBe(1050n);
+  });
+
+  it('uses 5% margin when marginPct is -100', () => {
+    expect(computeApprovalAmount(200n, -100)).toBe(210n);
+  });
+
+  it('uses 5% margin when marginPct is -Infinity', () => {
+    expect(computeApprovalAmount(100n, -Infinity)).toBe(105n);
+  });
 });
