@@ -116,4 +116,42 @@ describe('contracts adversarial security (DoD §F)', () => {
     );
     expect(status).toBe(400);
   });
+
+  // Coder-flagged gap #2: empty string passes @IsString but fails @IsNotEmpty
+  it.skipIf(SKIP)('POST with empty json string returns 400 (@IsNotEmpty)', async () => {
+    const { status } = await req('POST', '/v1/contracts/snapshots', {
+      token: AGENT_TOKEN,
+      body: { address: '0x1', chain: 'base', json: '' },
+    });
+    expect(status).toBe(400);
+  });
+
+  // Additional check §D: safety_data byte boundary
+  it.skipIf(SKIP)('POST with json at exactly 65535 chars succeeds (just under @MaxLength cap)', async () => {
+    // @MaxLength(65536) means 65536 is the max; 65535 is fine
+    const borderJson = 'x'.repeat(65535);
+    const { status } = await req('POST', '/v1/contracts/snapshots', {
+      token: AGENT_TOKEN,
+      body: { address: '0xboundary', chain: 'base', json: borderJson },
+    });
+    expect(status).toBe(201);
+  });
+
+  it.skipIf(SKIP)('POST with json at 65537 chars (1 over cap) returns 400', async () => {
+    // @MaxLength(65536) — 65537 must fail
+    const overJson = 'x'.repeat(65537);
+    const { status } = await req('POST', '/v1/contracts/snapshots', {
+      token: AGENT_TOKEN,
+      body: { address: '0xboundary', chain: 'base', json: overJson },
+    });
+    expect(status).toBe(400);
+  });
+
+  it.skipIf(SKIP)("POST with json='{}' (smallest valid JSON string) succeeds", async () => {
+    const { status } = await req('POST', '/v1/contracts/snapshots', {
+      token: AGENT_TOKEN,
+      body: { address: '0xminimal', chain: 'base', json: '{}' },
+    });
+    expect(status).toBe(201);
+  });
 });

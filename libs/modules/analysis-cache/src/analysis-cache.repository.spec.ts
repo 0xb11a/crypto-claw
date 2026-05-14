@@ -132,6 +132,30 @@ describe('AnalysisCacheRepository', () => {
 
       expect(result).toBeNull();
     });
+
+    it('maps null optional fields (symbol/analysisScore/riskScore/tier/reasoning/createdAt all null)', async () => {
+      // Exercises the ?? null branches in map()
+      mockQueryRawUnsafe.mockResolvedValue([
+        makeRow({
+          symbol: null,
+          analysisScore: null,
+          riskScore: null,
+          tier: null,
+          reasoning: null,
+          createdAt: null,
+        }),
+      ]);
+
+      const result = await repo.findByAddressChain({ address: '0xtoken', chain: 'base' });
+
+      expect(result).not.toBeNull();
+      expect(result!.symbol).toBeNull();
+      expect(result!.analysis_score).toBeNull();
+      expect(result!.risk_score).toBeNull();
+      expect(result!.tier).toBeNull();
+      expect(result!.reasoning).toBeNull();
+      expect(result!.created_at).toBeNull();
+    });
   });
 
   describe('deleteExpiredBatch', () => {

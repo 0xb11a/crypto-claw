@@ -54,6 +54,17 @@ describe('ContractsRepository', () => {
       expect(result.safety_data).toBe('{"is_honeypot":false}');
       expect(result.id).toBe(1);
     });
+
+    it('maps null checkedAt to null in response (exercises ?? null branch)', async () => {
+      // checkedAt can be null when SQLite DEFAULT hasn't run in a test context
+      mockCreate.mockResolvedValue(makeRow({ checkedAt: null }));
+      const result = await repo.add({
+        address: '0xcontract',
+        chain: 'base',
+        json: '{}',
+      });
+      expect(result.checked_at).toBeNull();
+    });
   });
 
   describe('findByAddressChain()', () => {

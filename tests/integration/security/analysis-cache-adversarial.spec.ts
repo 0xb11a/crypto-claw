@@ -132,4 +132,22 @@ describe('analysis-cache adversarial security (DoD §F)', () => {
     );
     expect(status).not.toBe(500);
   });
+
+  // Coder-flagged gap #1: empty string passes @IsString but fails @IsNotEmpty
+  it.skipIf(SKIP)('POST with empty address string returns 400 (@IsNotEmpty)', async () => {
+    const { status } = await req('POST', '/v1/analysis-cache', {
+      token: AGENT_TOKEN,
+      body: { address: '', chain: 'base', verdict: 'buy' },
+    });
+    expect(status).toBe(400);
+  });
+
+  // Coder-flagged gap #1 (verdict variant): empty verdict string must also 400
+  it.skipIf(SKIP)('POST with empty verdict string returns 400 (@IsNotEmpty)', async () => {
+    const { status } = await req('POST', '/v1/analysis-cache', {
+      token: AGENT_TOKEN,
+      body: { address: '0x1', chain: 'base', verdict: '' },
+    });
+    expect(status).toBe(400);
+  });
 });

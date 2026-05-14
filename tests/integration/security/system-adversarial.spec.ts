@@ -117,4 +117,26 @@ describe('system adversarial security (DoD §F)', () => {
     const { status } = await req('GET', '/v1/system/gas', { token: AGENT_TOKEN });
     expect(status).toBe(400);
   });
+
+  // Coder-flagged gap #3: @Min(0) missing from SetCashDto — real bug fixed by tester
+  it.skipIf(SKIP)('PATCH /v1/system/cash with negative amount returns 400', async () => {
+    const { status } = await req('PATCH', '/v1/system/cash', {
+      token: AGENT_TOKEN,
+      body: { chain: 'base', amount: -100 },
+    });
+    expect(status).toBe(400);
+  });
+
+  // Coder-flagged gap #4: XSS payload in meta key query must not 500
+  it.skipIf(SKIP)('GET /v1/system/meta with XSS key payload does not 500', async () => {
+    const xssKey = '<script>alert(1)</script>';
+    const { status } = await req(
+      'GET',
+      `/v1/system/meta?key=${encodeURIComponent(xssKey)}`,
+      { token: AGENT_TOKEN },
+    );
+    // 200 (key not found → null value) or 404 — not 500
+    expect(status).not.toBe(500);
+    expect(status).toBeLessThan(500);
+  });
 });

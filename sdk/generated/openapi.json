@@ -747,7 +747,7 @@
       "SetCashDto": {
         "properties": {
           "amount": {
-            "description": "Cash amount in USD",
+            "description": "Cash amount in USD (must be ≥ 0)",
             "type": "number"
           },
           "chain": {

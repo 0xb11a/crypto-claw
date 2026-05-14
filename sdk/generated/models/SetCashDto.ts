@@ -4,7 +4,7 @@
 /* eslint-disable */
 export type SetCashDto = {
   /**
-   * Cash amount in USD
+   * Cash amount in USD (must be ≥ 0)
    */
   amount: number;
   /**

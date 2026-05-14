@@ -102,6 +102,17 @@ describe('SystemRepository', () => {
       });
       expect(result).toEqual({ ok: true, chain: 'base', cash: 500 });
     });
+
+    it('accepts zero amount (boundary — @Min(0) allows 0)', async () => {
+      mockUpsert.mockResolvedValue({ key: 'cash_base', value: '0', updatedAt: null });
+      const result = await repo.setCash({ chain: 'base', amount: 0 });
+      expect(mockUpsert).toHaveBeenCalledWith({
+        where: { key: 'cash_base' },
+        create: { key: 'cash_base', value: '0' },
+        update: { value: '0' },
+      });
+      expect(result).toEqual({ ok: true, chain: 'base', cash: 0 });
+    });
   });
 
   describe('getGas()', () => {
@@ -118,6 +129,40 @@ describe('SystemRepository', () => {
       mockFindUnique.mockResolvedValue(null);
       const result = await repo.getGas('solana');
       expect(result).toEqual({ chain: 'solana', symbol: null, balance: 0, price: 0, value_usd: 0 });
+    });
+
+    it('returns partial defaults when gas JSON has missing fields (exercises ?? branches)', async () => {
+      // Parsed JSON with only symbol — balance/price/value_usd are undefined → default to 0
+      mockFindUnique.mockResolvedValue({
+        key: 'gas_base',
+        value: JSON.stringify({ symbol: 'ETH' }),
+      });
+      const result = await repo.getGas('base');
+      expect(result).toEqual({ chain: 'base', symbol: 'ETH', balance: 0, price: 0, value_usd: 0 });
+    });
+
+    it('returns null symbol when gas JSON has no symbol field', async () => {
+      mockFindUnique.mockResolvedValue({
+        key: 'gas_base',
+        value: JSON.stringify({ balance: 1.0, price: 3000, value_usd: 3000 }),
+      });
+      const result = await repo.getGas('base');
+      expect(result.symbol).toBeNull();
+      expect(result.balance).toBe(1.0);
+    });
+
+    // Coder-flagged uncertainty #3: malformed JSON in gas_ meta value must not crash
+    it('throws when gas value is malformed JSON (SyntaxError propagates)', async () => {
+      mockFindUnique.mockResolvedValue({
+        key: 'gas_base',
+        value: 'not-valid-json',
+      });
+      // Current implementation calls JSON.parse directly — it will throw SyntaxError.
+      // The test documents this behavior so the coder can decide whether to add a
+      // try/catch (graceful zeros) or let it propagate as a 500.
+      // [OPEN-1] If the decision is graceful zeros, add try/catch in getGas() and
+      // update this test to assert the zero-defaults shape instead.
+      await expect(repo.getGas('base')).rejects.toThrow(SyntaxError);
     });
   });
 
@@ -166,6 +211,48 @@ describe('SystemRepository', () => {
       await repo.getSyncStatus({});
       const call = mockSyncFindMany.mock.calls[0][0] as { take: number };
       expect(call.take).toBe(20);
+    });
+
+    it('maps null error and null syncedAt to null in response (exercises ?? null branches)', async () => {
+      // Exercises error ?? null and syncedAt ?? null in mapSync()
+      mockSyncFindMany.mockResolvedValue([
+        {
+          id: 5,
+          chain: 'solana',
+          provider: 'helius',
+          trigger: 'heartbeat',
+          status: 'success',
+          positionsSynced: 0,
+          positionsClosed: 0,
+          positionsDiscovered: 0,
+          error: null,
+          syncedAt: null,
+        },
+      ]);
+      const result = await repo.getSyncStatus({ limit: 10 });
+      expect(result[0]!.error).toBeNull();
+      expect(result[0]!.synced_at).toBeNull();
+    });
+
+    it('maps non-null error and syncedAt when present', async () => {
+      // Exercises the non-null branch of error ?? null and syncedAt ?? null
+      mockSyncFindMany.mockResolvedValue([
+        {
+          id: 6,
+          chain: 'base',
+          provider: 'debank',
+          trigger: 'manual',
+          status: 'error',
+          positionsSynced: 0,
+          positionsClosed: 0,
+          positionsDiscovered: 0,
+          error: 'RPC timeout',
+          syncedAt: '2026-05-14 10:00:00',
+        },
+      ]);
+      const result = await repo.getSyncStatus({ limit: 10 });
+      expect(result[0]!.error).toBe('RPC timeout');
+      expect(result[0]!.synced_at).toBe('2026-05-14 10:00:00');
     });
   });
 });
