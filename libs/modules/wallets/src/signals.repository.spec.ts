@@ -172,18 +172,21 @@ describe('SignalsRepository', () => {
   // since parsing
   // ---------------------------------------------------------------------------
 
-  it('defaults to 35m window (findMany gets gte with recent date)', async () => {
+  it('defaults to 35m window (findMany gets gte with recent ISO string)', async () => {
     const before = Date.now();
     await repo.getSignals({});
     const after = Date.now();
     const callArgs = (prisma.smartMoneySignal.findMany as ReturnType<typeof vi.fn>).mock.calls[0] as [
-      { where: { createdAt: { gte: Date } } },
+      { where: { createdAt: { gte: string } } },
     ];
-    const gte = callArgs[0]!.where.createdAt.gte.getTime();
+    // parseSinceDate returns an ISO-8601 string (String? column requires string comparisons)
+    const gteStr = callArgs[0]!.where.createdAt.gte;
+    expect(typeof gteStr).toBe('string');
+    const gteMs = Date.parse(gteStr);
     // Should be ~35 minutes ago
     const expected = before - 35 * 60_000;
-    expect(gte).toBeGreaterThanOrEqual(expected - 1000);
-    expect(gte).toBeLessThanOrEqual(after);
+    expect(gteMs).toBeGreaterThanOrEqual(expected - 1000);
+    expect(gteMs).toBeLessThanOrEqual(after);
   });
 
   it('grouped path: parses hours correctly into SQLite interval', async () => {

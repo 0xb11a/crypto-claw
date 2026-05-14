@@ -29,18 +29,25 @@ export class SignalsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Validate and parse the `since` parameter into a Date for Prisma gte filters.
+   * Validate and parse the `since` parameter into an ISO-8601 string for Prisma gte filters.
+   *
+   * The `smart_money_signals.created_at` column is typed as `String?` in the Prisma schema
+   * (matching the legacy SQLite TEXT storage format). Prisma's `findMany` requires that the
+   * `gte` filter value matches the declared field type — passing a JavaScript `Date` object
+   * against a `String?` field causes a runtime type mismatch. We return an ISO string so
+   * Prisma performs a string-to-string lexicographic comparison, which is correct for
+   * ISO-8601 timestamps stored in UTC.
    *
    * @param since - e.g. '35m', '2h', '1d'
-   * @returns Date in the past
+   * @returns ISO-8601 string representing the start of the time window
    */
-  private parseSinceDate(since: string): Date {
+  private parseSinceDate(since: string): string {
     // Validated by DTO Matches decorator; double-check here for defence-in-depth.
     const m = since.match(/^(\d+)([mhd])$/);
     if (!m) throw new BadRequestException(`Invalid since format: ${since}`);
     const n = parseInt(m[1]!, 10);
     const unit = m[2] === 'm' ? 60_000 : m[2] === 'h' ? 3_600_000 : 86_400_000;
-    return new Date(Date.now() - n * unit);
+    return new Date(Date.now() - n * unit).toISOString();
   }
 
   /**
