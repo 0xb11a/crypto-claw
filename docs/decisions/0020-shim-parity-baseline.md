@@ -40,3 +40,31 @@ This ADR does NOT change the SPEC, the harness, or the migration strategy. It ma
 - Locked: capture-once, compare-every-PR for P1–P5; the harness is deleted at P5; the gate is advisory in P1a–P1b and blocking thereafter (or when the empty-baseline window closes, whichever comes first).
 
 Cross-links: SPEC §19 verification #2 (the requirement this implements), SPEC §18 (P5 deletion phase), DoD §I (legacy untouched while in service), `tests/shim-parity/README.md` (the harness operator-facing docs), `tests/shim-parity/capture-baseline.js`, `tests/shim-parity/compare-baseline.js`.
+
+## Addendum 1 (2026-05-14) — Byte-identical parity contract upgrade
+
+The original P1 parity specs used shape-only assertions (e.g., `expect(typeof row['x']).toBe('string')`). P2 introduced byte-identical parity via `research-log-parity.spec.ts` (`expect(apiOutput).toEqual(legacyOutput)` against the same DB file).
+
+This PR retrofits the remaining 9 P1 parity specs to the new contract:
+- `tests/integration/parity/heartbeat-parity.spec.ts` (port 7886)
+- `tests/integration/parity/positions-parity.spec.ts` (port 7887)
+- `tests/integration/parity/orders-parity.spec.ts` (port 7888)
+- `tests/integration/parity/receipts-parity.spec.ts` (port 7889)
+- `tests/integration/parity/alerts-parity.spec.ts` (port 7890)
+- `tests/integration/parity/wallets-parity.spec.ts` (port 7891)
+- `tests/integration/parity/signals-parity.spec.ts` (port 7892)
+- `tests/integration/parity/liquidity-parity.spec.ts` (port 7893)
+- `tests/integration/parity/watchlist-parity.spec.ts` (port 7894)
+
+The byte-identical template (from `research-log-parity.spec.ts`):
+1. Seed via legacy `db-query.js add-*` command (with `_migrations` pre-populated to skip duplicate DDL)
+2. Capture legacy: `JSON.parse(execFileSync('node', ['scripts/db-query.js', 'get-*']))`
+3. Capture API: `await fetch('http://127.0.0.1:<PORT>/v1/<resource>')`
+4. Assert: `expect(apiOutput).toEqual(legacyOutput)`
+5. Gate behind `CCLAW_SECURITY_TESTS_ENABLED=1`
+
+`IMPLEMENTED_COMMANDS` in `tests/shim-parity/compare-baseline.js` now includes wallets/liquidity/watchlist entries that were missing in P2 group 1.
+
+The legacy SQLite schema was untouched (DoD §I). Synthetic-data unit tests inside each module remain the secondary safety net.
+
+Status: Accepted (unchanged).
