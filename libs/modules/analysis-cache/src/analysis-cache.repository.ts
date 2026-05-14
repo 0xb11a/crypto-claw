@@ -26,17 +26,25 @@ export class AnalysisCacheRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   private map(row: AnalysisCache): AnalysisCacheResponseDto {
+    // $queryRawUnsafe returns SQLite column names (snake_case) even though the
+    // TypeScript type annotation uses the Prisma model (camelCase). Columns with
+    // @map() in the schema — analysis_score, risk_score, expires_at, created_at —
+    // must be read via both camelCase (Prisma findUnique path) and snake_case (raw
+    // query path). The cast is safe: we own both SELECT lists.
+    const raw = row as unknown as Record<string, unknown>;
     return {
       address: row.address,
       chain: row.chain,
       symbol: row.symbol ?? null,
-      analysis_score: row.analysisScore ?? null,
-      risk_score: row.riskScore ?? null,
+      analysis_score: row.analysisScore ?? (raw['analysis_score'] as number | null | undefined) ?? null,
+      risk_score: row.riskScore ?? (raw['risk_score'] as number | null | undefined) ?? null,
       verdict: row.verdict,
       tier: row.tier ?? null,
       reasoning: row.reasoning ?? null,
-      expires_at: row.expiresAt,
-      created_at: row.createdAt ?? null,
+      // expires_at: row.expiresAt is undefined on raw query results; fall back to
+      // raw['expires_at'] (snake_case key) so the field is always present.
+      expires_at: (row.expiresAt ?? (raw['expires_at'] as string | undefined)) as string,
+      created_at: row.createdAt ?? (raw['created_at'] as string | null | undefined) ?? null,
     };
   }
 

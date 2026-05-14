@@ -26,6 +26,10 @@ import type { PortfolioSyncResponseDto } from './dto/portfolio-sync-response.dto
  * - set-cash: upserts 'cash_<chain>' key.
  * - get-sync-status: returns portfolio_sync rows ordered by synced_at DESC.
  * - updated_at is NOT passed to upsert so SQLite DEFAULT fires correctly.
+ *
+ * Note: getMeta, getCashByChain, getAllCash return base shapes WITHOUT _mode.
+ * The service layer (SystemService) appends _mode to match legacy output()
+ * behavior (ADR-0020). The Omit<> return types make the split explicit.
  */
 @Injectable()
 export class SystemRepository {
@@ -35,8 +39,25 @@ export class SystemRepository {
   // Meta
   // ---------------------------------------------------------------------------
 
+  /**
+   * Seed the `safe_id` key if it does not already exist.
+   *
+   * Replicates the legacy db.js migration 001 INSERT:
+   *   INSERT INTO portfolio_meta (key, value) VALUES ('safe_id', '${SAFE_ID}')
+   *
+   * Uses `upsert` with empty update block so a pre-existing value is never
+   * overwritten (idempotent; safe to call on every boot).
+   */
+  async seedSafeId(safeId: string): Promise<void> {
+    await this.prisma.portfolioMeta.upsert({
+      where: { key: 'safe_id' },
+      update: {},
+      create: { key: 'safe_id', value: safeId },
+    });
+  }
+
   /** Get a portfolio_meta row by key. Returns null value if key is missing. */
-  async getMeta(key: string): Promise<MetaResponseDto> {
+  async getMeta(key: string): Promise<Omit<MetaResponseDto, '_mode'>> {
     const row = await this.prisma.portfolioMeta.findUnique({ where: { key } });
     return { key, value: row?.value ?? null };
   }
@@ -56,7 +77,7 @@ export class SystemRepository {
   // ---------------------------------------------------------------------------
 
   /** Get cash for a specific chain. Returns 0 if key is missing. */
-  async getCashByChain(chain: string): Promise<CashByChainDto> {
+  async getCashByChain(chain: string): Promise<Omit<CashByChainDto, '_mode'>> {
     const key = `cash_${chain}`;
     const row = await this.prisma.portfolioMeta.findUnique({ where: { key } });
     const cash = parseFloat(row?.value ?? '0');
@@ -66,8 +87,9 @@ export class SystemRepository {
   /**
    * Get cash for all chains.
    * Matches legacy getAllCashBreakdown(db) — flat { [chain]: number, total: number }.
+   * _mode is NOT included here; the service layer appends it (ADR-0020).
    */
-  async getAllCash(): Promise<CashBreakdownDto> {
+  async getAllCash(): Promise<Omit<CashBreakdownDto, '_mode'>> {
     const rows = await this.prisma.portfolioMeta.findMany({
       where: { key: { startsWith: 'cash_' } },
     });
@@ -81,7 +103,7 @@ export class SystemRepository {
       total += val;
     }
     result['total'] = total;
-    return result as CashBreakdownDto;
+    return result;
   }
 
   /** Set cash for a chain. */
