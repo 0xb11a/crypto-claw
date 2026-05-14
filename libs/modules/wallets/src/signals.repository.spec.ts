@@ -3,12 +3,18 @@
  *
  * Focuses on query-building logic, param validation, and injection-guard
  * (chain allowlist).
+ *
+ * After commit 3 (P2 cleanup):
+ * - Ungrouped path without tokens_in_positions: uses Prisma findMany (not $queryRawUnsafe)
+ * - Grouped path: still uses $queryRawUnsafe (ROUND(AVG()) not in Prisma groupBy)
+ * - tokens_in_positions path: still uses $queryRawUnsafe (SQL subquery required)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { SignalsRepository } from './signals.repository.js';
 import type { PrismaService } from '@cclaw/prisma';
 
+// Raw signal as returned by $queryRawUnsafe (snake_case columns)
 const rawSignal = {
   id: 1,
   tx_hash: '0xtx1',
@@ -26,9 +32,30 @@ const rawSignal = {
   created_at: '2026-01-01T00:00:00Z',
 };
 
+// Prisma findMany returns camelCase Prisma model fields
+const prismaSignal = {
+  id: 1,
+  txHash: '0xtx1',
+  chain: 'base',
+  walletAddress: '0xwallet',
+  walletScore: 85,
+  walletLabel: null,
+  action: 'buy',
+  tokenAddress: '0xtoken',
+  tokenSymbol: 'ABC',
+  counterTokenAddress: null,
+  counterTokenSymbol: null,
+  amountToken: '1000',
+  txTimestamp: '2026-01-01T00:00:00Z',
+  createdAt: '2026-01-01T00:00:00Z',
+};
+
 function makePrisma(): PrismaService {
   return {
     $queryRawUnsafe: vi.fn().mockResolvedValue([rawSignal]),
+    smartMoneySignal: {
+      findMany: vi.fn().mockResolvedValue([prismaSignal]),
+    },
   } as unknown as PrismaService;
 }
 
@@ -41,30 +68,33 @@ describe('SignalsRepository', () => {
     repo = new SignalsRepository(prisma);
   });
 
-  it('returns ungrouped signals by default', async () => {
+  // ---------------------------------------------------------------------------
+  // Ungrouped path — now uses Prisma findMany (not $queryRawUnsafe)
+  // ---------------------------------------------------------------------------
+
+  it('returns ungrouped signals via findMany by default', async () => {
     const result = await repo.getSignals({});
     expect(Array.isArray(result)).toBe(true);
-    expect(prisma.$queryRawUnsafe).toHaveBeenCalled();
+    expect(prisma.smartMoneySignal.findMany).toHaveBeenCalled();
+    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 
-  it('calls $queryRawUnsafe for grouped query with parameterized HAVING', async () => {
-    // min_wallets is now passed as a positional '?' param, not interpolated.
-    await repo.getSignals({ group_by: 'token', min_wallets: 2 });
-    const callArgs = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[];
-    const sql = callArgs[0] as string;
-    expect(sql).toContain('COUNT(*) AS signal_count');
-    // SQL must use placeholder, not the literal value
-    expect(sql).toContain('HAVING n_wallets >= ?');
-    expect(sql).not.toContain('HAVING n_wallets >= 2');
-    // The value must appear as a positional param after the sinceClause param
-    expect(callArgs).toContain(2);
+  it('ungrouped result maps camelCase Prisma fields to snake_case response', async () => {
+    const result = (await repo.getSignals({})) as Record<string, unknown>[];
+    expect(result.length).toBe(1);
+    expect(result[0]!['tx_hash']).toBe('0xtx1');
+    expect(result[0]!['wallet_address']).toBe('0xwallet');
+    expect(result[0]!['token_address']).toBe('0xtoken');
+    expect(result[0]!['created_at']).toBe('2026-01-01T00:00:00Z');
   });
 
-  it('includes action filter in WHERE when action is provided', async () => {
+  it('passes action filter to findMany where clause', async () => {
     await repo.getSignals({ action: 'buy' });
-    const params = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[];
-    // params[0] is the SQL string, params[1..] are bind values
-    expect(params).toContain('buy');
+    const callArgs = (prisma.smartMoneySignal.findMany as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      { where: Record<string, unknown> },
+    ];
+    expect(callArgs[0]!.where['action']).toBe('buy');
+    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 
   it('throws BadRequestException for invalid action', async () => {
@@ -81,23 +111,14 @@ describe('SignalsRepository', () => {
     }
   });
 
-  it('defaults to 35m window', async () => {
-    await repo.getSignals({});
-    const params = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[];
-    // First bind param is the sinceClause string
-    expect(params[1]).toBe('-35 minutes');
-  });
+  // ---------------------------------------------------------------------------
+  // tokens_in_positions path — still uses $queryRawUnsafe (SQL subquery)
+  // ---------------------------------------------------------------------------
 
-  it('parses hours correctly', async () => {
-    await repo.getSignals({ since: '2h' });
-    const params = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[];
-    expect(params[1]).toBe('-2 hours');
-  });
-
-  it('parses days correctly', async () => {
-    await repo.getSignals({ since: '1d' });
-    const params = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[];
-    expect(params[1]).toBe('-1 days');
+  it('uses $queryRawUnsafe when tokens_in_positions=true', async () => {
+    await repo.getSignals({ tokens_in_positions: true });
+    expect(prisma.$queryRawUnsafe).toHaveBeenCalled();
+    expect(prisma.smartMoneySignal.findMany).not.toHaveBeenCalled();
   });
 
   it('includes tokens_in_positions subquery when flag is set', async () => {
@@ -106,71 +127,34 @@ describe('SignalsRepository', () => {
     expect(sql).toContain('SELECT address, chain FROM positions');
   });
 
-  // ---------------------------------------------------------------------------
-  // Adversarial: SQL injection probe on chain param (coder-flagged scenario 1)
-  // ---------------------------------------------------------------------------
-
-  it('rejects SQL injection payload in chain param with BadRequestException (allowlist guard)', async () => {
-    // This exact string must NOT reach $queryRawUnsafe — the allowlist guard fires first.
-    const injectionPayload = '; DROP TABLE smart_money_signals; --';
-    await expect(repo.getSignals({ chain: injectionPayload })).rejects.toThrow(BadRequestException);
-    // The unsafe query must never have been called
-    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
-  });
-
-  it('rejects chain with SQL comment prefix via allowlist guard', async () => {
-    await expect(repo.getSignals({ chain: 'base--injected' })).rejects.toThrow(BadRequestException);
-    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
-  });
-
-  it('rejects chain with SELECT keyword via allowlist guard', async () => {
-    await expect(repo.getSignals({ chain: 'SELECT * FROM' })).rejects.toThrow(BadRequestException);
-    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
-  });
-
-  // ---------------------------------------------------------------------------
-  // Adversarial: since=99999999m extreme value (coder-flagged scenario 2)
-  // ---------------------------------------------------------------------------
-
-  it('accepts since=99999999m without throwing (no 500)', async () => {
-    // The DTO @Matches regex allows any Nm/Nh/Nd. Repository must not reject extreme numbers.
-    await expect(repo.getSignals({ since: '99999999m' })).resolves.toBeDefined();
-    const params = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[];
-    // Verify the since clause is formed correctly from the extreme value
-    expect(params[1]).toBe('-99999999 minutes');
-  });
-
-  it('accepts since=9999d (large days value) without throwing', async () => {
-    await expect(repo.getSignals({ since: '9999d' })).resolves.toBeDefined();
-    const params = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[];
-    expect(params[1]).toBe('-9999 days');
-  });
-
-  it('accepts since=999h (large hours value) without throwing', async () => {
-    await expect(repo.getSignals({ since: '999h' })).resolves.toBeDefined();
-    const params = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[];
-    expect(params[1]).toBe('-999 hours');
-  });
-
-  // ---------------------------------------------------------------------------
-  // Adversarial: tokens_in_positions coercion (coder-flagged scenario 3)
-  // ---------------------------------------------------------------------------
-
-  it('does NOT include tokens_in_positions subquery when flag is false', async () => {
+  it('does NOT include tokens_in_positions subquery when flag is false (uses findMany)', async () => {
     await repo.getSignals({ tokens_in_positions: false });
-    const sql = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
-    expect(sql).not.toContain('SELECT address, chain FROM positions');
+    expect(prisma.smartMoneySignal.findMany).toHaveBeenCalled();
+    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 
-  it('does NOT include tokens_in_positions subquery when flag is undefined', async () => {
+  it('does NOT include tokens_in_positions subquery when flag is undefined (uses findMany)', async () => {
     await repo.getSignals({ tokens_in_positions: undefined });
-    const sql = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
-    expect(sql).not.toContain('SELECT address, chain FROM positions');
+    expect(prisma.smartMoneySignal.findMany).toHaveBeenCalled();
+    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 
   // ---------------------------------------------------------------------------
-  // HAVING clause is omitted when min_wallets=0 (coverage gap)
+  // Grouped path — still uses $queryRawUnsafe
   // ---------------------------------------------------------------------------
+
+  it('calls $queryRawUnsafe for grouped query with parameterized HAVING', async () => {
+    // min_wallets is now passed as a positional '?' param, not interpolated.
+    await repo.getSignals({ group_by: 'token', min_wallets: 2 });
+    const callArgs = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[];
+    const sql = callArgs[0] as string;
+    expect(sql).toContain('COUNT(*) AS signal_count');
+    // SQL must use placeholder, not the literal value
+    expect(sql).toContain('HAVING n_wallets >= ?');
+    expect(sql).not.toContain('HAVING n_wallets >= 2');
+    // The value must appear as a positional param
+    expect(callArgs).toContain(2);
+  });
 
   it('does NOT include HAVING clause when min_wallets=0', async () => {
     await repo.getSignals({ group_by: 'token', min_wallets: 0 });
@@ -181,19 +165,83 @@ describe('SignalsRepository', () => {
   it('includes HAVING clause when min_wallets is not provided (defaults to 0) — no HAVING', async () => {
     await repo.getSignals({ group_by: 'token' });
     const sql = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
-    // min_wallets undefined → defaults to 0 in the service layer; havingClause is empty
     expect(sql).not.toContain('HAVING n_wallets');
   });
 
-  it('includes all action+chain filters in params when both are provided', async () => {
-    await repo.getSignals({ action: 'sell', chain: 'solana' });
+  // ---------------------------------------------------------------------------
+  // since parsing
+  // ---------------------------------------------------------------------------
+
+  it('defaults to 35m window (findMany gets gte with recent date)', async () => {
+    const before = Date.now();
+    await repo.getSignals({});
+    const after = Date.now();
+    const callArgs = (prisma.smartMoneySignal.findMany as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      { where: { createdAt: { gte: Date } } },
+    ];
+    const gte = callArgs[0]!.where.createdAt.gte.getTime();
+    // Should be ~35 minutes ago
+    const expected = before - 35 * 60_000;
+    expect(gte).toBeGreaterThanOrEqual(expected - 1000);
+    expect(gte).toBeLessThanOrEqual(after);
+  });
+
+  it('grouped path: parses hours correctly into SQLite interval', async () => {
+    await repo.getSignals({ group_by: 'token', since: '2h' });
+    const params = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[];
+    expect(params[1]).toBe('-2 hours');
+  });
+
+  it('grouped path: parses days correctly into SQLite interval', async () => {
+    await repo.getSignals({ group_by: 'token', since: '1d' });
+    const params = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[];
+    expect(params[1]).toBe('-1 days');
+  });
+
+  it('grouped path: includes all action+chain filters in params when both are provided', async () => {
+    await repo.getSignals({ group_by: 'token', action: 'sell', chain: 'solana' });
     const params = (prisma.$queryRawUnsafe as ReturnType<typeof vi.fn>).mock.calls[0] as unknown[];
     expect(params).toContain('sell');
     expect(params).toContain('solana');
   });
 
+  // ---------------------------------------------------------------------------
+  // Adversarial: SQL injection probe on chain param (coder-flagged scenario 1)
+  // ---------------------------------------------------------------------------
+
+  it('rejects SQL injection payload in chain param with BadRequestException (allowlist guard)', async () => {
+    const injectionPayload = '; DROP TABLE smart_money_signals; --';
+    await expect(repo.getSignals({ chain: injectionPayload })).rejects.toThrow(BadRequestException);
+    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
+    expect(prisma.smartMoneySignal.findMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects chain with SQL comment prefix via allowlist guard', async () => {
+    await expect(repo.getSignals({ chain: 'base--injected' })).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects chain with SELECT keyword via allowlist guard', async () => {
+    await expect(repo.getSignals({ chain: 'SELECT * FROM' })).rejects.toThrow(BadRequestException);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Adversarial: since=99999999m extreme value (coder-flagged scenario 2)
+  // ---------------------------------------------------------------------------
+
+  it('accepts since=99999999m without throwing (no 500) — findMany path', async () => {
+    await expect(repo.getSignals({ since: '99999999m' })).resolves.toBeDefined();
+    expect(prisma.smartMoneySignal.findMany).toHaveBeenCalled();
+  });
+
+  it('accepts since=9999d (large days value) without throwing', async () => {
+    await expect(repo.getSignals({ since: '9999d' })).resolves.toBeDefined();
+  });
+
+  it('accepts since=999h (large hours value) without throwing', async () => {
+    await expect(repo.getSignals({ since: '999h' })).resolves.toBeDefined();
+  });
+
   it('rejects invalid action value with BadRequestException', async () => {
-    // e.g. someone bypasses DTO validation and calls repo directly
     await expect(repo.getSignals({ action: 'transfer' as 'buy' | 'sell' })).rejects.toThrow(BadRequestException);
   });
 });
