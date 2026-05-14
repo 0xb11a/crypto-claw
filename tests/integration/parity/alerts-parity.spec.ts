@@ -1,86 +1,163 @@
 /**
- * Synthetic-data parity tests for the alerts module (ADR-0020).
+ * Parity test for sentinel_alerts — byte-identical deepEqual contract (P2 retrofit).
  *
- * Verifies that the legacy db-query.js get-alerts output shape matches the
- * API's alerts module response shape.
+ * Template: research-log-parity.spec.ts
+ * 1. Seed via legacy `db-query.js add-alert`
+ * 2. Capture legacy: JSON.parse(execFileSync('node', ['scripts/db-query.js', 'get-alerts']))
+ * 3. Capture API:    await fetch('http://127.0.0.1:7890/v1/alerts')
+ * 4. expect(apiOutput).toEqual(legacyOutput) — byte-identical deepEqual
+ *
+ * Gated behind CCLAW_SECURITY_TESTS_ENABLED=1 — spawns a compiled API binary.
+ * Requires `pnpm build` before running.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { startApi } from '../_spawn-api.js';
+import type { StartApiResult } from '../_spawn-api.js';
 
-const REPO_ROOT = resolve(__dirname, '../../..');
-const SCRIPTS_DIR = resolve(REPO_ROOT, 'scripts');
+const SKIP = process.env['CCLAW_SECURITY_TESTS_ENABLED'] !== '1';
 
-let tempDir: string;
-let legacyDbPath: string;
+const REPO_ROOT = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '');
+const SCRIPTS_DIR = `${REPO_ROOT}/scripts`;
 
-const ALERT_ID = 'parity-alert-1';
+const LEGACY_MIGRATION_NAMES = [
+  '001_initial', '002_paper_mode', '003_tracked_wallets_deployer_type',
+  '004_wallet_scoring_pipeline', '005_market_regime', '006_analysis_cache',
+  '007_wallet_source', '008_portfolio_sync', '009_per_chain_cash',
+  '010_heartbeat_seeds_research', '011_position_exit_columns', '012_unified_orders',
+  '013_contract_snapshots', '014_order_status', '015_multisig_tracking',
+  '016_db_improvements', '017_narrative_deep_scan_heartbeat', '018_trailing_stops',
+  '019_research_log', '020_ethereum_chain_cash', '021_observer_log',
+  '022_approval_bot', '023_memory_backup_heartbeat', '024_smart_money_signals',
+  '025_split_harvest_and_health_keys', '026_log_summary_columns', '027_cleanup_invalid_tiers',
+];
 
-beforeAll(() => {
-  tempDir = mkdtempSync(resolve(tmpdir(), 'cclaw-parity-alerts-'));
-  legacyDbPath = resolve(tempDir, 'test.db');
+const AGENT_TOKEN = 'ci-research-key-aaaaaaaaaaaaaaaa';
 
-  const baseEnv = {
+const BASE_ENV: NodeJS.ProcessEnv = {
+  SAFE_ID: 'ci-alrt-parity',
+  REDIS_URL: 'redis://localhost:6379',
+  RESEARCH_API_KEY: 'ci-research-key-aaaaaaaaaaaaaaaa',
+  SENTINEL_API_KEY: 'ci-sentinel-key-aaaaaaaaaaaaaaaa',
+  EXECUTOR_API_KEY: 'ci-executor-key-aaaaaaaaaaaaaaaa',
+  OBSERVER_API_KEY: 'ci-observer-key-aaaaaaaaaaaaaaaa',
+  LOOP_API_KEY: 'ci-loop-key-aaaaaaaaaaaaaaaaaaaaa',
+  WORKER_API_KEY: 'ci-worker-key-aaaaaaaaaaaaaaaaaaa',
+  SCHEDULER_API_KEY: 'ci-scheduler-key-aaaaaaaaaaaaaaa',
+  DASHBOARD_API_KEY: 'ci-dashboard-key-aaaaaaaaaaaaaaaa',
+  ACTIVE_CHAINS: 'base,solana',
+  OPENAI_API_KEY: 'ci-openai-dummy',
+  NODE_ENV: 'test',
+  PRISMA_DISABLE_DOTENV: '1',
+  SAFE_SIGNER_KEY: '',
+  SQUADS_SIGNER_KEY: '',
+  NODE_PATH: process.env['NODE_PATH'],
+  PATH: process.env['PATH'],
+};
+
+const PORT = 7890;
+let api: StartApiResult;
+
+beforeAll(async () => {
+  if (SKIP) return;
+  api = await startApi({
+    dbPath: '',
+    env: BASE_ENV,
+    port: PORT,
+    readyTimeoutMs: 20_000,
+    tmpPrefix: 'cclaw-alrt-parity',
+  });
+
+  const seedMigrationsScript = `
+    const Database = require('better-sqlite3');
+    const db = new Database(process.env.DB_PATH);
+    db.exec('CREATE TABLE IF NOT EXISTS _migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT DEFAULT (datetime(\\'now\\')))');
+    const insert = db.prepare('INSERT OR IGNORE INTO _migrations (name) VALUES (?)');
+    ${LEGACY_MIGRATION_NAMES.map((n) => `insert.run(${JSON.stringify(n)});`).join('\n    ')}
+    db.close();
+  `;
+  execFileSync('node', ['--eval', seedMigrationsScript], {
+    env: { ...process.env, DB_PATH: api.dbPath },
+    cwd: resolve(REPO_ROOT, 'scripts'),
+    encoding: 'utf8',
+    timeout: 10000,
+  });
+
+  const legacyEnv = {
     ...process.env,
-    SAFE_ID: 'test',
-    DB_PATH: legacyDbPath,
+    SAFE_ID: 'ci-alrt-parity',
+    DB_PATH: api.dbPath,
     SAFE_SIGNER_KEY: '',
     SQUADS_SIGNER_KEY: '',
     PRISMA_DISABLE_DOTENV: '1',
-    DATABASE_URL: `file:${legacyDbPath}`,
+    DATABASE_URL: `file:${api.dbPath}`,
     PAPER_MODE: 'false',
     AUTO_APPROVE_BUY: 'false',
     AUTO_APPROVE_BUY_MAX_USD: '',
   };
 
-  const run = (cmd: string, args: string[]) =>
-    execFileSync('node', [resolve(SCRIPTS_DIR, 'db-query.js'), cmd, ...args], {
-      env: baseEnv,
+  const seed = (payload: object) =>
+    execFileSync('node', [
+      `${SCRIPTS_DIR}/db-query.js`,
+      'add-alert',
+      '--json',
+      JSON.stringify(payload),
+    ], { env: legacyEnv, cwd: REPO_ROOT, encoding: 'utf8', timeout: 10000 });
+
+  seed({
+    id: 'parity-alrt-1',
+    symbol: 'ETH',
+    chain: 'base',
+    alert_type: 'stop_loss',
+    severity: 'high',
+    current_price: 1500.0,
+    trigger_price: 1600.0,
+    details: 'Price below stop loss',
+  });
+  seed({
+    id: 'parity-alrt-2',
+    symbol: 'SOL',
+    chain: 'solana',
+    alert_type: 'rug_warning',
+    severity: 'critical',
+    current_price: 90.0,
+    trigger_price: 100.0,
+    details: 'Liquidity removed',
+  });
+}, 25_000);
+
+afterAll(async () => {
+  if (SKIP) return;
+  await api.kill();
+});
+
+describe('alerts parity — byte-identical deepEqual (P2 retrofit)', () => {
+  it.skipIf(SKIP)('API GET /v1/alerts deepEquals legacy get-alerts output', async () => {
+    const legacyRaw = execFileSync('node', [`${SCRIPTS_DIR}/db-query.js`, 'get-alerts'], {
+      env: {
+        ...process.env,
+        SAFE_ID: 'ci-alrt-parity',
+        DB_PATH: api.dbPath,
+        SAFE_SIGNER_KEY: '',
+        SQUADS_SIGNER_KEY: '',
+        PRISMA_DISABLE_DOTENV: '1',
+        DATABASE_URL: `file:${api.dbPath}`,
+        PAPER_MODE: 'false',
+      },
       cwd: REPO_ROOT,
       encoding: 'utf8',
       timeout: 10000,
     });
+    const legacyOutput = JSON.parse(legacyRaw) as unknown[];
 
-  run('add-alert', [
-    '--json',
-    JSON.stringify({
-      id: ALERT_ID,
-      symbol: 'ETH',
-      chain: 'base',
-      alert_type: 'stop_loss',
-      severity: 'high',
-      current_price: 1500.0,
-      trigger_price: 1600.0,
-      details: 'Price below stop loss',
-    }),
-  ]);
-});
-
-afterAll(() => {
-  rmSync(tempDir, { recursive: true, force: true });
-});
-
-describe('Alerts module — synthetic parity (ADR-0020)', () => {
-  it('legacy get-alerts returns an array with id, symbol, chain, alert_type, severity, processed fields', () => {
-    const output = execFileSync('node', [resolve(SCRIPTS_DIR, 'db-query.js'), 'get-alerts'], {
-      env: { ...process.env, SAFE_ID: 'test', DB_PATH: legacyDbPath },
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      timeout: 10000,
+    const res = await fetch(`http://127.0.0.1:${PORT}/v1/alerts`, {
+      headers: { Authorization: `Bearer ${AGENT_TOKEN}` },
     });
-    const data = JSON.parse(output) as unknown[];
-    expect(Array.isArray(data)).toBe(true);
-    const alert = data.find((a) => (a as Record<string, unknown>)['id'] === ALERT_ID) as
-      | Record<string, unknown>
-      | undefined;
-    expect(alert).toBeDefined();
-    expect(alert!['symbol']).toBe('ETH');
-    expect(alert!['chain']).toBe('base');
-    expect(alert!['alert_type']).toBe('stop_loss');
-    expect(alert!['severity']).toBe('high');
-    expect(alert!['processed']).toBe(0);
+    expect(res.status).toBe(200);
+    const apiOutput = (await res.json()) as unknown[];
+
+    expect(apiOutput).toEqual(legacyOutput);
   });
 });

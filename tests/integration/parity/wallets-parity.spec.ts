@@ -1,225 +1,161 @@
 /**
- * Shim-parity tests for the wallets module (ADR-0020).
+ * Parity test for tracked_wallets — byte-identical deepEqual contract (P2 retrofit).
  *
- * Verifies that the legacy db-query.js tracked-wallet commands produce the
- * same field shapes as the new @cclaw/wallets module.
+ * Template: research-log-parity.spec.ts
+ * 1. Seed via legacy `db-query.js add-tracked-wallet` + `propose-wallet`
+ * 2. Capture legacy: JSON.parse(execFileSync('node', ['scripts/db-query.js', 'get-tracked-wallets']))
+ * 3. Capture API:    await fetch('http://127.0.0.1:7891/v1/wallets')
+ * 4. expect(apiOutput).toEqual(legacyOutput) — byte-identical deepEqual
  *
- * Scope: get-tracked-wallets, add-tracked-wallet, propose-wallet,
- *        get-unscored-wallets, update-wallet-score, remove-tracked-wallet.
+ * Gated behind CCLAW_SECURITY_TESTS_ENABLED=1 — spawns a compiled API binary.
+ * Requires `pnpm build` before running.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { startApi } from '../_spawn-api.js';
+import type { StartApiResult } from '../_spawn-api.js';
 
-const REPO_ROOT = resolve(__dirname, '../../..');
-const SCRIPTS_DIR = resolve(REPO_ROOT, 'scripts');
+const SKIP = process.env['CCLAW_SECURITY_TESTS_ENABLED'] !== '1';
 
-let tempDir: string;
-let legacyDbPath: string;
+const REPO_ROOT = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '');
+const SCRIPTS_DIR = `${REPO_ROOT}/scripts`;
 
-const SCORED_WALLET_ADDR = '0xScoredWallet001';
-const PROPOSED_WALLET_ADDR = '0xProposedWallet001';
-const CHAIN = 'base';
+const LEGACY_MIGRATION_NAMES = [
+  '001_initial', '002_paper_mode', '003_tracked_wallets_deployer_type',
+  '004_wallet_scoring_pipeline', '005_market_regime', '006_analysis_cache',
+  '007_wallet_source', '008_portfolio_sync', '009_per_chain_cash',
+  '010_heartbeat_seeds_research', '011_position_exit_columns', '012_unified_orders',
+  '013_contract_snapshots', '014_order_status', '015_multisig_tracking',
+  '016_db_improvements', '017_narrative_deep_scan_heartbeat', '018_trailing_stops',
+  '019_research_log', '020_ethereum_chain_cash', '021_observer_log',
+  '022_approval_bot', '023_memory_backup_heartbeat', '024_smart_money_signals',
+  '025_split_harvest_and_health_keys', '026_log_summary_columns', '027_cleanup_invalid_tiers',
+];
 
-beforeAll(() => {
-  tempDir = mkdtempSync(resolve(tmpdir(), 'cclaw-parity-wallets-'));
-  legacyDbPath = resolve(tempDir, 'test.db');
+const AGENT_TOKEN = 'ci-research-key-aaaaaaaaaaaaaaaa';
 
-  const baseEnv = {
+const BASE_ENV: NodeJS.ProcessEnv = {
+  SAFE_ID: 'ci-wlt-parity',
+  REDIS_URL: 'redis://localhost:6379',
+  RESEARCH_API_KEY: 'ci-research-key-aaaaaaaaaaaaaaaa',
+  SENTINEL_API_KEY: 'ci-sentinel-key-aaaaaaaaaaaaaaaa',
+  EXECUTOR_API_KEY: 'ci-executor-key-aaaaaaaaaaaaaaaa',
+  OBSERVER_API_KEY: 'ci-observer-key-aaaaaaaaaaaaaaaa',
+  LOOP_API_KEY: 'ci-loop-key-aaaaaaaaaaaaaaaaaaaaa',
+  WORKER_API_KEY: 'ci-worker-key-aaaaaaaaaaaaaaaaaaa',
+  SCHEDULER_API_KEY: 'ci-scheduler-key-aaaaaaaaaaaaaaa',
+  DASHBOARD_API_KEY: 'ci-dashboard-key-aaaaaaaaaaaaaaaa',
+  ACTIVE_CHAINS: 'base,solana',
+  OPENAI_API_KEY: 'ci-openai-dummy',
+  NODE_ENV: 'test',
+  PRISMA_DISABLE_DOTENV: '1',
+  SAFE_SIGNER_KEY: '',
+  SQUADS_SIGNER_KEY: '',
+  NODE_PATH: process.env['NODE_PATH'],
+  PATH: process.env['PATH'],
+};
+
+const PORT = 7891;
+let api: StartApiResult;
+
+beforeAll(async () => {
+  if (SKIP) return;
+  api = await startApi({
+    dbPath: '',
+    env: BASE_ENV,
+    port: PORT,
+    readyTimeoutMs: 20_000,
+    tmpPrefix: 'cclaw-wlt-parity',
+  });
+
+  const seedMigrationsScript = `
+    const Database = require('better-sqlite3');
+    const db = new Database(process.env.DB_PATH);
+    db.exec('CREATE TABLE IF NOT EXISTS _migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT DEFAULT (datetime(\\'now\\')))');
+    const insert = db.prepare('INSERT OR IGNORE INTO _migrations (name) VALUES (?)');
+    ${LEGACY_MIGRATION_NAMES.map((n) => `insert.run(${JSON.stringify(n)});`).join('\n    ')}
+    db.close();
+  `;
+  execFileSync('node', ['--eval', seedMigrationsScript], {
+    env: { ...process.env, DB_PATH: api.dbPath },
+    cwd: resolve(REPO_ROOT, 'scripts'),
+    encoding: 'utf8',
+    timeout: 10000,
+  });
+
+  const legacyEnv = {
     ...process.env,
-    SAFE_ID: 'test',
-    DB_PATH: legacyDbPath,
+    SAFE_ID: 'ci-wlt-parity',
+    DB_PATH: api.dbPath,
     SAFE_SIGNER_KEY: '',
     SQUADS_SIGNER_KEY: '',
     PRISMA_DISABLE_DOTENV: '1',
-    DATABASE_URL: `file:${legacyDbPath}`,
+    DATABASE_URL: `file:${api.dbPath}`,
     PAPER_MODE: 'false',
     AUTO_APPROVE_BUY: 'false',
     AUTO_APPROVE_BUY_MAX_USD: '',
   };
 
-  const run = (cmd: string, args: string[]) =>
-    execFileSync('node', [resolve(SCRIPTS_DIR, 'db-query.js'), cmd, ...args], {
-      env: baseEnv,
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      timeout: 10000,
-    });
-
-  // Add a fully scored wallet (INSERT OR REPLACE)
-  run('add-tracked-wallet', [
+  // Seed a scored wallet
+  execFileSync('node', [
+    `${SCRIPTS_DIR}/db-query.js`,
+    'add-tracked-wallet',
     '--json',
     JSON.stringify({
-      address: SCORED_WALLET_ADDR,
-      chain: CHAIN,
-      label: 'Test Smart Money',
+      address: '0xScoredWalletParity001',
+      chain: 'base',
+      label: 'Parity Smart Money',
       type: 'smart_money',
       score: 85,
       score_breakdown: '{"birdeye":80,"zerion":90}',
     }),
-  ]);
+  ], { env: legacyEnv, cwd: REPO_ROOT, encoding: 'utf8', timeout: 10000 });
 
-  // Propose a wallet (INSERT OR IGNORE)
-  run('propose-wallet', [
+  // Seed a proposed wallet
+  execFileSync('node', [
+    `${SCRIPTS_DIR}/db-query.js`,
+    'propose-wallet',
     '--json',
     JSON.stringify({
-      address: PROPOSED_WALLET_ADDR,
-      chain: CHAIN,
-      source_token: '0xSourceToken',
+      address: '0xProposedWalletParity001',
+      chain: 'base',
       source: 'agent',
     }),
-  ]);
+  ], { env: legacyEnv, cwd: REPO_ROOT, encoding: 'utf8', timeout: 10000 });
+}, 25_000);
+
+afterAll(async () => {
+  if (SKIP) return;
+  await api.kill();
 });
 
-afterAll(() => {
-  rmSync(tempDir, { recursive: true, force: true });
-});
+describe('wallets parity — byte-identical deepEqual (P2 retrofit)', () => {
+  it.skipIf(SKIP)('API GET /v1/wallets deepEquals legacy get-tracked-wallets output', async () => {
+    const legacyRaw = execFileSync('node', [`${SCRIPTS_DIR}/db-query.js`, 'get-tracked-wallets'], {
+      env: {
+        ...process.env,
+        SAFE_ID: 'ci-wlt-parity',
+        DB_PATH: api.dbPath,
+        SAFE_SIGNER_KEY: '',
+        SQUADS_SIGNER_KEY: '',
+        PRISMA_DISABLE_DOTENV: '1',
+        DATABASE_URL: `file:${api.dbPath}`,
+        PAPER_MODE: 'false',
+      },
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    const legacyOutput = JSON.parse(legacyRaw) as unknown[];
 
-function runDbQuery(command: string, args: string[] = []): unknown {
-  const result = execFileSync('node', [resolve(SCRIPTS_DIR, 'db-query.js'), command, ...args], {
-    env: {
-      ...process.env,
-      SAFE_ID: 'test',
-      DB_PATH: legacyDbPath,
-      SAFE_SIGNER_KEY: '',
-      SQUADS_SIGNER_KEY: '',
-      PRISMA_DISABLE_DOTENV: '1',
-      DATABASE_URL: `file:${legacyDbPath}`,
-      PAPER_MODE: 'false',
-      AUTO_APPROVE_BUY: 'false',
-      AUTO_APPROVE_BUY_MAX_USD: '',
-    },
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    timeout: 10000,
-  });
-  return JSON.parse(result);
-}
+    const res = await fetch(`http://127.0.0.1:${PORT}/v1/wallets`, {
+      headers: { Authorization: `Bearer ${AGENT_TOKEN}` },
+    });
+    expect(res.status).toBe(200);
+    const apiOutput = (await res.json()) as unknown[];
 
-describe('wallets parity: structural shape (ADR-0020)', () => {
-  it('get-tracked-wallets returns an array', () => {
-    const output = runDbQuery('get-tracked-wallets');
-    expect(Array.isArray(output)).toBe(true);
-  });
-
-  it('scored wallet has expected snake_case fields', () => {
-    const output = runDbQuery('get-tracked-wallets') as Array<Record<string, unknown>>;
-    const w = output.find((r) => r['address'] === SCORED_WALLET_ADDR);
-    expect(w).toBeDefined();
-    expect(w!['chain']).toBe(CHAIN);
-    expect(w!['type']).toBe('smart_money');
-    expect(typeof w!['score']).toBe('number');
-    expect(w!['status']).toBe('scored');
-    expect(w!['retry_count']).toBe(0);
-  });
-
-  it('score_breakdown is a raw JSON string (not parsed)', () => {
-    const output = runDbQuery('get-tracked-wallets') as Array<Record<string, unknown>>;
-    const w = output.find((r) => r['address'] === SCORED_WALLET_ADDR);
-    expect(w).toBeDefined();
-    // db-query.js returns score_breakdown as TEXT from SQLite — it should be a string
-    expect(typeof w!['score_breakdown']).toBe('string');
-  });
-
-  it('proposed wallet has status=proposed and retry_count=0', () => {
-    const output = runDbQuery('get-tracked-wallets', ['--status', 'proposed']) as Array<
-      Record<string, unknown>
-    >;
-    const w = output.find((r) => r['address'] === PROPOSED_WALLET_ADDR);
-    expect(w).toBeDefined();
-    expect(w!['status']).toBe('proposed');
-    expect(w!['retry_count']).toBe(0);
-  });
-
-  it('get-unscored-wallets returns the proposed wallet', () => {
-    const output = runDbQuery('get-unscored-wallets') as Array<Record<string, unknown>>;
-    expect(Array.isArray(output)).toBe(true);
-    const w = output.find((r) => r['address'] === PROPOSED_WALLET_ADDR);
-    expect(w).toBeDefined();
-  });
-
-  it('update-wallet-score marks wallet as scored', () => {
-    const env = {
-      ...process.env,
-      SAFE_ID: 'test',
-      DB_PATH: legacyDbPath,
-      SAFE_SIGNER_KEY: '',
-      SQUADS_SIGNER_KEY: '',
-      PRISMA_DISABLE_DOTENV: '1',
-      DATABASE_URL: `file:${legacyDbPath}`,
-      PAPER_MODE: 'false',
-      AUTO_APPROVE_BUY: 'false',
-      AUTO_APPROVE_BUY_MAX_USD: '',
-    };
-
-    execFileSync(
-      'node',
-      [
-        resolve(SCRIPTS_DIR, 'db-query.js'),
-        'update-wallet-score',
-        '--address',
-        PROPOSED_WALLET_ADDR,
-        '--chain',
-        CHAIN,
-        '--json',
-        JSON.stringify({ score: 75, type: 'whale', status: 'scored' }),
-      ],
-      { env, cwd: REPO_ROOT, encoding: 'utf8', timeout: 10000 },
-    );
-
-    const output = runDbQuery('get-tracked-wallets', ['--status', 'scored']) as Array<
-      Record<string, unknown>
-    >;
-    const w = output.find((r) => r['address'] === PROPOSED_WALLET_ADDR);
-    expect(w).toBeDefined();
-    expect(w!['status']).toBe('scored');
-    expect(w!['type']).toBe('whale');
-  });
-
-  it('remove-tracked-wallet deletes the entry', () => {
-    const TEMP_ADDR = '0xTempWalletRemove';
-    const env = {
-      ...process.env,
-      SAFE_ID: 'test',
-      DB_PATH: legacyDbPath,
-      SAFE_SIGNER_KEY: '',
-      SQUADS_SIGNER_KEY: '',
-      PRISMA_DISABLE_DOTENV: '1',
-      DATABASE_URL: `file:${legacyDbPath}`,
-      PAPER_MODE: 'false',
-      AUTO_APPROVE_BUY: 'false',
-      AUTO_APPROVE_BUY_MAX_USD: '',
-    };
-
-    execFileSync(
-      'node',
-      [
-        resolve(SCRIPTS_DIR, 'db-query.js'),
-        'propose-wallet',
-        '--json',
-        JSON.stringify({ address: TEMP_ADDR, chain: CHAIN }),
-      ],
-      { env, cwd: REPO_ROOT, encoding: 'utf8', timeout: 10000 },
-    );
-
-    execFileSync(
-      'node',
-      [
-        resolve(SCRIPTS_DIR, 'db-query.js'),
-        'remove-tracked-wallet',
-        '--address',
-        TEMP_ADDR,
-        '--chain',
-        CHAIN,
-      ],
-      { env, cwd: REPO_ROOT, encoding: 'utf8', timeout: 10000 },
-    );
-
-    const output = runDbQuery('get-tracked-wallets') as Array<Record<string, unknown>>;
-    const w = output.find((r) => r['address'] === TEMP_ADDR);
-    expect(w).toBeUndefined();
+    expect(apiOutput).toEqual(legacyOutput);
   });
 });

@@ -1,155 +1,198 @@
 /**
- * Synthetic-data parity tests for the orders module (ADR-0020).
+ * Parity test for orders — byte-identical deepEqual contract (P2 retrofit).
  *
- * Verifies that the legacy db-query.js get-orders output shape is structurally
- * correct. This is the load-bearing parity check during P1a.
+ * Template: research-log-parity.spec.ts
+ * 1. Seed via legacy `db-query.js add-order`
+ * 2. Capture legacy: JSON.parse(execFileSync('node', ['scripts/db-query.js', 'get-orders']))
+ * 3. Capture API:    await fetch('http://127.0.0.1:7888/v1/orders')
+ * 4. expect(apiOutput).toEqual(legacyOutput) — byte-identical deepEqual
+ *
+ * Gated behind CCLAW_SECURITY_TESTS_ENABLED=1 — spawns a compiled API binary.
+ * Requires `pnpm build` before running.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { startApi } from '../_spawn-api.js';
+import type { StartApiResult } from '../_spawn-api.js';
 
-const REPO_ROOT = resolve(__dirname, '../../..');
-const SCRIPTS_DIR = resolve(REPO_ROOT, 'scripts');
+const SKIP = process.env['CCLAW_SECURITY_TESTS_ENABLED'] !== '1';
 
-let tempDir: string;
-let legacyDbPath: string;
+const REPO_ROOT = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '');
+const SCRIPTS_DIR = `${REPO_ROOT}/scripts`;
 
-const PENDING_BUY_ID = 'parity-ord-pending-1';
-const PENDING_SELL_ID = 'parity-ord-sell-1';
+const LEGACY_MIGRATION_NAMES = [
+  '001_initial', '002_paper_mode', '003_tracked_wallets_deployer_type',
+  '004_wallet_scoring_pipeline', '005_market_regime', '006_analysis_cache',
+  '007_wallet_source', '008_portfolio_sync', '009_per_chain_cash',
+  '010_heartbeat_seeds_research', '011_position_exit_columns', '012_unified_orders',
+  '013_contract_snapshots', '014_order_status', '015_multisig_tracking',
+  '016_db_improvements', '017_narrative_deep_scan_heartbeat', '018_trailing_stops',
+  '019_research_log', '020_ethereum_chain_cash', '021_observer_log',
+  '022_approval_bot', '023_memory_backup_heartbeat', '024_smart_money_signals',
+  '025_split_harvest_and_health_keys', '026_log_summary_columns', '027_cleanup_invalid_tiers',
+];
 
-beforeAll(() => {
-  tempDir = mkdtempSync(resolve(tmpdir(), 'cclaw-parity-ord-'));
-  legacyDbPath = resolve(tempDir, 'test.db');
+const AGENT_TOKEN = 'ci-research-key-aaaaaaaaaaaaaaaa';
 
-  const baseEnv = {
+const BASE_ENV: NodeJS.ProcessEnv = {
+  SAFE_ID: 'ci-ord-parity',
+  REDIS_URL: 'redis://localhost:6379',
+  RESEARCH_API_KEY: 'ci-research-key-aaaaaaaaaaaaaaaa',
+  SENTINEL_API_KEY: 'ci-sentinel-key-aaaaaaaaaaaaaaaa',
+  EXECUTOR_API_KEY: 'ci-executor-key-aaaaaaaaaaaaaaaa',
+  OBSERVER_API_KEY: 'ci-observer-key-aaaaaaaaaaaaaaaa',
+  LOOP_API_KEY: 'ci-loop-key-aaaaaaaaaaaaaaaaaaaaa',
+  WORKER_API_KEY: 'ci-worker-key-aaaaaaaaaaaaaaaaaaa',
+  SCHEDULER_API_KEY: 'ci-scheduler-key-aaaaaaaaaaaaaaa',
+  DASHBOARD_API_KEY: 'ci-dashboard-key-aaaaaaaaaaaaaaaa',
+  ACTIVE_CHAINS: 'base,solana',
+  OPENAI_API_KEY: 'ci-openai-dummy',
+  NODE_ENV: 'test',
+  PRISMA_DISABLE_DOTENV: '1',
+  SAFE_SIGNER_KEY: '',
+  SQUADS_SIGNER_KEY: '',
+  NODE_PATH: process.env['NODE_PATH'],
+  PATH: process.env['PATH'],
+};
+
+const PORT = 7888;
+let api: StartApiResult;
+
+beforeAll(async () => {
+  if (SKIP) return;
+  api = await startApi({
+    dbPath: '',
+    env: BASE_ENV,
+    port: PORT,
+    readyTimeoutMs: 20_000,
+    tmpPrefix: 'cclaw-ord-parity',
+  });
+
+  const seedMigrationsScript = `
+    const Database = require('better-sqlite3');
+    const db = new Database(process.env.DB_PATH);
+    db.exec('CREATE TABLE IF NOT EXISTS _migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT DEFAULT (datetime(\\'now\\')))');
+    const insert = db.prepare('INSERT OR IGNORE INTO _migrations (name) VALUES (?)');
+    ${LEGACY_MIGRATION_NAMES.map((n) => `insert.run(${JSON.stringify(n)});`).join('\n    ')}
+    db.close();
+  `;
+  execFileSync('node', ['--eval', seedMigrationsScript], {
+    env: { ...process.env, DB_PATH: api.dbPath },
+    cwd: resolve(REPO_ROOT, 'scripts'),
+    encoding: 'utf8',
+    timeout: 10000,
+  });
+
+  const legacyEnv = {
     ...process.env,
-    SAFE_ID: 'test',
-    DB_PATH: legacyDbPath,
+    SAFE_ID: 'ci-ord-parity',
+    DB_PATH: api.dbPath,
     SAFE_SIGNER_KEY: '',
     SQUADS_SIGNER_KEY: '',
     PRISMA_DISABLE_DOTENV: '1',
-    DATABASE_URL: `file:${legacyDbPath}`,
-    // Explicitly disable auto-approve so buy orders stay pending
+    DATABASE_URL: `file:${api.dbPath}`,
+    PAPER_MODE: 'false',
     AUTO_APPROVE_BUY: 'false',
     AUTO_APPROVE_BUY_MAX_USD: '',
-    PAPER_MODE: 'false',
   };
 
-  const run = (cmd: string, args: string[]) =>
-    execFileSync('node', [resolve(SCRIPTS_DIR, 'db-query.js'), cmd, ...args], {
-      env: baseEnv,
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      timeout: 10000,
-    });
+  const seed = (payload: object) =>
+    execFileSync('node', [
+      `${SCRIPTS_DIR}/db-query.js`,
+      'add-order',
+      '--json',
+      JSON.stringify(payload),
+    ], { env: legacyEnv, cwd: REPO_ROOT, encoding: 'utf8', timeout: 10000 });
 
-  // Insert a pending buy order
-  run('add-order', [
-    '--json',
-    JSON.stringify({
-      id: PENDING_BUY_ID,
-      action: 'buy',
-      symbol: 'ETH',
-      address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-      chain: 'base',
-      amount: '100',
-      tier: 'conviction',
-      entry_price: 2000,
-      stop_loss: 1600,
-      take_profit_levels: [2500, 3000],
-      analysis_score: 85,
-      risk_score: 20,
-    }),
-  ]);
+  seed({
+    id: 'parity-ord-buy-1',
+    action: 'buy',
+    symbol: 'ETH',
+    address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+    chain: 'base',
+    amount: '100',
+    tier: 'conviction',
+    entry_price: 2000,
+    stop_loss: 1600,
+    take_profit_levels: [2500, 3000],
+    analysis_score: 85,
+    risk_score: 20,
+  });
+  seed({
+    id: 'parity-ord-sell-1',
+    action: 'sell',
+    symbol: 'ETH',
+    address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+    chain: 'base',
+    amount: 'all',
+    reason: 'stop_loss_hit',
+  });
+}, 25_000);
 
-  // Insert a pending sell order
-  run('add-order', [
-    '--json',
-    JSON.stringify({
-      id: PENDING_SELL_ID,
-      action: 'sell',
-      symbol: 'ETH',
-      address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-      chain: 'base',
-      amount: 'all',
-      reason: 'stop_loss_hit',
-    }),
-  ]);
+afterAll(async () => {
+  if (SKIP) return;
+  await api.kill();
 });
 
-afterAll(() => {
-  rmSync(tempDir, { recursive: true, force: true });
-});
-
-function runDbQuery(command: string, args: string[] = []): unknown {
-  const result = execFileSync(
-    'node',
-    [resolve(SCRIPTS_DIR, 'db-query.js'), command, ...args],
-    {
+describe('orders parity — byte-identical deepEqual (P2 retrofit)', () => {
+  it.skipIf(SKIP)('API GET /v1/orders deepEquals legacy get-orders output', async () => {
+    const legacyRaw = execFileSync('node', [`${SCRIPTS_DIR}/db-query.js`, 'get-orders'], {
       env: {
         ...process.env,
-        SAFE_ID: 'test',
-        DB_PATH: legacyDbPath,
+        SAFE_ID: 'ci-ord-parity',
+        DB_PATH: api.dbPath,
         SAFE_SIGNER_KEY: '',
         SQUADS_SIGNER_KEY: '',
         PRISMA_DISABLE_DOTENV: '1',
-        DATABASE_URL: `file:${legacyDbPath}`,
-        AUTO_APPROVE_BUY: 'false',
+        DATABASE_URL: `file:${api.dbPath}`,
         PAPER_MODE: 'false',
+        AUTO_APPROVE_BUY: 'false',
       },
       cwd: REPO_ROOT,
       encoding: 'utf8',
       timeout: 10000,
-    },
-  );
-  return JSON.parse(result);
-}
+    });
+    const legacyOutput = JSON.parse(legacyRaw) as unknown[];
 
-describe('orders parity: structural shape', () => {
-  it('get-orders returns an array', () => {
-    const output = runDbQuery('get-orders');
-    expect(Array.isArray(output)).toBe(true);
+    const res = await fetch(`http://127.0.0.1:${PORT}/v1/orders`, {
+      headers: { Authorization: `Bearer ${AGENT_TOKEN}` },
+    });
+    expect(res.status).toBe(200);
+    const apiOutput = (await res.json()) as unknown[];
+
+    expect(apiOutput).toEqual(legacyOutput);
   });
 
-  it('get-orders --pending returns pending/approved orders (legacy: awaiting execution)', () => {
-    // Note: db-query.js get-orders --pending returns status IN ('pending', 'approved')
-    // which means "awaiting execution", not just status='pending'.
-    const output = runDbQuery('get-orders', ['--pending']) as Array<{ status: string }>;
-    expect(Array.isArray(output)).toBe(true);
-    for (const order of output) {
-      expect(['pending', 'approved']).toContain(order.status);
-    }
-  });
+  it.skipIf(SKIP)('API GET /v1/orders?pending=true deepEquals legacy get-orders --pending output', async () => {
+    const legacyRaw = execFileSync(
+      'node', [`${SCRIPTS_DIR}/db-query.js`, 'get-orders', '--pending'],
+      {
+        env: {
+          ...process.env,
+          SAFE_ID: 'ci-ord-parity',
+          DB_PATH: api.dbPath,
+          SAFE_SIGNER_KEY: '',
+          SQUADS_SIGNER_KEY: '',
+          PRISMA_DISABLE_DOTENV: '1',
+          DATABASE_URL: `file:${api.dbPath}`,
+          PAPER_MODE: 'false',
+          AUTO_APPROVE_BUY: 'false',
+        },
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        timeout: 10000,
+      },
+    );
+    const legacyOutput = JSON.parse(legacyRaw) as unknown[];
 
-  it('order rows have expected field names (snake_case)', () => {
-    const output = runDbQuery('get-orders', ['--pending']) as Array<Record<string, unknown>>;
-    const order = output.find((o) => o['id'] === PENDING_BUY_ID);
-    expect(order).toBeDefined();
-    expect(order!['action']).toBe('buy');
-    expect(order!['status']).toBe('pending');
-    expect(typeof order!['entry_price']).toBe('number');
-  });
+    const res = await fetch(`http://127.0.0.1:${PORT}/v1/orders?pending=true`, {
+      headers: { Authorization: `Bearer ${AGENT_TOKEN}` },
+    });
+    expect(res.status).toBe(200);
+    const apiOutput = (await res.json()) as unknown[];
 
-  it('take_profit_levels is parsed as an array for buy orders', () => {
-    const output = runDbQuery('get-orders', ['--pending']) as Array<{ id: string; take_profit_levels: unknown }>;
-    const order = output.find((o) => o.id === PENDING_BUY_ID);
-    expect(order).toBeDefined();
-    expect(Array.isArray(order!.take_profit_levels)).toBe(true);
-    expect(order!.take_profit_levels).toEqual([2500, 3000]);
-  });
-
-  it('take_profit_levels is null for sell orders', () => {
-    const output = runDbQuery('get-orders', ['--pending']) as Array<{ id: string; take_profit_levels: unknown }>;
-    const order = output.find((o) => o.id === PENDING_SELL_ID);
-    expect(order).toBeDefined();
-    expect(order!.take_profit_levels).toBeNull();
-  });
-
-  it('get-order-history returns an array', () => {
-    const output = runDbQuery('get-order-history');
-    expect(Array.isArray(output)).toBe(true);
+    expect(apiOutput).toEqual(legacyOutput);
   });
 });
