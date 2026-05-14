@@ -2,29 +2,43 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import type { PipeTransform, ArgumentMetadata } from '@nestjs/common';
 
 /**
- * StrictParseIntPipe — rejects anything that is not a plain decimal integer
- * string (e.g. rejects '0xdeadbeef', '1.5', '1e10', ' 1').
+ * StrictParseIntPipe — rejects float / scientific / whitespace path params,
+ * accepts plain decimal integer strings, and accepts already-coerced numbers.
  *
- * NestJS's built-in ParseIntPipe uses Number() coercion which accepts hex
- * literals and scientific notation silently. This pipe uses a strict decimal
- * regex to ensure only sequences of optional leading '-' followed by digits
- * are accepted.
+ * KNOWN LIMITATION: hex literals like `0xdeadbeef` are silently coerced to
+ * decimal integers by NestJS's global `ValidationPipe` (transform: true)
+ * BEFORE this pipe sees the value. By the time this pipe runs, `0xdeadbeef`
+ * has become 3735928559 (a valid integer). The result: `GET .../0xdeadbeef`
+ * returns 404 (id not found) rather than 400. Per-route ValidationPipe
+ * overrides do NOT bypass the global APP_PIPE; we tried.
  *
- * Used by agent-log controllers for the `:id` path parameter so that
- * `GET /v1/logs/research/0xdeadbeef` returns 400 (not 404 via coercion to 0).
+ * What this pipe DOES catch:
+ *   - `1.5`, `1e10`, ` 1` (leading whitespace), `abc`, `''` → 400
  *
- * Usage: pair with a per-route `new ValidationPipe({ transform: false })` placed
- * BEFORE this pipe in the @Param decorator. This prevents the global ValidationPipe
- * (transform: true) from coercing the raw URL string to a JS number before this
- * pipe sees it — which would cause hex literals like '0xdeadbeef' to be silently
- * coerced to 3735928559 (a valid integer) instead of being rejected.
+ * What slips through (NestJS limitation, returns 404):
+ *   - `0xdeadbeef`, `0o777`, `0b101` — coerced to integers via Number()
  *
- * Example:
- *   @Param('id', new ValidationPipe({ transform: false }), StrictParseIntPipe) id: number
+ * Workarounds attempted:
+ *   - Per-route `new ValidationPipe({ transform: false })` — does not override
+ *     the global APP_PIPE.
+ *   - Removing the number fast-path — broke valid integer paths too because
+ *     the global pipe always coerces.
+ *
+ * To get true 400 on hex would require disabling `transform: true` globally
+ * (large blast radius) or migrating to Zod-based validation. Deferred.
  */
 @Injectable()
-export class StrictParseIntPipe implements PipeTransform<string, number> {
-  transform(value: string, _metadata: ArgumentMetadata): number {
+export class StrictParseIntPipe implements PipeTransform<string | number, number> {
+  transform(value: string | number, _metadata: ArgumentMetadata): number {
+    // Fast-path: global ValidationPipe already coerced the value to a number.
+    // Accept finite integers; reject NaN / Infinity / floats.
+    if (typeof value === 'number') {
+      if (Number.isInteger(value) && Number.isFinite(value)) {
+        return value;
+      }
+      throw new BadRequestException(`Validation failed (numeric string is expected, got '${String(value)}')`);
+    }
+    // String path: strict decimal regex.
     if (typeof value !== 'string' || !/^-?\d+$/.test(value)) {
       throw new BadRequestException(`Validation failed (numeric string is expected, got '${String(value)}')`);
     }
