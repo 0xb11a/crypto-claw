@@ -118,7 +118,7 @@ export default [
   // ----------------------------------------------------------------
   {
     files: ['libs/modules/**/*.ts'],
-    ignores: ['**/node_modules/**', '**/dist/**', '**/*.spec.ts', '**/*.test.ts'],
+    ignores: ['**/node_modules/**', '**/dist/**', '**/*.spec.ts', '**/*.test.ts', '**/vitest.config.ts'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
