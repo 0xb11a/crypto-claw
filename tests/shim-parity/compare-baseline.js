@@ -57,6 +57,10 @@ const IMPLEMENTED_COMMANDS = {
   audit: [],
   // P2 group 2: agent log tables
   'agent-logs': ['get-research-log', 'get-sentinel-log', 'get-executor-log', 'get-observer-log'],
+  // P2 group 3: market data tables
+  'analysis-cache': ['get-analysis-cache'],
+  contracts: ['get-contract-snapshots'],
+  system: ['get-meta', 'get-cash', 'get-gas', 'get-sync-status'],
 };
 
 const argv = Object.fromEntries(
