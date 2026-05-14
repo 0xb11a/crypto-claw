@@ -2,5 +2,6 @@ packages:
   - 'apps/*'
   - 'libs/*'
   - 'libs/modules/*'
+  - 'libs/adapters/*'
   - 'sdk/*'
   - 'tests/integration'

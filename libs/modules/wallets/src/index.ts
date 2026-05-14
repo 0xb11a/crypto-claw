@@ -12,3 +12,7 @@ export * from './dto/update-wallet-score.dto.js';
 export * from './dto/tracked-wallets-query.dto.js';
 export * from './dto/smart-money-signal-response.dto.js';
 export * from './dto/signals-query.dto.js';
+
+// Queue name constants (P3g1) — re-exported so consumers don't reach into
+// the jobs/ subdirectory directly. Import from '@cclaw/wallets' only.
+export { WALLET_HARVEST_QUEUE, WALLET_SCORING_QUEUE, WALLET_ACTIVITY_QUEUE } from './jobs/queue-names.js';

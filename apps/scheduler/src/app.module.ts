@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
+import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, assertConfigValid, assertNoSignerKeysInEnv } from '@cclaw/config';
 import { LoggerModule } from '@cclaw/logger';
+import { WalletHarvestSchedule } from './schedules/wallet-harvest.schedule.js';
+import { WALLET_HARVEST_QUEUE } from '@cclaw/wallets';
 
 // Boot self-checks run at module-import time so they fire before NestFactory
 // touches anything. Order matches main.ts (SPEC §4 #4 then §4 #6): signer-key
@@ -13,10 +17,61 @@ const _config = assertConfigValid(process.env);
 /**
  * Root application module for apps/scheduler.
  *
- * P0: imports ConfigModule and LoggerModule only. No cron schedules
- * registered yet — those are added in P3+ (SPEC §8).
+ * P3g1 (first time @nestjs/schedule lands):
+ *   - `ScheduleModule.forRoot()` activates the NestJS cron runner.
+ *   - `BullModule.forRoot()` connects to Redis so the scheduler can enqueue
+ *     jobs onto the same BullMQ queues the worker processes.
+ *   - `BullModule.registerQueue(WALLET_HARVEST_QUEUE)` registers the queue
+ *     handle so `@InjectQueue(WALLET_HARVEST_QUEUE)` resolves in schedule
+ *     providers. The retry/backoff policy lives in apps/worker where it is
+ *     canonical; the scheduler only needs a producer handle.
+ *   - `WalletHarvestSchedule` provides the `@Cron('0 * * * *')` enqueuer.
+ *
+ * Queue registration here is a *producer-only* registration — no Worker /
+ * processor is created in the scheduler process. The worker owns processing.
  */
 @Module({
-  imports: [ConfigModule, LoggerModule.forRoot({ logLevel: _config.LOG_LEVEL, nodeEnv: _config.NODE_ENV })],
+  imports: [
+    ConfigModule,
+    LoggerModule.forRoot({ logLevel: _config.LOG_LEVEL, nodeEnv: _config.NODE_ENV }),
+
+    // Activate NestJS cron scheduler (first registration in P3g1).
+    ScheduleModule.forRoot(),
+
+    // BullMQ global Redis connection — mirrors apps/worker so both processes
+    // reach the same Redis instance and therefore the same queue.
+    BullModule.forRoot({
+      connection: {
+        ...parseRedisUrl(_config.REDIS_URL),
+      },
+    }),
+
+    // Register producer handle for wallet-harvest queue.
+    // No defaultJobOptions needed on the producer side — job options are set
+    // by the enqueuer at add() call time (or inherited from the consumer-side
+    // defaultJobOptions registered in apps/worker).
+    BullModule.registerQueue({ name: WALLET_HARVEST_QUEUE }),
+  ],
+  providers: [WalletHarvestSchedule],
 })
 export class AppModule {}
+
+/**
+ * Parse a redis:// URL string into ioredis connection options.
+ * Mirrors the same helper in apps/worker/src/app.module.ts.
+ * TODO: extract to a shared utility in libs/config or libs/prisma in a
+ * future cleanup PR to avoid duplication.
+ */
+function parseRedisUrl(url: string): { host: string; port: number; password?: string } {
+  try {
+    const parsed = new URL(url);
+    return {
+      host: parsed.hostname || 'localhost',
+      port: parseInt(parsed.port || '6379', 10),
+      ...(parsed.password ? { password: parsed.password } : {}),
+    };
+  } catch {
+    // Fallback: localhost defaults
+    return { host: 'localhost', port: 6379 };
+  }
+}

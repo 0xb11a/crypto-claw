@@ -37,6 +37,7 @@ Thumbs.db
 apps/*/dist/
 libs/*/dist/
 libs/modules/*/dist/
+libs/adapters/*/dist/
 sdk/cclaw/dist/
 
 # Compiled JS artefacts that must not land in src/ (leftover from earlier outDir misconfiguration)
@@ -50,9 +51,16 @@ libs/modules/*/src/**/*.js
 libs/modules/*/src/**/*.js.map
 libs/modules/*/src/**/*.d.ts
 libs/modules/*/src/**/*.d.ts.map
+libs/adapters/*/src/**/*.js
+libs/adapters/*/src/**/*.js.map
+libs/adapters/*/src/**/*.d.ts
+libs/adapters/*/src/**/*.d.ts.map
 
 # TypeScript incremental build info
 *.tsbuildinfo
 
 # Vitest coverage output (build artifact — never commit)
 coverage/
+
+# Stray SQLite artifact created by integration specs that parse `file::memory:?...` literally
+prisma/:memory:
