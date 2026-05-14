@@ -61,7 +61,7 @@ export class AnalysisCacheRepository {
     // Raw upsert to preserve SQLite datetime() format for expires_at.
     // $queryRawUnsafe is necessary because Prisma cannot express
     // datetime('now', '+N hours') in its type-safe API (ADR-0020).
-
+    // eslint-disable-next-line no-restricted-syntax
     await this.prisma.$queryRawUnsafe<unknown[]>(
       `INSERT INTO analysis_cache
          (address, chain, symbol, analysis_score, risk_score, verdict, tier, reasoning, expires_at)
@@ -101,7 +101,7 @@ export class AnalysisCacheRepository {
     const limit = Math.min(query.limit ?? 50, 500);
     // $queryRawUnsafe required to use datetime('now') comparison on SQLite TEXT
     // expires_at column — Prisma cannot express this with typed Date filters (ADR-0020).
-
+    // eslint-disable-next-line no-restricted-syntax
     const rows = await this.prisma.$queryRawUnsafe<AnalysisCache[]>(
       `SELECT address, chain, symbol, analysis_score, risk_score, verdict, tier, reasoning, expires_at, created_at
        FROM analysis_cache
@@ -119,7 +119,7 @@ export class AnalysisCacheRepository {
   async findByAddressChain(query: CheckTokenStatusQueryDto): Promise<AnalysisCacheResponseDto | null> {
     // $queryRawUnsafe required to filter expires_at > datetime('now') on SQLite TEXT
     // column — Prisma cannot compare TEXT expires_at with a typed Date (ADR-0020).
-
+    // eslint-disable-next-line no-restricted-syntax
     const rows = await this.prisma.$queryRawUnsafe<AnalysisCache[]>(
       `SELECT address, chain, symbol, analysis_score, risk_score, verdict, tier, reasoning, expires_at, created_at
        FROM analysis_cache
@@ -140,7 +140,7 @@ export class AnalysisCacheRepository {
   async deleteExpiredBatch(): Promise<number> {
     // $executeRawUnsafe required for datetime('now') comparison on SQLite TEXT
     // expires_at — Prisma deleteMany cannot express this filter (ADR-0020).
-
+    // eslint-disable-next-line no-restricted-syntax
     const changed = await this.prisma.$executeRawUnsafe(
       `DELETE FROM analysis_cache WHERE expires_at <= datetime('now')`,
     );

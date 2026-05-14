@@ -80,7 +80,7 @@ describe('SignalsRepository', () => {
   });
 
   it('ungrouped result maps camelCase Prisma fields to snake_case response', async () => {
-    const result = (await repo.getSignals({})) as Record<string, unknown>[];
+    const result = (await repo.getSignals({})) as unknown as Record<string, unknown>[];
     expect(result.length).toBe(1);
     expect(result[0]!['tx_hash']).toBe('0xtx1');
     expect(result[0]!['wallet_address']).toBe('0xwallet');

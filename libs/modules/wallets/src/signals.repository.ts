@@ -126,6 +126,7 @@ export class SignalsRepository {
         LIMIT ?
       `;
 
+      // eslint-disable-next-line no-restricted-syntax -- ROUND(AVG()) requires raw SQL; all params validated above (ADR-0020)
       const rows = await this.prisma.$queryRawUnsafe<SmartMoneySignalGroupedResponseDto[]>(
         sql,
         ...params,
@@ -167,6 +168,7 @@ export class SignalsRepository {
         LIMIT ?
       `;
 
+      // eslint-disable-next-line no-restricted-syntax -- IN subquery on positions requires raw SQL; all params validated above (ADR-0020)
       const rows = await this.prisma.$queryRawUnsafe<SmartMoneySignalResponseDto[]>(sql, ...params, limit);
       return rows;
     }
