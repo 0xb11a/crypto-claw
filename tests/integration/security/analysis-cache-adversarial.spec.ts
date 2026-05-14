@@ -78,9 +78,12 @@ async function req(
 
 describe('analysis-cache adversarial security (DoD §F)', () => {
   it.skipIf(SKIP)('POST with unknown field returns 400 (forbidNonWhitelisted)', async () => {
+    // JSON.parse silently strips `__proto__` keys per ECMAScript — original
+    // payload arrived as { address, chain, verdict } and accidentally passed.
+    // Use a real unknown property so the validator's forbidNonWhitelisted fires.
     const { status } = await req('POST', '/v1/analysis-cache', {
       token: AGENT_TOKEN,
-      body: { address: '0x1', chain: 'base', verdict: 'buy', __proto__: {} },
+      body: { address: '0x1', chain: 'base', verdict: 'buy', unknown_field: 'rejected' },
     });
     expect(status).toBe(400);
   });
