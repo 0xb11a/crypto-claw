@@ -4,6 +4,13 @@
  * Verifies that the legacy db-query.js get-heartbeats output shape matches
  * the API's heartbeat module response shape, including the computed fields
  * seconds_since, expected_cadence_seconds, and idle_ok.
+ *
+ * Shape-only (not byte-identical) — deferred from byte-identical retrofit because:
+ *   3. Timing-derived fields: `seconds_since` is recomputed independently on each
+ *      side (legacy CLI and API) at slightly different instants, causing a 1-second
+ *      timing race that makes deepEqual non-deterministic.
+ * Full byte-identical retrofit would require either freezing the clock across both
+ * calls or building a normalizeForParity() translation layer — deferred indefinitely.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';

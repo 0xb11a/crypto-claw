@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus, ValidationPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { Roles } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { AgentLogsService } from '../agent-logs.service.js';
 import { AppendExecutorLogDto } from '../dto/append-executor-log.dto.js';
 import { AgentLogQueryDto } from '../dto/agent-log-query.dto.js';
+import { StrictParseIntPipe } from '../pipes/strict-parse-int.pipe.js';
 import type { ExecutorLogResponseDto } from '../dto/executor-log-response.dto.js';
 
 /**
@@ -37,7 +38,13 @@ export class ExecutorLogController {
   @ApiParam({ name: 'id', description: 'Row integer ID' })
   @ApiResponse({ status: 200, description: 'Executor log row' })
   @ApiResponse({ status: 404, description: 'Row not found' })
-  getById(@Param('id', ParseIntPipe) id: number): Promise<ExecutorLogResponseDto> {
+  getById(
+    // Per-route transform: false prevents the global ValidationPipe (transform: true)
+    // from coercing the raw URL string to a JS number before StrictParseIntPipe sees it.
+    // Without this, '0xdeadbeef' would be coerced to 3735928559 (a valid integer) instead
+    // of being rejected by the /^-?\d+$/ regex.
+    @Param('id', new ValidationPipe({ transform: false }), StrictParseIntPipe) id: number,
+  ): Promise<ExecutorLogResponseDto> {
     return this.svc.getExecutorById(id);
   }
 

@@ -1,5 +1,6 @@
 import { IsString, IsOptional, IsNumber, IsInt } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { MaxJsonBytes } from '../validators/max-json-bytes.validator.js';
 
 /**
  * Body DTO for POST /v1/wallets — mirrors add-tracked-wallet (INSERT OR REPLACE) in db-query.js.
@@ -44,9 +45,10 @@ export class AddTrackedWalletDto {
 
   /**
    * Score breakdown — passed as an object or string; stored as raw JSON string.
-   * Accepts any JSON-serialisable value.
+   * Accepts any JSON-serialisable value. Capped at 16 384 bytes serialised.
    */
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'JSON-serialisable score breakdown; max 16 384 bytes' })
+  @MaxJsonBytes(16_384)
   @IsOptional()
   score_breakdown?: unknown;
 

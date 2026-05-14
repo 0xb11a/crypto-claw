@@ -3,6 +3,15 @@
  *
  * Verifies that the legacy db-query.js get-orders output shape is structurally
  * correct. This is the load-bearing parity check during P1a.
+ *
+ * Shape-only (not byte-identical) — deferred from byte-identical retrofit because:
+ *   2. JSON-string parsing: `take_profit_levels` is stored as a JSON text column.
+ *      Legacy db-query.js parses it to number[] for buy orders; the API does the
+ *      same. However, the API also parses other JSON-string columns (e.g. tp_levels_hit
+ *      on the associated position) that the legacy CLI leaves as raw strings, making
+ *      byte-identical deepEqual fragile across future schema changes.
+ * Full byte-identical retrofit would require building a normalizeForParity()
+ * translation layer — deferred indefinitely.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';

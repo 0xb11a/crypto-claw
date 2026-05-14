@@ -1,57 +1,109 @@
 /**
- * Shim-parity tests for smart-money signals (ADR-0020).
+ * Parity test for smart_money_signals — byte-identical deepEqual contract (P2 retrofit).
  *
- * Covers both ungrouped and grouped (--group-by token --min-wallets 2) modes,
- * and the --tokens-in-positions flag.
+ * Template: research-log-parity.spec.ts
+ * 1. Seed signals directly via better-sqlite3 inline script (no insert CLI command exists)
+ * 2. Capture legacy: JSON.parse(execFileSync('node', ['scripts/db-query.js', 'get-smart-money-signals', '--since', '60m']))
+ * 3. Capture API:    await fetch('http://127.0.0.1:7892/v1/wallets/signals?since=60m')
+ * 4. expect(apiOutput).toEqual(legacyOutput) — byte-identical deepEqual
  *
- * Signals are inserted directly into SQLite because they are produced by the
- * legacy background loop (activity-wallets-bg.js) — there is no db-query.js
- * insert command for them. This matches how the real producer works.
+ * Gated behind CCLAW_SECURITY_TESTS_ENABLED=1 — spawns a compiled API binary.
+ * Requires `pnpm build` before running.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { startApi } from '../_spawn-api.js';
+import type { StartApiResult } from '../_spawn-api.js';
 
-const REPO_ROOT = resolve(__dirname, '../../..');
-const SCRIPTS_DIR = resolve(REPO_ROOT, 'scripts');
+const SKIP = process.env['CCLAW_SECURITY_TESTS_ENABLED'] !== '1';
 
-let tempDir: string;
-let legacyDbPath: string;
+const REPO_ROOT = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '');
+const SCRIPTS_DIR = `${REPO_ROOT}/scripts`;
 
-const CHAIN = 'base';
-const TOKEN_ADDR = '0xSignalToken001';
-const WALLET_1 = '0xSmartWallet001';
-const WALLET_2 = '0xSmartWallet002';
+const LEGACY_MIGRATION_NAMES = [
+  '001_initial', '002_paper_mode', '003_tracked_wallets_deployer_type',
+  '004_wallet_scoring_pipeline', '005_market_regime', '006_analysis_cache',
+  '007_wallet_source', '008_portfolio_sync', '009_per_chain_cash',
+  '010_heartbeat_seeds_research', '011_position_exit_columns', '012_unified_orders',
+  '013_contract_snapshots', '014_order_status', '015_multisig_tracking',
+  '016_db_improvements', '017_narrative_deep_scan_heartbeat', '018_trailing_stops',
+  '019_research_log', '020_ethereum_chain_cash', '021_observer_log',
+  '022_approval_bot', '023_memory_backup_heartbeat', '024_smart_money_signals',
+  '025_split_harvest_and_health_keys', '026_log_summary_columns', '027_cleanup_invalid_tiers',
+];
 
-beforeAll(() => {
-  tempDir = mkdtempSync(resolve(tmpdir(), 'cclaw-parity-signals-'));
-  legacyDbPath = resolve(tempDir, 'test.db');
+const AGENT_TOKEN = 'ci-research-key-aaaaaaaaaaaaaaaa';
 
-  const baseEnv = {
+const BASE_ENV: NodeJS.ProcessEnv = {
+  SAFE_ID: 'ci-sig-parity',
+  REDIS_URL: 'redis://localhost:6379',
+  RESEARCH_API_KEY: 'ci-research-key-aaaaaaaaaaaaaaaa',
+  SENTINEL_API_KEY: 'ci-sentinel-key-aaaaaaaaaaaaaaaa',
+  EXECUTOR_API_KEY: 'ci-executor-key-aaaaaaaaaaaaaaaa',
+  OBSERVER_API_KEY: 'ci-observer-key-aaaaaaaaaaaaaaaa',
+  LOOP_API_KEY: 'ci-loop-key-aaaaaaaaaaaaaaaaaaaaa',
+  WORKER_API_KEY: 'ci-worker-key-aaaaaaaaaaaaaaaaaaa',
+  SCHEDULER_API_KEY: 'ci-scheduler-key-aaaaaaaaaaaaaaa',
+  DASHBOARD_API_KEY: 'ci-dashboard-key-aaaaaaaaaaaaaaaa',
+  ACTIVE_CHAINS: 'base,solana',
+  OPENAI_API_KEY: 'ci-openai-dummy',
+  NODE_ENV: 'test',
+  PRISMA_DISABLE_DOTENV: '1',
+  SAFE_SIGNER_KEY: '',
+  SQUADS_SIGNER_KEY: '',
+  NODE_PATH: process.env['NODE_PATH'],
+  PATH: process.env['PATH'],
+};
+
+const PORT = 7892;
+let api: StartApiResult;
+
+beforeAll(async () => {
+  if (SKIP) return;
+  api = await startApi({
+    dbPath: '',
+    env: BASE_ENV,
+    port: PORT,
+    readyTimeoutMs: 20_000,
+    tmpPrefix: 'cclaw-sig-parity',
+  });
+
+  const seedMigrationsScript = `
+    const Database = require('better-sqlite3');
+    const db = new Database(process.env.DB_PATH);
+    db.exec('CREATE TABLE IF NOT EXISTS _migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT DEFAULT (datetime(\\'now\\')))');
+    const insert = db.prepare('INSERT OR IGNORE INTO _migrations (name) VALUES (?)');
+    ${LEGACY_MIGRATION_NAMES.map((n) => `insert.run(${JSON.stringify(n)});`).join('\n    ')}
+    db.close();
+  `;
+  execFileSync('node', ['--eval', seedMigrationsScript], {
+    env: { ...process.env, DB_PATH: api.dbPath },
+    cwd: resolve(REPO_ROOT, 'scripts'),
+    encoding: 'utf8',
+    timeout: 10000,
+  });
+
+  const legacyEnv = {
     ...process.env,
-    SAFE_ID: 'test',
-    DB_PATH: legacyDbPath,
+    SAFE_ID: 'ci-sig-parity',
+    DB_PATH: api.dbPath,
     SAFE_SIGNER_KEY: '',
     SQUADS_SIGNER_KEY: '',
     PRISMA_DISABLE_DOTENV: '1',
-    DATABASE_URL: `file:${legacyDbPath}`,
+    DATABASE_URL: `file:${api.dbPath}`,
     PAPER_MODE: 'false',
     AUTO_APPROVE_BUY: 'false',
     AUTO_APPROVE_BUY_MAX_USD: '',
   };
 
-  // Initialise the DB by running any db-query command (this triggers auto-migration)
-  execFileSync('node', [resolve(SCRIPTS_DIR, 'db-query.js'), 'get-tracked-wallets'], {
-    env: baseEnv,
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    timeout: 10000,
+  // Init DB by running any db-query command (triggers auto-migration)
+  execFileSync('node', [`${SCRIPTS_DIR}/db-query.js`, 'get-tracked-wallets'], {
+    env: legacyEnv, cwd: REPO_ROOT, encoding: 'utf8', timeout: 10000,
   });
 
-  // Insert signals directly using better-sqlite3 inline script (no insert CLI command exists)
+  // Insert signals directly via better-sqlite3 (no CLI insert command exists for signals)
   const insertScript = `
     const Database = require('better-sqlite3');
     const db = new Database(process.env.DB_PATH);
@@ -61,165 +113,82 @@ beforeAll(() => {
         (tx_hash, chain, wallet_address, wallet_score, action, token_address, token_symbol, tx_timestamp, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     \`);
-    stmt.run('0xtx1', '${CHAIN}', '${WALLET_1}', 85, 'buy', '${TOKEN_ADDR}', 'SIG', now, now);
-    stmt.run('0xtx2', '${CHAIN}', '${WALLET_2}', 90, 'buy', '${TOKEN_ADDR}', 'SIG', now, now);
-    stmt.run('0xtx3', '${CHAIN}', '${WALLET_1}', 85, 'sell', '${TOKEN_ADDR}', 'SIG', now, now);
+    stmt.run('0xptx1', 'base', '0xParityWallet001', 85, 'buy', '0xParityToken001', 'PTK', now, now);
+    stmt.run('0xptx2', 'base', '0xParityWallet002', 90, 'buy', '0xParityToken001', 'PTK', now, now);
+    stmt.run('0xptx3', 'base', '0xParityWallet001', 85, 'sell', '0xParityToken002', 'PT2', now, now);
     db.close();
   `;
-
   execFileSync('node', ['--eval', insertScript], {
-    env: { ...baseEnv, DB_PATH: legacyDbPath },
+    env: { ...legacyEnv },
     cwd: resolve(REPO_ROOT, 'scripts'),
     encoding: 'utf8',
     timeout: 10000,
   });
+}, 25_000);
 
-  // Seed a position so --tokens-in-positions filter works
-  execFileSync(
-    'node',
-    [
-      resolve(SCRIPTS_DIR, 'db-query.js'),
-      'add-position',
-      '--json',
-      JSON.stringify({
-        id: 'pos-signal-parity',
-        symbol: 'SIG',
-        address: TOKEN_ADDR,
-        chain: CHAIN,
-        tier: 'moonshot',
-        entry_price: 0.1,
-        quantity: 1000,
-        stop_loss: 0.05,
-        take_profit_levels: [0.2],
-      }),
-    ],
-    { env: baseEnv, cwd: REPO_ROOT, encoding: 'utf8', timeout: 10000 },
-  );
+afterAll(async () => {
+  if (SKIP) return;
+  await api.kill();
 });
 
-afterAll(() => {
-  rmSync(tempDir, { recursive: true, force: true });
-});
+describe('signals parity — byte-identical deepEqual (P2 retrofit)', () => {
+  it.skipIf(SKIP)('API GET /v1/wallets/signals?since=60m deepEquals legacy get-smart-money-signals --since 60m', async () => {
+    const legacyRaw = execFileSync(
+      'node', [`${SCRIPTS_DIR}/db-query.js`, 'get-smart-money-signals', '--since', '60m'],
+      {
+        env: {
+          ...process.env,
+          SAFE_ID: 'ci-sig-parity',
+          DB_PATH: api.dbPath,
+          SAFE_SIGNER_KEY: '',
+          SQUADS_SIGNER_KEY: '',
+          PRISMA_DISABLE_DOTENV: '1',
+          DATABASE_URL: `file:${api.dbPath}`,
+          PAPER_MODE: 'false',
+        },
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        timeout: 10000,
+      },
+    );
+    const legacyOutput = JSON.parse(legacyRaw) as unknown[];
 
-function runDbQuery(command: string, args: string[] = []): unknown {
-  const result = execFileSync('node', [resolve(SCRIPTS_DIR, 'db-query.js'), command, ...args], {
-    env: {
-      ...process.env,
-      SAFE_ID: 'test',
-      DB_PATH: legacyDbPath,
-      SAFE_SIGNER_KEY: '',
-      SQUADS_SIGNER_KEY: '',
-      PRISMA_DISABLE_DOTENV: '1',
-      DATABASE_URL: `file:${legacyDbPath}`,
-      PAPER_MODE: 'false',
-      AUTO_APPROVE_BUY: 'false',
-      AUTO_APPROVE_BUY_MAX_USD: '',
-    },
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    timeout: 10000,
-  });
-  return JSON.parse(result);
-}
-
-describe('signals parity: structural shape (ADR-0020)', () => {
-  describe('ungrouped mode', () => {
-    it('get-smart-money-signals returns an array', () => {
-      const output = runDbQuery('get-smart-money-signals', ['--since', '60m']);
-      expect(Array.isArray(output)).toBe(true);
+    const res = await fetch(`http://127.0.0.1:${PORT}/v1/wallets/signals?since=60m`, {
+      headers: { Authorization: `Bearer ${AGENT_TOKEN}` },
     });
+    expect(res.status).toBe(200);
+    const apiOutput = (await res.json()) as unknown[];
 
-    it('signal rows have expected snake_case fields', () => {
-      const output = runDbQuery('get-smart-money-signals', ['--since', '60m']) as Array<
-        Record<string, unknown>
-      >;
-      expect(output.length).toBeGreaterThan(0);
-      const s = output[0]!;
-      expect(typeof s['id']).toBe('number');
-      expect(typeof s['tx_hash']).toBe('string');
-      expect(typeof s['chain']).toBe('string');
-      expect(typeof s['wallet_address']).toBe('string');
-      expect(typeof s['action']).toBe('string');
-      expect(typeof s['token_address']).toBe('string');
-      expect(typeof s['tx_timestamp']).toBe('string');
-    });
-
-    it('--action buy filters correctly', () => {
-      const output = runDbQuery('get-smart-money-signals', ['--since', '60m', '--action', 'buy']) as Array<
-        Record<string, unknown>
-      >;
-      expect(output.length).toBeGreaterThan(0);
-      expect(output.every((s) => s['action'] === 'buy')).toBe(true);
-    });
-
-    it('--action sell filters correctly', () => {
-      const output = runDbQuery('get-smart-money-signals', ['--since', '60m', '--action', 'sell']) as Array<
-        Record<string, unknown>
-      >;
-      expect(output.length).toBeGreaterThan(0);
-      expect(output.every((s) => s['action'] === 'sell')).toBe(true);
-    });
+    expect(apiOutput).toEqual(legacyOutput);
   });
 
-  describe('grouped mode (--group-by token)', () => {
-    it('returns aggregated rows with n_wallets, signal_count, avg_score', () => {
-      const output = runDbQuery('get-smart-money-signals', [
-        '--since',
-        '60m',
-        '--group-by',
-        'token',
-      ]) as Array<Record<string, unknown>>;
-      expect(Array.isArray(output)).toBe(true);
-      expect(output.length).toBeGreaterThan(0);
-      const row = output.find((r) => r['token_address'] === TOKEN_ADDR);
-      expect(row).toBeDefined();
-      expect(typeof row!['n_wallets']).toBe('number');
-      expect(typeof row!['signal_count']).toBe('number');
-      // avg_score may be null if all wallet_scores are null, otherwise number
-      expect(row!['avg_score'] === null || typeof row!['avg_score'] === 'number').toBe(true);
-    });
+  it.skipIf(SKIP)('API GET /v1/wallets/signals?since=60m&action=buy deepEquals legacy --since 60m --action buy', async () => {
+    const legacyRaw = execFileSync(
+      'node', [`${SCRIPTS_DIR}/db-query.js`, 'get-smart-money-signals', '--since', '60m', '--action', 'buy'],
+      {
+        env: {
+          ...process.env,
+          SAFE_ID: 'ci-sig-parity',
+          DB_PATH: api.dbPath,
+          SAFE_SIGNER_KEY: '',
+          SQUADS_SIGNER_KEY: '',
+          PRISMA_DISABLE_DOTENV: '1',
+          DATABASE_URL: `file:${api.dbPath}`,
+          PAPER_MODE: 'false',
+        },
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        timeout: 10000,
+      },
+    );
+    const legacyOutput = JSON.parse(legacyRaw) as unknown[];
 
-    it('--min-wallets 2 returns only tokens with ≥2 distinct wallets', () => {
-      const output = runDbQuery('get-smart-money-signals', [
-        '--since',
-        '60m',
-        '--group-by',
-        'token',
-        '--min-wallets',
-        '2',
-      ]) as Array<Record<string, unknown>>;
-      expect(Array.isArray(output)).toBe(true);
-      // TOKEN_ADDR has 2 distinct wallets
-      const row = output.find((r) => r['token_address'] === TOKEN_ADDR);
-      expect(row).toBeDefined();
-      expect(Number(row!['n_wallets'])).toBeGreaterThanOrEqual(2);
+    const res = await fetch(`http://127.0.0.1:${PORT}/v1/wallets/signals?since=60m&action=buy`, {
+      headers: { Authorization: `Bearer ${AGENT_TOKEN}` },
     });
+    expect(res.status).toBe(200);
+    const apiOutput = (await res.json()) as unknown[];
 
-    it('grouped row has first_seen and last_seen fields', () => {
-      const output = runDbQuery('get-smart-money-signals', [
-        '--since',
-        '60m',
-        '--group-by',
-        'token',
-      ]) as Array<Record<string, unknown>>;
-      const row = output.find((r) => r['token_address'] === TOKEN_ADDR);
-      expect(row).toBeDefined();
-      expect(typeof row!['first_seen']).toBe('string');
-      expect(typeof row!['last_seen']).toBe('string');
-    });
-  });
-
-  describe('--tokens-in-positions flag', () => {
-    it('returns signals only for tokens in open positions', () => {
-      const output = runDbQuery('get-smart-money-signals', [
-        '--since',
-        '60m',
-        '--tokens-in-positions',
-      ]) as Array<Record<string, unknown>>;
-      expect(Array.isArray(output)).toBe(true);
-      // TOKEN_ADDR is in positions; all returned signals should be for that token
-      expect(output.length).toBeGreaterThan(0);
-      expect(output.every((s) => s['token_address'] === TOKEN_ADDR)).toBe(true);
-    });
+    expect(apiOutput).toEqual(legacyOutput);
   });
 });

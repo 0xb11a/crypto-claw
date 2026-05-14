@@ -151,18 +151,20 @@ describe('SystemRepository', () => {
       expect(result.balance).toBe(1.0);
     });
 
-    // Coder-flagged uncertainty #3: malformed JSON in gas_ meta value must not crash
-    it('throws when gas value is malformed JSON (SyntaxError propagates)', async () => {
+    // P2 cleanup commit 7: malformed JSON in gas_ meta value returns zero-shape (no 500).
+    it('returns zero-shape when gas value is malformed JSON (try/catch added)', async () => {
       mockFindUnique.mockResolvedValue({
         key: 'gas_base',
         value: 'not-valid-json',
       });
-      // Current implementation calls JSON.parse directly — it will throw SyntaxError.
-      // The test documents this behavior so the coder can decide whether to add a
-      // try/catch (graceful zeros) or let it propagate as a 500.
-      // [OPEN-1] If the decision is graceful zeros, add try/catch in getGas() and
-      // update this test to assert the zero-defaults shape instead.
-      await expect(repo.getGas('base')).rejects.toThrow(SyntaxError);
+      // getGas() now wraps JSON.parse in try/catch — returns zeros and logs a warning
+      // instead of propagating SyntaxError as a 500 ([OPEN-1] resolved).
+      const result = await repo.getGas('base');
+      expect(result.chain).toBe('base');
+      expect(result.symbol).toBeNull();
+      expect(result.balance).toBe(0);
+      expect(result.price).toBe(0);
+      expect(result.value_usd).toBe(0);
     });
   });
 

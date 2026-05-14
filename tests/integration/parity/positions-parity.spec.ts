@@ -4,6 +4,17 @@
  * Verifies that the legacy db-query.js get-positions output shape is structurally
  * correct. This is the load-bearing parity check during P1a.
  *
+ * Shape-only (not byte-identical) — deferred from byte-identical retrofit because:
+ *   1. mode discriminator: API adds `mode: 'real' | 'paper'` to every position row;
+ *      legacy CLI has no such field.
+ *   2. JSON-string parsing: `take_profit_levels` is stored as a JSON text column.
+ *      Both legacy and API parse it to number[], so this field does match — but
+ *      `tp_levels_hit` is intentionally left as a raw JSON string on both sides
+ *      (see fix(positions) commit). Any future decision to parse tp_levels_hit on
+ *      the API side would break byte-identical parity.
+ * Full byte-identical retrofit would require either reverting the mode discriminator
+ * design win or building a normalizeForParity() translation layer — deferred indefinitely.
+ *
  * Field asymmetry (intentionally preserved for legacy parity):
  * - take_profit_levels: parsed to number[] by both db-query.js and PositionsRepository
  * - tp_levels_hit: returned as a raw JSON string by both db-query.js and PositionsRepository

@@ -61,6 +61,10 @@ const IMPLEMENTED_COMMANDS = {
   'analysis-cache': ['get-analysis-cache'],
   contracts: ['get-contract-snapshots'],
   system: ['get-meta', 'get-cash', 'get-gas', 'get-sync-status'],
+  // P2 group 1: smart-money pipeline (wallets, liquidity, watchlist)
+  wallets: ['get-tracked-wallets', 'get-smart-money-signals'],
+  liquidity: ['get-liquidity'],
+  watchlist: ['get-watchlist'],
 };
 
 const argv = Object.fromEntries(

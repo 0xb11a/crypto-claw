@@ -1,26 +1,21 @@
-import { IsString, IsOptional, IsInt, Min, Max, IsIn, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsInt, IsIn, MaxLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { MinMaxValue } from '../decorators/numeric-constraints.js';
 
 /** Body DTO for POST /v1/logs/observer — mirrors add-observer-log in db-query.js. */
 export class AppendObserverLogDto {
-  @ApiPropertyOptional({ minimum: 0, maximum: 1_000_000 })
+  @MinMaxValue(0, 1_000_000)
   @IsInt()
-  @Min(0)
-  @Max(1_000_000)
   @IsOptional()
   errors_analyzed?: number;
 
-  @ApiPropertyOptional({ minimum: 0, maximum: 1_000_000 })
+  @MinMaxValue(0, 1_000_000)
   @IsInt()
-  @Min(0)
-  @Max(1_000_000)
   @IsOptional()
   issues_created?: number;
 
-  @ApiPropertyOptional({ minimum: 0, maximum: 1_000_000 })
+  @MinMaxValue(0, 1_000_000)
   @IsInt()
-  @Min(0)
-  @Max(1_000_000)
   @IsOptional()
   alerts_sent?: number;
 

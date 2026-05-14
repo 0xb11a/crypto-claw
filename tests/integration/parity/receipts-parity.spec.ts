@@ -4,6 +4,15 @@
  * Verifies that the legacy db-query.js get-receipts output shape matches the
  * API's receipts module response shape. Uses synthetic data seeded via db-query.js.
  *
+ * Shape-only (not byte-identical) — deferred from byte-identical retrofit because:
+ *   1. mode discriminator: the API receipts endpoint is a UNION of `receipts` +
+ *      `paper_receipts` tables, adding a `mode: 'real' | 'paper'` discriminator
+ *      to every row. The legacy `get-receipts` command has no such field.
+ *   1b. Nullable paper fields: the API response includes paper-mode nullable fields
+ *       (e.g. paper_pnl, simulated) that the legacy CLI omits entirely.
+ * Full byte-identical retrofit would require either reverting the UNION design or
+ * building a normalizeForParity() translation layer — deferred indefinitely.
+ *
  * During P1b there is no baseline JSON (baseline/ is read-only per DoD §I),
  * so this spec asserts shape and field mapping correctness rather than
  * byte-identical output.

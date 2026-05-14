@@ -299,13 +299,13 @@ describe('agent-logs adversarial — non-integer :id → 400 (ParseIntPipe)', ()
     expect(status).toBe(400);
   });
 
-  it.skipIf(SKIP)('GET /v1/logs/research/0xdeadbeef returns 404 (ParseIntPipe coerces leading-0 hex → 0; id=0 not found)', async () => {
-    // ParseIntPipe.transform uses Number()+parseInt(value,10): '0xdeadbeef' coerces
-    // to NaN under isFinite/isNumeric checks pass via Number('0xdeadbeef')=
-    // 3735928559 (hex literal), then parseInt('0xdeadbeef',10)=0 (stops at 'x').
-    // The pipe accepts the value as 0 → controller queries id=0 → 404.
-    // To reject hex outright at the pipe layer, controllers would need a custom
-    // strict-integer pipe; deferred. The behavior here is current-day NestJS.
+  it.skipIf(SKIP)('GET /v1/logs/research/0xdeadbeef returns 404 (NestJS coerces hex before pipe)', async () => {
+    // KNOWN LIMITATION: NestJS's global ValidationPipe (transform: true) runs
+    // BEFORE per-route pipes and coerces '0xdeadbeef' to 3735928559 via Number().
+    // StrictParseIntPipe receives the already-coerced integer and accepts it.
+    // No row id=3735928559 exists → 404. To get true 400 on hex would require
+    // disabling transform: true globally (large blast radius) or migrating to
+    // Zod-based validation. See strict-parse-int.pipe.ts JSDoc for details.
     const { status } = await get('/v1/logs/research/0xdeadbeef');
     expect(status).toBe(404);
   });
@@ -346,22 +346,26 @@ describe('agent-logs adversarial — SQL injection in check_type stored as plain
 });
 
 // ---------------------------------------------------------------------------
-// Scenario 9: since=not-a-date — documents current pass-through behavior
-// (Coder-flagged deferred nit #3 — do NOT change production code)
+// Scenario 9: since=not-a-date — now returns 400 (P2 cleanup: @IsISO8601 applied)
+// Previously documented pass-through behavior; deferred nit #3 now landed.
 // ---------------------------------------------------------------------------
 
-describe('agent-logs adversarial — since=not-a-date documents current pass-through behavior', () => {
+describe('agent-logs adversarial — since=not-a-date returns 400 (P2 cleanup: @IsISO8601)', () => {
   it.skipIf(SKIP)(
-    "GET /v1/logs/research?since=not-a-date does not return 500 (string passes through to Prisma)",
+    "GET /v1/logs/research?since=not-a-date returns 400 (invalid ISO-8601 string)",
     async () => {
-      // class-validator has no @IsISO8601 on since, so invalid dates pass validation.
-      // Prisma receives a raw string gte filter; SQLite string comparison returns empty.
-      // Current behavior: 200 with empty or non-empty array depending on stored data.
-      // This test documents that behavior and asserts no 500 crash.
+      // @IsISO8601({strict: true}) now validates the since field.
+      // Invalid ISO-8601 strings are rejected at the DTO validation layer → 400.
       const { status } = await get('/v1/logs/research?since=not-a-date');
-      // Must not 500. May be 200 with empty array.
-      expect(status).not.toBe(500);
-      expect(status).not.toBe(400); // Known: validation does NOT currently reject this
+      expect(status).toBe(400);
+    },
+  );
+
+  it.skipIf(SKIP)(
+    "GET /v1/logs/research?since=2026-05-14T00:00:00Z returns 200 (valid ISO-8601)",
+    async () => {
+      const { status } = await get('/v1/logs/research?since=2026-05-14T00:00:00Z');
+      expect(status).toBe(200);
     },
   );
 });

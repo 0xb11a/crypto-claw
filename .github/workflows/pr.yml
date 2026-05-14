@@ -94,7 +94,15 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      # Step 7 — Unit tests with coverage
+      # Step 7a — Module manifest guards (P2 cleanup, Category F.9/F.10)
+      # Asserts every libs/modules/*/vitest.config.ts is in vitest.workspace.ts and
+      # every libs/modules/*/package.json has a COPY line in docker/Dockerfile.
+      - name: Module manifest guards
+        run: |
+          pnpm check:vitest-workspace
+          pnpm check:dockerfile-modules
+
+      # Step 7b — Unit tests with coverage
       - name: Unit tests
         run: pnpm test:unit --coverage
 

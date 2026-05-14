@@ -113,6 +113,42 @@ export default [
   },
 
   // ----------------------------------------------------------------
+  // libs/modules — additional $queryRawUnsafe warning rule.
+  // Usages allowed but require inline eslint-disable + comment explaining why.
+  // ----------------------------------------------------------------
+  {
+    files: ['libs/modules/**/*.ts'],
+    ignores: ['**/node_modules/**', '**/dist/**', '**/*.spec.ts', '**/*.test.ts', '**/vitest.config.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        project: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+      globals: {
+        ...globals.node,
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tsPlugin,
+    },
+    rules: {
+      // Warn when $queryRawUnsafe or $executeRawUnsafe is used in module repositories.
+      // These are allowed but must be justified with an inline eslint-disable comment
+      // explaining why Prisma typed methods cannot be used (ADR-0020).
+      'no-restricted-syntax': [
+        'warn',
+        {
+          selector:
+            "CallExpression[callee.property.name='$queryRawUnsafe'], CallExpression[callee.property.name='$executeRawUnsafe']",
+          message:
+            '$queryRawUnsafe/$executeRawUnsafe is allowed but requires inline eslint-disable + comment explaining why Prisma typed methods cannot be used (ADR-0020).',
+        },
+      ],
+    },
+  },
+
+  // ----------------------------------------------------------------
   // libs/prisma — @prisma/client imports are allowed here (SPEC §4 #1).
   // This is the ONLY place where PrismaClient is used directly.
   // ----------------------------------------------------------------

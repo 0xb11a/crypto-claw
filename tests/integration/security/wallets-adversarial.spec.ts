@@ -498,3 +498,38 @@ describe('GET /v1/wallets/signals?tokens_in_positions= — string coercion (code
     },
   );
 });
+
+// ---------------------------------------------------------------------------
+// Commit 4 (P2 cleanup): score_breakdown @MaxJsonBytes(16_384)
+// POST /v1/wallets with 20KB score_breakdown → 400
+// ---------------------------------------------------------------------------
+
+describe('POST /v1/wallets — score_breakdown @MaxJsonBytes(16_384) validation', () => {
+  it.skipIf(SKIP)('20KB score_breakdown returns 400 (exceeds 16 384 byte limit)', async () => {
+    // Construct a score_breakdown object whose JSON is ~20 000 bytes
+    const largeBreakdown = { data: 'x'.repeat(20_000) };
+    const { status } = await req('POST', '/v1/wallets', {
+      token: AGENT_TOKEN,
+      body: {
+        address: '0xScoreBreakdownTest0000000000000000000001',
+        chain: 'base',
+        score_breakdown: largeBreakdown,
+      },
+    });
+    expect(status).toBe(400);
+  });
+
+  it.skipIf(SKIP)('16KB score_breakdown returns 201 (within limit)', async () => {
+    // Construct a score_breakdown object whose JSON is ~16 000 bytes (under limit)
+    const smallBreakdown = { data: 'x'.repeat(16_000) };
+    const { status } = await req('POST', '/v1/wallets', {
+      token: AGENT_TOKEN,
+      body: {
+        address: '0xScoreBreakdownTest0000000000000000000002',
+        chain: 'base',
+        score_breakdown: smallBreakdown,
+      },
+    });
+    expect(status).toBe(201);
+  });
+});

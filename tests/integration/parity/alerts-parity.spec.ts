@@ -3,6 +3,15 @@
  *
  * Verifies that the legacy db-query.js get-alerts output shape matches the
  * API's alerts module response shape.
+ *
+ * Shape-only (not byte-identical) — deferred from byte-identical retrofit because:
+ *   1. Paginated wrapper: the API alerts endpoint wraps the response in
+ *      `{data: [...], pagination: {...}}` while the legacy CLI returns a flat array.
+ *      Unwrapping would hide any future structural drift in the wrapper.
+ *   2. JSON-string parsing: `details` and other JSON-text columns may be parsed
+ *      differently between legacy CLI and API across future schema changes.
+ * Full byte-identical retrofit would require either reverting the pagination wrapper
+ * or building a normalizeForParity() translation layer — deferred indefinitely.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
