@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus, ValidationPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { Roles } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
@@ -38,7 +38,13 @@ export class SentinelLogController {
   @ApiParam({ name: 'id', description: 'Row integer ID' })
   @ApiResponse({ status: 200, description: 'Sentinel log row' })
   @ApiResponse({ status: 404, description: 'Row not found' })
-  getById(@Param('id', StrictParseIntPipe) id: number): Promise<SentinelLogResponseDto> {
+  getById(
+    // Per-route transform: false prevents the global ValidationPipe (transform: true)
+    // from coercing the raw URL string to a JS number before StrictParseIntPipe sees it.
+    // Without this, '0xdeadbeef' would be coerced to 3735928559 (a valid integer) instead
+    // of being rejected by the /^-?\d+$/ regex.
+    @Param('id', new ValidationPipe({ transform: false }), StrictParseIntPipe) id: number,
+  ): Promise<SentinelLogResponseDto> {
     return this.svc.getSentinelById(id);
   }
 
