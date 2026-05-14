@@ -26,7 +26,9 @@
     "dev:scheduler": "tsx apps/scheduler/src/main.ts",
     "dev:executor": "tsx apps/executor/src/main.ts",
     "legacy:lint": "eslint 'scripts/**/*.js' 'tests/**/*.js'",
-    "legacy:test": "cd tests && node run-all.js --offline"
+    "legacy:test": "cd tests && node run-all.js --offline",
+    "check:vitest-workspace": "node scripts/ci/check-vitest-workspace.mjs",
+    "check:dockerfile-modules": "node scripts/ci/check-dockerfile-modules.mjs"
   },
   "lint-staged": {
     "{apps,libs,sdk}/**/*.{ts,tsx}": [
