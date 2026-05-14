@@ -156,7 +156,8 @@ describe('alerts parity — byte-identical deepEqual (P2 retrofit)', () => {
       headers: { Authorization: `Bearer ${AGENT_TOKEN}` },
     });
     expect(res.status).toBe(200);
-    const apiOutput = (await res.json()) as unknown[];
+    // API wraps list responses in {data, pagination} — extract the data array for parity comparison.
+    const apiOutput = ((await res.json()) as { data: unknown[] }).data;
 
     expect(apiOutput).toEqual(legacyOutput);
   });
