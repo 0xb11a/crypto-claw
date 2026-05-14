@@ -41,27 +41,27 @@ This ADR does NOT change the SPEC, the harness, or the migration strategy. It ma
 
 Cross-links: SPEC §19 verification #2 (the requirement this implements), SPEC §18 (P5 deletion phase), DoD §I (legacy untouched while in service), `tests/shim-parity/README.md` (the harness operator-facing docs), `tests/shim-parity/capture-baseline.js`, `tests/shim-parity/compare-baseline.js`.
 
-## Addendum 1 (2026-05-14) — Byte-identical parity contract upgrade
+## Addendum 1 (2026-05-14) — Byte-identical parity contract upgrade (partial)
 
 The original P1 parity specs used shape-only assertions (e.g., `expect(typeof row['x']).toBe('string')`). P2 introduced byte-identical parity via `research-log-parity.spec.ts` (`expect(apiOutput).toEqual(legacyOutput)` against the same DB file).
 
-This PR retrofits the remaining 9 P1 parity specs to the new contract:
-- `tests/integration/parity/heartbeat-parity.spec.ts` (port 7886)
-- `tests/integration/parity/positions-parity.spec.ts` (port 7887)
-- `tests/integration/parity/orders-parity.spec.ts` (port 7888)
-- `tests/integration/parity/receipts-parity.spec.ts` (port 7889)
-- `tests/integration/parity/alerts-parity.spec.ts` (port 7890)
-- `tests/integration/parity/wallets-parity.spec.ts` (port 7891)
-- `tests/integration/parity/signals-parity.spec.ts` (port 7892)
-- `tests/integration/parity/liquidity-parity.spec.ts` (port 7893)
-- `tests/integration/parity/watchlist-parity.spec.ts` (port 7894)
+**Byte-identical (deepEqual) specs — 8 total:**
+- 4 P2 specs: `wallets-parity.spec.ts` (port 7891), `signals-parity.spec.ts` (port 7892), `liquidity-parity.spec.ts` (port 7893), `watchlist-parity.spec.ts` (port 7894)
+- 4 agent-log specs: `research-log-parity.spec.ts`, `sentinel-log-parity.spec.ts`, `executor-log-parity.spec.ts`, `observer-log-parity.spec.ts`
 
-The byte-identical template (from `research-log-parity.spec.ts`):
-1. Seed via legacy `db-query.js add-*` command (with `_migrations` pre-populated to skip duplicate DDL)
-2. Capture legacy: `JSON.parse(execFileSync('node', ['scripts/db-query.js', 'get-*']))`
-3. Capture API: `await fetch('http://127.0.0.1:<PORT>/v1/<resource>')`
-4. Assert: `expect(apiOutput).toEqual(legacyOutput)`
-5. Gate behind `CCLAW_SECURITY_TESTS_ENABLED=1`
+**Shape-only specs — 5 P1 specs (remain non-byte-identical):**
+- `heartbeat-parity.spec.ts` (port 7886)
+- `positions-parity.spec.ts` (port 7887)
+- `orders-parity.spec.ts` (port 7888)
+- `receipts-parity.spec.ts` (port 7889)
+- `alerts-parity.spec.ts` (port 7890)
+
+These 5 P1 specs remain shape-only because their DTOs intentionally diverge from legacy CLI output via:
+1. `mode: 'real' | 'paper'` discriminator (positions, receipts) — the API UNION response adds this field; legacy CLI has no equivalent.
+2. JSON-string columns parsed into typed arrays (positions, orders, alerts — `take_profit_levels`, `tp_levels_hit`) — the API parses additional JSON columns that the legacy CLI leaves as raw strings, making field-level parity fragile across future schema changes.
+3. Timing-derived fields recomputed independently per request (heartbeat `seconds_since`) — both sides compute this from `NOW()` at different instants, causing a 1-second timing race that makes deepEqual non-deterministic.
+
+Full retrofit of these 5 P1 specs would require either reverting these API design wins or building a `normalizeForParity()` translation layer — deferred indefinitely.
 
 `IMPLEMENTED_COMMANDS` in `tests/shim-parity/compare-baseline.js` now includes wallets/liquidity/watchlist entries that were missing in P2 group 1.
 
