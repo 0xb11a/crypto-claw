@@ -133,7 +133,15 @@ export class SystemRepository {
       return { chain, symbol: null, balance: 0, price: 0, value_usd: 0 };
     }
     // Value is stored as JSON text by portfolio-load scripts; shape varies by chain.
-    const parsed = JSON.parse(row.value) as Record<string, unknown>;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(row.value) as Record<string, unknown>;
+    } catch (err) {
+      // Malformed JSON in gas_<chain> meta value — return zero-shape rather than 500.
+      // This can happen if a portfolio-load script wrote a partial/corrupt value.
+      console.warn(`SystemRepository.getGas: malformed gas_${chain} JSON: ${(err as Error).message}`);
+      return { chain, symbol: null, balance: 0, price: 0, value_usd: 0 };
+    }
     return {
       chain,
       symbol: (parsed['symbol'] as string | undefined) ?? null,
