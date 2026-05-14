@@ -196,6 +196,61 @@ export class WalletsRepository {
     return this.mapRow(row);
   }
 
+  /**
+   * Find the next batch of activity-polling candidates.
+   *
+   * Returns wallets where `type='smart_money' AND status='scored'`, ordered
+   * by `lastCheckedAt ASC NULLS FIRST` (rotation: oldest checked first).
+   * Wallets that have never been checked appear first (NULLS FIRST).
+   *
+   * Mirrors the ORDER BY clause in `scripts/activity-wallets-bg.js:231-238`:
+   *   `ORDER BY (last_checked_at IS NULL) DESC, last_checked_at ASC`
+   * which is equivalent to NULLS FIRST ordering in SQLite.
+   *
+   * Uses Prisma `$queryRaw` because Prisma's `findMany` does not support
+   * `NULLS FIRST` in SQLite via the standard `orderBy` API. The query is
+   * parameterised and the `limit` argument is validated to an integer before
+   * interpolation (defence-in-depth; the caller always passes a literal int).
+   */
+  async findActivityCandidates(limit: number): Promise<TrackedWalletResponseDto[]> {
+    const safeLimit = Math.max(1, Math.trunc(limit));
+    // $queryRaw (tagged template — safe, not $queryRawUnsafe): NULLS FIRST ordering requires raw SQL
+    // on SQLite because Prisma's orderBy API doesn't support nullsFirst across all SQLite drivers.
+    // The limit is validated to a safe integer above.
+    const rows = await this.prisma.$queryRaw<TrackedWallet[]>`
+      SELECT address, chain, label, type, notes, status, score,
+             score_breakdown AS "scoreBreakdown",
+             source_token AS "sourceToken",
+             scored_at AS "scoredAt",
+             score_error AS "scoreError",
+             retry_count AS "retryCount",
+             source,
+             last_checked_at AS "lastCheckedAt",
+             created_at AS "createdAt"
+      FROM tracked_wallets
+      WHERE type = 'smart_money' AND status = 'scored'
+      ORDER BY (last_checked_at IS NULL) DESC, last_checked_at ASC
+      LIMIT ${safeLimit}
+    `;
+    return rows.map((r) => this.mapRow(r));
+  }
+
+  /**
+   * Update the `last_checked_at` timestamp for a wallet.
+   *
+   * Called after EVERY wallet processed by ActivityWalletsProcessor, regardless
+   * of success or failure, so that the rotation always advances and a
+   * permanently-dead wallet doesn't block the queue.
+   *
+   * Mirrors `updateLastCheckedStmt.run(...)` in `scripts/activity-wallets-bg.js:342`.
+   */
+  async updateLastChecked(address: string, chain: string, ts: string): Promise<void> {
+    await this.prisma.trackedWallet.update({
+      where: { address_chain: { address, chain } },
+      data: { lastCheckedAt: ts },
+    });
+  }
+
   /** Delete a wallet by composite key (mirrors remove-tracked-wallet). */
   async remove(address: string, chain: string): Promise<{ ok: boolean }> {
     const row = await this.prisma.trackedWallet.findUnique({

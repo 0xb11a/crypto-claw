@@ -61,3 +61,15 @@ export const WALLET_SCORING_JOB_OPTIONS = {
   removeOnComplete: 50,
   removeOnFail: 20,
 } as const;
+
+/**
+ * Default BullMQ job options for the wallet-activity queue (P3g1 PR-C).
+ *
+ * Same retry policy as harvest and scoring: 2 attempts, fixed 60 s backoff.
+ */
+export const WALLET_ACTIVITY_JOB_OPTIONS = {
+  attempts: 2,
+  backoff: { type: 'fixed' as const, delay: 60_000 },
+  removeOnComplete: 50,
+  removeOnFail: 20,
+} as const;

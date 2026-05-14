@@ -86,6 +86,22 @@ export const envSchema = z.object({
   ZERION_API_KEY: apiKey().optional(),
   /** 1inch DEX aggregator API key. Required for EVM real-mode execution (P1c-ii). */
   ONEINCH_API_KEY: apiKey().optional(),
+  // --------------------------------------------------------------------------
+  // EVM explorer API keys (P3g1 PR-C — consumed by EvmExplorerAdapter)
+  // Optional: chains without a key skip EVM activity polling for that chain.
+  // --------------------------------------------------------------------------
+  /** Basescan API key — required when ACTIVE_CHAINS includes 'base'. */
+  BASESCAN_API_KEY: apiKey().optional(),
+  /** Etherscan API key — required when ACTIVE_CHAINS includes 'ethereum'. */
+  ETHERSCAN_API_KEY: apiKey().optional(),
+  /** Arbiscan API key — required when ACTIVE_CHAINS includes 'arbitrum'. */
+  ARBISCAN_API_KEY: apiKey().optional(),
+  /** Polygonscan API key — required when ACTIVE_CHAINS includes 'polygon'. */
+  POLYGONSCAN_API_KEY: apiKey().optional(),
+  /** BscScan API key — required when ACTIVE_CHAINS includes 'bsc'. */
+  BSCSCAN_API_KEY: apiKey().optional(),
+  /** Optimistic Etherscan API key — required when ACTIVE_CHAINS includes 'optimism'. */
+  OPTIMISTIC_ETHERSCAN_API_KEY: apiKey().optional(),
 
   // --------------------------------------------------------------------------
   // Chain RPC URLs (P1c-ii — consumed by apps/executor real EVM SDK)
@@ -233,6 +249,35 @@ export const envSchema = z.object({
    * Operator tunable: raise if hitting 429 rate limits; lower if quotas allow.
    */
   WALLET_SCORING_INTER_WALLET_DELAY_MS: z.coerce.number().int().nonnegative().default(3_000),
+
+  /**
+   * Per-fetch timeout for the wallet-activity BullMQ processor (ms).
+   *
+   * Controls how long a single wallet's Helius or Etherscan-compatible fetch
+   * is allowed to run before it is aborted via `AbortSignal.timeout()`. Default:
+   * 10_000 ms (10 s) — matches the legacy `FETCH_TIMEOUT_MS = 10_000` in
+   * `scripts/activity-wallets-bg.js:43` (DoD §I — parity).
+   */
+  WALLET_ACTIVITY_PER_FETCH_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+
+  /**
+   * Per-chain consecutive-timeout threshold for the wallet-activity processor.
+   *
+   * After this many consecutive timeouts on a single chain in one cycle, the
+   * processor skips the remaining wallets on that chain. Default: 5 — matches
+   * the legacy `FAIL_FAST_CONSECUTIVE = 5` in `scripts/activity-wallets-bg.js:45`.
+   * Counter resets on each job invocation (per-job scope, per legacy parity).
+   */
+  WALLET_ACTIVITY_PER_CHAIN_TIMEOUT_LIMIT: z.coerce.number().int().positive().default(5),
+
+  /**
+   * Inter-wallet delay for the wallet-activity processor (ms).
+   *
+   * The processor waits this many ms between wallets within the same chain to
+   * respect per-chain rate limits. Default: 250 ms — matches the legacy
+   * `PER_CHAIN_DELAY_MS = 250` in `scripts/activity-wallets-bg.js:44`.
+   */
+  WALLET_ACTIVITY_INTER_WALLET_DELAY_MS: z.coerce.number().int().nonnegative().default(250),
 
   // --------------------------------------------------------------------------
   // Runtime behaviour — consumed by libs/logger (SPEC §11)

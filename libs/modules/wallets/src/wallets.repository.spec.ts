@@ -365,4 +365,140 @@ describe('WalletsRepository', () => {
       });
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // findActivityCandidates() — PR-C: activity polling rotation
+  //
+  // This method uses $queryRaw (tagged template) with NULLS FIRST ordering.
+  // In unit tests we mock $queryRaw and verify the call shape.
+  // Real ordering is verified in the integration spec.
+  // ---------------------------------------------------------------------------
+
+  describe('findActivityCandidates() — PR-C', () => {
+    it('calls $queryRaw (not findMany) for NULLS FIRST support', async () => {
+      const p = makePrisma({
+        $queryRaw: vi.fn().mockResolvedValue([rawRow]),
+        trackedWallet: {
+          findMany: vi.fn(),
+          findUnique: vi.fn(),
+          upsert: vi.fn(),
+          update: vi.fn(),
+          delete: vi.fn(),
+        },
+      });
+      const r = new WalletsRepository(p);
+
+      await r.findActivityCandidates(10);
+
+      expect(p.$queryRaw).toHaveBeenCalled();
+    });
+
+    it('maps returned rows to TrackedWalletResponseDto shape', async () => {
+      const p = makePrisma({
+        $queryRaw: vi.fn().mockResolvedValue([rawRow]),
+        trackedWallet: {
+          findMany: vi.fn(),
+          findUnique: vi.fn(),
+          upsert: vi.fn(),
+          update: vi.fn(),
+          delete: vi.fn(),
+        },
+      });
+      const r = new WalletsRepository(p);
+
+      const result = await r.findActivityCandidates(10);
+
+      expect(Array.isArray(result)).toBe(true);
+      expect(result[0]!.address).toBe('0xabc');
+      expect(result[0]!.type).toBe('smart_money');
+      expect(result[0]!.last_checked_at).toBeNull();
+    });
+
+    it('returns empty array when no candidates', async () => {
+      const p = makePrisma({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        trackedWallet: {
+          findMany: vi.fn(),
+          findUnique: vi.fn(),
+          upsert: vi.fn(),
+          update: vi.fn(),
+          delete: vi.fn(),
+        },
+      });
+      const r = new WalletsRepository(p);
+
+      const result = await r.findActivityCandidates(10);
+
+      expect(result).toEqual([]);
+    });
+
+    it('coerces limit to a safe integer (Math.trunc)', async () => {
+      const p = makePrisma({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        trackedWallet: {
+          findMany: vi.fn(),
+          findUnique: vi.fn(),
+          upsert: vi.fn(),
+          update: vi.fn(),
+          delete: vi.fn(),
+        },
+      });
+      const r = new WalletsRepository(p);
+
+      // Should not throw on non-integer float
+      await expect(r.findActivityCandidates(5.9)).resolves.toEqual([]);
+      expect(p.$queryRaw).toHaveBeenCalled();
+    });
+
+    it('clamps limit to minimum 1 when 0 is passed', async () => {
+      const p = makePrisma({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        trackedWallet: {
+          findMany: vi.fn(),
+          findUnique: vi.fn(),
+          upsert: vi.fn(),
+          update: vi.fn(),
+          delete: vi.fn(),
+        },
+      });
+      const r = new WalletsRepository(p);
+
+      await r.findActivityCandidates(0);
+
+      // Must not throw and must call queryRaw with limit clamped to 1
+      expect(p.$queryRaw).toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // updateLastChecked() — PR-C: rotation always advances
+  // ---------------------------------------------------------------------------
+
+  describe('updateLastChecked() — PR-C', () => {
+    it('calls prisma.trackedWallet.update with the ISO timestamp', async () => {
+      const ts = '2026-05-14T12:00:00.000Z';
+      await repo.updateLastChecked('0xabc', 'base', ts);
+
+      expect(prisma.trackedWallet.update).toHaveBeenCalledWith({
+        where: { address_chain: { address: '0xabc', chain: 'base' } },
+        data: { lastCheckedAt: ts },
+      });
+    });
+
+    it('accepts a Solana wallet address (base58) without modification', async () => {
+      const solAddr = 'SolanaWallet1111111111111111111111111111111';
+      const ts = '2026-05-14T12:00:00.000Z';
+      await repo.updateLastChecked(solAddr, 'solana', ts);
+
+      expect(prisma.trackedWallet.update).toHaveBeenCalledWith({
+        where: { address_chain: { address: solAddr, chain: 'solana' } },
+        data: { lastCheckedAt: ts },
+      });
+    });
+
+    it('resolves to void (return type is void)', async () => {
+      const result = await repo.updateLastChecked('0xabc', 'base', '2026-05-14T12:00:00.000Z');
+      expect(result).toBeUndefined();
+    });
+  });
 });

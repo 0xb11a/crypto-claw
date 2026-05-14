@@ -5,7 +5,8 @@ import { ConfigModule, assertConfigValid, assertNoSignerKeysInEnv } from '@cclaw
 import { LoggerModule } from '@cclaw/logger';
 import { WalletHarvestSchedule } from './schedules/wallet-harvest.schedule.js';
 import { WalletScoringSchedule } from './schedules/wallet-scoring.schedule.js';
-import { WALLET_HARVEST_QUEUE, WALLET_SCORING_QUEUE } from '@cclaw/wallets';
+import { WalletActivitySchedule } from './schedules/wallet-activity.schedule.js';
+import { WALLET_HARVEST_QUEUE, WALLET_SCORING_QUEUE, WALLET_ACTIVITY_QUEUE } from '@cclaw/wallets';
 
 // Boot self-checks run at module-import time so they fire before NestFactory
 // touches anything. Order matches main.ts (SPEC §4 #4 then §4 #6): signer-key
@@ -55,8 +56,10 @@ const _config = assertConfigValid(process.env);
     BullModule.registerQueue({ name: WALLET_HARVEST_QUEUE }),
     // PR-B: wallet-scoring queue (producer-only handle; processor lives in worker).
     BullModule.registerQueue({ name: WALLET_SCORING_QUEUE }),
+    // PR-C: wallet-activity queue (producer-only handle; processor lives in worker).
+    BullModule.registerQueue({ name: WALLET_ACTIVITY_QUEUE }),
   ],
-  providers: [WalletHarvestSchedule, WalletScoringSchedule],
+  providers: [WalletHarvestSchedule, WalletScoringSchedule, WalletActivitySchedule],
 })
 export class AppModule {}
 

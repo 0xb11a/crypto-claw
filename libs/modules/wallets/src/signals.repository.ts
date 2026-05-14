@@ -5,6 +5,7 @@ import type {
   SmartMoneySignalResponseDto,
   SmartMoneySignalGroupedResponseDto,
 } from './dto/smart-money-signal-response.dto.js';
+import type { CreateSignalInput } from './jobs/swap-extraction.js';
 
 /**
  * Allowed chain identifiers — guards against SQL injection when `chain` is
@@ -212,5 +213,89 @@ export class SignalsRepository {
       tx_timestamp: r.txTimestamp,
       created_at: r.createdAt,
     })) as SmartMoneySignalResponseDto[];
+  }
+
+  /**
+   * Insert a swap signal, ignoring duplicates (INSERT OR IGNORE parity).
+   *
+   * Uses Prisma `upsert` keyed on the `@@unique([txHash, walletAddress, action,
+   * tokenAddress])` constraint. When the unique constraint fires, the `update`
+   * block is a no-op (empty object), so the existing row is left unchanged —
+   * this gives INSERT OR IGNORE semantics.
+   *
+   * Returns `{ inserted: true }` when a new row was created, or
+   * `{ inserted: false }` when the unique constraint prevented insertion.
+   *
+   * Note: Prisma's `upsert` does not expose whether the operation was a
+   * create or update directly, so we compare the `createdAt` field: a just-created
+   * row will have a `createdAt` value within the last few milliseconds of `now`.
+   * We use a 1-second tolerance to guard against tiny clock-resolution differences.
+   *
+   * @param input - Signal data from `extractEvmSwaps` or `extractSolanaSwaps`.
+   * @param walletAddress - Address of the tracked wallet that triggered this signal.
+   * @param walletScore - Score of the wallet (may be null).
+   * @param walletLabel - Label of the wallet (may be null).
+   * @param chain - Chain identifier (e.g. 'base', 'solana').
+   */
+  async insertSignal(
+    input: CreateSignalInput,
+    walletAddress: string,
+    walletScore: number | null,
+    walletLabel: string | null,
+    chain: string,
+  ): Promise<{ inserted: boolean }> {
+    const now = new Date().toISOString();
+    const result = await this.prisma.smartMoneySignal.upsert({
+      where: {
+        txHash_walletAddress_action_tokenAddress: {
+          txHash: input.tx_hash,
+          walletAddress,
+          action: input.action,
+          tokenAddress: input.token_address,
+        },
+      },
+      // On conflict: no-op (INSERT OR IGNORE semantics — don't overwrite existing rows)
+      update: {},
+      create: {
+        txHash: input.tx_hash,
+        chain,
+        walletAddress,
+        walletScore,
+        walletLabel,
+        action: input.action,
+        tokenAddress: input.token_address,
+        tokenSymbol: input.token_symbol,
+        counterTokenAddress: input.counter_token_address,
+        counterTokenSymbol: input.counter_token_symbol,
+        amountToken: input.amount_token,
+        txTimestamp: input.tx_timestamp,
+        createdAt: now,
+      },
+    });
+
+    // Determine if this was a create or a conflict hit.
+    // A conflict-hit row will have an older `createdAt` than `now`.
+    // Allow 1 second tolerance for clock resolution.
+    const createdMs = result.createdAt ? new Date(result.createdAt).getTime() : 0;
+    const inserted = Date.now() - createdMs < 1_000;
+
+    return { inserted };
+  }
+
+  /**
+   * Delete signals older than `hours` hours.
+   *
+   * Used by ActivityWalletsProcessor at the start of each cycle to enforce
+   * the 24-hour retention window. Mirrors the DELETE in
+   * `scripts/activity-wallets-bg.js:224-226`.
+   *
+   * Returns the number of deleted rows.
+   */
+  async pruneOlderThan(hours: number): Promise<{ deleted: number }> {
+    const cutoff = new Date(Date.now() - hours * 3_600_000).toISOString();
+    const result = await this.prisma.smartMoneySignal.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    });
+    return { deleted: result.count };
   }
 }

@@ -2,6 +2,8 @@ import { Module, type DynamicModule } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { BirdeyeModule } from '@cclaw/adapters-birdeye';
 import { ZerionModule } from '@cclaw/adapters-zerion';
+import { HeliusModule } from '@cclaw/adapters-helius';
+import { EvmExplorerModule } from '@cclaw/adapters-evm-explorer';
 import { SystemModule } from '@cclaw/system';
 import { WalletsController } from './wallets.controller.js';
 import { SignalsController } from './signals.controller.js';
@@ -12,11 +14,14 @@ import { SignalsRepository } from './signals.repository.js';
 import { HarvestProcessor } from './jobs/harvest.processor.js';
 import { ScoreWalletsProcessor } from './jobs/score-wallets.processor.js';
 import { ScoreWalletService } from './jobs/score-wallet.service.js';
+import { ActivityWalletsProcessor } from './jobs/activity-wallets.processor.js';
 import {
   WALLET_HARVEST_QUEUE,
   WALLET_SCORING_QUEUE,
+  WALLET_ACTIVITY_QUEUE,
   WALLET_HARVEST_JOB_OPTIONS,
   WALLET_SCORING_JOB_OPTIONS,
+  WALLET_ACTIVITY_JOB_OPTIONS,
 } from './jobs/queue-names.js';
 
 /**
@@ -68,9 +73,15 @@ export class WalletsModule {
         BullModule.registerQueue(
           { name: WALLET_HARVEST_QUEUE, defaultJobOptions: { ...WALLET_HARVEST_JOB_OPTIONS } },
           { name: WALLET_SCORING_QUEUE, defaultJobOptions: { ...WALLET_SCORING_JOB_OPTIONS } },
+          // PR-C: wallet-activity queue registered here so ActivityWalletsProcessor's
+          // @Processor(WALLET_ACTIVITY_QUEUE) binds correctly within this module's context.
+          { name: WALLET_ACTIVITY_QUEUE, defaultJobOptions: { ...WALLET_ACTIVITY_JOB_OPTIONS } },
         ),
         BirdeyeModule,
         ZerionModule,
+        // PR-C: adapter modules for the activity-wallets processor.
+        HeliusModule,
+        EvmExplorerModule,
         SystemModule,
       ],
       providers: [
@@ -82,6 +93,8 @@ export class WalletsModule {
         // can inject it without requiring an @Injectable() decorator.
         { provide: ScoreWalletService, useValue: new ScoreWalletService() },
         ScoreWalletsProcessor,
+        // PR-C addition: ActivityWalletsProcessor
+        ActivityWalletsProcessor,
       ],
       exports: [WalletsRepository, SignalsRepository],
     };

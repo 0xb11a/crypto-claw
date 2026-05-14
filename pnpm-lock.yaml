@@ -332,6 +332,12 @@ importers:
       '@cclaw/adapters-birdeye':
         specifier: workspace:*
         version: link:../../libs/adapters/birdeye
+      '@cclaw/adapters-evm-explorer':
+        specifier: workspace:*
+        version: link:../../libs/adapters/evm-explorer
+      '@cclaw/adapters-helius':
+        specifier: workspace:*
+        version: link:../../libs/adapters/helius
       '@cclaw/adapters-zerion':
         specifier: workspace:*
         version: link:../../libs/adapters/zerion
@@ -392,6 +398,62 @@ importers:
         version: 1.6.1(@types/node@22.19.18)
 
   libs/adapters/birdeye:
+    dependencies:
+      '@cclaw/config':
+        specifier: workspace:*
+        version: link:../../config
+      '@cclaw/logger':
+        specifier: workspace:*
+        version: link:../../logger
+      '@nestjs/common':
+        specifier: ^10.0.0
+        version: 10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/config':
+        specifier: ^3.0.0
+        version: 3.3.0(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@nestjs/core':
+        specifier: ^10.0.0
+        version: 10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.18
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@22.19.18)
+
+  libs/adapters/evm-explorer:
+    dependencies:
+      '@cclaw/config':
+        specifier: workspace:*
+        version: link:../../config
+      '@cclaw/logger':
+        specifier: workspace:*
+        version: link:../../logger
+      '@nestjs/common':
+        specifier: ^10.0.0
+        version: 10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/config':
+        specifier: ^3.0.0
+        version: 3.3.0(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@nestjs/core':
+        specifier: ^10.0.0
+        version: 10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.18
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@22.19.18)
+
+  libs/adapters/helius:
     dependencies:
       '@cclaw/config':
         specifier: workspace:*
@@ -1080,6 +1142,12 @@ importers:
       '@cclaw/adapters-birdeye':
         specifier: workspace:*
         version: link:../../adapters/birdeye
+      '@cclaw/adapters-evm-explorer':
+        specifier: workspace:*
+        version: link:../../adapters/evm-explorer
+      '@cclaw/adapters-helius':
+        specifier: workspace:*
+        version: link:../../adapters/helius
       '@cclaw/adapters-zerion':
         specifier: workspace:*
         version: link:../../adapters/zerion

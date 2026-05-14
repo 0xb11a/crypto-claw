@@ -29,12 +29,15 @@
 import { describe, it, expect } from 'vitest';
 import { WALLET_HARVEST_QUEUE, WALLET_HARVEST_JOB_OPTIONS } from './queues/wallet-harvest.queue.js';
 import { WALLET_SCORING_QUEUE, WALLET_SCORING_JOB_OPTIONS } from './queues/wallet-scoring.queue.js';
+import { WALLET_ACTIVITY_QUEUE, WALLET_ACTIVITY_JOB_OPTIONS } from './queues/wallet-activity.queue.js';
 import {
   WALLET_HARVEST_QUEUE as DOMAIN_HARVEST_QUEUE,
   WALLET_SCORING_QUEUE as DOMAIN_SCORING_QUEUE,
+  WALLET_ACTIVITY_QUEUE as DOMAIN_ACTIVITY_QUEUE,
 } from '@cclaw/wallets';
 import { HarvestProcessor } from '../../../libs/modules/wallets/src/jobs/harvest.processor.js';
 import { ScoreWalletsProcessor } from '../../../libs/modules/wallets/src/jobs/score-wallets.processor.js';
+import { ActivityWalletsProcessor } from '../../../libs/modules/wallets/src/jobs/activity-wallets.processor.js';
 
 describe('Worker AppModule — static DI contract verification', () => {
   // -------------------------------------------------------------------------
@@ -154,6 +157,67 @@ describe('Worker AppModule — static DI contract verification', () => {
 
     it('prototype has a process() method (WorkerHost contract)', () => {
       expect(typeof ScoreWalletsProcessor.prototype.process).toBe('function');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR-C: WALLET_ACTIVITY_QUEUE constant parity
+  // -------------------------------------------------------------------------
+
+  describe('WALLET_ACTIVITY_QUEUE constant (PR-C)', () => {
+    it('worker re-export equals the domain canonical value', () => {
+      expect(WALLET_ACTIVITY_QUEUE).toBe(DOMAIN_ACTIVITY_QUEUE);
+    });
+
+    it('equals "wallet-activity"', () => {
+      expect(WALLET_ACTIVITY_QUEUE).toBe('wallet-activity');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR-C: WALLET_ACTIVITY_JOB_OPTIONS retry policy
+  // -------------------------------------------------------------------------
+
+  describe('WALLET_ACTIVITY_JOB_OPTIONS retry policy (DoD §E — PR-C)', () => {
+    it('has attempts: 2', () => {
+      expect(WALLET_ACTIVITY_JOB_OPTIONS.attempts).toBe(2);
+    });
+
+    it('has backoff type "fixed"', () => {
+      expect(WALLET_ACTIVITY_JOB_OPTIONS.backoff.type).toBe('fixed');
+    });
+
+    it('has backoff delay of 60_000 ms (60 s)', () => {
+      expect(WALLET_ACTIVITY_JOB_OPTIONS.backoff.delay).toBe(60_000);
+    });
+
+    it('retains last 50 completed jobs', () => {
+      expect(WALLET_ACTIVITY_JOB_OPTIONS.removeOnComplete).toBe(50);
+    });
+
+    it('retains last 20 failed jobs', () => {
+      expect(WALLET_ACTIVITY_JOB_OPTIONS.removeOnFail).toBe(20);
+    });
+
+    it('policy is identical to harvest and scoring policy (unified P3g1 [OPEN-4] decision)', () => {
+      expect(WALLET_ACTIVITY_JOB_OPTIONS.attempts).toBe(WALLET_HARVEST_JOB_OPTIONS.attempts);
+      expect(WALLET_ACTIVITY_JOB_OPTIONS.backoff.type).toBe(WALLET_HARVEST_JOB_OPTIONS.backoff.type);
+      expect(WALLET_ACTIVITY_JOB_OPTIONS.backoff.delay).toBe(WALLET_HARVEST_JOB_OPTIONS.backoff.delay);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR-C: ActivityWalletsProcessor importability (DI resolution without bootstrap)
+  // -------------------------------------------------------------------------
+
+  describe('ActivityWalletsProcessor (PR-C)', () => {
+    it('is a class (importable from expected path)', () => {
+      expect(ActivityWalletsProcessor).toBeDefined();
+      expect(typeof ActivityWalletsProcessor).toBe('function');
+    });
+
+    it('prototype has a process() method (WorkerHost contract)', () => {
+      expect(typeof ActivityWalletsProcessor.prototype.process).toBe('function');
     });
   });
 });
