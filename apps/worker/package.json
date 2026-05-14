@@ -11,6 +11,7 @@
     "dev": "tsx --watch src/main.ts"
   },
   "dependencies": {
+    "@cclaw/adapters-birdeye": "workspace:*",
     "@cclaw/audit": "workspace:*",
     "@cclaw/config": "workspace:*",
     "@cclaw/execution": "workspace:*",
@@ -18,6 +19,7 @@
     "@cclaw/orders": "workspace:*",
     "@cclaw/prisma": "workspace:*",
     "@cclaw/receipts": "workspace:*",
+    "@cclaw/wallets": "workspace:*",
     "@nestjs/bullmq": "^10.0.0",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.0.0",

@@ -817,6 +817,65 @@ The Squads transactionIndex is monotonically increasing per vault. The
 
 ---
 
+## 11.1 Background pipeline jobs (P3g1)
+
+The wallet smart-money pipeline runs three BullMQ jobs in `apps/worker`, scheduled by `apps/scheduler`. These jobs run in parallel alongside the legacy `entrypoint.sh` background loops during P3 (removed in P5).
+
+### Queue summary
+
+| Queue | Cron | Processor | Health key |
+|---|---|---|---|
+| `wallet-harvest` | `0 * * * *` (hourly) | `HarvestProcessor` | `last_birdeye_harvest_at` |
+| `wallet-scoring` | `*/10 * * * *` (PR-B) | `ScoreWalletsProcessor` | `last_score_wallets_bg_at` |
+| `wallet-activity` | `*/30 * * * *` (PR-C) | `ActivityWalletsProcessor` | `last_activity_wallets_bg_at` |
+
+### Retry policy
+
+All three queues share the same retry policy (P3g1 plan [OPEN-4]):
+- **Attempts:** 2 (1 original + 1 retry)
+- **Backoff:** fixed 60 s delay
+- **removeOnComplete:** 50 (recent successes kept for inspection)
+- **removeOnFail:** 20 (recent failures kept for operator review)
+
+### Manual re-enqueue
+
+To manually trigger a harvest outside the hourly cron:
+
+```bash
+# Via redis-cli (replace redis host/port as needed)
+redis-cli XADD wallet-harvest:events '*' type manual
+
+# Or enqueue directly via BullMQ CLI (if installed)
+# bull-cli add wallet-harvest '{}'
+```
+
+### Staleness alarms
+
+The Observer agent checks `last_birdeye_harvest_at` (and the other health keys) against expected cadences. If the value is stale, the Observer fires a `system_health` Telegram alert:
+
+| Key | Stale threshold |
+|---|---|
+| `last_birdeye_harvest_at` | > 90 min (2 missed hourly slots) |
+| `last_score_wallets_bg_at` | > 30 min |
+| `last_activity_wallets_bg_at` | > 90 min |
+
+### Parallel legacy + new during P3
+
+During P3, the legacy `entrypoint.sh` loops (`run_wallet_scoring_loop`, `run_activity_wallets_loop`) run in parallel with the new BullMQ jobs. This causes 2× Birdeye/Zerion/Helius API quota consumption. Mitigation:
+
+- Use paper mode (`PAPER_MODE=true`) for dry-run verification before exposing to production quota limits.
+- Monitor API quota dashboards during the first 24h of P3 deployment.
+- Disable the legacy loops at P5 cutover once the new jobs are proven stable.
+
+### Configuration
+
+| Env var | Default | Description |
+|---|---|---|
+| `WALLET_HARVEST_TIMEOUT_MS` | `300000` | AbortSignal deadline for one harvest job invocation (ms) |
+| `BIRDEYE_API_KEY` | _(optional)_ | Required for harvest and scoring; harvest skips gracefully if absent |
+
+---
+
 ## 12. Emergency stop
 
 [TBD]

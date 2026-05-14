@@ -194,6 +194,22 @@ export const envSchema = z.object({
   SIGNER_ENV_FILE: z.string().default('/run/secrets/signer.env'),
 
   // --------------------------------------------------------------------------
+  // Background pipeline job tuning (P3g1)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Wall-clock cap for one wallet-harvest BullMQ job invocation (ms).
+   *
+   * The harvest processor passes this value to `AbortSignal.timeout()` so a
+   * stuck Birdeye HTTP call does not hold up the hourly cron slot. Default:
+   * 300_000 ms (5 min) — conservative relative to the hourly cadence.
+   *
+   * Operator tunable: raise if Birdeye is legitimately slow on a large chain
+   * list; lower if you want tighter SLO enforcement on the harvest cycle.
+   */
+  WALLET_HARVEST_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+
+  // --------------------------------------------------------------------------
   // Runtime behaviour — consumed by libs/logger (SPEC §11)
   // --------------------------------------------------------------------------
 

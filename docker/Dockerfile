@@ -53,6 +53,7 @@ COPY libs/market/package.json libs/market/
 COPY libs/chain/package.json libs/chain/
 COPY libs/portfolio/package.json libs/portfolio/
 COPY libs/execution/package.json libs/execution/
+COPY libs/adapters/birdeye/package.json libs/adapters/birdeye/
 COPY libs/modules/positions/package.json libs/modules/positions/
 COPY libs/modules/orders/package.json libs/modules/orders/
 COPY libs/modules/receipts/package.json libs/modules/receipts/

@@ -6,7 +6,9 @@ import { PrismaModule } from '@cclaw/prisma';
 import { AuditModule } from '@cclaw/audit';
 import { OrdersModule, resolveActiveQueueNames, buildChainQueueMap } from '@cclaw/orders';
 import { ReceiptsModule } from '@cclaw/receipts';
+import { WalletsModule } from '@cclaw/wallets';
 import { createExecuteOrderProcessor } from './processors/execute-order.processor.js';
+import { WALLET_HARVEST_QUEUE } from './queues/wallet-harvest.queue.js';
 
 // Boot self-checks run at module-import time so they fire before NestFactory
 // touches anything. Order matches main.ts (SPEC §4 #4 then §4 #6): signer-key
@@ -78,11 +80,30 @@ const processorProviders = activeQueueNames.map(createExecuteOrderProcessor);
       }),
     ),
 
+    // Global singleton queues for the P3g1 wallet pipeline.
+    // Retry policy: 2 attempts, 60 s fixed backoff (P3g1 plan [OPEN-4]).
+    // These queues are not per-Safe — see ADR-0024 addendum (2026-05-14).
+    BullModule.registerQueue({
+      name: WALLET_HARVEST_QUEUE,
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: { type: 'fixed', delay: 60_000 },
+        removeOnComplete: 50,
+        removeOnFail: 20,
+      },
+    }),
+
     // Domain modules required by the processors.
     // OrdersModule.forRoot owns the CHAIN_QUEUE_MAP provider (ADR-0024 addendum, P1c-ii).
     OrdersModule.forRoot({ chainQueueMap }),
     ReceiptsModule,
     AuditModule,
+
+    // Wallet pipeline modules (P3g1 PR-A).
+    // WalletsModule.forWorker() registers HarvestProcessor and its adapter/service deps
+    // (BirdeyeModule, SystemModule). Queue registration is handled above via
+    // BullModule.registerQueue(WALLET_HARVEST_QUEUE).
+    WalletsModule.forWorker(),
   ],
   providers: [
     // Per-Safe processor instances (factory pattern — one class per queue name).

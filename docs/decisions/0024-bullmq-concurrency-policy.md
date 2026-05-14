@@ -42,3 +42,24 @@ PR-A (P1c-ii infrastructure) is the slice that pre-installs the per-Safe topolog
 **Operational consequence:** adding a new Safe to `ACTIVE_CHAINS` requires a worker restart so the new queue's Worker registers. There is no hot-reload path in P1c-ii; the `docs/runbook.md` "rotate / add a Safe" section MUST call this out in the same PR.
 
 **Scope note:** this addendum closes the ADR-0024 mandate that the per-Safe concurrency mechanism land in the same PR as the real Safe SDK consumer. PR-A pre-installs the topology so PR-B's real Safe SDK lands into a queue layout that already enforces the nonce-collision invariant; PR-B is the first consumer. The body of this ADR (Context / Decision / Consequences) remains the canonical record of *why* per-Safe concurrency is required; this addendum records *how* it is implemented. Status remains **Accepted** — the mechanism choice is a refinement, not a supersession.
+
+## Addendum (2026-05-14) — Scope: `execute-order` only; P3 background jobs use global singleton queues
+
+P3g1 introduces three new BullMQ queues for the smart-money wallet pipeline: `wallet-harvest`, `wallet-scoring`, and `wallet-activity`. These jobs are explicitly **outside** the scope of this ADR's per-Safe concurrency mandate. The distinction:
+
+- **`execute-order-*` queues** (this ADR): per-Safe topology required because two concurrent executor spawns for the same Safe collide on the on-chain nonce. One queue per `(chain, safe_address)` pair; one Worker with `concurrency: 1` per queue.
+- **`wallet-harvest`, `wallet-scoring`, `wallet-activity` queues** (P3g1): global singleton topology. These jobs make read-only outbound HTTP calls (Birdeye, Zerion, Helius) and write to `tracked_wallets` / `smart_money_signals` only. No on-chain writes, no nonce semantics. Equivalent to the legacy `entrypoint.sh` loops which ran as a single process.
+
+**Decision:** P3g1 background jobs use `concurrency: 1` on a single global-singleton queue (not per-Safe). This matches the legacy entrypoint loop model and is correct for read-only/write-to-DB-only workloads.
+
+**Retry policy (user override 2026-05-14):** `attempts: 2` with fixed 60 s backoff. Rationale: absorbs transient Redis/network blips; second attempt leaves DB in the same state as the first (idempotency guaranteed by INSERT OR IGNORE / proposeWallet semantics).
+
+**Implementation locus:**
+- `libs/modules/wallets/src/jobs/queue-names.ts` — three constants (`WALLET_HARVEST_QUEUE`, `WALLET_SCORING_QUEUE`, `WALLET_ACTIVITY_QUEUE`); no factory function (queues are not per-Safe).
+- `libs/modules/wallets/src/jobs/harvest.processor.ts` — `@Processor(WALLET_HARVEST_QUEUE, { concurrency: 1 })`.
+- `apps/worker/src/app.module.ts` — registers the queue with the retry policy.
+- `apps/scheduler/src/schedules/wallet-harvest.schedule.ts` — `@Cron('0 * * * *')` enqueuer.
+
+**Supply-chain note (PR-A):** introducing `@nestjs/schedule@4.1.2` brings transitive `uuid@11.0.3` (GHSA-w5hq-g745-h8pq, moderate — buffer-bounds in v3/v5/v6 when `buf` is provided). `@nestjs/schedule` uses uuid v4 without `buf`, so there is no reachable exploit path. **Decision:** accept the transitive advisory; revisit during P3-cleanup or when `@nestjs/schedule` bumps its uuid pin to `>=11.1.1`. No `pnpm.overrides` entry added in PR-A.
+
+Cross-links: P3g1 PR-A (`feat/p3g1-pr-a-harvest`), `libs/modules/wallets/src/jobs/harvest.processor.ts`, `docs/runbook.md §11.1`. Status remains **Accepted**.

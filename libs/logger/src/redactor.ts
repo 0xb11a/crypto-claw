@@ -25,6 +25,10 @@ export const REDACT_PATHS: string[] = [
   // HTTP authorization header
   'req.headers.authorization',
 
+  // Birdeye and other external-API key headers (P3g1 — BirdeyeAdapter)
+  'req.headers["x-api-key"]',
+  'req.headers["X-API-KEY"]',
+
   // Common token field names at any depth
   '*.token',
   '*.api_key',
@@ -49,6 +53,9 @@ export const REDACT_PATHS: string[] = [
   'SAFE_SIGNER_KEY',
   'SQUADS_SIGNER_KEY',
   'OPENAI_API_KEY',
+  'BIRDEYE_API_KEY',
+  'HELIUS_API_KEY',
+  'ZERION_API_KEY',
   'RESEARCH_API_KEY',
   'SENTINEL_API_KEY',
   'EXECUTOR_API_KEY',
@@ -85,6 +92,16 @@ const RE_JWT = /eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g;
 const RE_RPC_CREDS = /https?:\/\/[^@\s]+:[^@\s]+@[^\s]+/g;
 
 /**
+ * Query-string API keys for Etherscan-family and Birdeye-style URLs.
+ *
+ * Matches: `?apikey=VALUE`, `?api_key=VALUE`, `&apikey=VALUE`, `&api_key=VALUE`
+ * where VALUE is any non-whitespace sequence.
+ *
+ * Added in P3g1 for the BirdeyeAdapter and evm-explorer adapters (PR-C).
+ */
+const RE_QUERY_APIKEY = /[?&]api[_-]?key=[^\s&"']*/gi;
+
+/**
  * Base58-encoded Solana private keys.
  * Squads/Solana signer keys are base58-encoded 64-byte secrets (87-88 chars).
  * Pattern: base58 alphabet chars (1-9A-HJ-NP-Za-km-z), at least 87 chars long.
@@ -114,6 +131,7 @@ export function redactString(text: string): string {
   result = result.replace(RE_JWT, '[REDACTED]');
   result = result.replace(RE_RPC_CREDS, '[REDACTED_RPC_URL]');
   result = result.replace(RE_HEX_64, '[REDACTED]');
+  result = result.replace(RE_QUERY_APIKEY, (match) => match.replace(/=[^\s&"']*$/, '=[REDACTED]'));
 
   return result;
 }

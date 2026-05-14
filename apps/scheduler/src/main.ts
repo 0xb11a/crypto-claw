@@ -1,3 +1,4 @@
+import './preload.js';
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { assertNoSignerKeysInEnv, assertConfigValid } from '@cclaw/config';
@@ -27,7 +28,7 @@ async function bootstrap(): Promise<void> {
     bufferLogs: true,
   });
   // Step 4 — log readiness
-  process.stdout.write('[boot] scheduler ready (no schedules registered yet)\n');
+  process.stdout.write('[boot] scheduler ready (wallet-harvest cron: 0 * * * *)\n');
 
   // Stay alive until SIGTERM
   process.on('SIGTERM', async () => {
