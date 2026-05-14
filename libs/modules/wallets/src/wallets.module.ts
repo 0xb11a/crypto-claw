@@ -1,4 +1,5 @@
 import { Module, type DynamicModule } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { BirdeyeModule } from '@cclaw/adapters-birdeye';
 import { ZerionModule } from '@cclaw/adapters-zerion';
 import { SystemModule } from '@cclaw/system';
@@ -11,6 +12,12 @@ import { SignalsRepository } from './signals.repository.js';
 import { HarvestProcessor } from './jobs/harvest.processor.js';
 import { ScoreWalletsProcessor } from './jobs/score-wallets.processor.js';
 import { ScoreWalletService } from './jobs/score-wallet.service.js';
+import {
+  WALLET_HARVEST_QUEUE,
+  WALLET_SCORING_QUEUE,
+  WALLET_HARVEST_JOB_OPTIONS,
+  WALLET_SCORING_JOB_OPTIONS,
+} from './jobs/queue-names.js';
 
 /**
  * Wallets module — wires tracked_wallets and smart_money_signals.
@@ -47,21 +54,22 @@ export class WalletsModule {
    * Imports BirdeyeModule and SystemModule so the HarvestProcessor can resolve
    * its BirdeyeAdapter and SystemService dependencies.
    *
-   * Queue registration (`BullModule.registerQueue`) is intentionally left to
-   * `apps/worker/src/app.module.ts` so the retry/backoff policy lives in one
-   * canonical place (ADR-0024 addendum; same pattern as execute-order).
+   * Queue registration lives here (not in apps/worker/src/app.module.ts) so the
+   * `@InjectQueue(WALLET_HARVEST_QUEUE)` in ScoreWalletsProcessor resolves
+   * correctly. NestJS BullMQ's `registerQueue` is module-scoped; the Queue
+   * provider must be visible in the same module that declares the consumer
+   * processor. The `defaultJobOptions` constants live in libs/modules/wallets
+   * so apps/worker and apps/scheduler import the same policy.
    */
   static forWorker(): DynamicModule {
     return {
       module: WalletsModule,
       imports: [
-        // BullModule.registerQueue with retry policy is registered in
-        // apps/worker/src/app.module.ts (canonical policy location, ADR-0024
-        // addendum). The processor WorkerHost requires the queue to already
-        // be registered; apps/worker's app.module registers it before this
-        // module is initialised.
+        BullModule.registerQueue(
+          { name: WALLET_HARVEST_QUEUE, defaultJobOptions: { ...WALLET_HARVEST_JOB_OPTIONS } },
+          { name: WALLET_SCORING_QUEUE, defaultJobOptions: { ...WALLET_SCORING_JOB_OPTIONS } },
+        ),
         BirdeyeModule,
-        // ZerionModule provides ZerionAdapter for ScoreWalletsProcessor (PR-B).
         ZerionModule,
         SystemModule,
       ],

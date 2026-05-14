@@ -22,12 +22,7 @@
  */
 
 // Re-export from the shared domain location (single source of truth).
-export { WALLET_HARVEST_QUEUE } from '@cclaw/wallets';
-
-/** Default BullMQ job options for wallet-harvest jobs. */
-export const WALLET_HARVEST_JOB_OPTIONS = {
-  attempts: 2,
-  backoff: { type: 'fixed' as const, delay: 60_000 },
-  removeOnComplete: 50,
-  removeOnFail: 20,
-} as const;
+// BullModule.registerQueue now lives inside WalletsModule.forWorker() so the
+// ScoreWalletsProcessor's @InjectQueue(WALLET_HARVEST_QUEUE) resolves; the
+// JOB_OPTIONS constant is in libs to keep policy + naming in one place.
+export { WALLET_HARVEST_QUEUE, WALLET_HARVEST_JOB_OPTIONS } from '@cclaw/wallets';

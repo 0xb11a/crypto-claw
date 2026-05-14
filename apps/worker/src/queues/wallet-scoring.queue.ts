@@ -22,12 +22,4 @@
  */
 
 // Re-export from the shared domain location (single source of truth).
-export { WALLET_SCORING_QUEUE } from '@cclaw/wallets';
-
-/** Default BullMQ job options for wallet-scoring jobs. */
-export const WALLET_SCORING_JOB_OPTIONS = {
-  attempts: 2,
-  backoff: { type: 'fixed' as const, delay: 60_000 },
-  removeOnComplete: 50,
-  removeOnFail: 20,
-} as const;
+export { WALLET_SCORING_QUEUE, WALLET_SCORING_JOB_OPTIONS } from '@cclaw/wallets';
