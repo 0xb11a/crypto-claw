@@ -748,6 +748,7 @@
         "properties": {
           "amount": {
             "description": "Cash amount in USD (must be ≥ 0)",
+            "minimum": 0,
             "type": "number"
           },
           "chain": {
