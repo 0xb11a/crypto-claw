@@ -79,6 +79,20 @@ const RE_API_KEY_SK = /\bsk-[a-zA-Z0-9_-]{20,}/g;
 /** Bearer token in strings */
 const RE_BEARER = /Bearer\s+[a-zA-Z0-9_.-]{20,}/gi;
 
+/**
+ * HTTP Basic auth credentials in strings.
+ *
+ * Matches `Basic <base64-value>` where the value is at least 16 chars of
+ * base64 (A-Z, a-z, 0-9, +, /, =). Added in PR-B for ZerionAdapter which
+ * authenticates via `Basic ${Buffer.from(apiKey + ':').toString('base64')}`.
+ *
+ * Pino REDACT_PATHS already covers `req.headers.authorization` in structured
+ * JSON logs. This pattern covers the string-level redactor path used by
+ * `redactString()` — e.g. when an Authorization header leaks into an error
+ * message or log context field.
+ */
+const RE_BASIC_AUTH = /Basic\s+[a-zA-Z0-9+/=]{16,}/gi;
+
 /** Generic 64-char hex (private keys, transaction hashes) */
 const RE_HEX_64 = /\b[a-fA-F0-9]{64}\b/g;
 
@@ -128,6 +142,7 @@ export function redactString(text: string): string {
   result = result.replace(RE_BASE58_PRIVATE_KEY, '[REDACTED]'); // Solana/Squads signer keys (base58 ≥87 chars)
   result = result.replace(RE_API_KEY_SK, '[REDACTED]');
   result = result.replace(RE_BEARER, 'Bearer [REDACTED]');
+  result = result.replace(RE_BASIC_AUTH, 'Basic [REDACTED]');
   result = result.replace(RE_JWT, '[REDACTED]');
   result = result.replace(RE_RPC_CREDS, '[REDACTED_RPC_URL]');
   result = result.replace(RE_HEX_64, '[REDACTED]');

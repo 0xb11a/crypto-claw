@@ -120,7 +120,7 @@ describe('HarvestProcessor', () => {
 
       const result = await processor.process(makeJob());
 
-      expect(result.harvested).toBe(3);
+      expect(result.attempted).toBe(3);
     });
 
     it('calls proposeWallet once per token', async () => {
@@ -192,7 +192,7 @@ describe('HarvestProcessor', () => {
     it('returns harvested:0 and empty byChain', async () => {
       const result = await processor.process(makeJob());
 
-      expect(result.harvested).toBe(0);
+      expect(result.attempted).toBe(0);
       expect(result.byChain).toEqual({});
     });
 
@@ -220,7 +220,7 @@ describe('HarvestProcessor', () => {
 
       const result = await processor.process(makeJob());
 
-      expect(result.harvested).toBe(0);
+      expect(result.attempted).toBe(0);
       expect(adapter.getTopGainersPerChain).not.toHaveBeenCalled();
     });
 
@@ -271,7 +271,7 @@ describe('HarvestProcessor', () => {
       const result = await processor.process(makeJob());
 
       // Only the successful insert counts
-      expect(result.harvested).toBe(1);
+      expect(result.attempted).toBe(1);
       // Both tokens were attempted
       expect(repo.proposeWallet).toHaveBeenCalledTimes(2);
     });
@@ -432,7 +432,7 @@ describe('HarvestProcessor', () => {
       const result = await processor.process(makeJob());
 
       // undefined → coalesces to '' → no chains → skips fetch
-      expect(result.harvested).toBe(0);
+      expect(result.attempted).toBe(0);
       expect(adapter.getTopGainersPerChain).not.toHaveBeenCalled();
     });
 
@@ -460,7 +460,7 @@ describe('HarvestProcessor', () => {
       // Should not throw — catches and logs the non-Error value
       const result = await processor.process(makeJob());
 
-      expect(result.harvested).toBe(0);
+      expect(result.attempted).toBe(0);
     });
   });
 });

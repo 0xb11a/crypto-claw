@@ -62,5 +62,5 @@ libs/adapters/*/src/**/*.d.ts.map
 # Vitest coverage output (build artifact — never commit)
 coverage/
 
-# Stray SQLite artifact created by integration specs that parse `file::memory:?...` literally
-prisma/:memory:
+# Stray SQLite artifacts created by integration specs that parse `file::*` URIs literally
+prisma/:*

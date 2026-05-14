@@ -405,7 +405,7 @@ describe('byChain breakdown accuracy', () => {
     const dbSolana = await prisma.trackedWallet.count({ where: { chain: 'solana' } });
     expect(result.byChain['base']).toBe(dbBase);
     expect(result.byChain['solana']).toBe(dbSolana);
-    expect(result.harvested).toBe(3);
+    expect(result.attempted).toBe(3);
   });
 });
 

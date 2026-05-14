@@ -68,20 +68,6 @@ export class BirdeyeApiError extends Error {
   }
 }
 
-/**
- * Stub error for methods not yet implemented in PR-A.
- *
- * PR-B will replace this with real implementations for `getTraderRank`
- * and `getTokenTopTraders`. Stubs are thrown rather than left as empty
- * bodies so TypeScript enforces return-type correctness at compile time.
- */
-export class NotImplementedError extends Error {
-  constructor(method: string) {
-    super(`BirdeyeAdapter.${method} is not implemented in PR-A — ships in PR-B`);
-    this.name = 'NotImplementedError';
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Public return types
 // ---------------------------------------------------------------------------
@@ -102,26 +88,57 @@ export interface TopGainerEntry {
 }
 
 /**
- * Stub type for getTraderRank — return type reserved for PR-B.
+ * Result from the Birdeye gainers-losers leaderboard check for a wallet.
  *
- * @deprecated Do not use — throws NotImplementedError in PR-A.
+ * Mirrors the return shape of `fetchBirdeyeTraderRank` in
+ * `scripts/score-wallet.js` (DoD §I — bug-for-bug parity).
  */
-export interface TraderRankResult {
-  rank: number;
-  winRate: number;
-  pnl30d: number;
-}
+export type TraderRankResult =
+  | {
+      source: 'birdeye_trader';
+      inTopGainers: true;
+      /** 1-based rank in the leaderboard response. */
+      rank: number;
+      /** Today's PnL in USD. */
+      pnl: number;
+      /** Today's volume in USD. */
+      volume: number;
+      /** Number of trades today. */
+      tradeCount: number;
+      /** Total items in the leaderboard response. */
+      totalTraders: number;
+    }
+  | {
+      source: 'birdeye_trader';
+      inTopGainers: false;
+      rank: null;
+      /** Median PnL of the leaderboard (context for scoring). */
+      medianPnl: number;
+      /** Top PnL of the leaderboard (context for scoring). */
+      topPnl: number;
+    };
 
 /**
- * Stub type for getTokenTopTraders — return type reserved for PR-B.
+ * One entry from the Birdeye token top-traders endpoint.
  *
- * @deprecated Do not use — throws NotImplementedError in PR-A.
+ * Mirrors the return shape of `fetchBirdeyeTokenTraderStats` in
+ * `scripts/score-wallet.js` (DoD §I — bug-for-bug parity).
  */
-export interface TokenTopTrader {
-  address: string;
-  volume: number;
-  pnl: number;
-}
+export type TokenTopTrader =
+  | {
+      isTopTrader: true;
+      /** 1-based rank in the top-traders list for this token. */
+      rank: number;
+      volume: number;
+      trades: number;
+      buys: number;
+      sells: number;
+      volumeBuy: number;
+      volumeSell: number;
+    }
+  | {
+      isTopTrader: false;
+    };
 
 // ---------------------------------------------------------------------------
 // Birdeye chain identifiers
@@ -188,18 +205,27 @@ export class BirdeyeAdapter {
    * The `X-API-KEY` header value is sourced from the `BIRDEYE_API_KEY` env
    * var. It is not logged anywhere in this method — the caller's debug
    * level should log the URL only, never the key.
+   *
+   * @param url - Full URL to request.
+   * @param signal - Optional AbortSignal.
+   * @param birdeyeChain - Optional `x-chain` header value (required by some endpoints).
    */
-  private async fetchBirdeye<T>(url: string, signal?: AbortSignal): Promise<T> {
+  private async fetchBirdeye<T>(url: string, signal?: AbortSignal, birdeyeChain?: string): Promise<T> {
     const apiKey = this.getApiKey();
     // NOTE: `X-API-KEY` header value is never logged — logger redaction in
     // libs/logger covers the header pattern, but the value is intentionally
     // not passed to logger.debug here as an extra defence layer.
+    const headers: Record<string, string> = {
+      'X-API-KEY': apiKey,
+      Accept: 'application/json',
+    };
+    if (birdeyeChain) {
+      headers['x-chain'] = birdeyeChain;
+    }
+
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'X-API-KEY': apiKey,
-        Accept: 'application/json',
-      },
+      headers,
       signal,
     });
 
@@ -286,22 +312,163 @@ export class BirdeyeAdapter {
   }
 
   /**
-   * Get the trader rank and performance metrics for a wallet address.
+   * Check whether a wallet address appears in the Birdeye daily gainers-losers
+   * leaderboard for the given chain.
    *
-   * @throws {NotImplementedError} Always — ships in PR-B.
-   * @deprecated Not available in PR-A. Use after PR-B lands.
+   * Calls `/trader/gainers-losers?type=today&sort_by=PnL&sort_type=desc&limit=10`
+   * with the `x-chain` header. Mirrors `fetchBirdeyeTraderRank` in
+   * `scripts/score-wallet.js` (DoD §I — bug-for-bug parity).
+   *
+   * Returns `null` when:
+   * - `chain` is not in `CHAIN_ID_MAP` (unsupported chain)
+   * - The API returns an unexpected shape
+   *
+   * @param address - Wallet address to look up (case-insensitive match).
+   * @param chain - ACTIVE_CHAINS chain identifier (e.g. 'base', 'solana').
+   * @param opts.signal - Optional AbortSignal for wall-clock cap.
+   *
+   * @throws {BirdeyeApiKeyMissingError} if BIRDEYE_API_KEY is not configured.
+   * @throws {BirdeyeRateLimitError} on HTTP 429.
+   * @throws {BirdeyeApiError} on other non-2xx responses.
    */
-  async getTraderRank(_address: string, _chain: string): Promise<TraderRankResult> {
-    throw new NotImplementedError('getTraderRank');
+  async getTraderRank(
+    address: string,
+    chain: string,
+    opts: { signal?: AbortSignal } = {},
+  ): Promise<TraderRankResult | null> {
+    const { signal } = opts;
+    const birdeyeChain = CHAIN_ID_MAP[chain];
+    if (!birdeyeChain) {
+      this.logger.debug(`birdeye.getTraderRank: unsupported chain=${chain} for ${address}`);
+      return null;
+    }
+
+    const url = `${BIRDEYE_BASE_URL}/trader/gainers-losers` + `?type=today&sort_by=PnL&sort_type=desc&limit=10`;
+
+    this.logger.debug(`birdeye.getTraderRank: checking leaderboard for ${address} chain=${chain}`);
+
+    const data = await this.fetchBirdeye<{
+      success?: boolean;
+      data?: {
+        items?: Array<{
+          address?: string;
+          pnl?: number;
+          volume?: number;
+          trade_count?: number;
+        }>;
+      };
+    }>(url, signal, birdeyeChain);
+
+    if (!data.success || !data.data?.items) {
+      return null;
+    }
+
+    const items = data.data.items;
+    const addrLower = address.toLowerCase();
+    const matchIndex = items.findIndex((t) => t.address?.toLowerCase() === addrLower);
+
+    if (matchIndex >= 0) {
+      const match = items[matchIndex];
+      return {
+        source: 'birdeye_trader',
+        inTopGainers: true,
+        rank: matchIndex + 1,
+        pnl: match.pnl ?? 0,
+        volume: match.volume ?? 0,
+        tradeCount: match.trade_count ?? 0,
+        totalTraders: items.length,
+      };
+    }
+
+    const medianIdx = Math.floor(items.length / 2);
+    return {
+      source: 'birdeye_trader',
+      inTopGainers: false,
+      rank: null,
+      medianPnl: items[medianIdx]?.pnl ?? 0,
+      topPnl: items[0]?.pnl ?? 0,
+    };
   }
 
   /**
-   * Get the top traders for a token address.
+   * Check whether a wallet address appears in the top traders for a given token.
    *
-   * @throws {NotImplementedError} Always — ships in PR-B.
-   * @deprecated Not available in PR-A. Use after PR-B lands.
+   * Calls `/defi/v2/tokens/top_traders?address=TOKEN&sort_by=volume&sort_type=desc&limit=50`
+   * with the `x-chain` header. Mirrors `fetchBirdeyeTokenTraderStats` in
+   * `scripts/score-wallet.js` (DoD §I — bug-for-bug parity).
+   *
+   * Returns `null` when `tokenAddress` is absent or `chain` is unsupported.
+   *
+   * @param walletAddress - Wallet address to look up (case-insensitive match).
+   * @param tokenAddress - Token contract address to query top traders for.
+   * @param chain - ACTIVE_CHAINS chain identifier.
+   * @param opts.signal - Optional AbortSignal for wall-clock cap.
+   *
+   * @throws {BirdeyeApiKeyMissingError} if BIRDEYE_API_KEY is not configured.
+   * @throws {BirdeyeRateLimitError} on HTTP 429.
+   * @throws {BirdeyeApiError} on other non-2xx responses.
    */
-  async getTokenTopTraders(_tokenAddress: string, _chain: string): Promise<TokenTopTrader[]> {
-    throw new NotImplementedError('getTokenTopTraders');
+  async getTokenTopTraders(
+    walletAddress: string,
+    tokenAddress: string,
+    chain: string,
+    opts: { signal?: AbortSignal } = {},
+  ): Promise<TokenTopTrader | null> {
+    const { signal } = opts;
+
+    if (!tokenAddress) {
+      return null;
+    }
+
+    const birdeyeChain = CHAIN_ID_MAP[chain];
+    if (!birdeyeChain) {
+      this.logger.debug(`birdeye.getTokenTopTraders: unsupported chain=${chain}`);
+      return null;
+    }
+
+    const url =
+      `${BIRDEYE_BASE_URL}/defi/v2/tokens/top_traders` +
+      `?address=${encodeURIComponent(tokenAddress)}&sort_by=volume&sort_type=desc&limit=50`;
+
+    this.logger.debug(`birdeye.getTokenTopTraders: checking top traders for token=${tokenAddress} chain=${chain}`);
+
+    const data = await this.fetchBirdeye<{
+      success?: boolean;
+      data?: {
+        items?: Array<{
+          owner?: string;
+          volume?: number;
+          trade?: number;
+          tradeBuy?: number;
+          tradeSell?: number;
+          volumeBuy?: number;
+          volumeSell?: number;
+        }>;
+      };
+    }>(url, signal, birdeyeChain);
+
+    if (!data.success || !data.data?.items) {
+      return null;
+    }
+
+    const items = data.data.items;
+    const addrLower = walletAddress.toLowerCase();
+    const matchIndex = items.findIndex((t) => t.owner?.toLowerCase() === addrLower);
+
+    if (matchIndex >= 0) {
+      const match = items[matchIndex];
+      return {
+        isTopTrader: true,
+        rank: matchIndex + 1,
+        volume: match.volume ?? 0,
+        trades: match.trade ?? 0,
+        buys: match.tradeBuy ?? 0,
+        sells: match.tradeSell ?? 0,
+        volumeBuy: match.volumeBuy ?? 0,
+        volumeSell: match.volumeSell ?? 0,
+      };
+    }
+
+    return { isTopTrader: false };
   }
 }

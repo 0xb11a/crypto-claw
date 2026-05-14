@@ -53,10 +53,23 @@ import { WALLET_HARVEST_QUEUE } from './queue-names.js';
  */
 export type HarvestJobData = Record<string, never>;
 
-/** Structured return value surfaced in BullMQ job result for observability. */
+/**
+ * Structured return value surfaced in BullMQ job result for observability.
+ *
+ * PR-A nit fix #2 (2026-05-14): renamed `harvested` → `attempted` to clarify
+ * that this count represents wallets passed to `proposeWallet` (attempted
+ * inserts), NOT confirmed new rows. `proposeWallet` uses INSERT OR IGNORE
+ * semantics (upsert with empty update block) — if the address/chain pair
+ * already exists, the row is silently left unchanged. The actual number of
+ * newly inserted rows cannot be distinguished cheaply from Prisma's upsert
+ * response without adding a raw SELECT COUNT query.
+ *
+ * Downstream callers (scheduler, BullMQ result log): update references from
+ * `result.harvested` to `result.attempted`.
+ */
 export interface HarvestJobResult {
-  /** Total number of wallets proposed (attempted, deduped by INSERT OR IGNORE). */
-  harvested: number;
+  /** Total number of wallet addresses passed to proposeWallet this cycle. */
+  attempted: number;
   /** Breakdown by chain key → count. */
   byChain: Record<string, number>;
 }
@@ -116,7 +129,7 @@ export class HarvestProcessor extends WorkerHost {
         key: 'last_birdeye_harvest_at',
         value: new Date().toISOString(),
       });
-      return { harvested: 0, byChain: {} };
+      return { attempted: 0, byChain: {} };
     }
 
     // -----------------------------------------------------------------------
@@ -140,7 +153,7 @@ export class HarvestProcessor extends WorkerHost {
     // for potentially 20+ inserts can cause lock contention in SQLite WAL.
     // -----------------------------------------------------------------------
     const byChain: Record<string, number> = {};
-    let harvested = 0;
+    let attempted = 0;
 
     for (const token of tokens) {
       try {
@@ -152,7 +165,7 @@ export class HarvestProcessor extends WorkerHost {
         });
 
         byChain[token.chain] = (byChain[token.chain] ?? 0) + 1;
-        harvested++;
+        attempted++;
       } catch (err) {
         // Log and continue — a single insert failure should not abort the cycle.
         const msg = err instanceof Error ? err.message : String(err);
@@ -170,9 +183,9 @@ export class HarvestProcessor extends WorkerHost {
 
     const elapsedMs = Date.now() - startMs;
     this.logger.log(
-      `wallet-harvest done | harvested=${harvested} chains=${Object.keys(byChain).join(',')} elapsedMs=${elapsedMs}`,
+      `wallet-harvest done | attempted=${attempted} chains=${Object.keys(byChain).join(',')} elapsedMs=${elapsedMs}`,
     );
 
-    return { harvested, byChain };
+    return { attempted, byChain };
   }
 }

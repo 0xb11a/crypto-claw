@@ -32,6 +32,26 @@ describe('redactString — API tokens', () => {
     const input = 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abc.def'; // pre-commit-allow
     expect(redactString(input)).toContain('Bearer [REDACTED]');
   });
+
+  it('redacts HTTP Basic auth credentials (Zerion auth pattern, PR-B)', () => {
+    // Zerion uses: `Basic ${Buffer.from(apiKey + ':').toString('base64')}`
+    // A typical API key is 32 chars → base64 of "key:" is 48+ chars of base64.
+    const base64Cred = Buffer.from('myZerionApiKey1234567890abcdef:').toString('base64'); // pre-commit-allow
+    const input = `Authorization: Basic ${base64Cred}`; // pre-commit-allow
+    const output = redactString(input);
+    expect(output).not.toContain(base64Cred);
+    expect(output).toContain('Basic [REDACTED]');
+  });
+
+  it('redacts Basic auth when embedded in a log context string (defence-in-depth)', () => {
+    const base64Cred = Buffer.from('anotherApiKey:').toString('base64'); // pre-commit-allow
+    const logLine = `outgoing request: POST https://api.zerion.io/v1/wallets/0x123/pnl Authorization=Basic ${base64Cred}`; // pre-commit-allow
+    const output = redactString(logLine);
+    expect(output).not.toContain(base64Cred);
+    expect(output).toContain('Basic [REDACTED]');
+    // The non-sensitive parts should survive
+    expect(output).toContain('zerion.io');
+  });
 });
 
 describe('redactString — JWT-shaped strings', () => {

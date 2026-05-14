@@ -4,7 +4,8 @@ import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, assertConfigValid, assertNoSignerKeysInEnv } from '@cclaw/config';
 import { LoggerModule } from '@cclaw/logger';
 import { WalletHarvestSchedule } from './schedules/wallet-harvest.schedule.js';
-import { WALLET_HARVEST_QUEUE } from '@cclaw/wallets';
+import { WalletScoringSchedule } from './schedules/wallet-scoring.schedule.js';
+import { WALLET_HARVEST_QUEUE, WALLET_SCORING_QUEUE } from '@cclaw/wallets';
 
 // Boot self-checks run at module-import time so they fire before NestFactory
 // touches anything. Order matches main.ts (SPEC §4 #4 then §4 #6): signer-key
@@ -26,6 +27,7 @@ const _config = assertConfigValid(process.env);
  *     providers. The retry/backoff policy lives in apps/worker where it is
  *     canonical; the scheduler only needs a producer handle.
  *   - `WalletHarvestSchedule` provides the `@Cron('0 * * * *')` enqueuer.
+ *   - `WalletScoringSchedule` provides the `@Cron('*\/10 * * * *')` enqueuer (PR-B).
  *
  * Queue registration here is a *producer-only* registration — no Worker /
  * processor is created in the scheduler process. The worker owns processing.
@@ -46,13 +48,15 @@ const _config = assertConfigValid(process.env);
       },
     }),
 
-    // Register producer handle for wallet-harvest queue.
+    // Register producer handles for wallet pipeline queues.
     // No defaultJobOptions needed on the producer side — job options are set
     // by the enqueuer at add() call time (or inherited from the consumer-side
     // defaultJobOptions registered in apps/worker).
     BullModule.registerQueue({ name: WALLET_HARVEST_QUEUE }),
+    // PR-B: wallet-scoring queue (producer-only handle; processor lives in worker).
+    BullModule.registerQueue({ name: WALLET_SCORING_QUEUE }),
   ],
-  providers: [WalletHarvestSchedule],
+  providers: [WalletHarvestSchedule, WalletScoringSchedule],
 })
 export class AppModule {}
 

@@ -1,7 +1,7 @@
 /**
- * wallet-harvest.queue.ts — BullMQ queue naming for wallet-harvest jobs.
+ * wallet-scoring.queue.ts — BullMQ queue naming for wallet-scoring jobs.
  *
- * Re-exports `WALLET_HARVEST_QUEUE` from the shared domain location
+ * Re-exports `WALLET_SCORING_QUEUE` from the shared domain location
  * (`@cclaw/wallets`) and provides worker-local job option defaults.
  *
  * The constant lives in libs/modules/wallets/src/jobs/queue-names.ts so
@@ -16,13 +16,10 @@
  *
  * Concurrency policy (P3g1 plan, Queue topology):
  *   Global singleton queue — not per-Safe. concurrency=1 enforced at the
- *   @Processor decorator in HarvestProcessor. No nonce-collision concern
+ *   @Processor decorator in ScoreWalletsProcessor. No nonce-collision concern
  *   (wallet pipeline has no on-chain writes; ADR-0024 does not apply here).
  *   ADR-0024 addendum (2026-05-14) clarifies this scope explicitly.
  */
 
 // Re-export from the shared domain location (single source of truth).
-// BullModule.registerQueue now lives inside WalletsModule.forWorker() so the
-// ScoreWalletsProcessor's @InjectQueue(WALLET_HARVEST_QUEUE) resolves; the
-// JOB_OPTIONS constant is in libs to keep policy + naming in one place.
-export { WALLET_HARVEST_QUEUE, WALLET_HARVEST_JOB_OPTIONS } from '@cclaw/wallets';
+export { WALLET_SCORING_QUEUE, WALLET_SCORING_JOB_OPTIONS } from '@cclaw/wallets';

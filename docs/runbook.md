@@ -872,7 +872,10 @@ During P3, the legacy `entrypoint.sh` loops (`run_wallet_scoring_loop`, `run_act
 | Env var | Default | Description |
 |---|---|---|
 | `WALLET_HARVEST_TIMEOUT_MS` | `300000` | AbortSignal deadline for one harvest job invocation (ms) |
+| `WALLET_SCORING_PER_WALLET_TIMEOUT_MS` | `30000` | Per-wallet AbortController deadline for Birdeye + Zerion calls in scoring cycle (ms) |
+| `WALLET_SCORING_INTER_WALLET_DELAY_MS` | `3000` | Delay between wallets in a scoring cycle for rate-limit respect (ms) |
 | `BIRDEYE_API_KEY` | _(optional)_ | Required for harvest and scoring; harvest skips gracefully if absent |
+| `ZERION_API_KEY` | _(optional)_ | Required for EVM wallet PnL scoring; Solana wallets are skipped even if present |
 
 ---
 

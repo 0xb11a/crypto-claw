@@ -209,6 +209,31 @@ export const envSchema = z.object({
    */
   WALLET_HARVEST_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
 
+  /**
+   * Per-wallet AbortController timeout for the wallet-scoring BullMQ processor (ms).
+   *
+   * Controls how long a single wallet's three parallel API calls
+   * (Birdeye trader rank + token top traders + Zerion PnL) are allowed to run
+   * before they are aborted and the wallet is marked 'failed'. Default:
+   * 30_000 ms (30 s) — matches the legacy `execFileSync` 30 s timeout in
+   * `scripts/score-wallets-bg.js:131` (DoD §I — parity).
+   *
+   * Operator tunable: raise if Birdeye or Zerion is legitimately slow;
+   * lower for a tighter SLO on the 10-minute scoring cadence.
+   */
+  WALLET_SCORING_PER_WALLET_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+
+  /**
+   * Inter-wallet delay for the wallet-scoring processor (ms).
+   *
+   * The processor waits this many ms between wallets in a cycle to respect
+   * Birdeye and Zerion rate limits. Default: 3_000 ms (3 s) — matches the
+   * legacy `DELAY_MS = 3000` in `scripts/score-wallets-bg.js:34` (DoD §I).
+   *
+   * Operator tunable: raise if hitting 429 rate limits; lower if quotas allow.
+   */
+  WALLET_SCORING_INTER_WALLET_DELAY_MS: z.coerce.number().int().nonnegative().default(3_000),
+
   // --------------------------------------------------------------------------
   // Runtime behaviour — consumed by libs/logger (SPEC §11)
   // --------------------------------------------------------------------------

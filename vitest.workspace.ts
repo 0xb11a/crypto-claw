@@ -3,6 +3,7 @@ import { defineWorkspace } from 'vitest/config';
 export default defineWorkspace([
   // libs/adapters (P3g1)
   'libs/adapters/birdeye/vitest.config.ts',
+  'libs/adapters/zerion/vitest.config.ts',
   // libs
   'libs/chain/vitest.config.ts',
   'libs/execution/vitest.config.ts',
