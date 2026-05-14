@@ -1,5 +1,6 @@
 import { Module, type DynamicModule } from '@nestjs/common';
 import { BirdeyeModule } from '@cclaw/adapters-birdeye';
+import { ZerionModule } from '@cclaw/adapters-zerion';
 import { SystemModule } from '@cclaw/system';
 import { WalletsController } from './wallets.controller.js';
 import { SignalsController } from './signals.controller.js';
@@ -8,6 +9,8 @@ import { SignalsService } from './signals.service.js';
 import { WalletsRepository } from './wallets.repository.js';
 import { SignalsRepository } from './signals.repository.js';
 import { HarvestProcessor } from './jobs/harvest.processor.js';
+import { ScoreWalletsProcessor } from './jobs/score-wallets.processor.js';
+import { ScoreWalletService } from './jobs/score-wallet.service.js';
 
 /**
  * Wallets module — wires tracked_wallets and smart_money_signals.
@@ -58,9 +61,20 @@ export class WalletsModule {
         // be registered; apps/worker's app.module registers it before this
         // module is initialised.
         BirdeyeModule,
+        // ZerionModule provides ZerionAdapter for ScoreWalletsProcessor (PR-B).
+        ZerionModule,
         SystemModule,
       ],
-      providers: [WalletsRepository, SignalsRepository, HarvestProcessor],
+      providers: [
+        WalletsRepository,
+        SignalsRepository,
+        HarvestProcessor,
+        // PR-B additions: ScoreWalletsProcessor and its pure-function dependency.
+        // ScoreWalletService is not @Injectable() — provide as a value so NestJS
+        // can inject it without requiring an @Injectable() decorator.
+        { provide: ScoreWalletService, useValue: new ScoreWalletService() },
+        ScoreWalletsProcessor,
+      ],
       exports: [WalletsRepository, SignalsRepository],
     };
   }

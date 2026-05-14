@@ -9,7 +9,6 @@ export {
   BirdeyeApiKeyMissingError,
   BirdeyeRateLimitError,
   BirdeyeApiError,
-  NotImplementedError,
   type TopGainerEntry,
   type TraderRankResult,
   type TokenTopTrader,

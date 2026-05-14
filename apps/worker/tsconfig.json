@@ -16,7 +16,8 @@
       "@cclaw/orders": ["../../libs/modules/orders/src/index.ts"],
       "@cclaw/receipts": ["../../libs/modules/receipts/src/index.ts"],
       "@cclaw/wallets": ["../../libs/modules/wallets/src/index.ts"],
-      "@cclaw/adapters-birdeye": ["../../libs/adapters/birdeye/src/index.ts"]
+      "@cclaw/adapters-birdeye": ["../../libs/adapters/birdeye/src/index.ts"],
+      "@cclaw/adapters-zerion": ["../../libs/adapters/zerion/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
@@ -32,6 +33,7 @@
     { "path": "../../libs/modules/orders" },
     { "path": "../../libs/modules/receipts" },
     { "path": "../../libs/modules/wallets" },
-    { "path": "../../libs/adapters/birdeye" }
+    { "path": "../../libs/adapters/birdeye" },
+    { "path": "../../libs/adapters/zerion" }
   ]
 }

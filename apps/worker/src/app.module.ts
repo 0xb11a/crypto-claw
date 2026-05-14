@@ -8,7 +8,8 @@ import { OrdersModule, resolveActiveQueueNames, buildChainQueueMap } from '@ccla
 import { ReceiptsModule } from '@cclaw/receipts';
 import { WalletsModule } from '@cclaw/wallets';
 import { createExecuteOrderProcessor } from './processors/execute-order.processor.js';
-import { WALLET_HARVEST_QUEUE } from './queues/wallet-harvest.queue.js';
+import { WALLET_HARVEST_QUEUE, WALLET_HARVEST_JOB_OPTIONS } from './queues/wallet-harvest.queue.js';
+import { WALLET_SCORING_QUEUE, WALLET_SCORING_JOB_OPTIONS } from './queues/wallet-scoring.queue.js';
 
 // Boot self-checks run at module-import time so they fire before NestFactory
 // touches anything. Order matches main.ts (SPEC §4 #4 then §4 #6): signer-key
@@ -83,14 +84,16 @@ const processorProviders = activeQueueNames.map(createExecuteOrderProcessor);
     // Global singleton queues for the P3g1 wallet pipeline.
     // Retry policy: 2 attempts, 60 s fixed backoff (P3g1 plan [OPEN-4]).
     // These queues are not per-Safe — see ADR-0024 addendum (2026-05-14).
+    // PR-A nit fix #1 (2026-05-14): replaced inline policy with exported constant
+    // so the definition lives in one place and the worker module consumes it.
     BullModule.registerQueue({
       name: WALLET_HARVEST_QUEUE,
-      defaultJobOptions: {
-        attempts: 2,
-        backoff: { type: 'fixed', delay: 60_000 },
-        removeOnComplete: 50,
-        removeOnFail: 20,
-      },
+      defaultJobOptions: { ...WALLET_HARVEST_JOB_OPTIONS },
+    }),
+    // PR-B: wallet-scoring queue (global singleton, concurrency=1 in processor).
+    BullModule.registerQueue({
+      name: WALLET_SCORING_QUEUE,
+      defaultJobOptions: { ...WALLET_SCORING_JOB_OPTIONS },
     }),
 
     // Domain modules required by the processors.

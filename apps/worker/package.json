@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@cclaw/adapters-birdeye": "workspace:*",
+    "@cclaw/adapters-zerion": "workspace:*",
     "@cclaw/audit": "workspace:*",
     "@cclaw/config": "workspace:*",
     "@cclaw/execution": "workspace:*",

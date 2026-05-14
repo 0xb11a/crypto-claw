@@ -14,8 +14,10 @@
  *   - AbortSignal-driven timeout: fetch rejects → bubbles up.
  *   - Malformed Birdeye JSON (no data.items): returns [] for that chain.
  *   - Redaction: X-API-KEY value never appears in logger output.
- *   - getTraderRank: throws NotImplementedError (PR-A stub).
- *   - getTokenTopTraders: throws NotImplementedError (PR-A stub).
+ *   - getTraderRank: returns inTopGainers:true when wallet found in leaderboard (PR-B).
+ *   - getTraderRank: returns inTopGainers:false when wallet not found (PR-B).
+ *   - getTokenTopTraders: returns isTopTrader:true when wallet is a top trader (PR-B).
+ *   - getTokenTopTraders: returns isTopTrader:false when wallet not found (PR-B).
  *
  * SPEC §4 #4: no signer-key env vars.
  * SPEC §4 #6: all config via ConfigService (no process.env).
@@ -30,7 +32,6 @@ import {
   BirdeyeApiKeyMissingError,
   BirdeyeRateLimitError,
   BirdeyeApiError,
-  NotImplementedError,
 } from './birdeye.adapter.js';
 
 // ---------------------------------------------------------------------------
@@ -443,30 +444,406 @@ describe('BirdeyeAdapter', () => {
   });
 
   // -------------------------------------------------------------------------
-  // PR-A stubs: getTraderRank and getTokenTopTraders
+  // PR-B: getTraderRank — deep coverage (≥10 tests)
   // -------------------------------------------------------------------------
 
-  describe('getTraderRank() — PR-A stub', () => {
-    it('throws NotImplementedError', async () => {
-      await expect(adapter.getTraderRank('0xWallet', 'base')).rejects.toThrow(NotImplementedError);
+  describe('getTraderRank() — deep coverage (PR-B)', () => {
+    it('returns inTopGainers:true with rank=1 when wallet is first in leaderboard', async () => {
+      fetchSpy = mockFetchOnce(200, {
+        success: true,
+        data: {
+          items: [
+            { address: '0xWallet', pnl: 5000, volume: 100000, trade_count: 42 },
+            { address: '0xOther', pnl: 3000, volume: 80000, trade_count: 20 },
+          ],
+        },
+      });
+
+      const result = await adapter.getTraderRank('0xWallet', 'base');
+
+      expect(result).not.toBeNull();
+      expect(result?.inTopGainers).toBe(true);
+      if (!result?.inTopGainers) throw new Error('guard');
+      expect(result.rank).toBe(1);
+      expect(result.pnl).toBe(5000);
+      expect(result.volume).toBe(100000);
+      expect(result.tradeCount).toBe(42);
     });
 
-    it('error message mentions the method name', async () => {
-      const err = await adapter.getTraderRank('0xWallet', 'base').catch((e: Error) => e);
-      if (!(err instanceof Error)) throw new Error('expected Error but got a non-Error value');
-      expect(err.message).toContain('getTraderRank');
+    it('rank is 2-based when wallet is second in the list', async () => {
+      fetchSpy = mockFetchOnce(200, {
+        success: true,
+        data: {
+          items: [
+            { address: '0xFirst', pnl: 9000, volume: 200000, trade_count: 80 },
+            { address: '0xWallet', pnl: 5000, volume: 100000, trade_count: 42 },
+          ],
+        },
+      });
+
+      const result = await adapter.getTraderRank('0xWallet', 'base');
+
+      expect(result?.inTopGainers).toBe(true);
+      if (!result?.inTopGainers) return;
+      expect(result.rank).toBe(2);
+    });
+
+    it('totalTraders reflects items array length', async () => {
+      fetchSpy = mockFetchOnce(200, {
+        success: true,
+        data: {
+          items: [
+            { address: '0xWallet', pnl: 5000, volume: 100000, trade_count: 42 },
+            { address: '0xB', pnl: 2000, volume: 50000, trade_count: 10 },
+            { address: '0xC', pnl: 1000, volume: 30000, trade_count: 5 },
+          ],
+        },
+      });
+
+      const result = await adapter.getTraderRank('0xWallet', 'base');
+
+      if (!result?.inTopGainers) throw new Error('guard');
+      expect(result.totalTraders).toBe(3);
+    });
+
+    it('returns inTopGainers:false with medianPnl and topPnl when wallet not found', async () => {
+      fetchSpy = mockFetchOnce(200, {
+        success: true,
+        data: {
+          items: [
+            { address: '0xOther1', pnl: 10000, volume: 200000, trade_count: 50 },
+            { address: '0xOther2', pnl: 5000, volume: 100000, trade_count: 30 },
+          ],
+        },
+      });
+
+      const result = await adapter.getTraderRank('0xMissing', 'base');
+
+      expect(result).not.toBeNull();
+      expect(result?.inTopGainers).toBe(false);
+      if (result?.inTopGainers) throw new Error('guard');
+      expect(result?.rank).toBeNull();
+      expect(result?.topPnl).toBe(10000); // first item pnl
+      expect(typeof result?.medianPnl).toBe('number');
+    });
+
+    it('returns null for an unsupported chain', async () => {
+      const result = await adapter.getTraderRank('0xWallet', 'unknown-chain-xyz');
+      expect(result).toBeNull();
+    });
+
+    it('returns null when success=false', async () => {
+      fetchSpy = mockFetchOnce(200, { success: false, data: { items: [] } });
+
+      const result = await adapter.getTraderRank('0xWallet', 'base');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null when data.items is absent', async () => {
+      fetchSpy = mockFetchOnce(200, { success: true, data: {} });
+
+      const result = await adapter.getTraderRank('0xWallet', 'base');
+
+      expect(result).toBeNull();
+    });
+
+    it('throws BirdeyeRateLimitError on 429', async () => {
+      mockFetchOnce(429, {});
+
+      await expect(adapter.getTraderRank('0xWallet', 'base')).rejects.toThrow(BirdeyeRateLimitError);
+    });
+
+    it('throws BirdeyeApiError on 500', async () => {
+      mockFetchOnce(500, {});
+
+      await expect(adapter.getTraderRank('0xWallet', 'base')).rejects.toThrow(BirdeyeApiError);
+    });
+
+    it('throws BirdeyeApiKeyMissingError when BIRDEYE_API_KEY is absent', async () => {
+      const cfgNoKey = makeConfigService(undefined);
+      const adapterNoKey = new BirdeyeAdapter(cfgNoKey);
+
+      await expect(adapterNoKey.getTraderRank('0xWallet', 'base')).rejects.toThrow(BirdeyeApiKeyMissingError);
+    });
+
+    it('sends x-chain header (birdeyeChain) with the request', async () => {
+      fetchSpy = mockFetchOnce(200, { success: true, data: { items: [] } });
+
+      await adapter.getTraderRank('0xWallet', 'base');
+
+      const callArgs = fetchSpy.mock.calls[0] as [string, RequestInit];
+      const headers = callArgs[1]?.headers as Record<string, string>;
+      expect(headers['x-chain']).toBe('base');
+    });
+
+    it('discriminated union: inTopGainers:true does not have medianPnl/topPnl', async () => {
+      fetchSpy = mockFetchOnce(200, {
+        success: true,
+        data: {
+          items: [{ address: '0xWallet', pnl: 5000, volume: 100000, trade_count: 42 }],
+        },
+      });
+
+      const result = await adapter.getTraderRank('0xWallet', 'base');
+
+      expect(result?.inTopGainers).toBe(true);
+      // TypeScript discriminated union: inTopGainers:true → no medianPnl
+      if (result?.inTopGainers) {
+        // These fields exist on the true branch
+        expect(result.pnl).toBeDefined();
+        expect(result.volume).toBeDefined();
+        expect(result.tradeCount).toBeDefined();
+      }
+    });
+
+    it('discriminated union: inTopGainers:false has medianPnl and topPnl', async () => {
+      fetchSpy = mockFetchOnce(200, {
+        success: true,
+        data: {
+          items: [
+            { address: '0xOther', pnl: 8000, volume: 150000, trade_count: 60 },
+            { address: '0xOther2', pnl: 4000, volume: 80000, trade_count: 20 },
+          ],
+        },
+      });
+
+      const result = await adapter.getTraderRank('0xNotInList', 'base');
+
+      expect(result?.inTopGainers).toBe(false);
+      if (!result?.inTopGainers) {
+        expect(result?.medianPnl).toBeDefined();
+        expect(result?.topPnl).toBeDefined();
+        expect(result?.rank).toBeNull();
+      }
+    });
+
+    it('address comparison is case-insensitive', async () => {
+      fetchSpy = mockFetchOnce(200, {
+        success: true,
+        data: {
+          items: [{ address: '0xABCDEF', pnl: 5000, volume: 100000, trade_count: 42 }],
+        },
+      });
+
+      // Lookup with lowercase version
+      const result = await adapter.getTraderRank('0xabcdef', 'base');
+
+      expect(result?.inTopGainers).toBe(true);
+    });
+
+    it('defaults pnl/volume/trade_count to 0 when fields are absent', async () => {
+      fetchSpy = mockFetchOnce(200, {
+        success: true,
+        data: {
+          items: [{ address: '0xWallet' }], // no pnl/volume/trade_count
+        },
+      });
+
+      const result = await adapter.getTraderRank('0xWallet', 'base');
+
+      if (!result?.inTopGainers) throw new Error('guard');
+      expect(result.pnl).toBe(0);
+      expect(result.volume).toBe(0);
+      expect(result.tradeCount).toBe(0);
     });
   });
 
-  describe('getTokenTopTraders() — PR-A stub', () => {
-    it('throws NotImplementedError', async () => {
-      await expect(adapter.getTokenTopTraders('0xToken', 'base')).rejects.toThrow(NotImplementedError);
+  // -------------------------------------------------------------------------
+  // PR-B: getTokenTopTraders — deep coverage (≥10 tests)
+  // -------------------------------------------------------------------------
+
+  describe('getTokenTopTraders() — deep coverage (PR-B)', () => {
+    it('returns isTopTrader:true with full stats when wallet is a top trader', async () => {
+      fetchSpy = mockFetchOnce(200, {
+        success: true,
+        data: {
+          items: [
+            {
+              owner: '0xWallet',
+              volume: 50000,
+              trade: 10,
+              tradeBuy: 7,
+              tradeSell: 3,
+              volumeBuy: 35000,
+              volumeSell: 15000,
+            },
+          ],
+        },
+      });
+
+      const result = await adapter.getTokenTopTraders('0xWallet', '0xToken', 'base');
+
+      expect(result).not.toBeNull();
+      expect(result?.isTopTrader).toBe(true);
+      if (!result?.isTopTrader) throw new Error('guard');
+      expect(result.rank).toBe(1);
+      expect(result.volume).toBe(50000);
+      expect(result.trades).toBe(10);
+      expect(result.buys).toBe(7);
+      expect(result.sells).toBe(3);
+      expect(result.volumeBuy).toBe(35000);
+      expect(result.volumeSell).toBe(15000);
     });
 
-    it('error message mentions the method name', async () => {
-      const err = await adapter.getTokenTopTraders('0xToken', 'base').catch((e: Error) => e);
-      if (!(err instanceof Error)) throw new Error('expected Error but got a non-Error value');
-      expect(err.message).toContain('getTokenTopTraders');
+    it('rank reflects position in the list (second item → rank=2)', async () => {
+      fetchSpy = mockFetchOnce(200, {
+        success: true,
+        data: {
+          items: [
+            { owner: '0xFirst', volume: 80000, trade: 15 },
+            {
+              owner: '0xWallet',
+              volume: 50000,
+              trade: 10,
+              tradeBuy: 7,
+              tradeSell: 3,
+              volumeBuy: 35000,
+              volumeSell: 15000,
+            },
+          ],
+        },
+      });
+
+      const result = await adapter.getTokenTopTraders('0xWallet', '0xToken', 'base');
+
+      if (!result?.isTopTrader) throw new Error('guard');
+      expect(result.rank).toBe(2);
+    });
+
+    it('returns isTopTrader:false when wallet not found in top traders', async () => {
+      fetchSpy = mockFetchOnce(200, {
+        success: true,
+        data: {
+          items: [
+            {
+              owner: '0xOther',
+              volume: 50000,
+              trade: 10,
+              tradeBuy: 7,
+              tradeSell: 3,
+              volumeBuy: 35000,
+              volumeSell: 15000,
+            },
+          ],
+        },
+      });
+
+      const result = await adapter.getTokenTopTraders('0xMissing', '0xToken', 'base');
+
+      expect(result).not.toBeNull();
+      expect(result?.isTopTrader).toBe(false);
+    });
+
+    it('returns null when tokenAddress is empty string', async () => {
+      const result = await adapter.getTokenTopTraders('0xWallet', '', 'base');
+      expect(result).toBeNull();
+    });
+
+    it('returns null for an unsupported chain', async () => {
+      const result = await adapter.getTokenTopTraders('0xWallet', '0xToken', 'unknown-chain-xyz');
+      expect(result).toBeNull();
+    });
+
+    it('throws BirdeyeRateLimitError on 429', async () => {
+      mockFetchOnce(429, {});
+
+      await expect(adapter.getTokenTopTraders('0xWallet', '0xToken', 'base')).rejects.toThrow(BirdeyeRateLimitError);
+    });
+
+    it('throws BirdeyeApiError on 500', async () => {
+      mockFetchOnce(500, {});
+
+      await expect(adapter.getTokenTopTraders('0xWallet', '0xToken', 'base')).rejects.toThrow(BirdeyeApiError);
+    });
+
+    it('throws BirdeyeApiKeyMissingError when BIRDEYE_API_KEY is absent', async () => {
+      const cfgNoKey = makeConfigService(undefined);
+      const adapterNoKey = new BirdeyeAdapter(cfgNoKey);
+
+      await expect(adapterNoKey.getTokenTopTraders('0xWallet', '0xToken', 'base')).rejects.toThrow(
+        BirdeyeApiKeyMissingError,
+      );
+    });
+
+    it('sends x-chain header with the request', async () => {
+      fetchSpy = mockFetchOnce(200, { success: true, data: { items: [] } });
+
+      await adapter.getTokenTopTraders('0xWallet', '0xToken', 'base');
+
+      const callArgs = fetchSpy.mock.calls[0] as [string, RequestInit];
+      const headers = callArgs[1]?.headers as Record<string, string>;
+      expect(headers['x-chain']).toBe('base');
+    });
+
+    it('URL includes token address as query param', async () => {
+      fetchSpy = mockFetchOnce(200, { success: true, data: { items: [] } });
+
+      await adapter.getTokenTopTraders('0xWallet', '0xTokenAddress', 'base');
+
+      const url = (fetchSpy.mock.calls[0] as [string, RequestInit])[0];
+      expect(url).toContain('0xTokenAddress');
+      expect(url).toContain('sort_by=volume');
+      expect(url).toContain('sort_type=desc');
+      expect(url).toContain('limit=50');
+    });
+
+    it('returns null when success=false', async () => {
+      fetchSpy = mockFetchOnce(200, { success: false, data: { items: [] } });
+
+      const result = await adapter.getTokenTopTraders('0xWallet', '0xToken', 'base');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null when data.items is absent', async () => {
+      fetchSpy = mockFetchOnce(200, { success: true, data: {} });
+
+      const result = await adapter.getTokenTopTraders('0xWallet', '0xToken', 'base');
+
+      expect(result).toBeNull();
+    });
+
+    it('address comparison is case-insensitive (owner field)', async () => {
+      fetchSpy = mockFetchOnce(200, {
+        success: true,
+        data: {
+          items: [
+            {
+              owner: '0xABCDEF',
+              volume: 50000,
+              trade: 10,
+              tradeBuy: 7,
+              tradeSell: 3,
+              volumeBuy: 35000,
+              volumeSell: 15000,
+            },
+          ],
+        },
+      });
+
+      const result = await adapter.getTokenTopTraders('0xabcdef', '0xToken', 'base');
+
+      expect(result?.isTopTrader).toBe(true);
+    });
+
+    it('defaults volume/trade/buys/sells to 0 when fields absent', async () => {
+      fetchSpy = mockFetchOnce(200, {
+        success: true,
+        data: {
+          items: [{ owner: '0xWallet' }], // no numeric fields
+        },
+      });
+
+      const result = await adapter.getTokenTopTraders('0xWallet', '0xToken', 'base');
+
+      if (!result?.isTopTrader) throw new Error('guard');
+      expect(result.volume).toBe(0);
+      expect(result.trades).toBe(0);
+      expect(result.buys).toBe(0);
+      expect(result.sells).toBe(0);
+      expect(result.volumeBuy).toBe(0);
+      expect(result.volumeSell).toBe(0);
     });
   });
 

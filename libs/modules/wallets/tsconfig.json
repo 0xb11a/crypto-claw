@@ -11,6 +11,7 @@
       "@cclaw/auth": ["../../auth/src/index.ts"],
       "@cclaw/audit": ["../../audit/src/index.ts"],
       "@cclaw/adapters-birdeye": ["../../adapters/birdeye/src/index.ts"],
+      "@cclaw/adapters-zerion": ["../../adapters/zerion/src/index.ts"],
       "@cclaw/system": ["../system/src/index.ts"]
     }
   },
@@ -22,6 +23,7 @@
     { "path": "../../auth" },
     { "path": "../../audit" },
     { "path": "../../adapters/birdeye" },
+    { "path": "../../adapters/zerion" },
     { "path": "../system" }
   ]
 }
