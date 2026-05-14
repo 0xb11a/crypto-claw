@@ -12,6 +12,8 @@
       "@cclaw/audit": ["../../audit/src/index.ts"],
       "@cclaw/adapters-birdeye": ["../../adapters/birdeye/src/index.ts"],
       "@cclaw/adapters-zerion": ["../../adapters/zerion/src/index.ts"],
+      "@cclaw/adapters-helius": ["../../adapters/helius/src/index.ts"],
+      "@cclaw/adapters-evm-explorer": ["../../adapters/evm-explorer/src/index.ts"],
       "@cclaw/system": ["../system/src/index.ts"]
     }
   },
@@ -24,6 +26,8 @@
     { "path": "../../audit" },
     { "path": "../../adapters/birdeye" },
     { "path": "../../adapters/zerion" },
+    { "path": "../../adapters/helius" },
+    { "path": "../../adapters/evm-explorer" },
     { "path": "../system" }
   ]
 }

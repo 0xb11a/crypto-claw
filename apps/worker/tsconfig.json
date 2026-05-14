@@ -17,7 +17,9 @@
       "@cclaw/receipts": ["../../libs/modules/receipts/src/index.ts"],
       "@cclaw/wallets": ["../../libs/modules/wallets/src/index.ts"],
       "@cclaw/adapters-birdeye": ["../../libs/adapters/birdeye/src/index.ts"],
-      "@cclaw/adapters-zerion": ["../../libs/adapters/zerion/src/index.ts"]
+      "@cclaw/adapters-zerion": ["../../libs/adapters/zerion/src/index.ts"],
+      "@cclaw/adapters-helius": ["../../libs/adapters/helius/src/index.ts"],
+      "@cclaw/adapters-evm-explorer": ["../../libs/adapters/evm-explorer/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
@@ -34,6 +36,8 @@
     { "path": "../../libs/modules/receipts" },
     { "path": "../../libs/modules/wallets" },
     { "path": "../../libs/adapters/birdeye" },
-    { "path": "../../libs/adapters/zerion" }
+    { "path": "../../libs/adapters/zerion" },
+    { "path": "../../libs/adapters/helius" },
+    { "path": "../../libs/adapters/evm-explorer" }
   ]
 }

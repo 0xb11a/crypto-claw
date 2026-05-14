@@ -197,6 +197,95 @@ describe('redactString — receipt sanitation: signer key scrubbed from error fi
   });
 });
 
+// ---------------------------------------------------------------------------
+// RE_QUERY_APIKEY — query-string API keys (PR-C nit fix #3)
+//
+// Helius uses `?api-key=...` (dash); Etherscan uses `?apikey=...` (no dash);
+// both must be redacted. The regex `/[?&]api[_-]?key=[^\s&"']*/gi` must match:
+//   - `?apikey=VALUE`   (Etherscan-family, no separator)
+//   - `?api_key=VALUE`  (underscore variant)
+//   - `?api-key=VALUE`  (Helius, dash separator)
+//   - `&apikey=VALUE`   (continuation param)
+//   - Embedded in an error message string
+// ---------------------------------------------------------------------------
+
+describe('redactString — RE_QUERY_APIKEY (query-string API key patterns, PR-C nit fix #3)', () => {
+  it('redacts ?apikey=VALUE (Etherscan-family, no separator)', () => {
+    const url = 'https://api.basescan.org/api?module=account&action=tokentx&apikey=MYSECRETKEY123';
+    const out = redactString(url);
+    expect(out).not.toContain('MYSECRETKEY123');
+    expect(out).toContain('apikey=[REDACTED]');
+    // Non-sensitive parts survive
+    expect(out).toContain('basescan.org');
+  });
+
+  it('redacts ?api-key=VALUE (Helius-style, dash separator)', () => {
+    const url = 'https://api.helius.xyz/v0/addresses/wallet123/transactions?api-key=HELIUSKEY456&limit=50';
+    const out = redactString(url);
+    expect(out).not.toContain('HELIUSKEY456');
+    expect(out).toContain('[REDACTED]');
+    // URL path should survive
+    expect(out).toContain('helius.xyz');
+  });
+
+  it('redacts &apikey=VALUE (continuation query param)', () => {
+    const url = 'https://api.etherscan.io/api?module=account&action=tokentx&address=0x123&apikey=ETHSCANKEY';
+    const out = redactString(url);
+    expect(out).not.toContain('ETHSCANKEY');
+    expect(out).toContain('[REDACTED]');
+  });
+
+  it('redacts api-key embedded in an error message string', () => {
+    const errMsg =
+      'Fetch failed: GET https://api.helius.xyz/v0/addresses/0xABC/transactions?api-key=SECRETAPIKEY123&limit=50 returned 503';
+    const out = redactString(errMsg);
+    expect(out).not.toContain('SECRETAPIKEY123');
+    expect(out).toContain('[REDACTED]');
+    // Non-key parts of the message survive
+    expect(out).toContain('returned 503');
+  });
+
+  it('does NOT redact unrelated query params', () => {
+    const url = 'https://example.com/api?module=account&action=tokentx&address=0xWALLET';
+    const out = redactString(url);
+    // No key param → nothing should be removed
+    expect(out).toBe(url);
+  });
+
+  it('redacts &api-key=VALUE (continuation param with dash separator)', () => {
+    // Helius URLs with additional params after the key: &limit=50 after &api-key=VALUE
+    const url = 'https://api.helius.xyz/v0/addresses/wallet/transactions?limit=50&api-key=HELIUSCONTKEY789';
+    const out = redactString(url);
+    expect(out).not.toContain('HELIUSCONTKEY789');
+    expect(out).toContain('[REDACTED]');
+    // Non-key parts survive
+    expect(out).toContain('helius.xyz');
+    expect(out).toContain('limit=50');
+  });
+
+  it('redacts ?api_key=VALUE (underscore variant)', () => {
+    const url = 'https://example.com/api?api_key=UNDERSCORE_KEY_12345';
+    const out = redactString(url);
+    expect(out).not.toContain('UNDERSCORE_KEY_12345');
+    expect(out).toContain('[REDACTED]');
+  });
+
+  it('does NOT redact "api_key=" in a non-URL JSON body string (no leading ? or &)', () => {
+    // This is a critical negative: a JSON body like {"api_key":"value"} should NOT
+    // be matched by the RE_QUERY_APIKEY regex because the regex requires [?&] prefix.
+    // This prevents false positives on structured log fields.
+    const jsonBody = '{"api_key":"some-json-value","other":"data"}';
+    // The regex requires ?api_key= or &api_key= — a bare {"api_key":...} has no ? or &
+    // so RE_QUERY_APIKEY should NOT match it. We verify by checking a short-value JSON
+    // body whose value passes through other redactors (not hex64, not base58, not sk-).
+    const jsonBodyNoQuery = '{"api_key":"shortval"}';
+    const outNoQuery = redactString(jsonBodyNoQuery);
+    expect(outNoQuery).toContain('shortval');
+    // Sanity-check the original jsonBody too — value is also short and should survive.
+    expect(redactString(jsonBody)).toContain('some-json-value');
+  });
+});
+
 describe('REDACT_PATHS', () => {
   it('includes req.headers.authorization', () => {
     expect(REDACT_PATHS).toContain('req.headers.authorization');

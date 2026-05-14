@@ -51,10 +51,13 @@ const prismaSignal = {
 };
 
 function makePrisma(): PrismaService {
+  const now = new Date().toISOString();
   return {
     $queryRawUnsafe: vi.fn().mockResolvedValue([rawSignal]),
     smartMoneySignal: {
       findMany: vi.fn().mockResolvedValue([prismaSignal]),
+      upsert: vi.fn().mockResolvedValue({ ...prismaSignal, createdAt: now }),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
   } as unknown as PrismaService;
 }
@@ -246,5 +249,202 @@ describe('SignalsRepository', () => {
 
   it('rejects invalid action value with BadRequestException', async () => {
     await expect(repo.getSignals({ action: 'transfer' as 'buy' | 'sell' })).rejects.toThrow(BadRequestException);
+  });
+
+  // ---------------------------------------------------------------------------
+  // insertSignal() — PR-C: INSERT OR IGNORE parity
+  // ---------------------------------------------------------------------------
+
+  describe('insertSignal() — PR-C (INSERT OR IGNORE parity)', () => {
+    const signalInput = {
+      tx_hash: '0xnewtx',
+      action: 'buy' as const,
+      token_address: '0xTokNew',
+      token_symbol: 'NEW',
+      counter_token_address: '0xUSDC',
+      counter_token_symbol: 'USDC',
+      amount_token: '500',
+      tx_timestamp: '2026-05-14T00:00:00.000Z',
+    };
+
+    it('returns {inserted:true} when Prisma upsert creates a new row', async () => {
+      const now = new Date().toISOString();
+      const p = {
+        $queryRawUnsafe: vi.fn().mockResolvedValue([rawSignal]),
+        smartMoneySignal: {
+          findMany: vi.fn(),
+          upsert: vi.fn().mockResolvedValue({ ...prismaSignal, txHash: '0xnewtx', createdAt: now }),
+          deleteMany: vi.fn(),
+        },
+      } as unknown as PrismaService;
+      const r = new SignalsRepository(p);
+
+      const result = await r.insertSignal(signalInput, '0xwallet', 85, 'test-label', 'base');
+
+      expect(result.inserted).toBe(true);
+    });
+
+    it('returns {inserted:false} when Prisma upsert hits the unique constraint (old createdAt)', async () => {
+      // Use a timestamp 5 seconds in the past — the 1-second tolerance check
+      // (Date.now() - createdMs < 1_000) will be false → inserted:false
+      const old = new Date(Date.now() - 5_000).toISOString(); // 5 seconds ago
+      const p = {
+        $queryRawUnsafe: vi.fn().mockResolvedValue([rawSignal]),
+        smartMoneySignal: {
+          findMany: vi.fn(),
+          upsert: vi.fn().mockResolvedValue({ ...prismaSignal, txHash: '0xnewtx', createdAt: old }),
+          deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+      } as unknown as PrismaService;
+      const r = new SignalsRepository(p);
+
+      const result = await r.insertSignal(signalInput, '0xwallet', 85, 'label', 'base');
+
+      expect(result.inserted).toBe(false);
+    });
+
+    it('calls prisma.smartMoneySignal.upsert with the correct unique key', async () => {
+      const now = new Date().toISOString();
+      const p = {
+        $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+        smartMoneySignal: {
+          findMany: vi.fn(),
+          upsert: vi.fn().mockResolvedValue({ ...prismaSignal, createdAt: now }),
+          deleteMany: vi.fn(),
+        },
+      } as unknown as PrismaService;
+      const r = new SignalsRepository(p);
+
+      await r.insertSignal(signalInput, '0xwallet', null, null, 'base');
+
+      const callArg = (p.smartMoneySignal.upsert as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        where: { txHash_walletAddress_action_tokenAddress: Record<string, string> };
+        update: Record<string, never>;
+        create: Record<string, unknown>;
+      };
+
+      // Unique key fields
+      expect(callArg.where.txHash_walletAddress_action_tokenAddress.txHash).toBe('0xnewtx');
+      expect(callArg.where.txHash_walletAddress_action_tokenAddress.walletAddress).toBe('0xwallet');
+      expect(callArg.where.txHash_walletAddress_action_tokenAddress.action).toBe('buy');
+      expect(callArg.where.txHash_walletAddress_action_tokenAddress.tokenAddress).toBe('0xTokNew');
+
+      // Update block is empty (INSERT OR IGNORE semantics)
+      expect(Object.keys(callArg.update)).toHaveLength(0);
+    });
+
+    it('create block includes all expected fields', async () => {
+      const now = new Date().toISOString();
+      const p = {
+        $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+        smartMoneySignal: {
+          findMany: vi.fn(),
+          upsert: vi.fn().mockResolvedValue({ ...prismaSignal, createdAt: now }),
+          deleteMany: vi.fn(),
+        },
+      } as unknown as PrismaService;
+      const r = new SignalsRepository(p);
+
+      await r.insertSignal(signalInput, '0xwallet', 90, 'my-label', 'base');
+
+      const callArg = (p.smartMoneySignal.upsert as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        create: Record<string, unknown>;
+      };
+
+      expect(callArg.create['chain']).toBe('base');
+      expect(callArg.create['walletAddress']).toBe('0xwallet');
+      expect(callArg.create['walletScore']).toBe(90);
+      expect(callArg.create['walletLabel']).toBe('my-label');
+      expect(callArg.create['action']).toBe('buy');
+      expect(callArg.create['tokenAddress']).toBe('0xTokNew');
+      expect(callArg.create['tokenSymbol']).toBe('NEW');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // pruneOlderThan() — PR-C: 24h retention
+  // ---------------------------------------------------------------------------
+
+  describe('pruneOlderThan() — PR-C (24h retention)', () => {
+    it('calls prisma.smartMoneySignal.deleteMany with a cutoff ISO date', async () => {
+      const before = Date.now();
+      const p = {
+        $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+        smartMoneySignal: {
+          findMany: vi.fn(),
+          upsert: vi.fn(),
+          deleteMany: vi.fn().mockResolvedValue({ count: 3 }),
+        },
+      } as unknown as PrismaService;
+      const r = new SignalsRepository(p);
+
+      await r.pruneOlderThan(24);
+      const after = Date.now();
+
+      const callArg = (p.smartMoneySignal.deleteMany as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        where: { createdAt: { lt: string } };
+      };
+      const cutoffMs = new Date(callArg.where.createdAt.lt).getTime();
+      // Cutoff should be ~24 h ago
+      const expected = before - 24 * 3_600_000;
+      expect(cutoffMs).toBeGreaterThanOrEqual(expected - 1_000);
+      expect(cutoffMs).toBeLessThanOrEqual(after - 24 * 3_600_000 + 1_000);
+    });
+
+    it('returns {deleted: N} matching the deleteMany count', async () => {
+      const p = {
+        $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+        smartMoneySignal: {
+          findMany: vi.fn(),
+          upsert: vi.fn(),
+          deleteMany: vi.fn().mockResolvedValue({ count: 7 }),
+        },
+      } as unknown as PrismaService;
+      const r = new SignalsRepository(p);
+
+      const result = await r.pruneOlderThan(24);
+
+      expect(result.deleted).toBe(7);
+    });
+
+    it('returns {deleted:0} when no rows are old enough', async () => {
+      const p = {
+        $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+        smartMoneySignal: {
+          findMany: vi.fn(),
+          upsert: vi.fn(),
+          deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+      } as unknown as PrismaService;
+      const r = new SignalsRepository(p);
+
+      const result = await r.pruneOlderThan(24);
+
+      expect(result.deleted).toBe(0);
+    });
+
+    it('uses the correct hours multiplier (48h prune uses 48 * 3_600_000)', async () => {
+      const before = Date.now();
+      const p = {
+        $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+        smartMoneySignal: {
+          findMany: vi.fn(),
+          upsert: vi.fn(),
+          deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+      } as unknown as PrismaService;
+      const r = new SignalsRepository(p);
+
+      await r.pruneOlderThan(48);
+      const after = Date.now();
+
+      const callArg = (p.smartMoneySignal.deleteMany as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        where: { createdAt: { lt: string } };
+      };
+      const cutoffMs = new Date(callArg.where.createdAt.lt).getTime();
+      const expected = before - 48 * 3_600_000;
+      expect(cutoffMs).toBeGreaterThanOrEqual(expected - 1_000);
+      expect(cutoffMs).toBeLessThanOrEqual(after - 48 * 3_600_000 + 1_000);
+    });
   });
 });

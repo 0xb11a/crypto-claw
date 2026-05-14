@@ -874,8 +874,18 @@ During P3, the legacy `entrypoint.sh` loops (`run_wallet_scoring_loop`, `run_act
 | `WALLET_HARVEST_TIMEOUT_MS` | `300000` | AbortSignal deadline for one harvest job invocation (ms) |
 | `WALLET_SCORING_PER_WALLET_TIMEOUT_MS` | `30000` | Per-wallet AbortController deadline for Birdeye + Zerion calls in scoring cycle (ms) |
 | `WALLET_SCORING_INTER_WALLET_DELAY_MS` | `3000` | Delay between wallets in a scoring cycle for rate-limit respect (ms) |
+| `WALLET_ACTIVITY_PER_FETCH_TIMEOUT_MS` | `10000` | Per-fetch AbortSignal deadline for Helius/Etherscan calls in activity cycle (ms) |
+| `WALLET_ACTIVITY_PER_CHAIN_TIMEOUT_LIMIT` | `5` | Consecutive timeout threshold before skipping the remainder of a chain's wallets this cycle |
+| `WALLET_ACTIVITY_INTER_WALLET_DELAY_MS` | `250` | Delay between wallets within a chain in an activity cycle (ms) |
 | `BIRDEYE_API_KEY` | _(optional)_ | Required for harvest and scoring; harvest skips gracefully if absent |
 | `ZERION_API_KEY` | _(optional)_ | Required for EVM wallet PnL scoring; Solana wallets are skipped even if present |
+| `HELIUS_API_KEY` | _(optional)_ | Required for Solana activity polling; Solana wallets are skipped if absent |
+| `BASESCAN_API_KEY` | _(optional)_ | Required for Base chain activity polling via Basescan API |
+| `ETHERSCAN_API_KEY` | _(optional)_ | Required for Ethereum chain activity polling via Etherscan API |
+| `ARBISCAN_API_KEY` | _(optional)_ | Required for Arbitrum chain activity polling via Arbiscan API |
+| `POLYGONSCAN_API_KEY` | _(optional)_ | Required for Polygon chain activity polling via Polygonscan API |
+| `BSCSCAN_API_KEY` | _(optional)_ | Required for BSC chain activity polling via BscScan API |
+| `OPTIMISTIC_ETHERSCAN_API_KEY` | _(optional)_ | Required for Optimism chain activity polling via Optimistic Etherscan API |
 
 ---
 
