@@ -1,0 +1,24 @@
+import { Injectable, BadRequestException } from '@nestjs/common';
+import type { PipeTransform, ArgumentMetadata } from '@nestjs/common';
+
+/**
+ * StrictParseIntPipe — rejects anything that is not a plain decimal integer
+ * string (e.g. rejects '0xdeadbeef', '1.5', '1e10', ' 1').
+ *
+ * NestJS's built-in ParseIntPipe uses Number() coercion which accepts hex
+ * literals and scientific notation silently. This pipe uses a strict decimal
+ * regex to ensure only sequences of optional leading '-' followed by digits
+ * are accepted.
+ *
+ * Used by agent-log controllers for the `:id` path parameter so that
+ * `GET /v1/logs/research/0xdeadbeef` returns 400 (not 404 via coercion to 0).
+ */
+@Injectable()
+export class StrictParseIntPipe implements PipeTransform<string, number> {
+  transform(value: string, _metadata: ArgumentMetadata): number {
+    if (typeof value !== 'string' || !/^-?\d+$/.test(value)) {
+      throw new BadRequestException(`Validation failed (numeric string is expected, got '${String(value)}')`);
+    }
+    return parseInt(value, 10);
+  }
+}

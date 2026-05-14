@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { Roles } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { AgentLogsService } from '../agent-logs.service.js';
 import { AppendResearchLogDto } from '../dto/append-research-log.dto.js';
 import { AgentLogQueryDto } from '../dto/agent-log-query.dto.js';
+import { StrictParseIntPipe } from '../pipes/strict-parse-int.pipe.js';
 import type { ResearchLogResponseDto } from '../dto/research-log-response.dto.js';
 
 /**
@@ -37,7 +38,7 @@ export class ResearchLogController {
   @ApiParam({ name: 'id', description: 'Row integer ID' })
   @ApiResponse({ status: 200, description: 'Research log row' })
   @ApiResponse({ status: 404, description: 'Row not found' })
-  getById(@Param('id', ParseIntPipe) id: number): Promise<ResearchLogResponseDto> {
+  getById(@Param('id', StrictParseIntPipe) id: number): Promise<ResearchLogResponseDto> {
     return this.svc.getResearchById(id);
   }
 

@@ -299,15 +299,12 @@ describe('agent-logs adversarial — non-integer :id → 400 (ParseIntPipe)', ()
     expect(status).toBe(400);
   });
 
-  it.skipIf(SKIP)('GET /v1/logs/research/0xdeadbeef returns 404 (ParseIntPipe coerces leading-0 hex → 0; id=0 not found)', async () => {
-    // ParseIntPipe.transform uses Number()+parseInt(value,10): '0xdeadbeef' coerces
-    // to NaN under isFinite/isNumeric checks pass via Number('0xdeadbeef')=
-    // 3735928559 (hex literal), then parseInt('0xdeadbeef',10)=0 (stops at 'x').
-    // The pipe accepts the value as 0 → controller queries id=0 → 404.
-    // To reject hex outright at the pipe layer, controllers would need a custom
-    // strict-integer pipe; deferred. The behavior here is current-day NestJS.
+  it.skipIf(SKIP)('GET /v1/logs/research/0xdeadbeef returns 400 (StrictParseIntPipe rejects hex)', async () => {
+    // StrictParseIntPipe (P2 cleanup) uses /^-?\d+$/ regex — rejects hex literals.
+    // Previously NestJS ParseIntPipe would coerce '0xdeadbeef' to id=0 → 404.
+    // Now returns 400 (validation failure at the pipe layer).
     const { status } = await get('/v1/logs/research/0xdeadbeef');
-    expect(status).toBe(404);
+    expect(status).toBe(400);
   });
 });
 

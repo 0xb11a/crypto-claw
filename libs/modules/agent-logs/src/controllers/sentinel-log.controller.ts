@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { Roles } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { AgentLogsService } from '../agent-logs.service.js';
 import { AppendSentinelLogDto } from '../dto/append-sentinel-log.dto.js';
 import { AgentLogQueryDto } from '../dto/agent-log-query.dto.js';
+import { StrictParseIntPipe } from '../pipes/strict-parse-int.pipe.js';
 import type { SentinelLogResponseDto } from '../dto/sentinel-log-response.dto.js';
 
 /**
@@ -37,7 +38,7 @@ export class SentinelLogController {
   @ApiParam({ name: 'id', description: 'Row integer ID' })
   @ApiResponse({ status: 200, description: 'Sentinel log row' })
   @ApiResponse({ status: 404, description: 'Row not found' })
-  getById(@Param('id', ParseIntPipe) id: number): Promise<SentinelLogResponseDto> {
+  getById(@Param('id', StrictParseIntPipe) id: number): Promise<SentinelLogResponseDto> {
     return this.svc.getSentinelById(id);
   }
 
