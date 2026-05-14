@@ -1,15 +1,15 @@
-import { IsOptional, IsInt, Min, Max, IsIn, IsISO8601 } from 'class-validator';
+import { IsOptional, IsInt, IsIn, IsISO8601 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { MinMaxValue } from '../decorators/numeric-constraints.js';
 
 /**
  * Shared query DTO for GET /v1/logs/<agent> — applies to all four log tables.
  */
 export class AgentLogQueryDto {
   @ApiPropertyOptional({ description: 'Maximum number of rows to return', default: 50 })
+  @MinMaxValue(1, 500)
   @IsInt()
-  @Min(1)
-  @Max(500)
   @IsOptional()
   @Transform(({ value }: { value: unknown }) => (value != null ? Number(value) : value))
   limit?: number;
