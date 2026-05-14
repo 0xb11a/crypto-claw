@@ -70,6 +70,7 @@
             "type": "number"
           },
           "score_breakdown": {
+            "description": "JSON-serialisable score breakdown; max 16 384 bytes",
             "type": "object"
           },
           "source": {
@@ -1666,6 +1667,8 @@
             "required": false,
             "schema": {
               "default": 50,
+              "maximum": 500,
+              "minimum": 1,
               "type": "number"
             }
           },
@@ -1675,6 +1678,7 @@
             "name": "since",
             "required": false,
             "schema": {
+              "example": "2026-05-14T00:00:00Z",
               "type": "string"
             }
           },
@@ -1773,6 +1777,8 @@
             "required": false,
             "schema": {
               "default": 50,
+              "maximum": 500,
+              "minimum": 1,
               "type": "number"
             }
           },
@@ -1782,6 +1788,7 @@
             "name": "since",
             "required": false,
             "schema": {
+              "example": "2026-05-14T00:00:00Z",
               "type": "string"
             }
           },
@@ -1880,6 +1887,8 @@
             "required": false,
             "schema": {
               "default": 50,
+              "maximum": 500,
+              "minimum": 1,
               "type": "number"
             }
           },
@@ -1889,6 +1898,7 @@
             "name": "since",
             "required": false,
             "schema": {
+              "example": "2026-05-14T00:00:00Z",
               "type": "string"
             }
           },
@@ -1987,6 +1997,8 @@
             "required": false,
             "schema": {
               "default": 50,
+              "maximum": 500,
+              "minimum": 1,
               "type": "number"
             }
           },
@@ -1996,6 +2008,7 @@
             "name": "since",
             "required": false,
             "schema": {
+              "example": "2026-05-14T00:00:00Z",
               "type": "string"
             }
           },

@@ -18,6 +18,9 @@ export type AddTrackedWalletDto = {
   notes?: string;
   retry_count?: number;
   score?: number;
+  /**
+   * JSON-serialisable score breakdown; max 16 384 bytes
+   */
   score_breakdown?: Record<string, any>;
   source?: string;
   source_token?: string;
