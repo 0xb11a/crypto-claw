@@ -10,6 +10,24 @@
         },
         "type": "object"
       },
+      "AddContractSnapshotDto": {
+        "properties": {
+          "address": {
+            "description": "Contract address",
+            "type": "string"
+          },
+          "chain": {
+            "description": "Chain identifier",
+            "type": "string"
+          },
+          "json": {
+            "description": "Raw JSON string of safety check data (max 65KB)",
+            "type": "string"
+          }
+        },
+        "required": ["address", "chain", "json"],
+        "type": "object"
+      },
       "AddLiquiditySnapshotDto": {
         "properties": {
           "address": {
@@ -286,6 +304,49 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "CacheAnalysisDto": {
+        "properties": {
+          "address": {
+            "description": "Token contract address",
+            "type": "string"
+          },
+          "analysis_score": {
+            "description": "Analysis score (0-100)",
+            "type": "number"
+          },
+          "chain": {
+            "description": "Chain identifier (base, solana, etc.)",
+            "type": "string"
+          },
+          "reasoning": {
+            "description": "Analysis reasoning text",
+            "type": "string"
+          },
+          "risk_score": {
+            "description": "Risk score (0-100)",
+            "type": "number"
+          },
+          "symbol": {
+            "description": "Token symbol",
+            "type": "string"
+          },
+          "tier": {
+            "description": "Tier: base | conviction | moonshot",
+            "type": "string"
+          },
+          "ttl_hours": {
+            "default": 24,
+            "description": "Cache TTL in hours (default: 24)",
+            "type": "number"
+          },
+          "verdict": {
+            "description": "Verdict: buy | hold | avoid | skip | analyze",
+            "type": "string"
+          }
+        },
+        "required": ["address", "chain", "verdict"],
         "type": "object"
       },
       "CancelOrderDto": {
@@ -681,6 +742,35 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "SetCashDto": {
+        "properties": {
+          "amount": {
+            "description": "Cash amount in USD (must be ≥ 0)",
+            "minimum": 0,
+            "type": "number"
+          },
+          "chain": {
+            "description": "Chain identifier",
+            "type": "string"
+          }
+        },
+        "required": ["chain", "amount"],
+        "type": "object"
+      },
+      "SetMetaDto": {
+        "properties": {
+          "key": {
+            "description": "portfolio_meta key",
+            "type": "string"
+          },
+          "value": {
+            "description": "Value to store (always stored as string)",
+            "type": "string"
+          }
+        },
+        "required": ["key", "value"],
         "type": "object"
       },
       "UpdatePositionDto": {
@@ -1158,6 +1248,201 @@
         ],
         "summary": "Acknowledge a sentinel alert (idempotent)",
         "tags": ["alerts"]
+      }
+    },
+    "/v1/analysis-cache": {
+      "get": {
+        "operationId": "AnalysisCacheController_list",
+        "parameters": [
+          {
+            "description": "Maximum number of rows to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Non-expired cache entries"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List non-expired analysis cache entries",
+        "tags": ["analysis-cache"]
+      },
+      "post": {
+        "operationId": "AnalysisCacheController_upsert",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CacheAnalysisDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Cache entry upserted"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upsert a token analysis cache entry",
+        "tags": ["analysis-cache"]
+      }
+    },
+    "/v1/analysis-cache/check": {
+      "get": {
+        "operationId": "AnalysisCacheController_check",
+        "parameters": [
+          {
+            "description": "Token contract address",
+            "in": "query",
+            "name": "address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Chain identifier",
+            "in": "query",
+            "name": "chain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cache entry found"
+          },
+          "404": {
+            "description": "No non-expired cache entry for this token"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Check token cache status (non-expired)",
+        "tags": ["analysis-cache"]
+      }
+    },
+    "/v1/analysis-cache/expired": {
+      "delete": {
+        "operationId": "AnalysisCacheController_clearExpired",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Expired entries deleted"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete all expired analysis cache entries",
+        "tags": ["analysis-cache"]
+      }
+    },
+    "/v1/contracts/snapshots": {
+      "get": {
+        "operationId": "ContractsController_list",
+        "parameters": [
+          {
+            "description": "Contract address",
+            "in": "query",
+            "name": "address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Chain identifier",
+            "in": "query",
+            "name": "chain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum number of rows to return (default: 5)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract snapshot list"
+          },
+          "400": {
+            "description": "Missing or invalid query params"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List recent contract safety snapshots",
+        "tags": ["contracts"]
+      },
+      "post": {
+        "operationId": "ContractsController_add",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddContractSnapshotDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Snapshot added"
+          },
+          "400": {
+            "description": "Validation error (e.g. json exceeds 65KB)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add a contract safety snapshot",
+        "tags": ["contracts"]
       }
     },
     "/v1/heartbeat": {
@@ -2713,6 +2998,210 @@
           }
         ],
         "summary": "Get a single audit entry by ID",
+        "tags": ["system"]
+      }
+    },
+    "/v1/system/cash": {
+      "get": {
+        "operationId": "CashController_getAllCash",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Flat cash breakdown: { [chain]: amount, total }"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get cash balances for all chains",
+        "tags": ["system"]
+      },
+      "patch": {
+        "operationId": "CashController_setCash",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCashDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Cash updated"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set cash balance for a chain",
+        "tags": ["system"]
+      }
+    },
+    "/v1/system/cash/{chain}": {
+      "get": {
+        "operationId": "CashController_getCashByChain",
+        "parameters": [
+          {
+            "description": "Chain identifier",
+            "in": "path",
+            "name": "chain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Chain cash: { chain, cash }"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get cash balance for a specific chain",
+        "tags": ["system"]
+      }
+    },
+    "/v1/system/gas": {
+      "get": {
+        "operationId": "CashController_getGas",
+        "parameters": [
+          {
+            "description": "Chain identifier",
+            "in": "query",
+            "name": "chain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Gas info: { chain, symbol, balance, price, value_usd }"
+          },
+          "400": {
+            "description": "Missing chain param"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get gas token balance for a chain",
+        "tags": ["system"]
+      }
+    },
+    "/v1/system/meta": {
+      "get": {
+        "operationId": "MetaController_getMeta",
+        "parameters": [
+          {
+            "description": "portfolio_meta key to look up",
+            "in": "query",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Meta key/value pair (value is null if key not found)"
+          },
+          "400": {
+            "description": "Missing key query param"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a portfolio_meta key/value",
+        "tags": ["system"]
+      },
+      "patch": {
+        "operationId": "MetaController_setMeta",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMetaDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Meta key/value updated"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set a portfolio_meta key/value",
+        "tags": ["system"]
+      }
+    },
+    "/v1/system/sync-status": {
+      "get": {
+        "operationId": "PortfolioSyncController_getSyncStatus",
+        "parameters": [
+          {
+            "description": "Filter by chain",
+            "in": "query",
+            "name": "chain",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum number of rows to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portfolio sync history rows"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List portfolio sync history",
         "tags": ["system"]
       }
     },

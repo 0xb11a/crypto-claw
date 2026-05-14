@@ -2,6 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { SetCashDto } from '../models/SetCashDto';
+import type { SetMetaDto } from '../models/SetMetaDto';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import type { BaseHttpRequest } from '../core/BaseHttpRequest';
 export class SystemService {
@@ -65,6 +67,119 @@ export class SystemService {
       },
       errors: {
         404: `Audit entry not found`,
+      },
+    });
+  }
+  /**
+   * Get cash balances for all chains
+   * @returns any Flat cash breakdown: { [chain]: amount, total }
+   * @throws ApiError
+   */
+  public cashControllerGetAllCash(): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'GET',
+      url: '/v1/system/cash',
+    });
+  }
+  /**
+   * Set cash balance for a chain
+   * @param requestBody
+   * @returns any Cash updated
+   * @throws ApiError
+   */
+  public cashControllerSetCash(requestBody: SetCashDto): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'PATCH',
+      url: '/v1/system/cash',
+      body: requestBody,
+      mediaType: 'application/json',
+      errors: {
+        400: `Validation error`,
+      },
+    });
+  }
+  /**
+   * Get cash balance for a specific chain
+   * @param chain Chain identifier
+   * @returns any Chain cash: { chain, cash }
+   * @throws ApiError
+   */
+  public cashControllerGetCashByChain(chain: string): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'GET',
+      url: '/v1/system/cash/{chain}',
+      path: {
+        chain: chain,
+      },
+    });
+  }
+  /**
+   * Get gas token balance for a chain
+   * @param chain Chain identifier
+   * @returns any Gas info: { chain, symbol, balance, price, value_usd }
+   * @throws ApiError
+   */
+  public cashControllerGetGas(chain: string): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'GET',
+      url: '/v1/system/gas',
+      query: {
+        chain: chain,
+      },
+      errors: {
+        400: `Missing chain param`,
+      },
+    });
+  }
+  /**
+   * Get a portfolio_meta key/value
+   * @param key portfolio_meta key to look up
+   * @returns any Meta key/value pair (value is null if key not found)
+   * @throws ApiError
+   */
+  public metaControllerGetMeta(key: string): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'GET',
+      url: '/v1/system/meta',
+      query: {
+        key: key,
+      },
+      errors: {
+        400: `Missing key query param`,
+      },
+    });
+  }
+  /**
+   * Set a portfolio_meta key/value
+   * @param requestBody
+   * @returns any Meta key/value updated
+   * @throws ApiError
+   */
+  public metaControllerSetMeta(requestBody: SetMetaDto): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'PATCH',
+      url: '/v1/system/meta',
+      body: requestBody,
+      mediaType: 'application/json',
+      errors: {
+        400: `Validation error`,
+      },
+    });
+  }
+  /**
+   * List portfolio sync history
+   * @param chain Filter by chain
+   * @param limit Maximum number of rows to return
+   * @returns any Portfolio sync history rows
+   * @throws ApiError
+   */
+  public portfolioSyncControllerGetSyncStatus(chain?: string, limit: number = 20): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'GET',
+      url: '/v1/system/sync-status',
+      query: {
+        chain: chain,
+        limit: limit,
       },
     });
   }

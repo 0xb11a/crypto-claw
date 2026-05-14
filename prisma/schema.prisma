@@ -440,6 +440,65 @@ model ObserverLog {
 }
 
 // ---------------------------------------------------------------------------
+// analysis_cache — migration 006 (token-level analysis cache)
+// ---------------------------------------------------------------------------
+
+model AnalysisCache {
+  address       String
+  chain         String
+  symbol        String?
+  analysisScore Int?    @map("analysis_score")
+  riskScore     Int?    @map("risk_score")
+  verdict       String
+  tier          String?
+  reasoning     String?
+  /// expires_at uses SQLite TEXT "YYYY-MM-DD HH:MM:SS" (non-Z) — set via
+  /// datetime('now', '+N hours'). Do NOT use ISO-Z timestamps here for
+  /// bug-for-bug parity with db-query.js cache-analysis.
+  expiresAt     String  @map("expires_at")
+  createdAt     String? @map("created_at")
+
+  @@id([address, chain])
+  @@index([expiresAt])
+  @@map("analysis_cache")
+}
+
+// ---------------------------------------------------------------------------
+// contract_snapshots — migration 013 (contract safety snapshots)
+// ---------------------------------------------------------------------------
+
+model ContractSnapshot {
+  id         Int     @id @default(autoincrement())
+  address    String
+  chain      String
+  /// safety_data stored as raw JSON string (bug-for-bug parity with db-query.js add-contract-snapshot)
+  safetyData String  @map("safety_data")
+  checkedAt  String? @map("checked_at")
+
+  @@index([address, chain], map: "idx_contract_snapshots")
+  @@map("contract_snapshots")
+}
+
+// ---------------------------------------------------------------------------
+// portfolio_sync — migration 008 (on-chain portfolio sync state)
+// ---------------------------------------------------------------------------
+
+model PortfolioSync {
+  id                  Int     @id @default(autoincrement())
+  chain               String
+  provider            String
+  trigger             String
+  status              String
+  positionsSynced     Int     @default(0) @map("positions_synced")
+  positionsClosed     Int     @default(0) @map("positions_closed")
+  positionsDiscovered Int     @default(0) @map("positions_discovered")
+  error               String?
+  syncedAt            String? @map("synced_at")
+
+  @@map("portfolio_sync")
+}
+
+// ---------------------------------------------------------------------------
 // trades — migration 001 (included for schema completeness; no module in P1a)
 // ---------------------------------------------------------------------------
 

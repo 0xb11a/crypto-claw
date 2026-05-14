@@ -58,6 +58,13 @@ COPY libs/modules/orders/package.json libs/modules/orders/
 COPY libs/modules/receipts/package.json libs/modules/receipts/
 COPY libs/modules/alerts/package.json libs/modules/alerts/
 COPY libs/modules/heartbeat/package.json libs/modules/heartbeat/
+COPY libs/modules/wallets/package.json libs/modules/wallets/
+COPY libs/modules/liquidity/package.json libs/modules/liquidity/
+COPY libs/modules/watchlist/package.json libs/modules/watchlist/
+COPY libs/modules/agent-logs/package.json libs/modules/agent-logs/
+COPY libs/modules/analysis-cache/package.json libs/modules/analysis-cache/
+COPY libs/modules/contracts/package.json libs/modules/contracts/
+COPY libs/modules/system/package.json libs/modules/system/
 COPY sdk/generated/package.json sdk/generated/
 COPY sdk/cclaw/package.json sdk/cclaw/
 COPY tests/integration/package.json tests/integration/

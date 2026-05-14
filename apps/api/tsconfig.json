@@ -20,7 +20,10 @@
       "@cclaw/wallets": ["../../libs/modules/wallets/src/index.ts"],
       "@cclaw/liquidity": ["../../libs/modules/liquidity/src/index.ts"],
       "@cclaw/watchlist": ["../../libs/modules/watchlist/src/index.ts"],
-      "@cclaw/agent-logs": ["../../libs/modules/agent-logs/src/index.ts"]
+      "@cclaw/agent-logs": ["../../libs/modules/agent-logs/src/index.ts"],
+      "@cclaw/analysis-cache": ["../../libs/modules/analysis-cache/src/index.ts"],
+      "@cclaw/contracts": ["../../libs/modules/contracts/src/index.ts"],
+      "@cclaw/system": ["../../libs/modules/system/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
@@ -40,6 +43,9 @@
     { "path": "../../libs/modules/wallets" },
     { "path": "../../libs/modules/liquidity" },
     { "path": "../../libs/modules/watchlist" },
-    { "path": "../../libs/modules/agent-logs" }
+    { "path": "../../libs/modules/agent-logs" },
+    { "path": "../../libs/modules/analysis-cache" },
+    { "path": "../../libs/modules/contracts" },
+    { "path": "../../libs/modules/system" }
   ]
 }
