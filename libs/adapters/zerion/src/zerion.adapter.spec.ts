@@ -558,6 +558,21 @@ describe('ZerionAdapter', () => {
       const url = (fetchSpy.mock.calls[0] as [string, RequestInit])[0];
       expect(url).toContain('currency=usd');
     });
+
+    it('encodes special characters in address via encodeURIComponent (Fix 3 — path-injection hardening)', async () => {
+      // An address containing '/' must be percent-encoded as '%2F' so it cannot
+      // escape the wallet address path segment and hit a different Zerion endpoint.
+      const addressWithSlash = '0x' + '/path/injection';
+      const fetchSpy = mockFetchOnce(200, makeZerionPnlResponse());
+
+      await adapter.getPnl(addressWithSlash, { chain: 'base' });
+
+      const url = (fetchSpy.mock.calls[0] as [string, RequestInit])[0];
+      // Raw '/' in the address position would resolve to a different endpoint path;
+      // '%2F' must appear instead.
+      expect(url).toContain('%2F');
+      expect(url).not.toMatch(/wallets\/0x\/path\/injection/);
+    });
   });
 
   // -------------------------------------------------------------------------

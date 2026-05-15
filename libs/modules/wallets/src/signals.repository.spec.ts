@@ -8,8 +8,12 @@
  * - Ungrouped path without tokens_in_positions: uses Prisma findMany (not $queryRawUnsafe)
  * - Grouped path: still uses $queryRawUnsafe (ROUND(AVG()) not in Prisma groupBy)
  * - tokens_in_positions path: still uses $queryRawUnsafe (SQL subquery required)
+ *
+ * P3-cleanup Fix 2: insertSignal now uses prisma.create + P2002 catch instead
+ * of upsert + 1-second heuristic. Tests updated accordingly.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { Prisma } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 import { SignalsRepository } from './signals.repository.js';
 import type { PrismaService } from '@cclaw/prisma';
@@ -51,12 +55,11 @@ const prismaSignal = {
 };
 
 function makePrisma(): PrismaService {
-  const now = new Date().toISOString();
   return {
     $queryRawUnsafe: vi.fn().mockResolvedValue([rawSignal]),
     smartMoneySignal: {
       findMany: vi.fn().mockResolvedValue([prismaSignal]),
-      upsert: vi.fn().mockResolvedValue({ ...prismaSignal, createdAt: now }),
+      create: vi.fn().mockResolvedValue(prismaSignal),
       deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
   } as unknown as PrismaService;
@@ -267,13 +270,12 @@ describe('SignalsRepository', () => {
       tx_timestamp: '2026-05-14T00:00:00.000Z',
     };
 
-    it('returns {inserted:true} when Prisma upsert creates a new row', async () => {
-      const now = new Date().toISOString();
+    it('returns {inserted:true} for new row (create resolves)', async () => {
       const p = {
         $queryRawUnsafe: vi.fn().mockResolvedValue([rawSignal]),
         smartMoneySignal: {
           findMany: vi.fn(),
-          upsert: vi.fn().mockResolvedValue({ ...prismaSignal, txHash: '0xnewtx', createdAt: now }),
+          create: vi.fn().mockResolvedValue({ ...prismaSignal, txHash: '0xnewtx' }),
           deleteMany: vi.fn(),
         },
       } as unknown as PrismaService;
@@ -284,15 +286,16 @@ describe('SignalsRepository', () => {
       expect(result.inserted).toBe(true);
     });
 
-    it('returns {inserted:false} when Prisma upsert hits the unique constraint (old createdAt)', async () => {
-      // Use a timestamp 5 seconds in the past — the 1-second tolerance check
-      // (Date.now() - createdMs < 1_000) will be false → inserted:false
-      const old = new Date(Date.now() - 5_000).toISOString(); // 5 seconds ago
+    it('returns {inserted:false} on duplicate (create rejects with P2002)', async () => {
+      const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: '5.0.0',
+      });
       const p = {
         $queryRawUnsafe: vi.fn().mockResolvedValue([rawSignal]),
         smartMoneySignal: {
           findMany: vi.fn(),
-          upsert: vi.fn().mockResolvedValue({ ...prismaSignal, txHash: '0xnewtx', createdAt: old }),
+          create: vi.fn().mockRejectedValueOnce(p2002),
           deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
       } as unknown as PrismaService;
@@ -303,13 +306,12 @@ describe('SignalsRepository', () => {
       expect(result.inserted).toBe(false);
     });
 
-    it('calls prisma.smartMoneySignal.upsert with the correct unique key', async () => {
-      const now = new Date().toISOString();
+    it('calls prisma.smartMoneySignal.create with the correct data block', async () => {
       const p = {
         $queryRawUnsafe: vi.fn().mockResolvedValue([]),
         smartMoneySignal: {
           findMany: vi.fn(),
-          upsert: vi.fn().mockResolvedValue({ ...prismaSignal, createdAt: now }),
+          create: vi.fn().mockResolvedValue(prismaSignal),
           deleteMany: vi.fn(),
         },
       } as unknown as PrismaService;
@@ -317,29 +319,23 @@ describe('SignalsRepository', () => {
 
       await r.insertSignal(signalInput, '0xwallet', null, null, 'base');
 
-      const callArg = (p.smartMoneySignal.upsert as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
-        where: { txHash_walletAddress_action_tokenAddress: Record<string, string> };
-        update: Record<string, never>;
-        create: Record<string, unknown>;
+      const callArg = (p.smartMoneySignal.create as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        data: Record<string, unknown>;
       };
 
-      // Unique key fields
-      expect(callArg.where.txHash_walletAddress_action_tokenAddress.txHash).toBe('0xnewtx');
-      expect(callArg.where.txHash_walletAddress_action_tokenAddress.walletAddress).toBe('0xwallet');
-      expect(callArg.where.txHash_walletAddress_action_tokenAddress.action).toBe('buy');
-      expect(callArg.where.txHash_walletAddress_action_tokenAddress.tokenAddress).toBe('0xTokNew');
-
-      // Update block is empty (INSERT OR IGNORE semantics)
-      expect(Object.keys(callArg.update)).toHaveLength(0);
+      // Unique key fields appear in the data block (no separate where clause)
+      expect(callArg.data['txHash']).toBe('0xnewtx');
+      expect(callArg.data['walletAddress']).toBe('0xwallet');
+      expect(callArg.data['action']).toBe('buy');
+      expect(callArg.data['tokenAddress']).toBe('0xTokNew');
     });
 
     it('create block includes all expected fields', async () => {
-      const now = new Date().toISOString();
       const p = {
         $queryRawUnsafe: vi.fn().mockResolvedValue([]),
         smartMoneySignal: {
           findMany: vi.fn(),
-          upsert: vi.fn().mockResolvedValue({ ...prismaSignal, createdAt: now }),
+          create: vi.fn().mockResolvedValue(prismaSignal),
           deleteMany: vi.fn(),
         },
       } as unknown as PrismaService;
@@ -347,17 +343,51 @@ describe('SignalsRepository', () => {
 
       await r.insertSignal(signalInput, '0xwallet', 90, 'my-label', 'base');
 
-      const callArg = (p.smartMoneySignal.upsert as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
-        create: Record<string, unknown>;
+      const callArg = (p.smartMoneySignal.create as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        data: Record<string, unknown>;
       };
 
-      expect(callArg.create['chain']).toBe('base');
-      expect(callArg.create['walletAddress']).toBe('0xwallet');
-      expect(callArg.create['walletScore']).toBe(90);
-      expect(callArg.create['walletLabel']).toBe('my-label');
-      expect(callArg.create['action']).toBe('buy');
-      expect(callArg.create['tokenAddress']).toBe('0xTokNew');
-      expect(callArg.create['tokenSymbol']).toBe('NEW');
+      expect(callArg.data['chain']).toBe('base');
+      expect(callArg.data['walletAddress']).toBe('0xwallet');
+      expect(callArg.data['walletScore']).toBe(90);
+      expect(callArg.data['walletLabel']).toBe('my-label');
+      expect(callArg.data['action']).toBe('buy');
+      expect(callArg.data['tokenAddress']).toBe('0xTokNew');
+      expect(callArg.data['tokenSymbol']).toBe('NEW');
+    });
+
+    it('non-P2002 PrismaClientKnownRequestError propagates (does NOT return inserted:false)', async () => {
+      // P2003 = foreign key violation — must bubble up, not be silenced
+      const p2003 = new Prisma.PrismaClientKnownRequestError('Foreign key constraint failed', {
+        code: 'P2003',
+        clientVersion: '5.0.0',
+      });
+      const p = {
+        $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+        smartMoneySignal: {
+          findMany: vi.fn(),
+          create: vi.fn().mockRejectedValueOnce(p2003),
+          deleteMany: vi.fn(),
+        },
+      } as unknown as PrismaService;
+      const r = new SignalsRepository(p);
+
+      await expect(r.insertSignal(signalInput, '0xwallet', 85, 'label', 'base')).rejects.toBe(p2003);
+    });
+
+    it('generic Error propagates (not caught by P2002 handler)', async () => {
+      const networkErr = new Error('network down');
+      const p = {
+        $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+        smartMoneySignal: {
+          findMany: vi.fn(),
+          create: vi.fn().mockRejectedValueOnce(networkErr),
+          deleteMany: vi.fn(),
+        },
+      } as unknown as PrismaService;
+      const r = new SignalsRepository(p);
+
+      await expect(r.insertSignal(signalInput, '0xwallet', 85, 'label', 'base')).rejects.toBe(networkErr);
     });
   });
 
@@ -372,7 +402,7 @@ describe('SignalsRepository', () => {
         $queryRawUnsafe: vi.fn().mockResolvedValue([]),
         smartMoneySignal: {
           findMany: vi.fn(),
-          upsert: vi.fn(),
+          create: vi.fn(),
           deleteMany: vi.fn().mockResolvedValue({ count: 3 }),
         },
       } as unknown as PrismaService;
@@ -396,7 +426,7 @@ describe('SignalsRepository', () => {
         $queryRawUnsafe: vi.fn().mockResolvedValue([]),
         smartMoneySignal: {
           findMany: vi.fn(),
-          upsert: vi.fn(),
+          create: vi.fn(),
           deleteMany: vi.fn().mockResolvedValue({ count: 7 }),
         },
       } as unknown as PrismaService;
@@ -412,7 +442,7 @@ describe('SignalsRepository', () => {
         $queryRawUnsafe: vi.fn().mockResolvedValue([]),
         smartMoneySignal: {
           findMany: vi.fn(),
-          upsert: vi.fn(),
+          create: vi.fn(),
           deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
       } as unknown as PrismaService;
@@ -429,7 +459,7 @@ describe('SignalsRepository', () => {
         $queryRawUnsafe: vi.fn().mockResolvedValue([]),
         smartMoneySignal: {
           findMany: vi.fn(),
-          upsert: vi.fn(),
+          create: vi.fn(),
           deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
       } as unknown as PrismaService;
