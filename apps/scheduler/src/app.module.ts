@@ -8,9 +8,13 @@ import { WalletScoringSchedule } from './schedules/wallet-scoring.schedule.js';
 import { WalletActivitySchedule } from './schedules/wallet-activity.schedule.js';
 import { GovernanceDriftSchedule } from './schedules/governance-drift.schedule.js';
 import { MultisigTrackerSchedule } from './schedules/multisig-tracker.schedule.js';
+import { PositionReconcileSchedule } from './schedules/position-reconcile.schedule.js';
+import { PortfolioReportSchedule } from './schedules/portfolio-report.schedule.js';
 import { WALLET_HARVEST_QUEUE, WALLET_SCORING_QUEUE, WALLET_ACTIVITY_QUEUE } from '@cclaw/wallets';
 import { GOVERNANCE_DRIFT_QUEUE } from '@cclaw/governance';
 import { MULTISIG_TRACKING_QUEUE } from '@cclaw/orders';
+import { POSITION_RECONCILE_QUEUE } from '@cclaw/positions';
+import { PORTFOLIO_REPORT_QUEUE } from '@cclaw/system';
 
 // Boot self-checks run at module-import time so they fire before NestFactory
 // touches anything. Order matches main.ts (SPEC §4 #4 then §4 #6): signer-key
@@ -66,6 +70,10 @@ const _config = assertConfigValid(process.env);
     // P3g2 PR-D: producer-only handles for governance-drift and multisig-tracking.
     BullModule.registerQueue({ name: GOVERNANCE_DRIFT_QUEUE }),
     BullModule.registerQueue({ name: MULTISIG_TRACKING_QUEUE }),
+
+    // P3g2 PR-E: producer-only handles for position-reconcile and portfolio-report.
+    BullModule.registerQueue({ name: POSITION_RECONCILE_QUEUE }),
+    BullModule.registerQueue({ name: PORTFOLIO_REPORT_QUEUE }),
   ],
   providers: [
     WalletHarvestSchedule,
@@ -74,6 +82,9 @@ const _config = assertConfigValid(process.env);
     // P3g2 PR-D schedules.
     GovernanceDriftSchedule,
     MultisigTrackerSchedule,
+    // P3g2 PR-E schedules.
+    PositionReconcileSchedule,
+    PortfolioReportSchedule,
   ],
 })
 export class AppModule {}

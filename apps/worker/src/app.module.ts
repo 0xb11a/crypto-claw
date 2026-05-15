@@ -8,6 +8,8 @@ import { OrdersModule, resolveActiveQueueNames, buildChainQueueMap } from '@ccla
 import { ReceiptsModule } from '@cclaw/receipts';
 import { WalletsModule } from '@cclaw/wallets';
 import { GovernanceModule } from '@cclaw/governance';
+import { PositionsModule } from '@cclaw/positions';
+import { SystemModule } from '@cclaw/system';
 import { createExecuteOrderProcessor } from './processors/execute-order.processor.js';
 
 // Boot self-checks run at module-import time so they fire before NestFactory
@@ -106,6 +108,14 @@ const processorProviders = activeQueueNames.map(createExecuteOrderProcessor);
     // This is additive to OrdersModule.forRoot() above — forWorker() registers
     // only the multisig-tracking queue + processor, not HTTP controllers.
     OrdersModule.forWorker(),
+
+    // P3g2 PR-E: position-reconcile + portfolio-report processors.
+    // PositionsModule.forWorker() registers PositionReconcileProcessor with
+    // OnchainBalanceAdapter, NotificationsModule, SystemModule.
+    PositionsModule.forWorker(),
+    // SystemModule.forWorker() registers PortfolioReportProcessor with
+    // DexscreenerAdapter, NotificationsModule, PositionsModule.
+    SystemModule.forWorker(),
   ],
   providers: [
     // Per-Safe processor instances (factory pattern — one class per queue name).

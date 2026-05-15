@@ -26,7 +26,9 @@
       "@cclaw/adapters-helius": ["../../libs/adapters/helius/src/index.ts"],
       "@cclaw/adapters-evm-explorer": ["../../libs/adapters/evm-explorer/src/index.ts"],
       "@cclaw/adapters-safe-tx-service": ["../../libs/adapters/safe-tx-service/src/index.ts"],
-      "@cclaw/adapters-squads-rpc": ["../../libs/adapters/squads-rpc/src/index.ts"]
+      "@cclaw/adapters-squads-rpc": ["../../libs/adapters/squads-rpc/src/index.ts"],
+      "@cclaw/adapters-onchain-balance": ["../../libs/adapters/onchain-balance/src/index.ts"],
+      "@cclaw/adapters-dexscreener": ["../../libs/adapters/dexscreener/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
@@ -52,6 +54,8 @@
     { "path": "../../libs/adapters/helius" },
     { "path": "../../libs/adapters/evm-explorer" },
     { "path": "../../libs/adapters/safe-tx-service" },
-    { "path": "../../libs/adapters/squads-rpc" }
+    { "path": "../../libs/adapters/squads-rpc" },
+    { "path": "../../libs/adapters/onchain-balance" },
+    { "path": "../../libs/adapters/dexscreener" }
   ]
 }

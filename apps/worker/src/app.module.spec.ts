@@ -32,6 +32,8 @@ import { WALLET_SCORING_QUEUE, WALLET_SCORING_JOB_OPTIONS } from './queues/walle
 import { WALLET_ACTIVITY_QUEUE, WALLET_ACTIVITY_JOB_OPTIONS } from './queues/wallet-activity.queue.js';
 import { GOVERNANCE_DRIFT_QUEUE, GOVERNANCE_DRIFT_JOB_OPTIONS } from './queues/governance-drift.queue.js';
 import { MULTISIG_TRACKING_QUEUE, MULTISIG_TRACKING_JOB_OPTIONS } from './queues/multisig-tracking.queue.js';
+import { POSITION_RECONCILE_QUEUE, POSITION_RECONCILE_JOB_OPTIONS } from './queues/position-reconcile.queue.js';
+import { PORTFOLIO_REPORT_QUEUE, PORTFOLIO_REPORT_JOB_OPTIONS } from './queues/portfolio-report.queue.js';
 import {
   WALLET_HARVEST_QUEUE as DOMAIN_HARVEST_QUEUE,
   WALLET_SCORING_QUEUE as DOMAIN_SCORING_QUEUE,
@@ -39,11 +41,15 @@ import {
 } from '@cclaw/wallets';
 import { GOVERNANCE_DRIFT_QUEUE as DOMAIN_GOVERNANCE_DRIFT_QUEUE } from '@cclaw/governance';
 import { MULTISIG_TRACKING_QUEUE as DOMAIN_MULTISIG_TRACKING_QUEUE } from '@cclaw/orders';
+import { POSITION_RECONCILE_QUEUE as DOMAIN_POSITION_RECONCILE_QUEUE } from '@cclaw/positions';
+import { PORTFOLIO_REPORT_QUEUE as DOMAIN_PORTFOLIO_REPORT_QUEUE } from '@cclaw/system';
 import { HarvestProcessor } from '../../../libs/modules/wallets/src/jobs/harvest.processor.js';
 import { ScoreWalletsProcessor } from '../../../libs/modules/wallets/src/jobs/score-wallets.processor.js';
 import { ActivityWalletsProcessor } from '../../../libs/modules/wallets/src/jobs/activity-wallets.processor.js';
 import { GovernanceDriftProcessor } from '../../../libs/modules/governance/src/jobs/governance-drift.processor.js';
 import { MultisigTrackerProcessor } from '../../../libs/modules/orders/src/jobs/multisig-tracker.processor.js';
+import { PositionReconcileProcessor } from '../../../libs/modules/positions/src/jobs/position-reconcile.processor.js';
+import { PortfolioReportProcessor } from '../../../libs/modules/system/src/jobs/portfolio-report.processor.js';
 
 describe('Worker AppModule — static DI contract verification', () => {
   // -------------------------------------------------------------------------
@@ -346,6 +352,128 @@ describe('Worker AppModule — static DI contract verification', () => {
 
     it('prototype has a process() method (WorkerHost contract)', () => {
       expect(typeof MultisigTrackerProcessor.prototype.process).toBe('function');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR-E: POSITION_RECONCILE_QUEUE constant parity
+  // -------------------------------------------------------------------------
+
+  describe('POSITION_RECONCILE_QUEUE constant (PR-E)', () => {
+    it('worker re-export equals the domain canonical value', () => {
+      expect(POSITION_RECONCILE_QUEUE).toBe(DOMAIN_POSITION_RECONCILE_QUEUE);
+    });
+
+    it('equals "position-reconcile"', () => {
+      expect(POSITION_RECONCILE_QUEUE).toBe('position-reconcile');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR-E: POSITION_RECONCILE_JOB_OPTIONS retry policy
+  // -------------------------------------------------------------------------
+
+  describe('POSITION_RECONCILE_JOB_OPTIONS retry policy (DoD §E — PR-E)', () => {
+    it('has attempts: 2', () => {
+      expect(POSITION_RECONCILE_JOB_OPTIONS.attempts).toBe(2);
+    });
+
+    it('has backoff type "fixed"', () => {
+      expect(POSITION_RECONCILE_JOB_OPTIONS.backoff.type).toBe('fixed');
+    });
+
+    it('has backoff delay of 60_000 ms (60 s)', () => {
+      expect(POSITION_RECONCILE_JOB_OPTIONS.backoff.delay).toBe(60_000);
+    });
+
+    it('retains last 50 completed jobs', () => {
+      expect(POSITION_RECONCILE_JOB_OPTIONS.removeOnComplete).toBe(50);
+    });
+
+    it('retains last 20 failed jobs', () => {
+      expect(POSITION_RECONCILE_JOB_OPTIONS.removeOnFail).toBe(20);
+    });
+
+    it('policy is identical to harvest policy (unified P3g2 decision)', () => {
+      expect(POSITION_RECONCILE_JOB_OPTIONS.attempts).toBe(WALLET_HARVEST_JOB_OPTIONS.attempts);
+      expect(POSITION_RECONCILE_JOB_OPTIONS.backoff.type).toBe(WALLET_HARVEST_JOB_OPTIONS.backoff.type);
+      expect(POSITION_RECONCILE_JOB_OPTIONS.backoff.delay).toBe(WALLET_HARVEST_JOB_OPTIONS.backoff.delay);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR-E: PositionReconcileProcessor importability
+  // -------------------------------------------------------------------------
+
+  describe('PositionReconcileProcessor (PR-E)', () => {
+    it('is a class (importable from expected path)', () => {
+      expect(PositionReconcileProcessor).toBeDefined();
+      expect(typeof PositionReconcileProcessor).toBe('function');
+    });
+
+    it('prototype has a process() method (WorkerHost contract)', () => {
+      expect(typeof PositionReconcileProcessor.prototype.process).toBe('function');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR-E: PORTFOLIO_REPORT_QUEUE constant parity
+  // -------------------------------------------------------------------------
+
+  describe('PORTFOLIO_REPORT_QUEUE constant (PR-E)', () => {
+    it('worker re-export equals the domain canonical value', () => {
+      expect(PORTFOLIO_REPORT_QUEUE).toBe(DOMAIN_PORTFOLIO_REPORT_QUEUE);
+    });
+
+    it('equals "portfolio-report"', () => {
+      expect(PORTFOLIO_REPORT_QUEUE).toBe('portfolio-report');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR-E: PORTFOLIO_REPORT_JOB_OPTIONS retry policy
+  // -------------------------------------------------------------------------
+
+  describe('PORTFOLIO_REPORT_JOB_OPTIONS retry policy (DoD §E — PR-E)', () => {
+    it('has attempts: 2', () => {
+      expect(PORTFOLIO_REPORT_JOB_OPTIONS.attempts).toBe(2);
+    });
+
+    it('has backoff type "fixed"', () => {
+      expect(PORTFOLIO_REPORT_JOB_OPTIONS.backoff.type).toBe('fixed');
+    });
+
+    it('has backoff delay of 60_000 ms (60 s)', () => {
+      expect(PORTFOLIO_REPORT_JOB_OPTIONS.backoff.delay).toBe(60_000);
+    });
+
+    it('retains last 50 completed jobs', () => {
+      expect(PORTFOLIO_REPORT_JOB_OPTIONS.removeOnComplete).toBe(50);
+    });
+
+    it('retains last 20 failed jobs', () => {
+      expect(PORTFOLIO_REPORT_JOB_OPTIONS.removeOnFail).toBe(20);
+    });
+
+    it('policy is identical to harvest policy (unified P3g2 decision)', () => {
+      expect(PORTFOLIO_REPORT_JOB_OPTIONS.attempts).toBe(WALLET_HARVEST_JOB_OPTIONS.attempts);
+      expect(PORTFOLIO_REPORT_JOB_OPTIONS.backoff.type).toBe(WALLET_HARVEST_JOB_OPTIONS.backoff.type);
+      expect(PORTFOLIO_REPORT_JOB_OPTIONS.backoff.delay).toBe(WALLET_HARVEST_JOB_OPTIONS.backoff.delay);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR-E: PortfolioReportProcessor importability
+  // -------------------------------------------------------------------------
+
+  describe('PortfolioReportProcessor (PR-E)', () => {
+    it('is a class (importable from expected path)', () => {
+      expect(PortfolioReportProcessor).toBeDefined();
+      expect(typeof PortfolioReportProcessor).toBe('function');
+    });
+
+    it('prototype has a process() method (WorkerHost contract)', () => {
+      expect(typeof PortfolioReportProcessor.prototype.process).toBe('function');
     });
   });
 });

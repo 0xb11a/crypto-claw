@@ -74,4 +74,35 @@ export class PositionsService {
   async deleteDraft(id: string): Promise<void> {
     return this.repo.deleteDraft(id);
   }
+
+  // ---------------------------------------------------------------------------
+  // Position-reconcile methods (P3g2 PR-E)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Find all real-mode open or partial-exit positions.
+   *
+   * Used by PositionReconcileProcessor to enumerate positions for on-chain
+   * balance comparison.
+   *
+   * @param filter - Optional chain or address filter.
+   */
+  async findOpenAndPartialExit(filter?: {
+    chain?: string;
+    address?: string;
+  }): Promise<import('./dto/position-response.dto.js').PositionResponseDto[]> {
+    return this.repo.findOpenAndPartialExit(filter);
+  }
+
+  /**
+   * Append a drift marker to the notes field of a position.
+   *
+   * Used by PositionReconcileProcessor to record on-chain drift.
+   *
+   * @param id - Position ID.
+   * @param marker - Drift marker string to append.
+   */
+  async appendNote(id: string, marker: string): Promise<void> {
+    return this.repo.appendNote(id, marker);
+  }
 }

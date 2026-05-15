@@ -13,3 +13,9 @@ export * from './dto/cash-breakdown.dto.js';
 export * from './dto/gas-query.dto.js';
 export * from './dto/sync-status-query.dto.js';
 export * from './dto/portfolio-sync-response.dto.js';
+// P3g2 PR-E: portfolio-report queue constants
+export { PORTFOLIO_REPORT_QUEUE, PORTFOLIO_REPORT_JOB_OPTIONS } from './jobs/queue-names.js';
+export { PortfolioReportProcessor } from './jobs/portfolio-report.processor.js';
+export type { PortfolioReportJobData, PortfolioReportResult } from './jobs/portfolio-report.processor.js';
+export { PortfolioSummaryService } from './jobs/portfolio-summary.service.js';
+export type { PortfolioReport, PortfolioPositionDetail } from './jobs/portfolio-summary.service.js';

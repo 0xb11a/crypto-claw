@@ -940,6 +940,58 @@ The multisig-tracking job runs every 5 minutes and polls the on-chain status of 
 - Reminder alerts fire every 30 minutes for any receipt still pending. If you are receiving many reminders, check the Safe Transaction Service or Squads UI for stuck transactions requiring manual approval.
 - If position is in `draft` or `pending_exit` for > 24 h: manually inspect the receipt status and trigger `cclaw orders retry --id <order_id>` if needed.
 
+### 11.4 Position reconcile (P3g2 PR-E)
+
+The position-reconcile job runs every hour and compares the DB-recorded `positions.quantity` against the actual on-chain token balance in the Safe / Squads vault. Drift > 1% writes a `recon_drift_X.YYpct` marker into `positions.notes` and triggers a `rug_warning` Telegram alert.
+
+**Cadence:** `0 * * * *` (hourly) — mirrors `entrypoint.sh:run_position_reconcile_loop`.
+**Health key:** `portfolio_meta.last_position_reconcile_at` — stale threshold: > 90 minutes.
+**Skip condition:** `PAPER_MODE=true` — no on-chain state to check in paper mode.
+**Idempotency guard:** The processor writes at most one drift marker per position per UTC hour (via `shouldAppendDriftMarker` dedup). A second run within the same hour with identical on-chain state does NOT append a duplicate marker. This is a deliberate improvement over the legacy script which appended on every cycle.
+
+**Required env vars (at least one per active EVM chain):**
+
+| Env var | Description |
+|---|---|
+| `SAFE_ADDRESS_BASE` | Base Safe vault address (used as `owner` for ERC-20 balance reads) |
+| `SAFE_ADDRESS_ETH` | Ethereum Safe vault address |
+| `SQUADS_VAULT_ADDRESS` | Solana vault address (direct) |
+| `RPC_BASE` / `RPC_ETH` / `RPC_SOL` | Chain RPC URLs (used by OnchainBalanceAdapter) |
+| `RPC_VALIDATION_MODE` | `strict` (default) / `warn` / `skip` — RPC hostname allowlist mode |
+
+**Solana limitation:** If `SQUADS_VAULT_ADDRESS` is not set, Solana positions are skipped with a WARN log (PDA derivation requires the SDK — set the vault env var directly).
+
+**Troubleshooting:**
+- If `last_position_reconcile_at` is stale: check BullMQ queue `position-reconcile` in worker logs.
+- If repeated `recon_drift_*` markers appear in notes: verify the position quantity in the DB is correct. If the token has fee-on-transfer mechanics, the drift is expected — consider adjusting the position quantity or closing the position.
+- If `decimals_fetch_failed`: the token's ERC-20 contract may not be responding. The position is skipped for this cycle; the error is counted in the processor result.
+
+### 11.5 Portfolio report (P3g2 PR-E)
+
+The portfolio-report job runs once per day at the configured UTC hour (`PORTFOLIO_REPORT_HOUR`) and sends a formatted portfolio summary to the Telegram `TG_TOPIC_PORTFOLIO` topic.
+
+**Cadence:** `0 H * * *` (daily at `PORTFOLIO_REPORT_HOUR` UTC) — mirrors `entrypoint.sh:run_portfolio_report_loop`.
+**Health key:** `portfolio_meta.last_portfolio_report_at` — stale threshold: > 26 hours.
+**Skip condition:** `TELEGRAM_CHAT_ID` or `TG_TOPIC_PORTFOLIO` not set — schedule not registered at startup.
+
+**[OPEN-5] Cadence implementation:** Uses `SchedulerRegistry.addCronJob` in `onModuleInit` to register a dynamic cron expression at the configured hour (e.g. `0 9 * * *` for `PORTFOLIO_REPORT_HOUR=9`). This is cleaner than an hourly-poll-with-gate because it fires exactly once per day at the right time.
+
+**Required env vars:**
+
+| Env var | Description |
+|---|---|
+| `TELEGRAM_CHAT_ID` | Target Telegram supergroup ID |
+| `TG_TOPIC_PORTFOLIO` | Telegram forum topic thread ID for portfolio reports |
+| `PORTFOLIO_REPORT_HOUR` | UTC hour for daily report (0–23, default: 0 = midnight) |
+| `DEXSCREENER_TIMEOUT_MS` | Per-request timeout for DEXScreener price fetches (default: 15 000 ms) |
+
+**[OPEN-7] Note:** After a multisig transaction confirms, the tracker sets `last_portfolio_sync_stale_at` as a hint. A future portfolio-sync job will pick up this marker and refresh on-chain balances. During P3, the legacy `portfolio-load-{evm,solana}.js` scripts run in parallel (via `entrypoint.sh`) and handle on-chain balance sync.
+
+**Troubleshooting:**
+- If no Telegram message arrives: check that both `TELEGRAM_CHAT_ID` and `TG_TOPIC_PORTFOLIO` are set, and that `PORTFOLIO_REPORT_HOUR` matches your expected hour in UTC.
+- If `last_portfolio_report_at` is stale: check BullMQ queue `portfolio-report` in worker logs.
+- If the report shows stale prices: DEXScreener may be rate-limiting. The adapter retries on the next hourly tick. Check `DEXSCREENER_TIMEOUT_MS`.
+
 ---
 
 ## 12. Emergency stop

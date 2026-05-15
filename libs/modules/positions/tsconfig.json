@@ -9,7 +9,11 @@
       "@cclaw/config": ["../../config/src/index.ts"],
       "@cclaw/prisma": ["../../prisma/src/index.ts"],
       "@cclaw/auth": ["../../auth/src/index.ts"],
-      "@cclaw/audit": ["../../audit/src/index.ts"]
+      "@cclaw/audit": ["../../audit/src/index.ts"],
+      "@cclaw/adapters-onchain-balance": ["../../adapters/onchain-balance/src/index.ts"],
+      "@cclaw/notifications": ["../../notifications/src/index.ts"],
+      "@cclaw/system": ["../system/src/index.ts"],
+      "@cclaw/chain": ["../../chain/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
@@ -18,6 +22,10 @@
     { "path": "../../config" },
     { "path": "../../prisma" },
     { "path": "../../auth" },
-    { "path": "../../audit" }
+    { "path": "../../audit" },
+    { "path": "../../adapters/onchain-balance" },
+    { "path": "../../notifications" },
+    { "path": "../system" },
+    { "path": "../../chain" }
   ]
 }
