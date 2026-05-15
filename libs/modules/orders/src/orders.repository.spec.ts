@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { OrdersRepository } from './orders.repository.js';
 import type { PrismaService } from '@cclaw/prisma';
 
@@ -146,6 +147,131 @@ describe('OrdersRepository', () => {
       (prisma.order.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(badRow);
       const order = await repo.findById('order-1');
       expect(order.take_profit_levels).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // transitionApproval() — P3g3 PR-F (ADR-0027)
+  // ---------------------------------------------------------------------------
+
+  describe('transitionApproval()', () => {
+    const approvedRow = {
+      ...rawOrder,
+      status: 'approved',
+      approvedAt: '2026-05-15T00:00:00.000Z',
+      approvedBy: 'telegram',
+      statusChangedAt: '2026-05-15T00:00:00.000Z',
+      statusChangedBy: 'telegram',
+    };
+
+    it('returns { updated: true, order } when status matches fromStatus', async () => {
+      (prisma.order.update as ReturnType<typeof vi.fn>).mockResolvedValue(approvedRow);
+
+      const result = await repo.transitionApproval('order-1', 'pending', 'approved', 'telegram');
+
+      expect(result.updated).toBe(true);
+      expect(result.order).toBeDefined();
+      expect(result.order!.status).toBe('approved');
+    });
+
+    it('passes compound where clause { id, status: fromStatus } to prisma.order.update', async () => {
+      (prisma.order.update as ReturnType<typeof vi.fn>).mockResolvedValue(approvedRow);
+
+      await repo.transitionApproval('order-1', 'pending', 'approved', 'telegram');
+
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'order-1', status: 'pending' },
+        }),
+      );
+    });
+
+    it('sets status, statusChangedAt, statusChangedBy, updatedAt in data', async () => {
+      (prisma.order.update as ReturnType<typeof vi.fn>).mockResolvedValue(approvedRow);
+
+      await repo.transitionApproval('order-1', 'pending', 'approved', 'telegram');
+
+      const call = (prisma.order.update as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(call.data.status).toBe('approved');
+      expect(call.data.statusChangedBy).toBe('telegram');
+      expect(typeof call.data.statusChangedAt).toBe('string');
+      expect(typeof call.data.updatedAt).toBe('string');
+    });
+
+    it('sets approvedAt and approvedBy when toStatus is "approved"', async () => {
+      (prisma.order.update as ReturnType<typeof vi.fn>).mockResolvedValue(approvedRow);
+
+      await repo.transitionApproval('order-1', 'pending', 'approved', 'telegram');
+
+      const call = (prisma.order.update as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(typeof call.data.approvedAt).toBe('string');
+      expect(call.data.approvedBy).toBe('telegram');
+    });
+
+    it('does NOT set approvedAt/approvedBy when toStatus is "rejected"', async () => {
+      const rejectedRow = { ...rawOrder, status: 'rejected' };
+      (prisma.order.update as ReturnType<typeof vi.fn>).mockResolvedValue(rejectedRow);
+
+      await repo.transitionApproval('order-1', 'pending', 'rejected', 'telegram');
+
+      const call = (prisma.order.update as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(call.data.approvedAt).toBeUndefined();
+      expect(call.data.approvedBy).toBeUndefined();
+    });
+
+    it('returns { updated: false } on P2025 (status mismatch — optimistic-lock race)', async () => {
+      const p2025 = new Prisma.PrismaClientKnownRequestError('Record not found', {
+        code: 'P2025',
+        clientVersion: '5.x',
+      });
+      (prisma.order.update as ReturnType<typeof vi.fn>).mockRejectedValue(p2025);
+
+      const result = await repo.transitionApproval('order-1', 'pending', 'approved', 'telegram');
+
+      expect(result.updated).toBe(false);
+      expect(result.order).toBeUndefined();
+    });
+
+    it('propagates non-P2025 Prisma errors', async () => {
+      const unexpected = new Prisma.PrismaClientKnownRequestError('Connection reset', {
+        code: 'P2002',
+        clientVersion: '5.x',
+      });
+      (prisma.order.update as ReturnType<typeof vi.fn>).mockRejectedValue(unexpected);
+
+      await expect(repo.transitionApproval('order-1', 'pending', 'approved', 'telegram')).rejects.toThrow(
+        Prisma.PrismaClientKnownRequestError,
+      );
+    });
+
+    it('propagates generic errors (not PrismaClientKnownRequestError)', async () => {
+      (prisma.order.update as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('GENERIC_DB_ERROR'));
+
+      await expect(repo.transitionApproval('order-1', 'pending', 'approved', 'telegram')).rejects.toThrow(
+        'GENERIC_DB_ERROR',
+      );
+    });
+
+    it('approvedBy is correctly written in order response on approve', async () => {
+      (prisma.order.update as ReturnType<typeof vi.fn>).mockResolvedValue(approvedRow);
+
+      const result = await repo.transitionApproval('order-1', 'pending', 'approved', 'telegram');
+
+      expect(result.order!.approved_by).toBe('telegram');
+    });
+
+    it('returned order has status=approved after successful approve transition', async () => {
+      (prisma.order.update as ReturnType<typeof vi.fn>).mockResolvedValue(approvedRow);
+
+      const result = await repo.transitionApproval('order-1', 'pending', 'approved', 'telegram');
+
+      expect(result.order!.status).toBe('approved');
     });
   });
 });

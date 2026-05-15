@@ -48,6 +48,7 @@ import { ScoreWalletsProcessor } from '../../../libs/modules/wallets/src/jobs/sc
 import { ActivityWalletsProcessor } from '../../../libs/modules/wallets/src/jobs/activity-wallets.processor.js';
 import { GovernanceDriftProcessor } from '../../../libs/modules/governance/src/jobs/governance-drift.processor.js';
 import { MultisigTrackerProcessor } from '../../../libs/modules/orders/src/jobs/multisig-tracker.processor.js';
+import { ApprovalBotService } from '../../../libs/modules/orders/src/jobs/approval-bot.service.js';
 import { PositionReconcileProcessor } from '../../../libs/modules/positions/src/jobs/position-reconcile.processor.js';
 import { PortfolioReportProcessor } from '../../../libs/modules/system/src/jobs/portfolio-report.processor.js';
 
@@ -474,6 +475,101 @@ describe('Worker AppModule — static DI contract verification', () => {
 
     it('prototype has a process() method (WorkerHost contract)', () => {
       expect(typeof PortfolioReportProcessor.prototype.process).toBe('function');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR-F: ApprovalBotService importability (P3g3 — continuous Worker, ADR-0027)
+  // -------------------------------------------------------------------------
+
+  describe('ApprovalBotService (PR-F — P3g3 continuous Worker)', () => {
+    it('is a class (importable from expected path)', () => {
+      expect(ApprovalBotService).toBeDefined();
+      expect(typeof ApprovalBotService).toBe('function');
+    });
+
+    it('prototype has onApplicationBootstrap() method (lifecycle hook)', () => {
+      expect(typeof ApprovalBotService.prototype.onApplicationBootstrap).toBe('function');
+    });
+
+    it('prototype has onApplicationShutdown() method (SIGTERM hook)', () => {
+      expect(typeof ApprovalBotService.prototype.onApplicationShutdown).toBe('function');
+    });
+
+    it('has NO process() method — it is NOT a BullMQ WorkerHost (ADR-0027)', () => {
+      // The approval-bot is a continuous loop, not a queue processor.
+      // This assertion guards against accidental WorkerHost coupling.
+      expect(ApprovalBotService.prototype).not.toHaveProperty('process');
+    });
+
+    it('constructor arity is 4 — accepts (ConfigService, TelegramAdapter, SystemService, OrdersRepository)', () => {
+      // Guards against constructor signature drift. If a dep is added/removed,
+      // the DI container will fail at runtime; this catches it statically.
+      expect(ApprovalBotService.prototype.constructor.length).toBe(4);
+    });
+
+    it('ApprovalBotService implements OnApplicationBootstrap (lifecycle hook name matches NestJS contract)', () => {
+      // NestJS calls the exact method name 'onApplicationBootstrap'. Any rename
+      // silently breaks the lifecycle.
+      expect('onApplicationBootstrap' in ApprovalBotService.prototype).toBe(true);
+    });
+
+    it('ApprovalBotService implements OnApplicationShutdown (lifecycle hook name matches NestJS contract)', () => {
+      // NestJS calls the exact method name 'onApplicationShutdown'. Any rename
+      // silently breaks SIGTERM graceful-shutdown.
+      expect('onApplicationShutdown' in ApprovalBotService.prototype).toBe(true);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR-F: OrdersModule.forWorker() DI regression guard (forRoot+forWorker merge)
+  //
+  // The coder fixed a boot regression: NestJS DynamicModule instances do NOT
+  // merge providers across forRoot() + forWorker() calls. ApprovalBotService
+  // needs OrdersRepository which is declared in forRoot(). Without the fix
+  // (re-declaring OrdersRepository in forWorker()), the worker boot produces:
+  //   Nest can't resolve dependencies of ApprovalBotService (?).
+  //
+  // We verify statically that OrdersModule.forWorker() providers list includes
+  // OrdersRepository — the presence of this entry is the critical guard.
+  //
+  // Full DI-resolution via Test.createTestingModule is deferred per existing
+  // NOTE in this file (requires live Redis + compiled Prisma).
+  // -------------------------------------------------------------------------
+
+  describe('OrdersModule.forWorker() — OrdersRepository DI regression guard (PR-F, ADR-0027)', () => {
+    // Dynamic import to avoid side-effects from module-level assertConfigValid
+    it('forWorker() providers list includes OrdersRepository (forRoot+forWorker DI merge fix)', async () => {
+      const { OrdersModule } = await import('../../../libs/modules/orders/src/orders.module.js');
+      const { OrdersRepository } = await import('../../../libs/modules/orders/src/orders.repository.js');
+
+      const workerDef = OrdersModule.forWorker();
+      const providers = workerDef.providers as Array<unknown>;
+      expect(providers).toContain(OrdersRepository);
+    });
+
+    it('forWorker() providers list includes ApprovalBotService', async () => {
+      const { OrdersModule } = await import('../../../libs/modules/orders/src/orders.module.js');
+
+      const workerDef = OrdersModule.forWorker();
+      const providers = workerDef.providers as Array<unknown>;
+      // ApprovalBotService class reference must be in providers
+      const hasApprovalBot = providers.some(
+        (p) => typeof p === 'function' && (p as { name: string }).name === 'ApprovalBotService',
+      );
+      expect(hasApprovalBot).toBe(true);
+    });
+
+    it('forRoot() does NOT include ApprovalBotService (not an API concern)', async () => {
+      const { OrdersModule } = await import('../../../libs/modules/orders/src/orders.module.js');
+      const chainQueueMap = new Map([['base', 'execute-order-base-0x1234']]);
+
+      const rootDef = OrdersModule.forRoot({ chainQueueMap });
+      const providers = rootDef.providers as Array<unknown>;
+      const hasApprovalBot = providers.some(
+        (p) => typeof p === 'function' && (p as { name: string }).name === 'ApprovalBotService',
+      );
+      expect(hasApprovalBot).toBe(false);
     });
   });
 });

@@ -12,6 +12,7 @@ import { NotificationsModule } from '@cclaw/notifications';
 import { SafeTxServiceModule } from '@cclaw/adapters-safe-tx-service';
 import { SquadsRpcModule } from '@cclaw/adapters-squads-rpc';
 import { MultisigTrackerProcessor } from './jobs/multisig-tracker.processor.js';
+import { ApprovalBotService } from './jobs/approval-bot.service.js';
 import { MULTISIG_TRACKING_QUEUE, MULTISIG_TRACKING_JOB_OPTIONS } from './queue-names.js';
 
 /**
@@ -79,12 +80,18 @@ export class OrdersModule {
   }
 
   /**
-   * Worker-side factory — registers the multisig-tracking BullMQ processor.
+   * Worker-side factory — registers the multisig-tracking BullMQ processor
+   * and the continuous approval-bot service (ADR-0027).
    *
    * Does NOT register HTTP controllers (those are on `forRoot()`).
    * The MULTISIG_TRACKING_QUEUE is registered here (not in apps/worker) so
    * the `@Processor(MULTISIG_TRACKING_QUEUE)` in MultisigTrackerProcessor
    * resolves correctly within this module's context.
+   *
+   * ApprovalBotService has no BullMQ queue — it is a continuous long-poll
+   * worker (ADR-0027 Continuous-Worker pattern). It is registered here because
+   * it owns order-state transitions on the orders table, which is this module's
+   * domain.
    *
    * Imports ReceiptsModule, PositionsModule, SystemModule, NotificationsModule,
    * SafeTxServiceModule, SquadsRpcModule so the processor resolves all its deps.
@@ -107,7 +114,22 @@ export class OrdersModule {
         SafeTxServiceModule,
         SquadsRpcModule,
       ],
-      providers: [MultisigTrackerProcessor],
+      providers: [
+        MultisigTrackerProcessor,
+        // P3g3 PR-F: continuous long-poll worker (ADR-0027 — no BullMQ queue).
+        // OrdersRepository must be re-declared here. NestJS DynamicModule merge
+        // behavior does NOT share providers across `forRoot()` + `forWorker()`
+        // calls in our @nestjs/common version (verified via worker boot smoke).
+        // Re-declaring the provider in both factories is the established pattern
+        // (mirrors WalletsModule.forWorker() in PR-A which lists WalletsRepository
+        // explicitly). Both DynamicModule instances produce distinct providers
+        // bound to the same class token; the injector resolves consistently.
+        //
+        // TelegramAdapter is available via NotificationsModule (imported above).
+        // SystemService is available via SystemModule (imported above).
+        OrdersRepository,
+        ApprovalBotService,
+      ],
       exports: [],
     };
   }

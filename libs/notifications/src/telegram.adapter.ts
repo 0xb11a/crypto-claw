@@ -127,11 +127,23 @@ export interface EditMessageParams {
   messageId: number;
   text: string;
   parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
+  /**
+   * When true, passes `reply_markup: { inline_keyboard: [] }` to Telegram
+   * to clear all inline buttons from the message (ported from
+   * `scripts/approval-bot.js:editMessageText` which always clears buttons).
+   */
+  removeInlineKeyboard?: boolean;
 }
 
 export interface AnswerCallbackParams {
   callbackQueryId: string;
   text?: string;
+  /**
+   * When true, Telegram shows the text as an alert dialog rather than a toast.
+   * Used by the approval-bot to surface "Unauthorized" and "already processed"
+   * messages more prominently (ported from scripts/approval-bot.js:show_alert).
+   */
+  showAlert?: boolean;
 }
 
 export interface GetUpdatesParams {
@@ -228,12 +240,22 @@ export class TelegramAdapter {
    *
    * Used by the approval-bot (PR-F) to update button states after
    * approval/rejection.
+   *
+   * @param params.removeInlineKeyboard - When true, passes an empty
+   *   `inline_keyboard` to clear approval/reject buttons from the message
+   *   (mirrors `scripts/approval-bot.js:editMessageText reply_markup` — DoD §I).
    */
   async editMessageText(params: EditMessageParams, signal?: AbortSignal): Promise<void> {
-    const { chatId, messageId, text, parseMode = 'HTML' } = params;
+    const { chatId, messageId, text, parseMode = 'HTML', removeInlineKeyboard } = params;
     await this.apiPost<unknown>(
       'editMessageText',
-      { chat_id: chatId, message_id: messageId, text, parse_mode: parseMode },
+      {
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        parse_mode: parseMode,
+        ...(removeInlineKeyboard ? { reply_markup: { inline_keyboard: [] } } : {}),
+      },
       signal,
     );
   }
@@ -242,12 +264,20 @@ export class TelegramAdapter {
    * Answer a Telegram callback query (inline button press acknowledgement).
    *
    * Used by the approval-bot (PR-F).
+   *
+   * @param params.showAlert - When true, Telegram shows the text as an alert
+   *   dialog (modal) rather than a brief toast — used for "Unauthorized" and
+   *   "already processed" acknowledgements (ported from scripts/approval-bot.js).
    */
   async answerCallbackQuery(params: AnswerCallbackParams, signal?: AbortSignal): Promise<void> {
-    const { callbackQueryId, text } = params;
+    const { callbackQueryId, text, showAlert } = params;
     await this.apiPost<unknown>(
       'answerCallbackQuery',
-      { callback_query_id: callbackQueryId, ...(text ? { text } : {}) },
+      {
+        callback_query_id: callbackQueryId,
+        ...(text ? { text } : {}),
+        ...(showAlert ? { show_alert: true } : {}),
+      },
       signal,
     );
   }
