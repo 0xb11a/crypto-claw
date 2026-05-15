@@ -10,6 +10,7 @@
     "typecheck": "tsc --build"
   },
   "dependencies": {
+    "@nestjs/bullmq": "^10.0.0",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.0.0",
     "@nestjs/swagger": "^7.0.0",
@@ -17,6 +18,10 @@
     "@cclaw/audit": "workspace:*",
     "@cclaw/prisma": "workspace:*",
     "@cclaw/config": "workspace:*",
+    "@cclaw/adapters-dexscreener": "workspace:*",
+    "@cclaw/notifications": "workspace:*",
+    "@cclaw/chain": "workspace:*",
+    "bullmq": "^5.0.0",
     "class-validator": "^0.15.1",
     "class-transformer": "^0.5.1"
   },

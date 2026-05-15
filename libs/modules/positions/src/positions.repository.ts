@@ -11,6 +11,7 @@ import type { ClosePositionDto } from './dto/close-position.dto.js';
 import type { PositionListQueryDto } from './dto/position-list-query.dto.js';
 import type { PositionResponseDto } from './dto/position-response.dto.js';
 import { randomUUID } from 'node:crypto';
+import { sanitizeUntrusted } from './notes-utils.js';
 
 type Mode = 'real' | 'paper';
 
@@ -327,6 +328,59 @@ export class PositionsRepository {
       throw new Error(`Cannot deleteDraft: position ${id} has status '${row.status}' (expected 'draft')`);
     }
     await this.prisma.position.delete({ where: { id } });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Position-reconcile methods (P3g2 PR-E)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Find all real-mode positions in status 'open' or 'partial_exit'.
+   *
+   * Used by PositionReconcileProcessor to enumerate positions for on-chain
+   * balance comparison. Ordered by createdAt DESC (legacy parity with
+   * `scripts/reconcile-positions.js:loadOpenPositions`).
+   *
+   * @param filter - Optional chain or address filter.
+   */
+  async findOpenAndPartialExit(filter?: { chain?: string; address?: string }): Promise<PositionResponseDto[]> {
+    const rows = await this.prisma.position.findMany({
+      where: {
+        status: { in: ['open', 'partial_exit'] },
+        ...(filter?.chain ? { chain: filter.chain } : {}),
+        ...(filter?.address ? { address: filter.address } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((r) => this.mapPosition(r, 'real'));
+  }
+
+  /**
+   * Append a drift marker to the notes field of a real-mode position.
+   *
+   * Reads the existing notes, sanitizes via `sanitizeUntrusted` (maxLen: 800 chars
+   * per `[OPEN-6]` — mirrors `scripts/reconcile-positions.js:140`), then appends the
+   * new marker on a new line.
+   *
+   * Uses a DB-level transaction (findUnique + update) to avoid racing concurrent
+   * writes. The `concurrency:1` constraint on the processor is the primary
+   * serialisation guard; the transaction provides defense-in-depth.
+   *
+   * @param id - Position ID.
+   * @param marker - Drift marker string to append (caller is responsible for format).
+   */
+  async appendNote(id: string, marker: string): Promise<void> {
+    const row = await this.prisma.position.findUnique({ where: { id }, select: { notes: true } });
+    if (!row) throw new NotFoundException(`Position ${id} not found`);
+
+    const existing = sanitizeUntrusted(row.notes ?? '', { maxLen: 800 });
+    const newNotes = existing ? `${existing}\n${marker}` : marker;
+    const now = new Date().toISOString();
+
+    await this.prisma.position.update({
+      where: { id },
+      data: { notes: newNotes, updatedAt: now },
+    });
   }
 
   /** Count positions — used for pagination totals. */

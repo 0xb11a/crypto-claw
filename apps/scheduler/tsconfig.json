@@ -10,7 +10,14 @@
       "@cclaw/logger": ["../../libs/logger/src/index.ts"],
       "@cclaw/wallets": ["../../libs/modules/wallets/src/index.ts"],
       "@cclaw/governance": ["../../libs/modules/governance/src/index.ts"],
-      "@cclaw/orders": ["../../libs/modules/orders/src/index.ts"]
+      "@cclaw/orders": ["../../libs/modules/orders/src/index.ts"],
+      "@cclaw/positions": ["../../libs/modules/positions/src/index.ts"],
+      "@cclaw/system": ["../../libs/modules/system/src/index.ts"],
+      "@cclaw/chain": ["../../libs/chain/src/index.ts"],
+      "@cclaw/notifications": ["../../libs/notifications/src/index.ts"],
+      "@cclaw/prisma": ["../../libs/prisma/src/index.ts"],
+      "@cclaw/adapters-dexscreener": ["../../libs/adapters/dexscreener/src/index.ts"],
+      "@cclaw/adapters-onchain-balance": ["../../libs/adapters/onchain-balance/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
@@ -20,6 +27,13 @@
     { "path": "../../libs/logger" },
     { "path": "../../libs/modules/wallets" },
     { "path": "../../libs/modules/governance" },
-    { "path": "../../libs/modules/orders" }
+    { "path": "../../libs/modules/orders" },
+    { "path": "../../libs/modules/positions" },
+    { "path": "../../libs/modules/system" },
+    { "path": "../../libs/chain" },
+    { "path": "../../libs/notifications" },
+    { "path": "../../libs/prisma" },
+    { "path": "../../libs/adapters/dexscreener" },
+    { "path": "../../libs/adapters/onchain-balance" }
   ]
 }

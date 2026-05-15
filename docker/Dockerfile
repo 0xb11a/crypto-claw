@@ -59,6 +59,8 @@ COPY libs/adapters/helius/package.json libs/adapters/helius/
 COPY libs/adapters/evm-explorer/package.json libs/adapters/evm-explorer/
 COPY libs/adapters/safe-tx-service/package.json libs/adapters/safe-tx-service/
 COPY libs/adapters/squads-rpc/package.json libs/adapters/squads-rpc/
+COPY libs/adapters/onchain-balance/package.json libs/adapters/onchain-balance/
+COPY libs/adapters/dexscreener/package.json libs/adapters/dexscreener/
 COPY libs/modules/positions/package.json libs/modules/positions/
 COPY libs/modules/orders/package.json libs/modules/orders/
 COPY libs/modules/receipts/package.json libs/modules/receipts/

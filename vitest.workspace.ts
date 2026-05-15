@@ -9,6 +9,9 @@ export default defineWorkspace([
   // libs/adapters (P3g2 PR-D)
   'libs/adapters/safe-tx-service/vitest.config.ts',
   'libs/adapters/squads-rpc/vitest.config.ts',
+  // libs/adapters (P3g2 PR-E)
+  'libs/adapters/onchain-balance/vitest.config.ts',
+  'libs/adapters/dexscreener/vitest.config.ts',
   // libs
   'libs/chain/vitest.config.ts',
   'libs/execution/vitest.config.ts',

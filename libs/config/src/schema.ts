@@ -335,6 +335,49 @@ export const envSchema = z.object({
   WALLET_ACTIVITY_INTER_WALLET_DELAY_MS: z.coerce.number().int().nonnegative().default(250),
 
   // --------------------------------------------------------------------------
+  // Position-reconcile + portfolio-report job tuning (P3g2 PR-E)
+  // --------------------------------------------------------------------------
+
+  /**
+   * UTC hour (0–23) for the daily portfolio report Telegram message.
+   *
+   * If absent (undefined), the portfolio-report schedule is not registered —
+   * consistent with `entrypoint.sh:run_portfolio_report_loop` which checks
+   * TELEGRAM_CHAT_ID and PORTFOLIO_REPORT_HOUR before starting the cron.
+   * Default: 0 (midnight UTC).
+   *
+   * [OPEN-5] resolution: cron-at-hour approach (SchedulerRegistry.addCronJob)
+   * rather than hourly-poll-with-gate, matching DoD §I parity intent.
+   */
+  PORTFOLIO_REPORT_HOUR: z.coerce.number().int().min(0).max(23).default(0),
+
+  /**
+   * Position-reconcile drift tolerance in USD.
+   *
+   * Position pairs with absolute drift below this threshold are ignored.
+   * Default: 1 (USD) — matches legacy `scripts/reconcile-positions.js`
+   * which uses the `evaluatePositionDrift` default `maxDriftPct=1` (percentage,
+   * not USD — kept for operator tuning reference in the runbook).
+   */
+  RECONCILE_TOLERANCE_PCT: z.coerce.number().nonnegative().default(1),
+
+  /**
+   * DEXScreener per-request timeout in milliseconds.
+   *
+   * Used by DexscreenerAdapter for portfolio-summary price fetches.
+   * Default: 15_000 ms. Operator tunable.
+   */
+  DEXSCREENER_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+
+  /**
+   * DeBank API access key for EVM on-chain balance fetches.
+   *
+   * Used by portfolio-load-evm.js (legacy) and future DeBank adapter integration.
+   * Optional — balance reads fall back to direct RPC calls when absent.
+   */
+  DEBANK_ACCESS_KEY: z.string().optional(),
+
+  // --------------------------------------------------------------------------
   // Runtime behaviour — consumed by libs/logger (SPEC §11)
   // --------------------------------------------------------------------------
 
