@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  uuid@>=14: ^11.1.1
+
 importers:
   .:
     dependencies:
@@ -6148,9 +6151,9 @@ packages:
       { integrity: sha512-d0z310fCWv5dJwnX1Y/MncBAqGMKEzlBb1AOf7z9K8ALnd0utBX/msg/fA0+sbyN1ihbMsLhrBlnl1ak7Wa0rg== }
     hasBin: true
 
-  uuid@14.0.0:
+  uuid@11.1.1:
     resolution:
-      { integrity: sha512-Qo+uWgilfSmAhXCMav1uYFynlQO7fMFiMVZsQqZRMIXp0O7rR7qjkj+cPvBHLgBqi960QCoo/PH2/6ZtVqKvrg== }
+      { integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ== }
     hasBin: true
 
   uuid@8.3.2:
@@ -9852,7 +9855,7 @@ snapshots:
       '@types/ws': 8.18.1
       buffer: 6.0.3
       eventemitter3: 5.0.4
-      uuid: 14.0.0
+      uuid: 11.1.1
       ws: 8.18.3(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     optionalDependencies:
       bufferutil: 4.1.0
@@ -10292,7 +10295,7 @@ snapshots:
 
   uuid@11.0.3: {}
 
-  uuid@14.0.0: {}
+  uuid@11.1.1: {}
 
   uuid@8.3.2: {}
 
