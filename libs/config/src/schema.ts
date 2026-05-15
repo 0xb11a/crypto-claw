@@ -153,7 +153,23 @@ export const envSchema = z.object({
   // --------------------------------------------------------------------------
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
+  /**
+   * Telegram user ID (numeric string) of the fund owner.
+   *
+   * Required when `TELEGRAM_BOT_TOKEN` is set and approval-bot is active.
+   * Only this user's callback_query events are processed; all others receive
+   * an "Unauthorized" answer and are skipped (ADR-0027, DoD §F).
+   */
   TELEGRAM_OWNER_ID: z.string().optional(),
+  /**
+   * Telegram bot token for the dedicated approval bot (optional, P3g3).
+   *
+   * When absent, the approval-bot runs under `TELEGRAM_BOT_TOKEN` (main bot).
+   * Reserved here per the P3g2 plan — actual consumption deferred to P3g3 if
+   * a separate bot token is needed to avoid polling conflicts.
+   * For P3g3 (this PR), `ApprovalBotService` uses `TELEGRAM_BOT_TOKEN`.
+   */
+  TELEGRAM_APPROVAL_BOT_TOKEN: z.string().optional(),
 
   // --------------------------------------------------------------------------
   // Optional — with typed defaults

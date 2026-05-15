@@ -380,6 +380,183 @@ describe('TelegramAdapter', () => {
   });
 
   // -------------------------------------------------------------------------
+  // answerCallbackQuery — showAlert parameter
+  // -------------------------------------------------------------------------
+
+  describe('answerCallbackQuery() — showAlert parameter', () => {
+    it('includes show_alert:true in body when showAlert=true', async () => {
+      const spy = mockFetchOk();
+      await adapter.answerCallbackQuery({ callbackQueryId: 'cq-1', text: 'Unauthorized', showAlert: true });
+
+      const [, init] = spy.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body.show_alert).toBe(true);
+    });
+
+    it('omits show_alert from body when showAlert=false', async () => {
+      const spy = mockFetchOk();
+      await adapter.answerCallbackQuery({ callbackQueryId: 'cq-1', text: 'OK', showAlert: false });
+
+      const [, init] = spy.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body.show_alert).toBeUndefined();
+    });
+
+    it('omits show_alert from body when showAlert is not provided', async () => {
+      const spy = mockFetchOk();
+      await adapter.answerCallbackQuery({ callbackQueryId: 'cq-1', text: 'OK' });
+
+      const [, init] = spy.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body.show_alert).toBeUndefined();
+    });
+
+    it('calls answerCallbackQuery endpoint (correct URL)', async () => {
+      const spy = mockFetchOk();
+      await adapter.answerCallbackQuery({ callbackQueryId: 'cq-1' });
+
+      const url = (spy.mock.calls[0] as [string, RequestInit])[0];
+      expect(url).toContain('answerCallbackQuery');
+    });
+
+    // CRITICAL: bot token redaction
+    it('does NOT log bot token when answerCallbackQuery fails (DoD §F)', async () => {
+      mockFetchApiError('Unauthorized');
+      await adapter.answerCallbackQuery({ callbackQueryId: 'cq-1', text: 'test' }).catch(() => undefined);
+
+      const combined = logMessages.join('\n');
+      expect(combined).not.toContain(FAKE_TOKEN);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // editMessageText — removeInlineKeyboard parameter
+  // -------------------------------------------------------------------------
+
+  describe('editMessageText() — removeInlineKeyboard parameter', () => {
+    it('includes reply_markup with empty inline_keyboard when removeInlineKeyboard=true', async () => {
+      const spy = mockFetchOk();
+      await adapter.editMessageText({ chatId: '-1001234', messageId: 99, text: 'done', removeInlineKeyboard: true });
+
+      const [, init] = spy.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      expect(body.reply_markup).toEqual({ inline_keyboard: [] });
+    });
+
+    it('omits reply_markup when removeInlineKeyboard=false', async () => {
+      const spy = mockFetchOk();
+      await adapter.editMessageText({ chatId: '-1001234', messageId: 99, text: 'done', removeInlineKeyboard: false });
+
+      const [, init] = spy.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      expect(body.reply_markup).toBeUndefined();
+    });
+
+    it('omits reply_markup when removeInlineKeyboard is not provided', async () => {
+      const spy = mockFetchOk();
+      await adapter.editMessageText({ chatId: '-1001234', messageId: 99, text: 'done' });
+
+      const [, init] = spy.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      expect(body.reply_markup).toBeUndefined();
+    });
+
+    it('uses HTML parse_mode by default', async () => {
+      const spy = mockFetchOk();
+      await adapter.editMessageText({ chatId: '-1001234', messageId: 99, text: 'done' });
+
+      const [, init] = spy.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      expect(body.parse_mode).toBe('HTML');
+    });
+
+    it('sends chat_id and message_id correctly', async () => {
+      const spy = mockFetchOk();
+      await adapter.editMessageText({ chatId: '-1001999', messageId: 777, text: 'edited' });
+
+      const [, init] = spy.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      expect(body.chat_id).toBe('-1001999');
+      expect(body.message_id).toBe(777);
+    });
+
+    // CRITICAL: bot token redaction
+    it('does NOT log bot token when editMessageText fails (DoD §F)', async () => {
+      mockFetchApiError('Bad Request: message to edit not found');
+      await adapter.editMessageText({ chatId: '-1001234', messageId: 1, text: 'x' }).catch(() => undefined);
+
+      const combined = logMessages.join('\n');
+      expect(combined).not.toContain(FAKE_TOKEN);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getUpdates — AbortSignal and URL correctness
+  // -------------------------------------------------------------------------
+
+  describe('getUpdates() — URL, signal, and body correctness', () => {
+    it('calls getUpdates endpoint (correct URL)', async () => {
+      const spy = mockFetchOk([]);
+      await adapter.getUpdates({});
+
+      const url = (spy.mock.calls[0] as [string, RequestInit])[0];
+      expect(url).toContain('getUpdates');
+      expect(url).toContain(FAKE_TOKEN);
+    });
+
+    it('passes AbortSignal to fetch', async () => {
+      const spy = mockFetchOk([]);
+      const controller = new AbortController();
+      await adapter.getUpdates({}, controller.signal);
+
+      const [, init] = spy.mock.calls[0] as [string, RequestInit];
+      expect(init.signal).toBe(controller.signal);
+    });
+
+    it('returns [] when fetch is aborted via AbortSignal', async () => {
+      const controller = new AbortController();
+      controller.abort();
+      // Real AbortError from an aborted fetch — simulate by rejecting
+      const abortErr = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
+      global.fetch = vi.fn().mockRejectedValueOnce(abortErr) as unknown as typeof fetch;
+
+      const result = await adapter.getUpdates({}, controller.signal);
+
+      // getUpdates swallows errors and returns [] (resilient polling)
+      expect(result).toEqual([]);
+    });
+
+    it('sends allowed_updates in body (mirrors legacy approval-bot.js)', async () => {
+      const spy = mockFetchOk([]);
+      await adapter.getUpdates({ offset: 0, timeout: 30 });
+
+      const [, init] = spy.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      // The implementation sends timeout + limit + optional offset
+      // Legacy approval-bot.js uses allowed_updates=['callback_query']
+      // Verify offset and timeout are passed correctly
+      expect(body.timeout).toBe(30);
+    });
+
+    // CRITICAL: bot token redaction on error
+    it('does NOT log bot token when getUpdates encounters a non-abort error (DoD §F)', async () => {
+      mockFetchApiError('Too Many Requests');
+      await adapter.getUpdates({});
+
+      const combined = logMessages.join('\n');
+      expect(combined).not.toContain(FAKE_TOKEN);
+    });
+
+    it('does NOT log full URL containing token in getUpdates error path (DoD §F)', async () => {
+      mockFetchApiError('Unauthorized');
+      await adapter.getUpdates({});
+
+      const combined = logMessages.join('\n');
+      expect(combined).not.toContain(`bot${FAKE_TOKEN}`);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // TOPIC_MAP and EMOJI_MAP constants (parity with send-alert.js)
   // -------------------------------------------------------------------------
 

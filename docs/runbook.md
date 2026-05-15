@@ -992,6 +992,36 @@ The portfolio-report job runs once per day at the configured UTC hour (`PORTFOLI
 - If `last_portfolio_report_at` is stale: check BullMQ queue `portfolio-report` in worker logs.
 - If the report shows stale prices: DEXScreener may be rate-limiting. The adapter retries on the next hourly tick. Check `DEXSCREENER_TIMEOUT_MS`.
 
+### 11.6 Approval-bot (P3g3 PR-F)
+
+The approval-bot is a **continuous long-poll worker** (ADR-0027) — not a cron job. It starts inside `apps/worker` via `OnApplicationBootstrap` and runs a `getUpdates` long-poll loop (30 s window) until the worker receives SIGTERM.
+
+**Pattern:** NestJS `@Injectable` service, `AbortController`-cancellable, `OnApplicationBootstrap` / `OnApplicationShutdown`. No BullMQ queue.
+**SIGTERM responsiveness:** The in-flight 30 s `getUpdates` poll is cancelled via `AbortSignal` within 1 s of SIGTERM. `onApplicationShutdown` waits at most 5 s for the loop to exit before returning.
+**Health key:** `portfolio_meta.last_approval_bot_at` — updated every poll iteration. Stale threshold: > 5 minutes (two missed polls).
+**Offset persistence:** `portfolio_meta.approval_bot_offset` stores the next Telegram `update_id`. On restart the bot resumes from the last committed offset — no replayed approvals.
+
+**Startup conditions (all must be satisfied or the loop is silently skipped):**
+- `PAPER_MODE=false` (paper mode needs no human approvals).
+- `TELEGRAM_BOT_TOKEN` is set.
+- `TELEGRAM_OWNER_ID` is set.
+
+**Security:** Only the Telegram user whose numeric ID matches `TELEGRAM_OWNER_ID` can approve or reject orders. All other users receive "Unauthorized" and the event is discarded. The order-state transition (`pending → approved` / `pending → rejected`) is atomic — a Prisma `WHERE id=? AND status='pending'` guard means concurrent clicks or a race with the legacy `approval-bot.js` result in a P2025 error that is reported back as "already processed."
+
+**Required env vars:**
+
+| Env var | Description |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | Bot token (same token as main notifications bot, unless `TELEGRAM_APPROVAL_BOT_TOKEN` is set separately) |
+| `TELEGRAM_OWNER_ID` | Numeric Telegram user ID of the fund operator |
+| `TELEGRAM_CHAT_ID` | Target supergroup/chat ID (used for editing approval messages) |
+
+**Troubleshooting:**
+- If `last_approval_bot_at` is stale: check that `TELEGRAM_BOT_TOKEN` and `TELEGRAM_OWNER_ID` are set; check worker logs for "skipping startup" or backoff messages.
+- If approve/reject buttons have no effect: ensure the user clicking is `TELEGRAM_OWNER_ID`. Other users receive a silent "Unauthorized" response.
+- If the worker is slow to shut down: the `onApplicationShutdown` waits at most 5 s. If the loop does not exit within that window, the process exits anyway. Check for a hung Prisma write in the handler.
+- **Parallel with legacy bot:** During P3 (before P5 cutover), both `apps/worker` (new) and `scripts/approval-bot.js` (legacy via `entrypoint.sh`) may be polling the same Telegram token. Telegram ensures only one client holds the `getUpdates` long-poll at a time; the other re-polls immediately after. Both write atomically to the same `orders` table — the second writer sees "already processed" and is a no-op.
+
 ---
 
 ## 12. Emergency stop

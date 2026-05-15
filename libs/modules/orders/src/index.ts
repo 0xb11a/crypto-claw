@@ -7,6 +7,7 @@ export { executeOrderQueueName, MULTISIG_TRACKING_QUEUE, MULTISIG_TRACKING_JOB_O
 export { resolveActiveQueueNames, buildChainQueueMap } from './active-queue-names.js';
 export { MultisigTrackerProcessor } from './jobs/multisig-tracker.processor.js';
 export type { MultisigTrackerJobData, MultisigTrackerResult } from './jobs/multisig-tracker.processor.js';
+export { ApprovalBotService } from './jobs/approval-bot.service.js';
 export * from './dto/propose-order.dto.js';
 export * from './dto/order-state-change.dto.js';
 export * from './dto/order-list-query.dto.js';
