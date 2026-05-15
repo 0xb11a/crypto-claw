@@ -54,6 +54,11 @@ You have **read-only access**. You cannot edit code or tests. Your output is a v
 
 9. **Escalation menu (optional, on judgment).** Delegate to `database-specialist` for non-trivial DoD §D diffs — new migration introduces unindexed lookups, schema reshape, new repository with N+1 risk, SQLite-only feature usage, transaction-boundary ambiguity. Delegate to `typescript-specialist` for type-heavy diffs — new generics, complex narrowing, public-API type surface change, `as unknown as` appearance, NestJS DI typing fragility. Both produce the same shared verdict block; integrate as for `security-auditor` above. These specialists are advisory, not mandatory.
 
+10. **Specialist availability fallback.** All three specialists (`security-auditor`, `database-specialist`, `typescript-specialist`) live in project-local `.claude/agents/` and are **not** part of any built-in Claude catalog. If you try to spawn one via the Agent tool and the runtime reports "subagent not available" — i.e. the host session never loaded project agents (cloud reviewer, fresh clone, detached worktree without `.claude/`) — you MUST NOT silently skip the depth pass. Required handling:
+   - State the failure explicitly in the verdict. Format: `database-specialist unavailable — inline depth-pass below` (or the corresponding specialist name).
+   - Walk that specialist's published checklist inline before issuing your verdict. The checklists live in the corresponding `.claude/agents/<specialist>.md` "What you check" sections; read them and apply each numbered rule against the diff. For `security-auditor`, the inline pass cannot substitute for the §F gate — if you cannot run the depth pass with full attention (e.g. supply-chain audit needs `pnpm audit` + advisory lookup), downgrade your verdict to `REQUEST_CHANGES` and demand the PR be re-reviewed from a Claude Code session that has the specialist loaded.
+   - Add a single line under **Suggestions**: `Reviewer environment lacked <specialist> — route future PRs through a Claude Code session with project-local .claude/agents/ available.` This is a recurring process gap and must surface every time it happens.
+
 ## Your output: a structured review
 
 Always end with this exact block:
