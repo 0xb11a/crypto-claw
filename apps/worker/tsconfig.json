@@ -16,10 +16,17 @@
       "@cclaw/orders": ["../../libs/modules/orders/src/index.ts"],
       "@cclaw/receipts": ["../../libs/modules/receipts/src/index.ts"],
       "@cclaw/wallets": ["../../libs/modules/wallets/src/index.ts"],
+      "@cclaw/governance": ["../../libs/modules/governance/src/index.ts"],
+      "@cclaw/notifications": ["../../libs/notifications/src/index.ts"],
+      "@cclaw/positions": ["../../libs/modules/positions/src/index.ts"],
+      "@cclaw/system": ["../../libs/modules/system/src/index.ts"],
+      "@cclaw/chain": ["../../libs/chain/src/index.ts"],
       "@cclaw/adapters-birdeye": ["../../libs/adapters/birdeye/src/index.ts"],
       "@cclaw/adapters-zerion": ["../../libs/adapters/zerion/src/index.ts"],
       "@cclaw/adapters-helius": ["../../libs/adapters/helius/src/index.ts"],
-      "@cclaw/adapters-evm-explorer": ["../../libs/adapters/evm-explorer/src/index.ts"]
+      "@cclaw/adapters-evm-explorer": ["../../libs/adapters/evm-explorer/src/index.ts"],
+      "@cclaw/adapters-safe-tx-service": ["../../libs/adapters/safe-tx-service/src/index.ts"],
+      "@cclaw/adapters-squads-rpc": ["../../libs/adapters/squads-rpc/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
@@ -34,10 +41,17 @@
     { "path": "../../libs/execution" },
     { "path": "../../libs/modules/orders" },
     { "path": "../../libs/modules/receipts" },
+    { "path": "../../libs/modules/positions" },
+    { "path": "../../libs/modules/system" },
     { "path": "../../libs/modules/wallets" },
+    { "path": "../../libs/modules/governance" },
+    { "path": "../../libs/notifications" },
+    { "path": "../../libs/chain" },
     { "path": "../../libs/adapters/birdeye" },
     { "path": "../../libs/adapters/zerion" },
     { "path": "../../libs/adapters/helius" },
-    { "path": "../../libs/adapters/evm-explorer" }
+    { "path": "../../libs/adapters/evm-explorer" },
+    { "path": "../../libs/adapters/safe-tx-service" },
+    { "path": "../../libs/adapters/squads-rpc" }
   ]
 }

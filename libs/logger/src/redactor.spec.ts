@@ -286,6 +286,80 @@ describe('redactString — RE_QUERY_APIKEY (query-string API key patterns, PR-C 
   });
 });
 
+// ---------------------------------------------------------------------------
+// RE_TELEGRAM_BOT_TOKEN — Telegram bot token redaction (PR-D reviewer nit #3)
+//
+// Telegram bot tokens have format: <digits>:<alphanumeric> where the numeric
+// part (8-12 digits) is the bot ID and the alphanumeric part (35+ chars) is
+// the secret. They appear in URLs like:
+//   https://api.telegram.org/bot<TOKEN>/sendMessage
+// and may leak into error message strings from TelegramApiError.
+//
+// RE_TELEGRAM_BOT_TOKEN = /\d{8,12}:[A-Za-z0-9_-]{35,}/g
+// Replacement: '[REDACTED_BOT_TOKEN]'
+//
+// No anchor / lookbehind. The token format is distinctive enough that false
+// positives are unlikely: chat IDs / timestamps contain no `:`, ISO times
+// have only 2 digits before `:`, and dropping the anchor catches the URL-path
+// leak (`.../bot<TOKEN>/sendMessage`) where word-boundary anchors would fail.
+//
+// Negative cases:
+//   - A plain 10-digit string is NOT a bot token (needs the colon + alphanumeric suffix)
+//   - Short alphanumeric after colon (<35 chars) is NOT matched
+// ---------------------------------------------------------------------------
+
+describe('redactString — RE_TELEGRAM_BOT_TOKEN (PR-D reviewer nit #3)', () => {
+  it('redacts a Telegram bot token that appears as a key=value pair in a log line', () => {
+    // Common leak: TelegramApiError logs "bot_token=<TOKEN>" or similar.
+    // The '=' is non-word so \b fires before the digits. // pre-commit-allow
+    const logLine =
+      'TelegramApiError: bot_token=1234567890:AAEhBP0av28kxbMnJoY-fake-secret-aaaaaaaa-bbbbbbb request_failed'; // pre-commit-allow
+    const out = redactString(logLine);
+    expect(out).not.toContain('AAEhBP0av28kxbMnJoY-fake-secret-aaaaaaaa-bbbbbbb'); // pre-commit-allow
+    expect(out).toContain('[REDACTED_BOT_TOKEN]');
+    // Non-sensitive parts survive
+    expect(out).toContain('TelegramApiError');
+    expect(out).toContain('request_failed');
+  });
+
+  it('redacts a Telegram bot token appearing as a JSON string value (boundary before digit)', () => {
+    // In a structured error body, the token may appear as a JSON value.
+    // The '"' before the digit establishes a non-word→word boundary. // pre-commit-allow
+    const jsonBody =
+      '{"ok":false,"description":"Bad Request","bot_token":"9876543210:BBFakeTokenXYZabcdefghijklmnopqrstuvwxyz01"}'; // pre-commit-allow
+    const out = redactString(jsonBody);
+    expect(out).not.toContain('BBFakeTokenXYZabcdefghijklmnopqrstuvwxyz01'); // pre-commit-allow
+    expect(out).toContain('[REDACTED_BOT_TOKEN]');
+    // Non-token content survives
+    expect(out).toContain('Bad Request');
+  });
+
+  it('does NOT redact a plain 10-digit number (not a bot token — no colon+alphanum suffix)', () => {
+    // A bare numeric string like a chat_id or timestamp must pass through.
+    const input = 'chat_id=1234567890 timestamp=1715000000';
+    const out = redactString(input);
+    expect(out).toContain('1234567890');
+    expect(out).not.toContain('[REDACTED_BOT_TOKEN]');
+  });
+
+  it('redacts a Telegram bot token in the canonical API URL path (bot<TOKEN>/sendMessage)', () => {
+    // The primary leak surface: a TelegramApiError that includes the request
+    // URL verbatim. The negative-lookbehind variant of the regex must catch
+    // this because 't' (in "bot") and the first digit are both word chars,
+    // and \b would not fire here. pre-commit-allow
+    const errMsg =
+      'TelegramApiError POST https://api.telegram.org/bot1234567890:AAEhBP0av28kxbMnJoY-fake-secret-aaaaaaaa-bbbbbbb/sendMessage 401'; // pre-commit-allow
+    const out = redactString(errMsg);
+    expect(out).not.toContain('AAEhBP0av28kxbMnJoY-fake-secret-aaaaaaaa-bbbbbbb'); // pre-commit-allow
+    expect(out).not.toContain('1234567890:AAEh'); // pre-commit-allow
+    expect(out).toContain('[REDACTED_BOT_TOKEN]');
+    // URL skeleton + status code survive (operators need this for debugging)
+    expect(out).toContain('api.telegram.org');
+    expect(out).toContain('/sendMessage');
+    expect(out).toContain('401');
+  });
+});
+
 describe('REDACT_PATHS', () => {
   it('includes req.headers.authorization', () => {
     expect(REDACT_PATHS).toContain('req.headers.authorization');
@@ -305,5 +379,9 @@ describe('REDACT_PATHS', () => {
 
   it('includes SQUADS_SIGNER_KEY', () => {
     expect(REDACT_PATHS).toContain('SQUADS_SIGNER_KEY');
+  });
+
+  it('includes TELEGRAM_BOT_TOKEN', () => {
+    expect(REDACT_PATHS).toContain('TELEGRAM_BOT_TOKEN');
   });
 });

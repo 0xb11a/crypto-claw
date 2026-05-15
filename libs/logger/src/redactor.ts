@@ -64,6 +64,8 @@ export const REDACT_PATHS: string[] = [
   'WORKER_API_KEY',
   'SCHEDULER_API_KEY',
   'DASHBOARD_API_KEY',
+  // P3g2 PR-D: Telegram bot token (digit:alpha format in URL paths)
+  'TELEGRAM_BOT_TOKEN',
 ];
 
 // ---------------------------------------------------------------------------
@@ -124,6 +126,30 @@ const RE_QUERY_APIKEY = /[?&]api[_-]?key=[^\s&"']*/gi;
 const RE_BASE58_PRIVATE_KEY = /\b[1-9A-HJ-NP-Za-km-z]{87,88}\b/g;
 
 /**
+ * Telegram bot tokens in URL paths (P3g2 PR-D — TelegramAdapter).
+ *
+ * Telegram bot tokens have the format: `<digits>:<alphanumeric>` where the
+ * numeric part is the bot ID and the alphanumeric part is the secret.
+ * They appear in URLs like `https://api.telegram.org/bot<token>/sendMessage`.
+ *
+ * This pattern catches tokens that leak into log messages (e.g. error strings
+ * from TelegramApiError that include the request URL).
+ *
+ * Note: `RE_RPC_CREDS` does NOT cover Telegram URLs — that pattern requires
+ * a `user:pass@host` form (HTTP Basic auth in the URL), which Telegram URLs
+ * do not use. `RE_TELEGRAM_BOT_TOKEN` is the sole defence for Telegram bot
+ * token patterns in both URL paths and error message strings.
+ *
+ * No anchor / lookbehind is used. The format `<8-12 digits>:<35+ alphanumeric-or-dash-or-underscore>`
+ * is distinctive enough that false positives are unlikely: chat IDs and
+ * timestamps don't contain `:`; ISO timestamps have only 2 digits before `:`;
+ * URL paths embed the token directly after `bot` (where a word-boundary anchor
+ * would silently fail to fire). Anchoring trades the URL-leak case for a
+ * negligible false-positive risk on pure-numeric sequences mid-string.
+ */
+const RE_TELEGRAM_BOT_TOKEN = /\d{8,12}:[A-Za-z0-9_-]{35,}/g;
+
+/**
  * Redact sensitive patterns from a raw string value.
  *
  * Applies the same patterns as `scripts/redact.js` in a TypeScript context.
@@ -140,6 +166,7 @@ export function redactString(text: string): string {
   result = result.replace(RE_XPRV, '[REDACTED]');
   result = result.replace(RE_ETH_PRIVATE_KEY, '[REDACTED]');
   result = result.replace(RE_BASE58_PRIVATE_KEY, '[REDACTED]'); // Solana/Squads signer keys (base58 ≥87 chars)
+  result = result.replace(RE_TELEGRAM_BOT_TOKEN, '[REDACTED_BOT_TOKEN]'); // Telegram bot tokens
   result = result.replace(RE_API_KEY_SK, '[REDACTED]');
   result = result.replace(RE_BEARER, 'Bearer [REDACTED]');
   result = result.replace(RE_BASIC_AUTH, 'Basic [REDACTED]');

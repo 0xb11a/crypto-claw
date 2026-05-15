@@ -300,6 +300,35 @@ export class PositionsRepository {
     await this.prisma.position.delete({ where: { id } });
   }
 
+  // ---------------------------------------------------------------------------
+  // Multisig-tracking methods (P3g2 PR-D)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Delete a draft position by ID.
+   *
+   * Only deletes positions with `status === 'draft'`. Throws an error if the
+   * position is not in draft status (guards against accidental deletion of
+   * open or closed positions).
+   *
+   * Bug-for-bug port of `scripts/track-multisig.js:handleRejected` (BUY rejection
+   * branch: `DELETE FROM positions WHERE id = ?`), with the safety guard that
+   * the new code only deletes when `status === 'draft'`.
+   *
+   * @param id - Position ID.
+   * @throws Error if position is not in 'draft' status.
+   */
+  async deleteDraft(id: string): Promise<void> {
+    const row = await this.prisma.position.findUnique({ where: { id } });
+    if (!row) {
+      throw new NotFoundException(`Position ${id} not found`);
+    }
+    if (row.status !== 'draft') {
+      throw new Error(`Cannot deleteDraft: position ${id} has status '${row.status}' (expected 'draft')`);
+    }
+    await this.prisma.position.delete({ where: { id } });
+  }
+
   /** Count positions — used for pagination totals. */
   async count(query: Omit<PositionListQueryDto, 'limit' | 'cursor'>): Promise<number> {
     const mode = query.mode ?? 'real';

@@ -8,7 +8,9 @@
     "paths": {
       "@cclaw/config": ["../../libs/config/src/index.ts"],
       "@cclaw/logger": ["../../libs/logger/src/index.ts"],
-      "@cclaw/wallets": ["../../libs/modules/wallets/src/index.ts"]
+      "@cclaw/wallets": ["../../libs/modules/wallets/src/index.ts"],
+      "@cclaw/governance": ["../../libs/modules/governance/src/index.ts"],
+      "@cclaw/orders": ["../../libs/modules/orders/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
@@ -16,6 +18,8 @@
   "references": [
     { "path": "../../libs/config" },
     { "path": "../../libs/logger" },
-    { "path": "../../libs/modules/wallets" }
+    { "path": "../../libs/modules/wallets" },
+    { "path": "../../libs/modules/governance" },
+    { "path": "../../libs/modules/orders" }
   ]
 }

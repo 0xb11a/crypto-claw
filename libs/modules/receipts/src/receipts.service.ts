@@ -31,4 +31,32 @@ export class ReceiptsService {
   async create(dto: CreateReceiptDto): Promise<ReceiptResponseDto> {
     return this.repo.create(dto);
   }
+
+  // ---------------------------------------------------------------------------
+  // Multisig-tracking methods (P3g2 PR-D)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Find real-mode receipts in the given statuses that have a linked position.
+   *
+   * Used by MultisigTrackerProcessor to find pending Safe/Squads receipts.
+   */
+  async findByStatuses(statuses: string[]): Promise<ReceiptResponseDto[]> {
+    return this.repo.findByStatuses(statuses);
+  }
+
+  /** Mark a receipt as executed with an optional on-chain tx hash. */
+  async markExecuted(id: string, onchainTxHash: string | null): Promise<void> {
+    return this.repo.markExecuted(id, onchainTxHash);
+  }
+
+  /** Mark a receipt as reverted (failed or orphaned). */
+  async markReverted(id: string, error?: string): Promise<void> {
+    return this.repo.markReverted(id, error);
+  }
+
+  /** Update receipt notes (used for reminder timestamps). */
+  async updateNotes(id: string, notes: string): Promise<void> {
+    return this.repo.updateNotes(id, notes);
+  }
 }

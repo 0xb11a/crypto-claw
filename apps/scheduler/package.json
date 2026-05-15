@@ -12,7 +12,9 @@
   },
   "dependencies": {
     "@cclaw/config": "workspace:*",
+    "@cclaw/governance": "workspace:*",
     "@cclaw/logger": "workspace:*",
+    "@cclaw/orders": "workspace:*",
     "@cclaw/wallets": "workspace:*",
     "@nestjs/bullmq": "^10.0.0",
     "@nestjs/common": "^10.0.0",

@@ -210,6 +210,61 @@ export const envSchema = z.object({
   SIGNER_ENV_FILE: z.string().default('/run/secrets/signer.env'),
 
   // --------------------------------------------------------------------------
+  // Telegram topic thread IDs (SPEC §10 — per-topic routing)
+  // --------------------------------------------------------------------------
+  /**
+   * Telegram forum topic thread IDs. All optional — if absent for a given
+   * alert type, the message is sent without a thread_id (falls to main chat).
+   */
+  TG_TOPIC_RESEARCH: z.string().optional(),
+  TG_TOPIC_SENTINEL: z.string().optional(),
+  TG_TOPIC_EXECUTOR: z.string().optional(),
+  TG_TOPIC_ALERTS: z.string().optional(),
+  TG_TOPIC_SYSTEM: z.string().optional(),
+  TG_TOPIC_OBSERVER: z.string().optional(),
+  TG_TOPIC_PORTFOLIO: z.string().optional(),
+  TG_TOPIC_APPROVALS: z.string().optional(),
+
+  // --------------------------------------------------------------------------
+  // Governance-drift expected config (P3g2 PR-D — SPEC §10)
+  // --------------------------------------------------------------------------
+  /**
+   * Comma-separated lowercase EVM owner addresses expected on the Base Safe.
+   *
+   * ADR-0026 exception: these are runtime-keyed per-chain fields. The processor
+   * resolves the suffix from ACTIVE_CHAINS at runtime via
+   * `configService.get<string>('EXPECTED_SAFE_OWNERS_' + chain.toUpperCase())`.
+   * The full set of possible key names is bounded and listed here.
+   */
+  EXPECTED_SAFE_OWNERS_BASE: z.string().optional(),
+  EXPECTED_SAFE_OWNERS_ETHEREUM: z.string().optional(),
+
+  /**
+   * Expected signing threshold for the Base/Ethereum Safe (integer).
+   * Absence means "no expectation set" — governance check is skipped for that field.
+   */
+  EXPECTED_SAFE_THRESHOLD_BASE: z.coerce.number().int().positive().optional(),
+  EXPECTED_SAFE_THRESHOLD_ETHEREUM: z.coerce.number().int().positive().optional(),
+
+  /**
+   * Comma-separated lowercase module addresses allowed on the Base/Ethereum Safe.
+   * Absence means no module expectation — any unexpected module triggers an alert.
+   */
+  EXPECTED_SAFE_MODULES_BASE: z.string().optional(),
+  EXPECTED_SAFE_MODULES_ETHEREUM: z.string().optional(),
+
+  /**
+   * Comma-separated Squads member public keys (base58, case-sensitive).
+   * Used for Solana governance drift check.
+   */
+  EXPECTED_SQUADS_MEMBERS: z.string().optional(),
+
+  /**
+   * Expected Squads signing threshold (integer).
+   */
+  EXPECTED_SQUADS_THRESHOLD: z.coerce.number().int().positive().optional(),
+
+  // --------------------------------------------------------------------------
   // Background pipeline job tuning (P3g1)
   // --------------------------------------------------------------------------
 

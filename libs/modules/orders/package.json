@@ -20,6 +20,11 @@
     "@cclaw/config": "workspace:*",
     "@cclaw/prisma": "workspace:*",
     "@cclaw/receipts": "workspace:*",
+    "@cclaw/positions": "workspace:*",
+    "@cclaw/system": "workspace:*",
+    "@cclaw/notifications": "workspace:*",
+    "@cclaw/adapters-safe-tx-service": "workspace:*",
+    "@cclaw/adapters-squads-rpc": "workspace:*",
     "bullmq": "^5.0.0",
     "class-validator": "^0.15.1",
     "class-transformer": "^0.5.1"

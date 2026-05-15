@@ -25,3 +25,32 @@
 export function executeOrderQueueName(chain: string, safeAddress: string): string {
   return `execute-order-${chain}-${safeAddress.toLowerCase()}`;
 }
+
+// ---------------------------------------------------------------------------
+// P3g2 PR-D: multisig-tracking queue (global singleton — not per-Safe)
+// ---------------------------------------------------------------------------
+
+/**
+ * BullMQ queue name for the multisig-tracking job (P3g2 PR-D).
+ *
+ * Global singleton queue — the tracker scans ALL queued receipts across all
+ * Safes in one cycle. ADR-0024 per-Safe concurrency does not apply because
+ * this job reads on-chain state (no signer, no nonce) and writes only status
+ * fields.
+ *
+ * Cadence: every 5 minutes (`*\/5 * * * *`), matching `entrypoint.sh:872`
+ * (DoD §I — parity).
+ */
+export const MULTISIG_TRACKING_QUEUE = 'multisig-tracking' as const;
+
+/**
+ * Default BullMQ job options for the multisig-tracking queue.
+ *
+ * Retry policy mirrors P3g1: 2 attempts total, fixed 60 s backoff.
+ */
+export const MULTISIG_TRACKING_JOB_OPTIONS = {
+  attempts: 2,
+  backoff: { type: 'fixed' as const, delay: 60_000 },
+  removeOnComplete: 50,
+  removeOnFail: 20,
+} as const;

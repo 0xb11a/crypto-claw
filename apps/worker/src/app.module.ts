@@ -7,6 +7,7 @@ import { AuditModule } from '@cclaw/audit';
 import { OrdersModule, resolveActiveQueueNames, buildChainQueueMap } from '@cclaw/orders';
 import { ReceiptsModule } from '@cclaw/receipts';
 import { WalletsModule } from '@cclaw/wallets';
+import { GovernanceModule } from '@cclaw/governance';
 import { createExecuteOrderProcessor } from './processors/execute-order.processor.js';
 
 // Boot self-checks run at module-import time so they fire before NestFactory
@@ -96,6 +97,15 @@ const processorProviders = activeQueueNames.map(createExecuteOrderProcessor);
     // their adapter modules (Birdeye, Zerion), SystemModule, AND the
     // wallet-harvest + wallet-scoring queues so processor `@InjectQueue` resolves.
     WalletsModule.forWorker(),
+
+    // P3g2 PR-D: governance-drift + multisig-tracking processors.
+    // GovernanceModule.forWorker() registers GovernanceDriftProcessor with
+    // SafeTxServiceAdapter, SquadsRpcAdapter, NotificationsService, SystemModule.
+    GovernanceModule.forWorker(),
+    // OrdersModule.forWorker() registers MultisigTrackerProcessor with all its deps.
+    // This is additive to OrdersModule.forRoot() above — forWorker() registers
+    // only the multisig-tracking queue + processor, not HTTP controllers.
+    OrdersModule.forWorker(),
   ],
   providers: [
     // Per-Safe processor instances (factory pattern — one class per queue name).
