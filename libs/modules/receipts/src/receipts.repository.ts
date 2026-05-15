@@ -184,6 +184,75 @@ export class ReceiptsRepository {
     return this.mapReceipt(row);
   }
 
+  // ---------------------------------------------------------------------------
+  // Multisig-tracking query methods (P3g2 PR-D)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Find receipts in the given statuses that have an associated position.
+   *
+   * Used by MultisigTrackerProcessor to find pending Safe/Squads receipts.
+   * Only `real` mode receipts are returned (paper receipts have no multisig
+   * flow — they are executed synchronously by PaperExecutor).
+   *
+   * @param statuses - Array of status strings to match (e.g. ['queued_in_safe', 'queued_in_squads']).
+   */
+  async findByStatuses(statuses: string[]): Promise<ReceiptResponseDto[]> {
+    const rows = await this.prisma.receipt.findMany({
+      where: {
+        status: { in: statuses },
+        positionId: { not: null },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map((r) => this.mapReceipt(r));
+  }
+
+  /**
+   * Mark a receipt as executed with the on-chain transaction hash.
+   *
+   * Bug-for-bug parity with `scripts/track-multisig.js:handleConfirmed`:
+   *   `UPDATE receipts SET status = 'executed', onchain_tx_hash = ? WHERE id = ?`
+   *
+   * @param id - Receipt ID.
+   * @param onchainTxHash - The on-chain transaction hash (may be null for Squads).
+   */
+  async markExecuted(id: string, onchainTxHash: string | null): Promise<void> {
+    await this.prisma.receipt.update({
+      where: { id },
+      data: { status: 'executed', onchainTxHash: onchainTxHash ?? undefined },
+    });
+  }
+
+  /**
+   * Mark a receipt as reverted (on-chain failure or orphaned position).
+   *
+   * Bug-for-bug parity with `scripts/track-multisig.js:handleRejected` and
+   * orphan handling in `main()`.
+   *
+   * @param id - Receipt ID.
+   * @param error - Optional error string to record on the receipt.
+   */
+  async markReverted(id: string, error?: string): Promise<void> {
+    await this.prisma.receipt.update({
+      where: { id },
+      data: { status: 'reverted', ...(error ? { error } : {}) },
+    });
+  }
+
+  /**
+   * Update receipt notes (used by MultisigTrackerProcessor to write reminder timestamps).
+   *
+   * @param id - Receipt ID.
+   * @param notes - New notes string.
+   */
+  async updateNotes(id: string, notes: string): Promise<void> {
+    await this.prisma.receipt.update({
+      where: { id },
+      data: { notes },
+    });
+  }
+
   async count(query: Omit<ReceiptListQueryDto, 'limit' | 'cursor'>): Promise<number> {
     const mode = query.mode ?? 'real';
     if (mode === 'paper') {

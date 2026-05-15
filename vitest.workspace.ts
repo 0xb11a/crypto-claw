@@ -6,6 +6,9 @@ export default defineWorkspace([
   'libs/adapters/zerion/vitest.config.ts',
   'libs/adapters/helius/vitest.config.ts',
   'libs/adapters/evm-explorer/vitest.config.ts',
+  // libs/adapters (P3g2 PR-D)
+  'libs/adapters/safe-tx-service/vitest.config.ts',
+  'libs/adapters/squads-rpc/vitest.config.ts',
   // libs
   'libs/chain/vitest.config.ts',
   'libs/execution/vitest.config.ts',
@@ -27,6 +30,9 @@ export default defineWorkspace([
   'libs/modules/analysis-cache/vitest.config.ts',
   'libs/modules/contracts/vitest.config.ts',
   'libs/modules/system/vitest.config.ts',
+  // P3g2 PR-D
+  'libs/modules/governance/vitest.config.ts',
+  'libs/notifications/vitest.config.ts',
   // apps
   'apps/api/vitest.config.ts',
   'apps/worker/vitest.config.ts',

@@ -887,6 +887,59 @@ During P3, the legacy `entrypoint.sh` loops (`run_wallet_scoring_loop`, `run_act
 | `BSCSCAN_API_KEY` | _(optional)_ | Required for BSC chain activity polling via BscScan API |
 | `OPTIMISTIC_ETHERSCAN_API_KEY` | _(optional)_ | Required for Optimism chain activity polling via Optimistic Etherscan API |
 
+### 11.2 Governance drift (P3g2 PR-D)
+
+The governance-drift job runs daily at midnight and checks that the on-chain Safe multisig config (owners, threshold, modules) matches the expected values configured via env vars. Any deviation triggers a `rug_warning` Telegram alert.
+
+**Cadence:** `0 0 * * *` (once daily) — mirrors `entrypoint.sh:run_governance_drift_loop`.
+**Health key:** `portfolio_meta.last_governance_drift_at` — stale threshold: > 26 hours.
+**Skip condition:** `PAPER_MODE=true` — drift is real-mode only (no on-chain state to check in paper mode).
+
+**Expected config env vars (all optional — absence means "no expectation set"):**
+
+| Env var | Description |
+|---|---|
+| `EXPECTED_SAFE_OWNERS_BASE` | Comma-separated lowercase EVM owner addresses for the Base Safe |
+| `EXPECTED_SAFE_OWNERS_ETHEREUM` | Same for the Ethereum Safe |
+| `EXPECTED_SAFE_THRESHOLD_BASE` | Required signing threshold for the Base Safe (integer) |
+| `EXPECTED_SAFE_THRESHOLD_ETHEREUM` | Same for the Ethereum Safe |
+| `EXPECTED_SAFE_MODULES_BASE` | Comma-separated lowercase module addresses allowed on Base Safe |
+| `EXPECTED_SAFE_MODULES_ETHEREUM` | Same for the Ethereum Safe |
+| `EXPECTED_SQUADS_MEMBERS` | Comma-separated base58 Squads member pubkeys |
+| `EXPECTED_SQUADS_THRESHOLD` | Required Squads signing threshold (integer) |
+
+**P3g2 PR-D status — Solana:**
+> **Warning:** Solana multisig governance drift is NOT handled by the NestJS processor. The `SquadsRpcAdapter` is a stub that throws `SquadsRpcNotImplementedError`. EVM chains (Base, Ethereum) are fully ported; Solana remains handled by `entrypoint.sh:run_governance_drift_loop` via `scripts/governance-drift.js` until a dedicated SDK-port PR adds `@sqds/multisig` with real fixture validation. The `last_governance_drift_at` meta key is still written each cycle (EVM timing applies).
+
+**Operator warning — empty string values:**
+> Setting `EXPECTED_SAFE_OWNERS_BASE=""` (empty string, not unset) causes `hasExpectations=true` internally because the env var is present. The processor will interpret the empty list as "zero expected owners" and fire an `owner_added` alert for every observed owner on every cycle. To suppress drift checks for a chain, leave the var **unset** (absent from the environment) rather than setting it to an empty string.
+
+**Troubleshooting:**
+- If `last_governance_drift_at` is stale: check BullMQ queue `governance-drift` in the worker logs.
+- If alert fires: compare the printed observed vs expected values. If the change is intentional (key rotation), update the env vars and redeploy.
+- If Safe Transaction Service is down (429 or timeout): the job retries once after 60 s and logs a warning; the next daily cycle will retry automatically.
+
+### 11.3 Multisig tracking (P3g2 PR-D)
+
+The multisig-tracking job runs every 5 minutes and polls the on-chain status of receipts in `queued_in_safe` or `queued_in_squads` status. On confirmation it transitions the linked position (`draft → open` for BUY, `pending_exit → closed` for SELL). On rejection it refunds cash (BUY) or reverts the position (`pending_exit → open` for SELL).
+
+**Cadence:** `*/5 * * * *` (every 5 minutes) — mirrors `entrypoint.sh:run_multisig_tracker_loop`.
+**Health key:** `portfolio_meta.last_multisig_tracker_at` — stale threshold: > 15 minutes.
+**Skip condition:** `PAPER_MODE=true` — paper receipts are executed synchronously by PaperExecutor.
+
+**P3g2 PR-D status — Solana:**
+> **Warning:** Solana multisig tracking is NOT handled by the NestJS processor. The `SquadsRpcAdapter` (`libs/adapters/squads-rpc`) is a stub that throws `SquadsRpcNotImplementedError`. The worker processor explicitly skips all `queued_in_squads` receipts with a `WARN`-level log per cycle; those receipts remain in `queued_in_squads` state and are handled by `entrypoint.sh:run_executor_loop` via `scripts/track-multisig.js` until a dedicated SDK-port PR adds `@sqds/multisig` with real fixture validation. **EVM (Base, Ethereum) paths are fully ported and unaffected.** The `last_multisig_tracker_at` meta key is still written each cycle (EVM timing applies).
+
+**OPEN-7 note:** After confirming a transaction, the tracker sets `last_portfolio_sync_stale_at` as a stale marker instead of inline-calling portfolio-load scripts. A future portfolio-sync job (P3g2 PR-E or later) will pick up this marker and sync the on-chain balance. During P3, the legacy `portfolio-load-{evm,solana}.js` scripts run in parallel and handle this.
+
+**OPEN-8 note:** The `receipts.safe_nonce` column stores the Squads transaction index (a deliberate overload from the legacy `track-multisig.js`). This may be renamed to `external_index` in a future cleanup PR.
+
+**Troubleshooting:**
+- If a receipt is stuck in `queued_in_safe`: check that `safe_tx_hash` is set on the receipt (`cclaw receipts get --id <id>`).
+- If you see repeated `multisig-tracker: Solana multisig tracking deferred` WARN lines: this is expected while the SquadsRpcAdapter SDK port is pending. Solana `queued_in_squads` receipts are tracked by the legacy `scripts/track-multisig.js` script via `entrypoint.sh`.
+- Reminder alerts fire every 30 minutes for any receipt still pending. If you are receiving many reminders, check the Safe Transaction Service or Squads UI for stuck transactions requiring manual approval.
+- If position is in `draft` or `pending_exit` for > 24 h: manually inspect the receipt status and trigger `cclaw orders retry --id <order_id>` if needed.
+
 ---
 
 ## 12. Emergency stop

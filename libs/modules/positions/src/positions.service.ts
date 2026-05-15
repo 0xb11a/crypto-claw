@@ -59,4 +59,19 @@ export class PositionsService {
     await this.repo.findById(id, mode); // throws 404 if not found
     await this.repo.delete(id, mode);
   }
+
+  /**
+   * Delete a draft real-mode position.
+   *
+   * Delegates to PositionsRepository.deleteDraft, which guards against
+   * accidental deletion of non-draft positions. Used by MultisigTrackerProcessor
+   * when a BUY transaction is rejected on-chain.
+   *
+   * @param id - Position ID.
+   * @throws NotFoundException if position not found.
+   * @throws Error if position is not in 'draft' status.
+   */
+  async deleteDraft(id: string): Promise<void> {
+    return this.repo.deleteDraft(id);
+  }
 }

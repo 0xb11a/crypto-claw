@@ -1,10 +1,18 @@
 import { Module, DynamicModule } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { OrdersController } from './orders.controller.js';
 import { OrdersService } from './orders.service.js';
 import { OrdersRepository } from './orders.repository.js';
 import { PaperExecutor } from './paper-executor.js';
 import { QueueResolver, CHAIN_QUEUE_MAP } from './queue-resolver.js';
 import { ReceiptsModule } from '@cclaw/receipts';
+import { PositionsModule } from '@cclaw/positions';
+import { SystemModule } from '@cclaw/system';
+import { NotificationsModule } from '@cclaw/notifications';
+import { SafeTxServiceModule } from '@cclaw/adapters-safe-tx-service';
+import { SquadsRpcModule } from '@cclaw/adapters-squads-rpc';
+import { MultisigTrackerProcessor } from './jobs/multisig-tracker.processor.js';
+import { MULTISIG_TRACKING_QUEUE, MULTISIG_TRACKING_JOB_OPTIONS } from './queue-names.js';
 
 /**
  * Options for `OrdersModule.forRoot()`.
@@ -67,6 +75,40 @@ export class OrdersModule {
         QueueResolver,
       ],
       exports: [OrdersService, OrdersRepository, QueueResolver],
+    };
+  }
+
+  /**
+   * Worker-side factory — registers the multisig-tracking BullMQ processor.
+   *
+   * Does NOT register HTTP controllers (those are on `forRoot()`).
+   * The MULTISIG_TRACKING_QUEUE is registered here (not in apps/worker) so
+   * the `@Processor(MULTISIG_TRACKING_QUEUE)` in MultisigTrackerProcessor
+   * resolves correctly within this module's context.
+   *
+   * Imports ReceiptsModule, PositionsModule, SystemModule, NotificationsModule,
+   * SafeTxServiceModule, SquadsRpcModule so the processor resolves all its deps.
+   *
+   * This is additive to `forRoot()` — apps/worker registers both if it needs
+   * both the execute-order queue routing and the multisig tracker.
+   */
+  static forWorker(): DynamicModule {
+    return {
+      module: OrdersModule,
+      imports: [
+        BullModule.registerQueue({
+          name: MULTISIG_TRACKING_QUEUE,
+          defaultJobOptions: { ...MULTISIG_TRACKING_JOB_OPTIONS },
+        }),
+        ReceiptsModule,
+        PositionsModule,
+        SystemModule,
+        NotificationsModule,
+        SafeTxServiceModule,
+        SquadsRpcModule,
+      ],
+      providers: [MultisigTrackerProcessor],
+      exports: [],
     };
   }
 }

@@ -11,6 +11,11 @@
       "@cclaw/auth": ["../../auth/src/index.ts"],
       "@cclaw/audit": ["../../audit/src/index.ts"],
       "@cclaw/receipts": ["../receipts/src/index.ts"],
+      "@cclaw/positions": ["../positions/src/index.ts"],
+      "@cclaw/system": ["../system/src/index.ts"],
+      "@cclaw/notifications": ["../../notifications/src/index.ts"],
+      "@cclaw/adapters-safe-tx-service": ["../../adapters/safe-tx-service/src/index.ts"],
+      "@cclaw/adapters-squads-rpc": ["../../adapters/squads-rpc/src/index.ts"],
       "@cclaw/chain": ["../../chain/src/index.ts"]
     }
   },
@@ -22,6 +27,11 @@
     { "path": "../../auth" },
     { "path": "../../audit" },
     { "path": "../receipts" },
+    { "path": "../positions" },
+    { "path": "../system" },
+    { "path": "../../notifications" },
+    { "path": "../../adapters/safe-tx-service" },
+    { "path": "../../adapters/squads-rpc" },
     { "path": "../../chain" }
   ]
 }

@@ -57,6 +57,8 @@ COPY libs/adapters/birdeye/package.json libs/adapters/birdeye/
 COPY libs/adapters/zerion/package.json libs/adapters/zerion/
 COPY libs/adapters/helius/package.json libs/adapters/helius/
 COPY libs/adapters/evm-explorer/package.json libs/adapters/evm-explorer/
+COPY libs/adapters/safe-tx-service/package.json libs/adapters/safe-tx-service/
+COPY libs/adapters/squads-rpc/package.json libs/adapters/squads-rpc/
 COPY libs/modules/positions/package.json libs/modules/positions/
 COPY libs/modules/orders/package.json libs/modules/orders/
 COPY libs/modules/receipts/package.json libs/modules/receipts/
@@ -69,6 +71,7 @@ COPY libs/modules/agent-logs/package.json libs/modules/agent-logs/
 COPY libs/modules/analysis-cache/package.json libs/modules/analysis-cache/
 COPY libs/modules/contracts/package.json libs/modules/contracts/
 COPY libs/modules/system/package.json libs/modules/system/
+COPY libs/modules/governance/package.json libs/modules/governance/
 COPY sdk/generated/package.json sdk/generated/
 COPY sdk/cclaw/package.json sdk/cclaw/
 COPY tests/integration/package.json tests/integration/

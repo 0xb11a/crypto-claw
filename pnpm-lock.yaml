@@ -286,9 +286,15 @@ importers:
       '@cclaw/config':
         specifier: workspace:*
         version: link:../../libs/config
+      '@cclaw/governance':
+        specifier: workspace:*
+        version: link:../../libs/modules/governance
       '@cclaw/logger':
         specifier: workspace:*
         version: link:../../libs/logger
+      '@cclaw/orders':
+        specifier: workspace:*
+        version: link:../../libs/modules/orders
       '@cclaw/wallets':
         specifier: workspace:*
         version: link:../../libs/modules/wallets
@@ -338,6 +344,12 @@ importers:
       '@cclaw/adapters-helius':
         specifier: workspace:*
         version: link:../../libs/adapters/helius
+      '@cclaw/adapters-safe-tx-service':
+        specifier: workspace:*
+        version: link:../../libs/adapters/safe-tx-service
+      '@cclaw/adapters-squads-rpc':
+        specifier: workspace:*
+        version: link:../../libs/adapters/squads-rpc
       '@cclaw/adapters-zerion':
         specifier: workspace:*
         version: link:../../libs/adapters/zerion
@@ -350,18 +362,30 @@ importers:
       '@cclaw/execution':
         specifier: workspace:*
         version: link:../../libs/execution
+      '@cclaw/governance':
+        specifier: workspace:*
+        version: link:../../libs/modules/governance
       '@cclaw/logger':
         specifier: workspace:*
         version: link:../../libs/logger
+      '@cclaw/notifications':
+        specifier: workspace:*
+        version: link:../../libs/notifications
       '@cclaw/orders':
         specifier: workspace:*
         version: link:../../libs/modules/orders
+      '@cclaw/positions':
+        specifier: workspace:*
+        version: link:../../libs/modules/positions
       '@cclaw/prisma':
         specifier: workspace:*
         version: link:../../libs/prisma
       '@cclaw/receipts':
         specifier: workspace:*
         version: link:../../libs/modules/receipts
+      '@cclaw/system':
+        specifier: workspace:*
+        version: link:../../libs/modules/system
       '@cclaw/wallets':
         specifier: workspace:*
         version: link:../../libs/modules/wallets
@@ -455,6 +479,68 @@ importers:
 
   libs/adapters/helius:
     dependencies:
+      '@cclaw/config':
+        specifier: workspace:*
+        version: link:../../config
+      '@cclaw/logger':
+        specifier: workspace:*
+        version: link:../../logger
+      '@nestjs/common':
+        specifier: ^10.0.0
+        version: 10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/config':
+        specifier: ^3.0.0
+        version: 3.3.0(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@nestjs/core':
+        specifier: ^10.0.0
+        version: 10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.18
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@22.19.18)
+
+  libs/adapters/safe-tx-service:
+    dependencies:
+      '@cclaw/chain':
+        specifier: workspace:*
+        version: link:../../chain
+      '@cclaw/config':
+        specifier: workspace:*
+        version: link:../../config
+      '@cclaw/logger':
+        specifier: workspace:*
+        version: link:../../logger
+      '@nestjs/common':
+        specifier: ^10.0.0
+        version: 10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/config':
+        specifier: ^3.0.0
+        version: 3.3.0(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@nestjs/core':
+        specifier: ^10.0.0
+        version: 10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.18
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@22.19.18)
+
+  libs/adapters/squads-rpc:
+    dependencies:
+      '@cclaw/chain':
+        specifier: workspace:*
+        version: link:../../chain
       '@cclaw/config':
         specifier: workspace:*
         version: link:../../config
@@ -879,6 +965,52 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@22.19.18)
 
+  libs/modules/governance:
+    dependencies:
+      '@cclaw/adapters-safe-tx-service':
+        specifier: workspace:*
+        version: link:../../adapters/safe-tx-service
+      '@cclaw/adapters-squads-rpc':
+        specifier: workspace:*
+        version: link:../../adapters/squads-rpc
+      '@cclaw/chain':
+        specifier: workspace:*
+        version: link:../../chain
+      '@cclaw/config':
+        specifier: workspace:*
+        version: link:../../config
+      '@cclaw/notifications':
+        specifier: workspace:*
+        version: link:../../notifications
+      '@cclaw/system':
+        specifier: workspace:*
+        version: link:../system
+      '@nestjs/bullmq':
+        specifier: ^10.0.0
+        version: 10.2.3(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(bullmq@5.76.7)
+      '@nestjs/common':
+        specifier: ^10.0.0
+        version: 10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/config':
+        specifier: ^3.0.0
+        version: 3.3.0(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@nestjs/core':
+        specifier: ^10.0.0
+        version: 10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      bullmq:
+        specifier: ^5.0.0
+        version: 5.76.7
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.18
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@22.19.18)
+
   libs/modules/heartbeat:
     dependencies:
       '@cclaw/audit':
@@ -967,6 +1099,12 @@ importers:
 
   libs/modules/orders:
     dependencies:
+      '@cclaw/adapters-safe-tx-service':
+        specifier: workspace:*
+        version: link:../../adapters/safe-tx-service
+      '@cclaw/adapters-squads-rpc':
+        specifier: workspace:*
+        version: link:../../adapters/squads-rpc
       '@cclaw/audit':
         specifier: workspace:*
         version: link:../../audit
@@ -979,12 +1117,21 @@ importers:
       '@cclaw/config':
         specifier: workspace:*
         version: link:../../config
+      '@cclaw/notifications':
+        specifier: workspace:*
+        version: link:../../notifications
+      '@cclaw/positions':
+        specifier: workspace:*
+        version: link:../positions
       '@cclaw/prisma':
         specifier: workspace:*
         version: link:../../prisma
       '@cclaw/receipts':
         specifier: workspace:*
         version: link:../receipts
+      '@cclaw/system':
+        specifier: workspace:*
+        version: link:../system
       '@nestjs/bullmq':
         specifier: ^10.0.0
         version: 10.2.3(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(bullmq@5.76.7)
@@ -1245,6 +1392,22 @@ importers:
         version: 1.6.1(@types/node@22.19.18)
 
   libs/notifications:
+    dependencies:
+      '@cclaw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@cclaw/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@nestjs/common':
+        specifier: ^10.0.0
+        version: 10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/config':
+        specifier: ^3.0.0
+        version: 3.3.0(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@nestjs/core':
+        specifier: ^10.0.0
+        version: 10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1252,6 +1415,9 @@ importers:
       typescript:
         specifier: ^5.5.0
         version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@22.19.18)
 
   libs/portfolio:
     devDependencies:
