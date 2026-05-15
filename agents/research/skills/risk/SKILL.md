@@ -96,7 +96,7 @@ If ANY of these are true → immediate REJECT, no exceptions:
 6. Owner can pause transfers
 
 ### Step 4: Regime Risk-Score Penalty
-Read the current market regime: `node scripts/db-query.js get-meta --key market_regime`
+Read the current market regime: `node scripts/db-query.js get-meta --key market_regime` (legacy hold-back)
 
 Apply regime-based risk score adjustments (base tier tokens are exempt — their buying is gated separately in the heartbeat):
 
@@ -166,6 +166,7 @@ Cap `maxPositionPercent` at the regime-adjusted limit for the token's tier:
   ```bash
   node scripts/db-query.js cache-analysis --json '{"address":"<TOKEN_ADDRESS>","chain":"<CHAIN>","symbol":"<SYMBOL>","analysis_score":<ANALYSIS_SCORE>,"risk_score":<RISK_SCORE>,"verdict":"risk_rejected","reasoning":"<REASON>"}'
   ```
+  (legacy hold-back)
 
 ## Promotion
 If a risk pattern (e.g., a recurring red-flag combination, deployer signature, or contract behavior that consistently precedes losses) recurs 3+ times across daily logs, promote it to `MEMORY.md` using the template in `AGENTS.md § MEMORY.md Updates`.

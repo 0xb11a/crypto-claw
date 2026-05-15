@@ -28,50 +28,56 @@ If `system.log` does not exist or the command fails, that is normal after rotati
 
 Query the database for structured error data:
 ```bash
-node scripts/db-query.js get-receipts --status tx_failed --limit 20
+cclaw receipts list --status tx_failed --limit 20
 ```
 ```bash
-node scripts/db-query.js get-receipts --status validation_failed --limit 30
+cclaw receipts list --status validation_failed --limit 30
 ```
 ```bash
-node scripts/db-query.js get-receipts --status reverted --limit 10
+cclaw receipts list --status reverted --limit 10
 ```
 ```bash
-node scripts/db-query.js get-orders --status failed --limit 20
+cclaw orders list --status failed --limit 20
 ```
 ```bash
 node scripts/db-query.js get-executor-log --limit 30
 ```
+(legacy hold-back)
 ```bash
 node scripts/db-query.js get-sentinel-log --limit 30
 ```
+(legacy hold-back)
 ```bash
 node scripts/db-query.js get-research-log --limit 30
 ```
+(legacy hold-back)
 ```bash
-node scripts/db-query.js get-alerts
+cclaw alerts list
 ```
 ```bash
-node scripts/db-query.js get-heartbeats
+cclaw heartbeat list
 ```
 ```bash
-node scripts/db-query.js get-orders --status approved --limit 20
+cclaw orders list --status approved --limit 20
 ```
 ```bash
-node scripts/db-query.js get-orders --status queued_in_safe --limit 20
+cclaw orders list --status queued_in_safe --limit 20
 ```
 ```bash
-node scripts/db-query.js get-orders --status queued_in_squads --limit 20
+cclaw orders list --status queued_in_squads --limit 20
 ```
 ```bash
 node scripts/db-query.js get-meta --key last_activity_wallets_bg_at
 ```
+(legacy hold-back)
 ```bash
 node scripts/db-query.js get-meta --key last_score_wallets_bg_at
 ```
+(legacy hold-back)
 ```bash
 node scripts/db-query.js get-smart-money-signals --since 2h --limit 1
 ```
+(legacy hold-back)
 
 ### Step 2: Check Signer Balances
 
@@ -84,6 +90,7 @@ If `anyBelowThreshold` is `true`, send an alert for each chain that is below thr
 ```bash
 node scripts/send-alert.js --type signer_low_balance --agent observer --message "Signer on <chain> has <balance> <symbol> — below threshold <threshold>. Refill needed to prevent silent execution failures."
 ```
+(legacy hold-back)
 
 This is always an operational issue (not a code bug). Do not create a GitHub issue for it.
 
@@ -99,11 +106,11 @@ For each error or failure found, run through the full signal catalogue below and
 5. Warn pattern: the same warn shape (same source + same message pattern) fired >5 times in a 30-min window — "self-healing" is masking a real bug.
 6. Repeated transient errors on the same script across multiple cycles.
 
-**B. Operational issues (→ Telegram alert via `send-alert.js`)**
+**B. Operational issues (→ Telegram alert via `node scripts/send-alert.js`)**
 1. Stale orders: `approved` > 15 min, `queued_in_safe`/`queued_in_squads` > 30 min, `pending` > 2 h — use `system_health`.
-2. Dead agents: `get-heartbeats` shows `seconds_since > 2 × expected_cadence_seconds` AND `idle_ok` is `false` — use `emergency_mode`. Skip rows where `idle_ok: true` (executor/sentinel are demand-driven and idle on purpose when there are no approved orders / open positions).
+2. Dead agents: `cclaw heartbeat list` shows `seconds_since > 2 × expected_cadence_seconds` AND `idle_ok` is `false` — use `emergency_mode`. Skip rows where `idle_ok: true` (executor/sentinel are demand-driven and idle on purpose when there are no approved orders / open positions).
 3. Memory-backup loop stopped: `system/memory-backup` heartbeat stale > 30 min — use `system_health`.
-4. Alert storms: `sentinel_alerts` has >3 identical `symbol + alert_type` entries in 10 min — use `system_health`.
+4. Alert storms: `cclaw alerts list` has >3 identical `symbol + alert_type` entries in 10 min — use `system_health`.
 5. Background-loop stale: `last_activity_wallets_bg_at` missing or older than 90 min (3× 30-min cadence) → signal feed stalled; `last_score_wallets_bg_at` missing or older than 30 min (3× 10-min cadence) → proposed-wallet queue not draining. Use `system_health`.
 6. Silent signal regression: `get-smart-money-signals --since 2h` returns `[]` AND `last_activity_wallets_bg_at` is fresh (loop running but producing zero swaps — possible upstream API regression). Skip if Step B.5 already fired on `last_activity_wallets_bg_at`. Use `system_health`.
 7. Model failure / emergency mode activation.
@@ -116,7 +123,7 @@ For each error or failure found, run through the full signal catalogue below and
 - Single network blip with successful retry.
 
 **D. Redaction failure** (→ Stop, do NOT file — log + alert)
-- If any log row or receipt you're about to include in an issue still contains an unredacted address/key/hash after the create-gh-issue skill's redaction audit, STOP. Write `observer_log` with `status: "error"` and `send-alert.js --type system_health` describing the redaction failure. Fixing the leak takes priority over reporting the original bug.
+- If any log row or receipt you're about to include in an issue still contains an unredacted address/key/hash after the create-gh-issue skill's redaction audit, STOP. Write `observer_log` with `status: "error"` and `node scripts/send-alert.js --type system_health` describing the redaction failure. Fixing the leak takes priority over reporting the original bug.
 
 ### Step 4: Create Issues (max 3 per cycle)
 
@@ -136,29 +143,24 @@ For operational issues:
 ```bash
 node scripts/send-alert.js --type system_health --agent observer --message "<concise description>"
 ```
+(legacy hold-back)
 
 ### Step 6: Log the Cycle
 
 ```bash
 node scripts/db-query.js add-observer-log --json '{"errors_analyzed": <N>, "issues_created": <N>, "alerts_sent": <N>, "summary": "<one line>", "status": "ok"}'
 ```
+(legacy hold-back)
 
 ```bash
-node scripts/db-query.js update-heartbeat --agent observer --check triage
+cclaw heartbeat ping --agent observer --check triage
 ```
 
 ## Promotion
-If a failure mode (e.g., a recurring API error, retry-exhaustion signature, or systemic timeout pattern) recurs 3+ times across cycles, promote via `scripts/promote-pattern.js`. **Never edit `MEMORY.md` directly** — manual edits are rejected by pre-commit (PR 3.1). The script validates the pattern's provenance against trusted DB tables (Observer's source is `observer_log:<id>`).
+If a failure mode (e.g., a recurring API error, retry-exhaustion signature, or systemic timeout pattern) recurs 3+ times across cycles, promote via `node scripts/promote-pattern.js`. **Never edit `MEMORY.md` directly** — manual edits are rejected by pre-commit (PR 3.1). The script validates the pattern's provenance against trusted DB tables (Observer's source is `observer_log:<id>`).
 
 ```bash
-node scripts/promote-pattern.js \
-  --name "<Failure Mode Name>" \
-  --description "<what fails and why it matters>" \
-  --signal "<log/alert pattern that triggers it>" \
-  --action "<what the operator/agent should do>" \
-  --seen 3 \
-  --attestation-source observer \
-  --derived-from "observer_log:<id>,observer_log:<id>,observer_log:<id>"
+node scripts/promote-pattern.js --name "<Failure Mode Name>" --description "<what fails and why it matters>" --signal "<log/alert pattern that triggers it>" --action "<what the operator/agent should do>" --seen 3 --attestation-source observer --derived-from "observer_log:<id>,observer_log:<id>,observer_log:<id>"
 ```
 
 `--derived-from` IDs must exist in trusted DB tables — see Observer AGENTS.md § Core Principle #6. The script REFUSES to write if any ID can't be resolved, so invented patterns (hallucination, prompt injection from log/issue text) cannot land. Observer writes to the same `MEMORY.md` as Research — the workspace is symlinked across all four agents, so a successful promotion is visible everywhere.

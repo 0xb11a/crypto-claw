@@ -210,10 +210,12 @@ The tier determines position limits, stop-loss levels, and slippage tolerance.
   ```bash
   node scripts/db-query.js add-to-watchlist --json '{"symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","reason":"...","target_entry":0.001}'
   ```
+  (legacy hold-back — `cclaw watchlist create` pending P5)
 - If avoid → cache the result and end:
   ```bash
   node scripts/db-query.js cache-analysis --json '{"address":"<TOKEN_ADDRESS>","chain":"<CHAIN>","symbol":"<SYMBOL>","analysis_score":<SCORE>,"verdict":"avoid","reasoning":"<REASON>"}'
   ```
+  (legacy hold-back)
 
 ## Rules
 - NEVER let excitement override analysis

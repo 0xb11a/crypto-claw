@@ -24,61 +24,65 @@ Run one command per exec call. Pick the variant that matches the human's request
 
 List pending buys awaiting approval:
 ```bash
-node scripts/db-query.js get-orders --pending --action buy
+cclaw orders list --pending --action buy
 ```
 
 List pending sells awaiting execution:
 ```bash
-node scripts/db-query.js get-orders --pending --action sell
+cclaw orders list --pending --action sell
 ```
 
 Single order detail:
 ```bash
-node scripts/db-query.js get-order --id <id>
+cclaw orders get --id <id>
 ```
 
 Approve a pending buy order:
 ```bash
-node scripts/db-query.js approve-order --id <id> --by human
+cclaw orders approve --id <id> --by human
 ```
 
 Reject a pending order (never approved — bad idea):
 ```bash
-node scripts/db-query.js reject-order --id <id> --reason "<reason>" --by human
+cclaw orders reject --id <id> --reason "<reason>"
 ```
 
 Cancel an approved or failed order (was approved, changed mind):
 ```bash
 node scripts/db-query.js cancel-order --id <id> --reason "<reason>" --by human
 ```
+(legacy hold-back — `cclaw orders cancel` pending P5)
 
 Retry a failed sell order (re-queue for execution):
 ```bash
 node scripts/db-query.js retry-order --id <id> --by human
 ```
+(legacy hold-back — `cclaw orders retry` pending P5)
 
 Order history (all statuses):
 ```bash
 node scripts/db-query.js get-order-history --limit 20
 ```
+(legacy hold-back)
 
 Order history filtered by status:
 ```bash
 node scripts/db-query.js get-order-history --status rejected --limit 10
 ```
+(legacy hold-back)
 
 ## State Machine
 
 Orders follow a strict state machine. Use the correct command for each transition:
 
 ```
-pending  --> approved    (approve-order)
-pending  --> rejected    (reject-order)
+pending  --> approved    (cclaw orders approve)
+pending  --> rejected    (cclaw orders reject)
 approved --> executed    (Executor — automatic)
 approved --> failed      (Executor — automatic)
-approved --> cancelled   (cancel-order)
-failed   --> approved    (retry-order, sells only)
-failed   --> cancelled   (cancel-order)
+approved --> cancelled   (cancel-order legacy hold-back)
+failed   --> approved    (retry-order legacy hold-back, sells only)
+failed   --> cancelled   (cancel-order legacy hold-back)
 ```
 
 - **reject** = order was never approved (human says "no" to the idea)
@@ -89,8 +93,8 @@ failed   --> cancelled   (cancel-order)
 ## Handling Human Messages
 
 ### "show pending" / "what's pending" / "orders"
-1. Run `get-orders --pending --action buy` to get pending buys
-2. Run `get-orders --pending --action sell` to get pending sells
+1. Run `cclaw orders list --pending --action buy` to get pending buys
+2. Run `cclaw orders list --pending --action sell` to get pending sells
 3. Format as a compact list:
 
 ```
@@ -109,34 +113,34 @@ SELL:
 If no pending orders, say "No pending orders."
 
 ### "approve <id>" / "approve buy-001"
-1. Run `get-order --id <id>` to show the order details
+1. Run `cclaw orders get --id <id>` to show the order details
 2. Display the full trade proposal (symbol, amount, tier, entry, stops, TPs, scores, reasoning)
-3. Run `approve-order --id <id> --by human`
+3. Run `cclaw orders approve --id <id> --by human`
 4. Confirm: "Approved. Executor will process on next cycle (~1 min)."
 5. Show remaining pending count
 
 ### "approve all"
-1. Run `get-orders --pending --action buy` to list all pending buys
+1. Run `cclaw orders list --pending --action buy` to list all pending buys
 2. List each order with key details
 3. Ask: "Confirm approving N orders? Reply YES to proceed."
 4. On YES: approve each order one by one, report results
 5. On anything else: "Cancelled. No orders approved."
 
 ### "reject <id>" / "reject buy-001 too risky"
-1. Run `reject-order --id <id> --reason "<reason>" --by human`
+1. Run `cclaw orders reject --id <id> --reason "<reason>"`
 2. Confirm: "Rejected [id] — reason: <reason>"
 
 ### "cancel <id>"
-1. Run `cancel-order --id <id> --reason "<reason>" --by human`
+1. Run `node scripts/db-query.js cancel-order --id <id> --reason "<reason>" --by human` (legacy hold-back)
 2. Confirm: "Cancelled [id] — reason: <reason>"
 
 ### "retry <id>"
 1. Verify it's a sell order (buys cannot be retried)
-2. Run `retry-order --id <id> --by human`
+2. Run `node scripts/db-query.js retry-order --id <id> --by human` (legacy hold-back)
 3. Confirm: "Retried [id] — re-queued for execution."
 
 ### "order history" / "recent orders"
-1. Run `get-order-history --limit 10`
+1. Run `node scripts/db-query.js get-order-history --limit 10` (legacy hold-back)
 2. Format as a table with id, action, symbol, status, and timestamp
 
 ## Safety Rules
@@ -147,4 +151,4 @@ If no pending orders, say "No pending orders."
 - If human tries an invalid transition, explain the correct command to use
 
 ## Error Handling
-Per AGENTS.md § Error Self-Reporting: if `approve-order`, `reject-order`, `cancel-order`, or `retry-order` returns non-zero, log `add-research-log` with `status: "error"` and fire `send-alert.js --type model_failure --agent research`. The human thought they approved/rejected something; a silent failure leaves the order in the wrong state and the operator misinformed.
+Per AGENTS.md § Error Self-Reporting: if `cclaw orders approve`, `cclaw orders reject`, or `cancel-order`/`retry-order` returns non-zero, log `node scripts/db-query.js add-research-log` with `status: "error"` and fire `node scripts/send-alert.js --type model_failure --agent research`. The human thought they approved/rejected something; a silent failure leaves the order in the wrong state and the operator misinformed.

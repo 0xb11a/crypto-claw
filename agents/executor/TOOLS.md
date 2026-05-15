@@ -10,79 +10,111 @@
 `scripts/log.js` levels — Observer's detection depends on the right level:
 - `info` — routine step completed. Never actionable.
 - `warn` — degraded but self-healing (retry succeeded, RPC fallback used).
-- `error` — an operation did not complete (get-orders failed, process-order returned no JSON, add-executor-log failed). **Each instance is actionable.**
+- `error` — an operation did not complete (order fetch failed, process-order returned no JSON, heartbeat write failed). **Each instance is actionable.**
 - `critical` — safety/integrity violation (signer key missing, heartbeat stuck, data corruption). **Immediate Observer alert.**
 
-A silent DB failure looks like a quiet cycle — that is the single worst Executor path. When in doubt, log at `error` or `critical`, never `warn`.
+A silent failure looks like a quiet cycle — that is the single worst Executor path. When in doubt, log at `error` or `critical`, never `warn`.
 
-## Chain Discovery
+## Chain Discovery (legacy hold-back)
 ```bash
-# List all active chains
 node scripts/db-query.js get-chains
-# Get config for a specific chain (cash token, explorer, wallet type, etc.)
+```
+```bash
 node scripts/db-query.js get-chain-config --chain <CHAIN>
 ```
 
-## Database CLI (db-query.js)
+## API CLI (`cclaw`) and legacy CLI (`db-query.js`)
 
-All wallet data lives in SQLite. Interact through `db-query.js` — never access the DB file directly.
+During P4–P5, both CLI surfaces are available. Prefer `cclaw` where listed; use legacy `node scripts/db-query.js` for hold-backs (deleted in P5).
 
-### Portfolio & Cash
+### Portfolio & Cash (legacy hold-back)
 ```bash
 node scripts/db-query.js get-portfolio
+```
+```bash
 node scripts/db-query.js get-portfolio --chain <CHAIN>
+```
+```bash
 node scripts/db-query.js get-cash
+```
+```bash
 node scripts/db-query.js get-cash --chain <CHAIN>
-node scripts/db-query.js set-cash --chain <CHAIN> --amount 5000
-node scripts/db-query.js get-gas
-node scripts/db-query.js get-gas --chain <CHAIN>
+```
+```bash
 node scripts/db-query.js get-meta --key my_key
-node scripts/db-query.js set-meta --key my_key --value my_value
 ```
 
 ### Positions (Human Interaction Only)
-**Not used during the heartbeat.** Position lifecycle is owned by `process-order.js` — validation, execution, receipts, positions, and cash all run atomically there. The commands below exist for ad-hoc human queries; never call them as part of autonomous order processing.
-- Read: `db-query.js get-positions [--status open] [--symbol TOKEN]`.
-- Mutate (human only): `add-position`, `update-position --id <ID> --json '{current_price,…}'`, `close-position --id <ID> [--quantity <N>] --json '{exit_price, exit_reason}'`. Position schema: `{id, symbol, address, chain, tier, entry_price, quantity, stop_loss, take_profit_levels:[{level,price,sellPercent}]}`.
+**Not used during the heartbeat.** Position lifecycle is owned by `node scripts/process-order.js` — validation, execution, receipts, positions, and cash all run atomically there. The commands below exist for ad-hoc human queries; never call them as part of autonomous order processing.
 
-### Order Processing (Atomic)
+Read positions:
 ```bash
-# Process a single order atomically (validate → execute → receipt → position → cash → mark done → alert)
-node scripts/process-order.js --order-id trade-001
-# Output: JSON with { ok, order_id, action, status, receipt_id, position_id, executed_price, ... }
+cclaw positions list [--status open] [--symbol TOKEN]
 ```
+
+### Order Processing (Atomic — legacy hold-back)
+```bash
+node scripts/process-order.js --order-id trade-001
+```
+Output: JSON with `{ ok, order_id, action, status, receipt_id, position_id, executed_price, ... }`. This script validates, executes, writes receipt, creates/closes position, updates cash, marks order done, and sends an alert — all atomically.
 
 ### Orders
 Orders use a status state machine: `pending → approved → executed` (or `rejected`/`cancelled`/`failed`).
 
 ```bash
-node scripts/db-query.js get-orders
-node scripts/db-query.js get-orders --pending
-node scripts/db-query.js get-orders --status approved --action buy
-node scripts/db-query.js get-orders --status approved --action sell
-node scripts/db-query.js get-order --id trade-001
-node scripts/db-query.js get-order-history --limit 20
-node scripts/db-query.js mark-order-executed --id trade-001
-node scripts/db-query.js mark-order-executed --id trade-001 --status failed --reason "tx_failed"
+cclaw orders list
 ```
+```bash
+cclaw orders list --pending
+```
+```bash
+cclaw orders list --status approved --action buy
+```
+```bash
+cclaw orders list --status approved --action sell
+```
+```bash
+cclaw orders get --id trade-001
+```
+```bash
+node scripts/db-query.js get-order-history --limit 20
+```
+(legacy hold-back)
 
 ### Receipts
-- `db-query.js get-receipts [--limit N]`.
-- `db-query.js add-receipt --json '<Receipt>'` — schema: `{id, order_id, action, symbol, address, chain, status, safe_tx_hash?, onchain_tx_hash?, executed_price, slippage}`.
+```bash
+cclaw receipts list [--limit N]
+```
+```bash
+cclaw receipts create --json '<Receipt>'
+```
 
 ### Heartbeat & Logs
 ```bash
-node scripts/db-query.js get-heartbeat --agent executor
-node scripts/db-query.js update-heartbeat --agent executor --check process_orders
+cclaw heartbeat get --agent executor
+```
+```bash
+cclaw heartbeat ping --agent executor --check process_orders
+```
+```bash
 node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":1,"buy_orders_processed":0,"success_count":1,"status":"ok"}'
 ```
+(legacy hold-back — `cclaw agent-logs create` pending P5)
 
-### Portfolio Sync (On-Chain)
+### Portfolio Sync (On-Chain — legacy hold-back)
 ```bash
 node scripts/db-query.js sync-portfolio --chain <CHAIN>
+```
+```bash
 node scripts/db-query.js sync-portfolio --chain <CHAIN> --trigger post_trade
+```
+```bash
 node scripts/db-query.js get-sync-status
+```
+```bash
 node scripts/db-query.js get-sync-status --chain <CHAIN>
+```
+```bash
 node scripts/db-query.js set-onchain-balance --id <position_id> --balance 1000.5
 ```
 `sync-portfolio` returns `{ok: false, message: 'Portfolio sync skipped...'}` when on-chain sync is disabled — proceed without action.
@@ -95,7 +127,11 @@ All EVM chains use the same Safe + 1inch stack.
 
 ```bash
 node scripts/execute-trade-evm.js --action buy --chain <CHAIN> --address 0xTOKEN --symbol TOKEN --amount 500 --max-slippage 5 --tier moonshot --deadline 300
+```
+```bash
 node scripts/execute-trade-evm.js --action sell --chain <CHAIN> --address 0xTOKEN --symbol TOKEN --amount all --max-slippage 5
+```
+```bash
 node scripts/execute-trade-evm.js --action sell --chain <CHAIN> --address 0xTOKEN --symbol TOKEN --amount 10000 --max-slippage 2 --deadline 300
 ```
 Handles: 1inch swap quoting, ERC-20 approvals, Safe multi-send, signing with `SAFE_SIGNER_KEY`.
@@ -104,6 +140,8 @@ Requires: `SAFE_ADDRESS_<CHAIN>`, `SAFE_SIGNER_KEY`, `RPC_<CHAIN>` per chain.
 ### Solana (Squads Multisig) — execute-trade-solana.js
 ```bash
 node scripts/execute-trade-solana.js --action buy --chain solana --address <MINT> --symbol TOKEN --amount 500 --max-slippage 5 --tier moonshot
+```
+```bash
 node scripts/execute-trade-solana.js --action sell --chain solana --address <MINT> --symbol TOKEN --amount all --max-slippage 5
 ```
 Handles: Jupiter swap quoting, Squads vault tx creation, proposal, approval, execution.
@@ -116,22 +154,20 @@ Requires: `SQUADS_VAULT_ADDRESS` (or `SQUADS_MULTISIG_ADDRESS`), `SQUADS_SIGNER_
 
 ### Multisig Status
 ```bash
-# Safe wallet: nonce, threshold, owners, balances, pending txs
 node scripts/check-safe-status.js --chain <CHAIN>
+```
+```bash
 node scripts/check-safe-status.js --chain <CHAIN> --safe-hash 0xABC123...
-# Squads multisig: threshold, members, vault balances
+```
+```bash
 node scripts/check-squads-status.js
+```
+```bash
 node scripts/check-squads-status.js --pending
 ```
 
-### Multisig Transaction Tracker (Background — No LLM)
-```bash
-node scripts/track-multisig.js
-# → {"checked":2,"confirmed":1,"pending":1,"failed":0}
-```
-Tracks `draft` positions (BUY queued) and `pending_exit` positions (SELL queued).
-When confirmed on-chain: receipt → `executed`, position activated/closed, portfolio synced.
-When rejected: receipt → `reverted`, draft positions deleted (cash refunded), pending_exit reverted to `open`.
+### Multisig Transaction Tracker
+Queued multisig transactions are tracked by the MultisigTrackerProcessor (NestJS worker, every 5 min; Solana also handled by legacy `entrypoint.sh:run_multisig_tracker_loop` during P4). You do NOT handle them.
 
 ### Token Metrics (Price Validation)
 ```bash
@@ -141,8 +177,14 @@ node scripts/token-metrics.js --address <TOKEN_ADDRESS> --chain <CHAIN>
 ### On-Chain Portfolio Sync
 ```bash
 node scripts/portfolio-load-evm.js --chain <CHAIN>
+```
+```bash
 node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger post_trade
+```
+```bash
 node scripts/portfolio-load-solana.js --chain solana
+```
+```bash
 node scripts/portfolio-load-solana.js --chain solana --trigger post_trade
 ```
 Native ETH/SOL stored as gas metadata (not a position). Stablecoins accumulate as cash. Loaders return `{status: 'skipped'}` when on-chain sync is disabled — proceed without action.
@@ -151,30 +193,36 @@ Native ETH/SOL stored as gas metadata (not a position). Stablecoins accumulate a
 
 ### Emergency Executor (No LLM Required)
 ```bash
-# Script-only sell executor — runs when executor agent can't reach any model
-# Processes SELL orders only (never buys). Calls process-order.js per order.
 node scripts/emergency-executor.js
 ```
+Script-only sell executor — runs when executor agent can't reach any model. Processes SELL orders only (never buys). Calls `process-order.js` per order.
 
-### Send Alert
+### Send Alert (legacy hold-back)
 ```bash
-# Alerts route to the correct Telegram supergroup topic automatically:
-# trade_executed/trade_failed → Executor topic | model_failure/emergency_mode → Alerts topic | system_health → Observer topic | recovered → System topic
 node scripts/send-alert.js --type trade_executed --agent executor --message "BUY executed: TOKEN"
+```
+```bash
 node scripts/send-alert.js --type trade_failed --agent executor --message "Order fetch failed: <reason>"
+```
+```bash
 node scripts/send-alert.js --type model_failure --agent executor --message "Agent failed"
+```
+```bash
 node scripts/send-alert.js --type emergency_mode --agent executor --message "Emergency mode active"
+```
+```bash
 node scripts/send-alert.js --type system_health --agent executor --message "log/heartbeat write failed: <reason>"
+```
+```bash
 node scripts/send-alert.js --type recovered --agent executor --message "Back to normal"
 ```
-
-Every successful `send-alert.js` invocation also writes an `[info] [send-alert]` entry to `/tmp/openclaw/system.log` — this is Observer's correlation signal for silent-crash detection. When you fire an alert after a failure, Observer sees the system.log line near the matching `status:"error"` log row and knows the agent self-reported (no GitHub issue). If the log row has no matching send-alert line nearby, Observer treats it as a silent crash.
+Alerts route to the correct Telegram supergroup topic automatically. Every successful `node scripts/send-alert.js` invocation also writes an `[info] [send-alert]` entry to `/tmp/openclaw/system.log` — this is Observer's correlation signal for silent-crash detection.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ACTIVE_CHAINS` | Per `get-chains` | Comma-separated list of active chains. Run `get-chains` to see available chains. |
+| `ACTIVE_CHAINS` | Per `get-chains` | Comma-separated list of active chains. Run `node scripts/db-query.js get-chains` to see available chains. |
 
 ## Important Notes
 

@@ -65,12 +65,19 @@ Each pass describes what it checks, why it matters, and the severity it assigns.
 
 ### Pass 1 — Command validity (mechanical)
 
-**Why:** If an agent exec's a command that `db-query.js` doesn't recognize, it crashes mid-heartbeat. Silent runtime failure is among the worst outcomes because Observer may not catch it immediately.
+**Why:** If an agent exec's a command that `db-query.js` or the `cclaw` CLI doesn't recognize, it crashes mid-heartbeat. Silent runtime failure is among the worst outcomes because Observer may not catch it immediately.
 
-1. Extract every valid command name from the command dispatch in `scripts/db-query.js` (the switch/case or if-else chain that maps CLI args to functions).
-2. Grep every instruction file for `db-query.js <command>` patterns (e.g. `db-query.js get-positions`, `db-query.js add-trade`).
-3. For each match, verify the command exists in the extracted list.
-4. **Flag as CRITICAL** any referenced command that doesn't match a real one. Include the suggested real command if the difference is a typo.
+**During P4–P5, both CLI surfaces are tolerated in agent markdown.** Instructions may use `node scripts/db-query.js <cmd>` (legacy) OR `cclaw <resource> <action>` (new) for equivalent operations. Both are valid; the pass checks that every referenced command exists in its respective surface.
+
+1. Extract every valid command name from TWO sources in parallel:
+   - **Legacy surface:** the switch/case or if-else dispatch in `scripts/db-query.js`.
+   - **cclaw surface:** the `.command(...)` calls in `sdk/cclaw/src/index.ts` — produces the command map `cclaw <resource> <action>` (e.g. `cclaw positions list`, `cclaw orders approve`, `cclaw heartbeat ping`).
+2. Grep every instruction file for BOTH patterns:
+   - `db-query.js <command>` (e.g. `db-query.js get-positions`)
+   - `cclaw <resource> <action>` (e.g. `cclaw orders approve`)
+3. For each `db-query.js <command>` match, verify the command exists in the legacy dispatch.
+4. For each `cclaw <resource> <action>` match, verify it exists in the cclaw command map from `sdk/cclaw/src/index.ts`.
+5. **Flag as CRITICAL** any referenced command that doesn't match a real one in its respective surface. Include the suggested real command if the difference is a typo.
 
 ### Pass 1b — Compound-command preflight (mechanical)
 
@@ -96,8 +103,10 @@ cmd-b
 
 **Why:** Same failure mode as Pass 1 but for scripts. A deleted or renamed script still referenced in instructions = runtime crash. An existing script not deployed to an agent = silent "command not found" when that agent tries it.
 
+**During P4–P5, both CLI surfaces are tolerated in agent markdown.** Instructions may reference `node scripts/<file>` (legacy) OR use `cclaw <resource> <action>` for equivalent operations. Both are valid; check each against its respective surface.
+
 1. List all `.js` files in `scripts/`.
-2. Grep every instruction file for `node scripts/<file>` and bare `scripts/<file>` references.
+2. Grep every instruction file for `node scripts/<file>` and bare `scripts/<file>` references, AND for `cclaw <resource> <action>` references (cross-check against `sdk/cclaw/src/index.ts`).
 3. **Flag as CRITICAL** any reference to a non-existent script.
 4. Read `build-templates.sh` to determine which scripts each agent receives.
 5. **Flag as WARNING** any script referenced in an agent's instructions that is NOT deployed to that agent.
