@@ -19,36 +19,36 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model Position {
-  id                   String  @id
-  symbol               String
-  name                 String?
-  address              String
-  chain                String
-  tier                 String
-  entryPrice           Float   @map("entry_price")
-  currentPrice         Float?  @map("current_price")
-  quantity             Float
-  valueUsd             Float?  @map("value_usd")
-  percentOfPortfolio   Float?  @map("percent_of_portfolio")
-  entryDate            String  @map("entry_date")
-  stopLoss             Float   @map("stop_loss")
-  takeProfitLevels     String  @map("take_profit_levels") // JSON array (String, not Json)
-  narrative            String?
-  status               String  @default("open")
-  notes                String?
-  onchainBalance       Float?  @map("onchain_balance")
-  lastSyncedAt         String? @map("last_synced_at")
-  exitPrice            Float?  @map("exit_price")
-  exitDate             String? @map("exit_date")
-  pnlPercent           Float?  @map("pnl_percent")
-  pnlUsd               Float?  @map("pnl_usd")
-  exitReason           String? @map("exit_reason")
-  maxPriceSinceEntry   Float?  @map("max_price_since_entry")
-  trailingStopPct      Float?  @map("trailing_stop_pct")
-  trailingStopActive   Int     @default(0) @map("trailing_stop_active")
-  tpLevelsHit          String  @default("[]") @map("tp_levels_hit") // JSON array
-  createdAt            String? @map("created_at")
-  updatedAt            String? @map("updated_at")
+  id                 String  @id
+  symbol             String
+  name               String?
+  address            String
+  chain              String
+  tier               String
+  entryPrice         Float   @map("entry_price")
+  currentPrice       Float?  @map("current_price")
+  quantity           Float
+  valueUsd           Float?  @map("value_usd")
+  percentOfPortfolio Float?  @map("percent_of_portfolio")
+  entryDate          String  @map("entry_date")
+  stopLoss           Float   @map("stop_loss")
+  takeProfitLevels   String  @map("take_profit_levels") // JSON array (String, not Json)
+  narrative          String?
+  status             String  @default("open")
+  notes              String?
+  onchainBalance     Float?  @map("onchain_balance")
+  lastSyncedAt       String? @map("last_synced_at")
+  exitPrice          Float?  @map("exit_price")
+  exitDate           String? @map("exit_date")
+  pnlPercent         Float?  @map("pnl_percent")
+  pnlUsd             Float?  @map("pnl_usd")
+  exitReason         String? @map("exit_reason")
+  maxPriceSinceEntry Float?  @map("max_price_since_entry")
+  trailingStopPct    Float?  @map("trailing_stop_pct")
+  trailingStopActive Int     @default(0) @map("trailing_stop_active")
+  tpLevelsHit        String  @default("[]") @map("tp_levels_hit") // JSON array
+  createdAt          String? @map("created_at")
+  updatedAt          String? @map("updated_at")
 
   @@index([status], name: "idx_positions_status")
   @@index([chain], name: "idx_positions_chain")
@@ -61,30 +61,30 @@ model Position {
 // ---------------------------------------------------------------------------
 
 model PaperPosition {
-  id                   String  @id
-  symbol               String
-  address              String
-  chain                String
-  tier                 String
-  entryPrice           Float   @map("entry_price")
-  currentPrice         Float?  @map("current_price")
-  quantity             Float
-  valueUsd             Float?  @map("value_usd")
-  entryDate            String  @map("entry_date")
-  stopLoss             Float   @map("stop_loss")
-  takeProfitLevels     String  @map("take_profit_levels") // JSON array
-  status               String  @default("open")
-  exitPrice            Float?  @map("exit_price")
-  exitDate             String? @map("exit_date")
-  pnlPercent           Float?  @map("pnl_percent")
-  pnlUsd               Float?  @map("pnl_usd")
-  exitReason           String? @map("exit_reason")
-  maxPriceSinceEntry   Float?  @map("max_price_since_entry")
-  trailingStopPct      Float?  @map("trailing_stop_pct")
-  trailingStopActive   Int     @default(0) @map("trailing_stop_active")
-  tpLevelsHit          String  @default("[]") @map("tp_levels_hit") // JSON array
-  createdAt            String? @map("created_at")
-  updatedAt            String? @map("updated_at")
+  id                 String  @id
+  symbol             String
+  address            String
+  chain              String
+  tier               String
+  entryPrice         Float   @map("entry_price")
+  currentPrice       Float?  @map("current_price")
+  quantity           Float
+  valueUsd           Float?  @map("value_usd")
+  entryDate          String  @map("entry_date")
+  stopLoss           Float   @map("stop_loss")
+  takeProfitLevels   String  @map("take_profit_levels") // JSON array
+  status             String  @default("open")
+  exitPrice          Float?  @map("exit_price")
+  exitDate           String? @map("exit_date")
+  pnlPercent         Float?  @map("pnl_percent")
+  pnlUsd             Float?  @map("pnl_usd")
+  exitReason         String? @map("exit_reason")
+  maxPriceSinceEntry Float?  @map("max_price_since_entry")
+  trailingStopPct    Float?  @map("trailing_stop_pct")
+  trailingStopActive Int     @default(0) @map("trailing_stop_active")
+  tpLevelsHit        String  @default("[]") @map("tp_levels_hit") // JSON array
+  createdAt          String? @map("created_at")
+  updatedAt          String? @map("updated_at")
 
   @@index([status], name: "idx_paper_positions_status")
   @@index([address, chain], name: "idx_paper_positions_address_chain")
@@ -96,32 +96,32 @@ model PaperPosition {
 // ---------------------------------------------------------------------------
 
 model Order {
-  id                   String  @id
-  action               String
-  symbol               String
-  name                 String?
-  address              String
-  chain                String
-  amount               String
-  percentOfPortfolio   Float?  @map("percent_of_portfolio")
-  tier                 String?
-  entryPrice           Float?  @map("entry_price")
-  stopLoss             Float?  @map("stop_loss")
-  takeProfitLevels     String? @map("take_profit_levels") // JSON array
-  analysisScore        Int?    @map("analysis_score")
-  riskScore            Int?    @map("risk_score")
-  reasoning            String?
-  reason               String?
-  urgency              String?
-  approvedAt           String? @map("approved_at")
-  approvedBy           String? @map("approved_by")
-  status               String  @default("pending")
-  statusReason         String? @map("status_reason")
-  statusChangedAt      String? @map("status_changed_at")
-  statusChangedBy      String? @map("status_changed_by")
-  updatedAt            String? @map("updated_at")
-  tgMessageId          Int?    @map("tg_message_id")
-  createdAt            String? @map("created_at")
+  id                 String  @id
+  action             String
+  symbol             String
+  name               String?
+  address            String
+  chain              String
+  amount             String
+  percentOfPortfolio Float?  @map("percent_of_portfolio")
+  tier               String?
+  entryPrice         Float?  @map("entry_price")
+  stopLoss           Float?  @map("stop_loss")
+  takeProfitLevels   String? @map("take_profit_levels") // JSON array
+  analysisScore      Int?    @map("analysis_score")
+  riskScore          Int?    @map("risk_score")
+  reasoning          String?
+  reason             String?
+  urgency            String?
+  approvedAt         String? @map("approved_at")
+  approvedBy         String? @map("approved_by")
+  status             String  @default("pending")
+  statusReason       String? @map("status_reason")
+  statusChangedAt    String? @map("status_changed_at")
+  statusChangedBy    String? @map("status_changed_by")
+  updatedAt          String? @map("updated_at")
+  tgMessageId        Int?    @map("tg_message_id")
+  createdAt          String? @map("created_at")
 
   @@index([status], name: "idx_orders_status")
   @@index([action], name: "idx_orders_action")
@@ -134,28 +134,28 @@ model Order {
 // ---------------------------------------------------------------------------
 
 model Receipt {
-  id                   String  @id
-  orderId              String  @map("order_id")
-  action               String
-  symbol               String
-  address              String
-  chain                String
-  amount               Float?
-  quantity             Float?
-  expectedPrice        Float?  @map("expected_price")
-  executedPrice        Float?  @map("executed_price")
-  slippage             Float?
-  status               String
-  safeTxHash           String? @map("safe_tx_hash")
-  onchainTxHash        String? @map("onchain_tx_hash")
-  safeNonce            Int?    @map("safe_nonce")
-  signaturesCollected  Int?    @map("signatures_collected")
-  signaturesRequired   Int?    @map("signatures_required")
-  gasUsed              String? @map("gas_used")
-  error                String?
-  notes                String?
-  positionId           String? @map("position_id")
-  createdAt            String? @map("created_at")
+  id                  String  @id
+  orderId             String  @map("order_id")
+  action              String
+  symbol              String
+  address             String
+  chain               String
+  amount              Float?
+  quantity            Float?
+  expectedPrice       Float?  @map("expected_price")
+  executedPrice       Float?  @map("executed_price")
+  slippage            Float?
+  status              String
+  safeTxHash          String? @map("safe_tx_hash")
+  onchainTxHash       String? @map("onchain_tx_hash")
+  safeNonce           Int?    @map("safe_nonce")
+  signaturesCollected Int?    @map("signatures_collected")
+  signaturesRequired  Int?    @map("signatures_required")
+  gasUsed             String? @map("gas_used")
+  error               String?
+  notes               String?
+  positionId          String? @map("position_id")
+  createdAt           String? @map("created_at")
 
   @@index([orderId], name: "idx_receipts_order_id")
   @@index([status], name: "idx_receipts_status")
@@ -167,22 +167,22 @@ model Receipt {
 // ---------------------------------------------------------------------------
 
 model PaperReceipt {
-  id                   String  @id
-  orderId              String  @map("order_id")
-  action               String
-  symbol               String
-  address              String
-  chain                String
-  tier                 String?
-  proposedPrice        Float   @map("proposed_price")
-  quantity             Float?
-  amount               Float?
-  stopLoss             Float?  @map("stop_loss")
-  takeProfitLevels     String? @map("take_profit_levels") // JSON array
-  reasoning            String?
-  pnlPercent           Float?  @map("pnl_percent")
-  pnlUsd               Float?  @map("pnl_usd")
-  createdAt            String? @map("created_at")
+  id               String  @id
+  orderId          String  @map("order_id")
+  action           String
+  symbol           String
+  address          String
+  chain            String
+  tier             String?
+  proposedPrice    Float   @map("proposed_price")
+  quantity         Float?
+  amount           Float?
+  stopLoss         Float?  @map("stop_loss")
+  takeProfitLevels String? @map("take_profit_levels") // JSON array
+  reasoning        String?
+  pnlPercent       Float?  @map("pnl_percent")
+  pnlUsd           Float?  @map("pnl_usd")
+  createdAt        String? @map("created_at")
 
   @@index([orderId], name: "idx_paper_receipts_order_id")
   @@map("paper_receipts")
@@ -216,9 +216,9 @@ model SentinelAlert {
 // ---------------------------------------------------------------------------
 
 model HeartbeatState {
-  agent      String
-  checkType  String  @map("check_type")
-  lastRun    String? @map("last_run")
+  agent     String
+  checkType String  @map("check_type")
+  lastRun   String? @map("last_run")
 
   @@id([agent, checkType])
   @@map("heartbeat_state")
@@ -282,6 +282,10 @@ model TrackedWallet {
   createdAt      String? @map("created_at")
 
   @@id([address, chain])
+  // Covers findActivityCandidates: WHERE type='smart_money' AND status='scored' ORDER BY lastCheckedAt
+  @@index([type, status, lastCheckedAt])
+  // Covers findUnscored: WHERE status='proposed' OR (status='failed' AND retryCount<3) ORDER BY createdAt
+  @@index([status, retryCount, createdAt])
   @@map("tracked_wallets")
 }
 
@@ -503,26 +507,26 @@ model PortfolioSync {
 // ---------------------------------------------------------------------------
 
 model Trade {
-  id             String  @id
-  symbol         String
-  address        String
-  chain          String
-  tier           String
-  action         String
-  entryPrice     Float?  @map("entry_price")
-  exitPrice      Float?  @map("exit_price")
-  quantity       Float
-  entryDate      String? @map("entry_date")
-  exitDate       String? @map("exit_date")
-  pnlPercent     Float?  @map("pnl_percent")
-  pnlUsd         Float?  @map("pnl_usd")
-  exitReason     String? @map("exit_reason")
-  analysisScore  Int?    @map("analysis_score")
-  riskScore      Int?    @map("risk_score")
-  narrative      String?
-  lesson         String?
-  durationDays   Int?    @map("duration_days")
-  createdAt      String? @map("created_at")
+  id            String  @id
+  symbol        String
+  address       String
+  chain         String
+  tier          String
+  action        String
+  entryPrice    Float?  @map("entry_price")
+  exitPrice     Float?  @map("exit_price")
+  quantity      Float
+  entryDate     String? @map("entry_date")
+  exitDate      String? @map("exit_date")
+  pnlPercent    Float?  @map("pnl_percent")
+  pnlUsd        Float?  @map("pnl_usd")
+  exitReason    String? @map("exit_reason")
+  analysisScore Int?    @map("analysis_score")
+  riskScore     Int?    @map("risk_score")
+  narrative     String?
+  lesson        String?
+  durationDays  Int?    @map("duration_days")
+  createdAt     String? @map("created_at")
 
   @@index([createdAt], name: "idx_trades_created_at")
   @@map("trades")

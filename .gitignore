@@ -17,6 +17,7 @@ data/
 *.db
 *.db-wal
 *.db-shm
+*.db-journal
 
 # OS files
 .DS_Store

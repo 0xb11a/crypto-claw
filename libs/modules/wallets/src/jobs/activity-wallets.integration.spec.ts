@@ -85,7 +85,7 @@ beforeAll(async () => {
       "counter_token_address" TEXT,
       "counter_token_symbol"  TEXT,
       "amount_token"          TEXT,
-      "tx_timestamp"          TEXT,
+      "tx_timestamp"          TEXT NOT NULL,
       "created_at"            TEXT,
       UNIQUE("tx_hash", "wallet_address", "action", "token_address")
     )

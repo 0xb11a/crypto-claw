@@ -188,7 +188,7 @@ export class ZerionAdapter {
       throw err;
     }
 
-    const url = `${ZERION_BASE_URL}/wallets/${address}/pnl/?currency=usd`;
+    const url = `${ZERION_BASE_URL}/wallets/${encodeURIComponent(address)}/pnl/?currency=usd`;
     this.logger.debug(`zerion.getPnl: fetching PnL for ${address}`);
 
     const response = await fetch(url, {

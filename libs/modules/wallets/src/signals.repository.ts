@@ -1,4 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+// Prisma namespace import (error types) allowed in repository files — see SPEC §4 #1.
+// eslint-disable-next-line no-restricted-imports
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@cclaw/prisma';
 import type { SignalsQueryDto } from './dto/signals-query.dto.js';
 import type {
@@ -218,18 +221,15 @@ export class SignalsRepository {
   /**
    * Insert a swap signal, ignoring duplicates (INSERT OR IGNORE parity).
    *
-   * Uses Prisma `upsert` keyed on the `@@unique([txHash, walletAddress, action,
-   * tokenAddress])` constraint. When the unique constraint fires, the `update`
-   * block is a no-op (empty object), so the existing row is left unchanged —
-   * this gives INSERT OR IGNORE semantics.
+   * Attempts a Prisma `create`; on unique-constraint violation (Prisma error
+   * code P2002 on the `@@unique([txHash, walletAddress, action, tokenAddress])`
+   * constraint) returns `{ inserted: false }` without touching the existing row.
+   * Any other error is re-thrown.
    *
-   * Returns `{ inserted: true }` when a new row was created, or
-   * `{ inserted: false }` when the unique constraint prevented insertion.
-   *
-   * Note: Prisma's `upsert` does not expose whether the operation was a
-   * create or update directly, so we compare the `createdAt` field: a just-created
-   * row will have a `createdAt` value within the last few milliseconds of `now`.
-   * We use a 1-second tolerance to guard against tiny clock-resolution differences.
+   * This replaces the previous `upsert` + 1-second timestamp-heuristic approach,
+   * which was timing-dependent and semantically incorrect. The `create` + P2002
+   * catch gives deterministic INSERT OR IGNORE semantics regardless of wall-clock
+   * resolution or concurrency jitter.
    *
    * @param input - Signal data from `extractEvmSwaps` or `extractSolanaSwaps`.
    * @param walletAddress - Address of the tracked wallet that triggered this signal.
@@ -245,41 +245,32 @@ export class SignalsRepository {
     chain: string,
   ): Promise<{ inserted: boolean }> {
     const now = new Date().toISOString();
-    const result = await this.prisma.smartMoneySignal.upsert({
-      where: {
-        txHash_walletAddress_action_tokenAddress: {
+    try {
+      await this.prisma.smartMoneySignal.create({
+        data: {
           txHash: input.tx_hash,
+          chain,
           walletAddress,
+          walletScore,
+          walletLabel,
           action: input.action,
           tokenAddress: input.token_address,
+          tokenSymbol: input.token_symbol,
+          counterTokenAddress: input.counter_token_address,
+          counterTokenSymbol: input.counter_token_symbol,
+          amountToken: input.amount_token,
+          txTimestamp: input.tx_timestamp,
+          createdAt: now,
         },
-      },
-      // On conflict: no-op (INSERT OR IGNORE semantics — don't overwrite existing rows)
-      update: {},
-      create: {
-        txHash: input.tx_hash,
-        chain,
-        walletAddress,
-        walletScore,
-        walletLabel,
-        action: input.action,
-        tokenAddress: input.token_address,
-        tokenSymbol: input.token_symbol,
-        counterTokenAddress: input.counter_token_address,
-        counterTokenSymbol: input.counter_token_symbol,
-        amountToken: input.amount_token,
-        txTimestamp: input.tx_timestamp,
-        createdAt: now,
-      },
-    });
-
-    // Determine if this was a create or a conflict hit.
-    // A conflict-hit row will have an older `createdAt` than `now`.
-    // Allow 1 second tolerance for clock resolution.
-    const createdMs = result.createdAt ? new Date(result.createdAt).getTime() : 0;
-    const inserted = Date.now() - createdMs < 1_000;
-
-    return { inserted };
+      });
+      return { inserted: true };
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        // Unique constraint violation — row already exists, INSERT OR IGNORE semantics.
+        return { inserted: false };
+      }
+      throw err;
+    }
   }
 
   /**
