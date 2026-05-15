@@ -12,8 +12,8 @@
   "scripts": {
     "prepare": "husky",
     "typecheck": "tsc --build",
-    "lint": "eslint 'apps/**/*.ts' 'libs/**/*.ts' 'sdk/**/*.ts' && eslint 'scripts/**/*.js' 'tests/**/*.js'",
-    "lint:fix": "eslint --fix 'apps/**/*.ts' 'libs/**/*.ts' 'sdk/**/*.ts' && eslint --fix 'scripts/**/*.js' 'tests/**/*.js'",
+    "lint": "eslint 'apps/**/*.ts' && eslint 'libs/modules/**/*.ts' 'libs/adapters/**/*.ts' && eslint 'libs/audit/**/*.ts' 'libs/auth/**/*.ts' 'libs/chain/**/*.ts' 'libs/config/**/*.ts' 'libs/domain/**/*.ts' 'libs/execution/**/*.ts' 'libs/health/**/*.ts' 'libs/logger/**/*.ts' 'libs/market/**/*.ts' 'libs/notifications/**/*.ts' 'libs/portfolio/**/*.ts' 'libs/prisma/**/*.ts' 'sdk/**/*.ts' && eslint 'scripts/**/*.js' 'tests/**/*.js'",
+    "lint:fix": "eslint --fix 'apps/**/*.ts' && eslint --fix 'libs/modules/**/*.ts' 'libs/adapters/**/*.ts' && eslint --fix 'libs/audit/**/*.ts' 'libs/auth/**/*.ts' 'libs/chain/**/*.ts' 'libs/config/**/*.ts' 'libs/domain/**/*.ts' 'libs/execution/**/*.ts' 'libs/health/**/*.ts' 'libs/logger/**/*.ts' 'libs/market/**/*.ts' 'libs/notifications/**/*.ts' 'libs/portfolio/**/*.ts' 'libs/prisma/**/*.ts' 'sdk/**/*.ts' && eslint --fix 'scripts/**/*.js' 'tests/**/*.js'",
     "test": "pnpm test:unit && pnpm test:integration",
     "test:unit": "vitest run --project '*:unit'",
     "test:integration": "vitest run --project 'integration' --no-file-parallelism",
