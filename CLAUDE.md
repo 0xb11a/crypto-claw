@@ -357,6 +357,22 @@ Configure `PORTFOLIO_REPORT_HOUR` (0-23, default: 0) to receive automated daily 
 - **Multi-fund deployment:** Set different `SAFE_ID` values. Each gets its own SQLite database. Agent memory (markdown) is shared across all deployments.
 - **Changing agent instructions:** After editing any AGENTS.md, HEARTBEAT.md, SOUL.md, or SKILL.md file, run `/audit-instructions` to check for inconsistencies with source-of-truth files and other agent instructions.
 
+## Code Review (v2 rewrite layer)
+
+PRs against the `v2` branch flow through the `coder` → `tester` → `reviewer` pipeline defined in `.claude/agents/`. The reviewer enforces `SPEC.md` and `docs/dod.md`, and escalates to depth specialists on non-trivial diffs:
+
+- `security-auditor` — **mandatory** when the diff matches DoD §F (auth/guards, secrets, `@Audited()` decorators, signer-key paths, logger redactor, throttler, CORS, new runtime dependency).
+- `database-specialist` — advisory; called for non-trivial DoD §D diffs (new Prisma migration, repository, hot-path query, SQLite-vs-Postgres portability).
+- `typescript-specialist` — advisory; called for type-heavy diffs (new generics, public-API type surface change, unjustified `as unknown as`).
+
+**Environment prerequisite.** All three specialists are loaded from project-local `.claude/agents/`. They are **not** part of any Claude built-in catalog. A reviewer running in an environment that hasn't mounted the project's `.claude/` directory (cloud-side `/ultrareview` without project context, fresh clone before checkout, detached worktree) will have the `Agent` tool fail with "subagent not available" on those names. Per `reviewer.md` step 10, the reviewer must then:
+
+1. State the failure explicitly in the verdict (no silent skip).
+2. Perform an inline depth-pass against the specialist's published checklist.
+3. Flag the gap as a recurring `Suggestions` entry so the operator can route the next PR through a session with the agents available.
+
+To make a depth pass possible by default, run reviews from a local Claude Code session against a `v2`-rooted branch — `.claude/agents/` is committed on `v2` and will be loaded automatically.
+
 ## Common Pitfalls
 
 - **No command chaining in agent instructions.** OpenClaw's exec preflight rejects compound commands (`&&`, `||`, `;`, `2>/dev/null`). Every bash code block in agent markdown files (AGENTS.md, HEARTBEAT.md, SKILL.md, TOOLS.md) must contain exactly one command. If you need to show multiple commands, use separate code fences. Each agent's TOOLS.md has the rule "Run one command per exec call" — never remove it.
