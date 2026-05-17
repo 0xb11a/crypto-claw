@@ -4,14 +4,36 @@
  */
 
 import { describe, test, assert, assertEqual, summary } from './test-helpers.js';
+import { rmSync } from 'fs';
+import { resolve } from 'path';
 
 let chains;
 let dbMod;
+let testDbPath;
+
+function cleanupTestDb() {
+  if (!testDbPath) return;
+  for (const suffix of ['', '-wal', '-shm', '-journal']) {
+    rmSync(testDbPath + suffix, { force: true });
+  }
+}
 
 async function runTests() {
   // Pre-load modules
   chains = await import('../scripts/chains.js');
   process.env.SAFE_ID = `test-chains-${Date.now()}`;
+  testDbPath = resolve(process.cwd(), 'data', `${process.env.SAFE_ID}.db`);
+  // Defense in depth: remove temp DB even on crash/Ctrl-C (better-sqlite3
+  // closes file handles in its own cleanup, so unlink is safe here).
+  process.on('exit', cleanupTestDb);
+  process.on('SIGINT', () => {
+    cleanupTestDb();
+    process.exit(130);
+  });
+  process.on('SIGTERM', () => {
+    cleanupTestDb();
+    process.exit(143);
+  });
   dbMod = await import('../scripts/db.js');
 
   // ============================================================
@@ -704,6 +726,7 @@ async function runTests() {
 
   // Cleanup
   dbMod.close();
+  cleanupTestDb();
 
   const passed = summary();
   process.exit(passed ? 0 : 1);
