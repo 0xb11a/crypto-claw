@@ -891,7 +891,7 @@ During P3, the legacy `entrypoint.sh` loops (`run_wallet_scoring_loop`, `run_act
 
 ### 11.2 Governance drift (P3g2 PR-D)
 
-P4 cutover note: this job replaces `entrypoint.sh:run_governance_drift_loop` (EVM branch disabled in P4; Solana branch still runs via entrypoint — see §13).
+P4 + Squads SDK port note: this job fully replaces `entrypoint.sh:run_governance_drift_loop` (the loop body and `&` invocation are both commented out as of the Squads SDK port — see §13.4). Both EVM and Solana branches are handled by `GovernanceDriftProcessor`.
 
 The governance-drift job runs daily at midnight and checks that the on-chain Safe multisig config (owners, threshold, modules) matches the expected values configured via env vars. Any deviation triggers a `rug_warning` Telegram alert.
 
@@ -913,7 +913,7 @@ The governance-drift job runs daily at midnight and checks that the on-chain Saf
 | `EXPECTED_SQUADS_THRESHOLD` | Required Squads signing threshold (integer) |
 
 **P3g2 PR-D status — Solana:**
-> **Warning:** Solana multisig governance drift is NOT handled by the NestJS processor. The `SquadsRpcAdapter` is a stub that throws `SquadsRpcNotImplementedError`. EVM chains (Base, Ethereum) are fully ported; Solana remains handled by `entrypoint.sh:run_governance_drift_loop` via `scripts/governance-drift.js` until a dedicated SDK-port PR adds `@sqds/multisig` with real fixture validation. The `last_governance_drift_at` meta key is still written each cycle (EVM timing applies).
+> **Coverage:** Both EVM (Base, Ethereum) and Solana governance drift are handled by the NestJS `GovernanceDriftProcessor`. The Solana path uses `@sqds/multisig` via `SquadsRpcAdapter.getMultisigInfo()` to read on-chain Multisig owners + threshold and compares against `EXPECTED_SQUADS_MEMBERS` / `EXPECTED_SQUADS_THRESHOLD`. See §13.4 for the cutover record.
 
 **Operator warning — empty string values:**
 > Setting `EXPECTED_SAFE_OWNERS_BASE=""` (empty string, not unset) causes `hasExpectations=true` internally because the env var is present. The processor will interpret the empty list as "zero expected owners" and fire an `owner_added` alert for every observed owner on every cycle. To suppress drift checks for a chain, leave the var **unset** (absent from the environment) rather than setting it to an empty string.
@@ -925,7 +925,7 @@ The governance-drift job runs daily at midnight and checks that the on-chain Saf
 
 ### 11.3 Multisig tracking (P3g2 PR-D)
 
-P4 cutover note: this job handles EVM multisig tracking; the legacy `entrypoint.sh:run_multisig_tracker_loop` continues to run on both chains (EVM is idempotent; Solana is sole handler during P4 — see §13).
+P4 + Squads SDK port note: this job fully replaces `entrypoint.sh:run_multisig_tracker_loop` for BOTH chains (loop body + `&` invocation commented out as of the Squads SDK port — see §13.4).
 
 The multisig-tracking job runs every 5 minutes and polls the on-chain status of receipts in `queued_in_safe` or `queued_in_squads` status. On confirmation it transitions the linked position (`draft → open` for BUY, `pending_exit → closed` for SELL). On rejection it refunds cash (BUY) or reverts the position (`pending_exit → open` for SELL).
 
@@ -934,7 +934,7 @@ The multisig-tracking job runs every 5 minutes and polls the on-chain status of 
 **Skip condition:** `PAPER_MODE=true` — paper receipts are executed synchronously by PaperExecutor.
 
 **P3g2 PR-D status — Solana:**
-> **Warning:** Solana multisig tracking is NOT handled by the NestJS processor. The `SquadsRpcAdapter` (`libs/adapters/squads-rpc`) is a stub that throws `SquadsRpcNotImplementedError`. The worker processor explicitly skips all `queued_in_squads` receipts with a `WARN`-level log per cycle; those receipts remain in `queued_in_squads` state and are handled by `entrypoint.sh:run_executor_loop` via `scripts/track-multisig.js` until a dedicated SDK-port PR adds `@sqds/multisig` with real fixture validation. **EVM (Base, Ethereum) paths are fully ported and unaffected.** The `last_multisig_tracker_at` meta key is still written each cycle (EVM timing applies).
+> **Coverage:** Both EVM (Base, Ethereum) and Solana multisig tracking are handled by the NestJS `MultisigTrackerProcessor`. The Solana path uses `@sqds/multisig` via `SquadsRpcAdapter.getPendingTransactions()`, called once per cycle and shared across all `queued_in_squads` receipts. Receipts absent from the pending list are marked executed (legacy parity; documented [OPEN-RISK] for the case where Proposal-PDA fetch fails on every index). See §13.4 for the cutover record.
 
 **OPEN-7 note:** After confirming a transaction, the tracker sets `last_portfolio_sync_stale_at` as a stale marker instead of inline-calling portfolio-load scripts. A future portfolio-sync job (P3g2 PR-E or later) will pick up this marker and sync the on-chain balance. During P3, the legacy `portfolio-load-{evm,solana}.js` scripts run in parallel and handle this.
 
@@ -942,7 +942,7 @@ The multisig-tracking job runs every 5 minutes and polls the on-chain status of 
 
 **Troubleshooting:**
 - If a receipt is stuck in `queued_in_safe`: check that `safe_tx_hash` is set on the receipt (`cclaw receipts get --id <id>`).
-- If you see repeated `multisig-tracker: Solana multisig tracking deferred` WARN lines: this is expected while the SquadsRpcAdapter SDK port is pending. Solana `queued_in_squads` receipts are tracked by the legacy `scripts/track-multisig.js` script via `entrypoint.sh`.
+- The `multisig-tracker: Solana multisig tracking deferred` WARN lines that fired during P4 no longer appear — Solana is now handled by the NestJS processor via the real `SquadsRpcAdapter`. If you see WARN lines mentioning `SquadsRpcError` or `getPendingTransactions failed`, that's a Solana RPC connectivity issue; check `RPC_SOL` and the configured endpoint.
 - Reminder alerts fire every 30 minutes for any receipt still pending. If you are receiving many reminders, check the Safe Transaction Service or Squads UI for stuck transactions requiring manual approval.
 - If position is in `draft` or `pending_exit` for > 24 h: manually inspect the receipt status and trigger `cclaw orders retry --id <order_id>` if needed.
 
@@ -1069,11 +1069,11 @@ The following loops were kept running unchanged:
 
 The following loop was partially modified (Solana-only filter added):
 
-- `run_governance_drift_loop` — EVM handled by `GovernanceDriftProcessor` (PR #26). A one-line `if [ "$chain" != "solana" ]; then continue; fi` filter was added immediately after the `for chain in "${CHAINS[@]}"` dispatch to skip EVM chains. Solana branch continues to run via this loop because `SquadsRpcAdapter` is a stub (`SquadsRpcNotImplementedError`) pending the Squads SDK port.
+- `run_governance_drift_loop` — fully disabled (both function body and `&` invocation commented out) as of the Squads SDK port. Both EVM and Solana are now handled by `GovernanceDriftProcessor` (`SquadsRpcAdapter.getMultisigInfo()` covers Solana via `@sqds/multisig`). The P4-era Solana-only chain filter is removed.
 
 The following loop was kept fully running (both chains):
 
-- `run_multisig_tracker_loop` — EVM duplicated by `MultisigTrackerProcessor` (PR #26); Solana sole handler during P4. Both writers are idempotent (DoD §E): the NestJS processor skips `queued_in_squads` receipts with a WARN log; the legacy loop handles them. Script (`scripts/track-multisig.js`) has no `--chain` filter, so per `[OPEN-P4-1]` it was left unmodified.
+- `run_multisig_tracker_loop` — fully disabled (both function body and `&` invocation commented out) as of the Squads SDK port. Both EVM and Solana are now handled by `MultisigTrackerProcessor` via the real `SquadsRpcAdapter.getPendingTransactions()`. The P4 idempotency safety net (legacy + NestJS both writing) is no longer needed.
 
 Agent markdown (20 files across Research, Sentinel, Executor, Observer) was swept to prefer `cclaw <resource> <action>` where a cclaw equivalent exists. Commands without a cclaw equivalent remain as `node scripts/db-query.js` (legacy hold-backs, deleted in P5).
 
@@ -1163,17 +1163,42 @@ The following scripts are kept byte-untouched (DoD §I) through P4 and will be d
 
 All four will be deleted at the start of P5 cleanup. Until then, agent markdown references them with `(legacy hold-back)` annotations.
 
-### §13.4 Solana cutover deferred
+### §13.4 Solana cutover complete (PR #29 — Squads SDK port)
 
-Until the SquadsRpcAdapter SDK port lands (dedicated PR post-P4), two legacy behaviors remain active:
+The SquadsRpcAdapter SDK port (`@sqds/multisig@^2.1.4`) landed in PR #29. Both legacy
+entrypoint loops are now disabled.
 
-1. **Governance-drift Solana branch** — `entrypoint.sh:run_governance_drift_loop` continues to handle Solana via `scripts/check-squads-status.js --check-drift`. EVM chains are handled by `GovernanceDriftProcessor` (PR #26). The entrypoint loop now skips all non-Solana chains via a one-line filter added in P4. The `last_governance_drift_at` meta key is written by the NestJS processor on EVM cadence; Solana writes are not tracked separately.
+**What changed (PR #29):**
 
-2. **Multisig tracking Solana branch** — `entrypoint.sh:run_multisig_tracker_loop` runs on both chains. The NestJS `MultisigTrackerProcessor` (PR #26) skips `queued_in_squads` receipts with a WARN log per cycle; the legacy loop handles them. Both writers are idempotent (DoD §E). The `last_multisig_tracker_at` meta key is written by the NestJS processor on EVM cadence.
+1. **Governance-drift Solana branch** — `entrypoint.sh:run_governance_drift_loop` function
+   body is commented out and the `&` invocation replaced by a `[p5-squads-sdk]` banner.
+   `GovernanceDriftProcessor` now handles all chains (EVM via Safe Transaction Service +
+   Solana via `SquadsRpcAdapter.getMultisigInfo()`). The `last_governance_drift_at` meta
+   key is written by the NestJS processor on every cycle (all chains).
 
-The Squads SDK port is tracked as a follow-up PR. When it lands:
-- Remove the Solana-only filter from `run_governance_drift_loop` and comment out the full function + invocation.
-- The multisig tracker loop can then be fully disabled (`run_multisig_tracker_loop` commented out).
+2. **Multisig tracking Solana branch** — `entrypoint.sh:run_multisig_tracker_loop` function
+   body is commented out and the `&` invocation replaced by a `[p5-squads-sdk]` banner.
+   `MultisigTrackerProcessor` now handles all chains (EVM via Safe Transaction Service +
+   Solana via `SquadsRpcAdapter.getPendingTransactions()`). The `last_multisig_tracker_at`
+   meta key is written by the NestJS processor on every cycle.
+
+**Disabled legacy scripts (still present, byte-untouched, DoD §I):**
+- `scripts/check-squads-status.js` — no longer invoked by any entrypoint loop.
+- `scripts/governance-drift.js` (imported by check-squads-status) — unchanged.
+- `scripts/track-multisig.js` — no longer invoked by any entrypoint loop.
+Both will be deleted at P5 cleanup.
+
+**Squads adapter design (locked decisions):**
+- `@sqds/multisig@^2.1.4` + `@solana/web3.js@^1.98.0` + `@solana/spl-token@^0.4.9`.
+- Per-call `Connection` (not cached singleton — matches legacy behavior).
+- Scan window: `max(1, txIndex - 19)`, latest 20 indices descending (matches legacy).
+- Dynamic `await import('@sqds/multisig')` for CJS/ESM interop safety (mirrors executor).
+- `SQUADS_SIGNER_KEY` never read (SPEC §4 #4). RPC URL never logged (may contain API key).
+
+**Rollback (if needed):**
+`git revert <PR-29-merge-sha>` snaps back: re-enables both entrypoint loops, restores Solana
+feature-flag skips in both processors, removes the SDK calls. SDK dependencies stay installed
+(harmless).
 
 ### §13.5 90-minute parallel-legacy log diff results
 

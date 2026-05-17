@@ -58,6 +58,11 @@ function isComment(line) {
 
 function isAllowlisted(line, file) {
   if (file === '.env.example') return true;
+  // Binary test fixtures (Borsh/Solana account dumps, signed binaries) can
+  // resemble base58 private-key patterns by construction. Inline allow-comments
+  // can't be added to raw .b64 / .bin payloads. Scope the allowlist to
+  // __fixtures__/ subtrees, which are vendored test data only.
+  if (/(?:^|\/)__fixtures__\//.test(file)) return true;
   if (isComment(line)) return true;
   if (line.includes('process.env.')) return true;
   if (line.includes('// pre-commit-allow')) return true;

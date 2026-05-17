@@ -14,7 +14,10 @@
     "@nestjs/config": "^3.0.0",
     "@cclaw/config": "workspace:*",
     "@cclaw/logger": "workspace:*",
-    "@cclaw/chain": "workspace:*"
+    "@cclaw/chain": "workspace:*",
+    "@sqds/multisig": "^2.1.4",
+    "@solana/web3.js": "^1.98.0",
+    "@solana/spl-token": "^0.4.9"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -9,8 +9,9 @@
  *   2. Loop over ACTIVE_CHAINS:
  *      a. For EVM chains: call `SafeTxServiceAdapter.getSafeInfo()` and compare
  *         against expected config read from ConfigService fields.
- *      b. For Solana: feature-flag skipped (SquadsRpcAdapter SDK port pending).
- *         Handled by entrypoint.sh:run_governance_drift_loop → scripts/governance-drift.js.
+ *      b. For Solana: call `SquadsRpcAdapter.getMultisigInfo()` and compare
+ *         against EXPECTED_SQUADS_MEMBERS / EXPECTED_SQUADS_THRESHOLD
+ *         (SDK port complete — entrypoint.sh:run_governance_drift_loop disabled).
  *   3. On drift detected: call `notificationsService.sendCriticalAlert({ type: 'rug_warning' ... })`.
  *   4. Always write `systemService.setMeta('last_governance_drift_at', now)`.
  *
@@ -35,12 +36,17 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
 import type { Job } from 'bullmq';
 import { SafeTxServiceAdapter, SafeTxServiceChainError } from '@cclaw/adapters-safe-tx-service';
-import { SquadsRpcAdapter, SquadsAddressMissingError, SquadsRpcNotImplementedError } from '@cclaw/adapters-squads-rpc';
+import { SquadsRpcAdapter, SquadsAddressMissingError, SquadsRpcError } from '@cclaw/adapters-squads-rpc';
 import { NotificationsService } from '@cclaw/notifications';
 import { SystemService } from '@cclaw/system';
 import { getChain, isEvm, isSolana, CHAINS } from '@cclaw/chain';
 import { GOVERNANCE_DRIFT_QUEUE } from './queue-names.js';
-import { readExpectedSafeConfig, evaluateSafeDrift } from './drift-evaluator.js';
+import {
+  readExpectedSafeConfig,
+  evaluateSafeDrift,
+  readExpectedSquadsConfig,
+  evaluateSquadsDrift,
+} from './drift-evaluator.js';
 
 /** BullMQ job payload — empty (all config resolved via ConfigService). */
 export type GovernanceDriftJobData = Record<string, never>;
@@ -67,10 +73,7 @@ export class GovernanceDriftProcessor extends WorkerHost {
   constructor(
     private readonly configService: ConfigService,
     private readonly safeTxService: SafeTxServiceAdapter,
-    // squadsRpc retained in DI graph so the module stays wired when the SDK
-    // port PR re-enables the Solana path. Solana drift is currently handled
-    // by entrypoint.sh:run_governance_drift_loop (scripts/governance-drift.js).
-    private readonly _squadsRpc: SquadsRpcAdapter,
+    private readonly squadsRpc: SquadsRpcAdapter,
     private readonly notificationsService: NotificationsService,
     private readonly systemService: SystemService,
   ) {
@@ -152,39 +155,52 @@ export class GovernanceDriftProcessor extends WorkerHost {
             this.logger.debug(`governance-drift: ${chainName} — no drift detected`);
           }
         } else if (isSolana(chain)) {
-          /**
-           * FEATURE FLAG — Solana governance drift deferred to legacy script.
-           *
-           * SquadsRpcAdapter.getMultisigInfo() throws SquadsRpcNotImplementedError
-           * (SDK port pending). Solana governance drift remains handled by
-           * entrypoint.sh:run_governance_drift_loop → scripts/governance-drift.js
-           * until a dedicated PR adds @sqds/multisig with real fixture validation.
-           *
-           * The EVM (Safe Transaction Service) path is unaffected.
-           *
-           * Do NOT call this._squadsRpc.getMultisigInfo() here. The outer
-           * catch below will log SquadsRpcNotImplementedError loudly if any
-           * future refactor accidentally re-enables the call.
-           */
-          this.logger.warn(
-            `governance-drift: Solana governance-drift deferred to ` +
-              'entrypoint.sh:run_governance_drift_loop; SquadsRpcAdapter SDK port pending',
-          );
-          // Skip: do not increment chainsChecked — Solana is handled externally.
-          continue;
+          // Squads governance drift — SDK port complete.
+          // Read expected members / threshold from ConfigService (ADR-0026).
+          const squadsEnvSubset: Record<string, string | undefined> = {
+            EXPECTED_SQUADS_MEMBERS: this.configService.get<string>('EXPECTED_SQUADS_MEMBERS'),
+            EXPECTED_SQUADS_THRESHOLD: this.configService.get<string>('EXPECTED_SQUADS_THRESHOLD'),
+          };
+          const expectedSquads = readExpectedSquadsConfig(squadsEnvSubset);
+
+          if (!expectedSquads.hasExpectations) {
+            this.logger.debug('governance-drift: no expected Squads config — skipping Solana drift check');
+            continue;
+          }
+
+          // Fetch on-chain Squads multisig state with a 30 s cap.
+          const signal = AbortSignal.timeout(30_000);
+          const squadsInfo = await this.squadsRpc.getMultisigInfo(signal);
+
+          const squadsResult = evaluateSquadsDrift({
+            observedMembers: squadsInfo.members,
+            observedThreshold: squadsInfo.threshold,
+            expected: expectedSquads,
+          });
+
+          chainsChecked++;
+          if (squadsResult.alerts.length > 0) {
+            totalAlerts += squadsResult.alerts.length;
+            const summary = squadsResult.alerts.map((a) => `[${a.type}] ${a.detail}`).join('; ');
+            this.logger.warn(`governance-drift: DRIFT on ${chainName}: ${summary}`);
+            await this.notificationsService.sendCriticalAlert({
+              type: 'rug_warning',
+              agent: 'governance',
+              message: `GOVERNANCE DRIFT on ${chainName}: ${summary}`,
+            });
+          } else {
+            this.logger.debug(`governance-drift: ${chainName} — no drift detected`);
+          }
         } else {
           this.logger.debug(`governance-drift: unsupported chain ${chainName} — skipping`);
         }
       } catch (err) {
         if (err instanceof SafeTxServiceChainError || err instanceof SquadsAddressMissingError) {
           this.logger.debug(`governance-drift: ${chainName} — ${(err as Error).message}`);
-        } else if (err instanceof SquadsRpcNotImplementedError) {
-          // Defense-in-depth: SquadsRpcNotImplementedError should never escape
-          // the explicit Solana skip above, but if it does log loudly.
-          this.logger.error(
-            `governance-drift: SquadsRpcNotImplementedError on ${chainName} — ` +
-              'Solana governance drift must remain in scripts/governance-drift.js until SDK port lands',
-          );
+        } else if (err instanceof SquadsRpcError) {
+          // RPC error (network, Borsh decode, etc.) — log with chain name only;
+          // do NOT surface the RPC URL (may contain API key).
+          this.logger.warn(`governance-drift: Squads RPC error on ${chainName} — ${(err as Error).message}`);
         } else {
           // Log non-fatal errors and continue to the next chain.
           this.logger.warn(`governance-drift: error on ${chainName} — ${(err as Error).message}`);

@@ -13,20 +13,16 @@
  *   - EVM chain with drift detected → sendCriticalAlert called once with rug_warning.
  *   - EVM chain no drift → sendCriticalAlert NOT called.
  *   - Solana chain (ACTIVE_CHAINS=solana):
- *       - getMultisigInfo is NEVER called.
- *       - sendCriticalAlert is NEVER called.
- *       - A WARN log is emitted mentioning "deferred" / "entrypoint.sh".
- *       - chainsChecked is 0 (Solana is not checked — handled externally).
- *       - last_governance_drift_at IS still written.
+ *       - getMultisigInfo IS called (SDK port complete).
+ *       - With no expected config → chainsChecked=0, no alert.
+ *       - With expected config + no drift → chainsChecked=1, no alert.
+ *       - With expected config + member drift → sendCriticalAlert called.
+ *       - SquadsAddressMissingError → swallowed (debug log), loop continues.
+ *       - SquadsRpcError → swallowed (warn log), loop continues.
  *   - SafeTxServiceChainError → swallowed, loop continues.
  *   - Generic adapter error → logged + continues.
  *   - meta key `last_governance_drift_at` always written (even with errors).
  *   - GovernanceDriftResult shape is correct.
- *
- * NOTE: "swallows SquadsAddressMissingError" test removed — the Solana branch
- * never calls squadsRpc.getMultisigInfo(), so that error path no longer exists
- * in production code. The relevant defence-in-depth catch (SquadsRpcNotImplementedError
- * at ERROR level) is tested via the outer-catch test below.
  *
  * SPEC §4 #4 — no signer-key env vars.
  * SPEC §4 #6 — config via ConfigService.
@@ -38,7 +34,7 @@ import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { Job } from 'bullmq';
 import { SafeTxServiceAdapter, SafeTxServiceChainError } from '@cclaw/adapters-safe-tx-service';
-import { SquadsRpcAdapter, SquadsRpcNotImplementedError } from '@cclaw/adapters-squads-rpc';
+import { SquadsRpcAdapter, SquadsAddressMissingError, SquadsRpcError } from '@cclaw/adapters-squads-rpc';
 import type { NotificationsService } from '@cclaw/notifications';
 import type { SystemService } from '@cclaw/system';
 import { GovernanceDriftProcessor } from './governance-drift.processor.js';
@@ -85,10 +81,12 @@ function makeSafeTxService(
   } as unknown as SafeTxServiceAdapter;
 }
 
-function makeSquadsRpc(): SquadsRpcAdapter {
+function makeSquadsRpc(
+  multisigInfo: { members: string[]; threshold: number } = { members: ['PubKeyAlpha', 'PubKeyBeta'], threshold: 2 },
+): SquadsRpcAdapter {
   return {
-    getMultisigInfo: vi.fn().mockRejectedValue(new SquadsRpcNotImplementedError('getMultisigInfo')),
-    getPendingTransactions: vi.fn().mockRejectedValue(new SquadsRpcNotImplementedError('getPendingTransactions')),
+    getMultisigInfo: vi.fn().mockResolvedValue(multisigInfo),
+    getPendingTransactions: vi.fn().mockResolvedValue([]),
   } as unknown as SquadsRpcAdapter;
 }
 
@@ -388,92 +386,28 @@ describe('GovernanceDriftProcessor', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Solana chain — feature-flag skip (SDK port pending)
+  // Solana chain — SDK port complete
   //
-  // New behavior (PR-D fix): the Solana branch is explicitly skipped.
-  // SquadsRpcAdapter.getMultisigInfo() is NEVER called.
-  // sendCriticalAlert is NEVER called for Solana.
-  // A single WARN log is emitted per cycle.
-  // chainsChecked remains 0 — Solana is handled by entrypoint.sh externally.
-  // last_governance_drift_at IS still written (idempotency invariant).
+  // The Solana branch now calls SquadsRpcAdapter.getMultisigInfo() for real.
+  // entrypoint.sh:run_governance_drift_loop is disabled (commented out).
   // -------------------------------------------------------------------------
 
-  describe('Solana chain — feature-flag skip (SDK port pending)', () => {
-    it('does NOT call getMultisigInfo on Solana chain', async () => {
+  describe('Solana chain — SDK port complete', () => {
+    it('calls getMultisigInfo when Solana is in ACTIVE_CHAINS and expected config is set', async () => {
       const config = makeConfigService({
         ACTIVE_CHAINS: 'solana',
         EXPECTED_SQUADS_MEMBERS: 'PubKeyAlpha,PubKeyBeta',
         EXPECTED_SQUADS_THRESHOLD: '2',
       });
+      squadsRpc = makeSquadsRpc({ members: ['PubKeyAlpha', 'PubKeyBeta'], threshold: 2 });
       const processor = makeProcessor(config, safeTxService, squadsRpc, notificationsService, systemService);
 
       await processor.process(makeJob());
 
-      expect(squadsRpc.getMultisigInfo).not.toHaveBeenCalled();
+      expect(squadsRpc.getMultisigInfo).toHaveBeenCalledOnce();
     });
 
-    it('does NOT call sendCriticalAlert for Solana chain', async () => {
-      const config = makeConfigService({
-        ACTIVE_CHAINS: 'solana',
-        EXPECTED_SQUADS_MEMBERS: 'PubKeyAlpha,PubKeyBeta',
-        EXPECTED_SQUADS_THRESHOLD: '2',
-      });
-      const processor = makeProcessor(config, safeTxService, squadsRpc, notificationsService, systemService);
-
-      await processor.process(makeJob());
-
-      expect(notificationsService.sendCriticalAlert).not.toHaveBeenCalled();
-    });
-
-    it('emits a WARN log mentioning deferred handling (entrypoint.sh)', async () => {
-      const config = makeConfigService({
-        ACTIVE_CHAINS: 'solana',
-        EXPECTED_SQUADS_MEMBERS: 'PubKeyAlpha,PubKeyBeta',
-        EXPECTED_SQUADS_THRESHOLD: '2',
-      });
-      const processor = makeProcessor(config, safeTxService, squadsRpc, notificationsService, systemService);
-      // Capture spy AFTER makeProcessor (which resets the mock implementation)
-      const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
-
-      await processor.process(makeJob());
-
-      // At least one WARN call must mention the deferral to entrypoint.sh
-      const warnMessages = warnSpy.mock.calls.map((call) => String(call[0]));
-      const hasDeferralWarn = warnMessages.some((msg) => msg.includes('entrypoint.sh'));
-      expect(hasDeferralWarn).toBe(true);
-    });
-
-    it('chainsChecked is 0 when only Solana is active', async () => {
-      const config = makeConfigService({
-        ACTIVE_CHAINS: 'solana',
-        EXPECTED_SQUADS_MEMBERS: 'PubKeyAlpha,PubKeyBeta',
-        EXPECTED_SQUADS_THRESHOLD: '2',
-      });
-      const processor = makeProcessor(config, safeTxService, squadsRpc, notificationsService, systemService);
-
-      const result = await processor.process(makeJob());
-
-      expect(result.chainsChecked).toBe(0);
-      expect(result.driftAlerts).toBe(0);
-      expect(result.skipped).toBe(false);
-    });
-
-    it('ACTIVE_CHAINS=solana: last_governance_drift_at IS still written (idempotency invariant)', async () => {
-      const config = makeConfigService({
-        ACTIVE_CHAINS: 'solana',
-        EXPECTED_SQUADS_MEMBERS: 'PubKeyAlpha,PubKeyBeta',
-        EXPECTED_SQUADS_THRESHOLD: '2',
-      });
-      const processor = makeProcessor(config, safeTxService, squadsRpc, notificationsService, systemService);
-
-      await processor.process(makeJob());
-
-      expect(systemService.setMeta).toHaveBeenCalledWith(expect.objectContaining({ key: 'last_governance_drift_at' }));
-    });
-
-    it('skips Solana even when no expected Squads config is set', async () => {
-      // Even without EXPECTED_SQUADS_MEMBERS configured, the Solana branch
-      // still emits a WARN (feature-flag skip happens before config check).
+    it('does NOT call getMultisigInfo when no expected Squads config is set', async () => {
       const config = makeConfigService({
         ACTIVE_CHAINS: 'solana',
         EXPECTED_SQUADS_MEMBERS: undefined,
@@ -484,43 +418,136 @@ describe('GovernanceDriftProcessor', () => {
       await processor.process(makeJob());
 
       expect(squadsRpc.getMultisigInfo).not.toHaveBeenCalled();
+    });
+
+    it('chainsChecked=0 when no expected Squads config', async () => {
+      const config = makeConfigService({
+        ACTIVE_CHAINS: 'solana',
+        EXPECTED_SQUADS_MEMBERS: undefined,
+        EXPECTED_SQUADS_THRESHOLD: undefined,
+      });
+      const processor = makeProcessor(config, safeTxService, squadsRpc, notificationsService, systemService);
+
+      const result = await processor.process(makeJob());
+
+      expect(result.chainsChecked).toBe(0);
+    });
+
+    it('chainsChecked=1 and no alert when observed members match expected', async () => {
+      const config = makeConfigService({
+        ACTIVE_CHAINS: 'solana',
+        EXPECTED_SQUADS_MEMBERS: 'PubKeyAlpha,PubKeyBeta',
+        EXPECTED_SQUADS_THRESHOLD: '2',
+      });
+      squadsRpc = makeSquadsRpc({ members: ['PubKeyAlpha', 'PubKeyBeta'], threshold: 2 });
+      const processor = makeProcessor(config, safeTxService, squadsRpc, notificationsService, systemService);
+
+      const result = await processor.process(makeJob());
+
+      expect(result.chainsChecked).toBe(1);
+      expect(result.driftAlerts).toBe(0);
       expect(notificationsService.sendCriticalAlert).not.toHaveBeenCalled();
     });
-  });
 
-  // -------------------------------------------------------------------------
-  // Defense-in-depth: SquadsRpcNotImplementedError at ERROR level if it somehow
-  // escapes the explicit Solana skip.
-  //
-  // This tests the outer catch branch in the processor. We inject a mock
-  // that throws SquadsRpcNotImplementedError from getSafeInfo (which is the
-  // outer try in the EVM path) to exercise the catch handler without modifying
-  // production code. The outer catch logs at ERROR for NotImplementedError.
-  // -------------------------------------------------------------------------
-
-  describe('defense-in-depth: SquadsRpcNotImplementedError reaches outer catch → ERROR log', () => {
-    it('logs at ERROR level if SquadsRpcNotImplementedError escapes the feature-flag skip', async () => {
+    it('sends rug_warning alert when Squads member drift detected', async () => {
       const config = makeConfigService({
-        ACTIVE_CHAINS: 'base',
-        EXPECTED_SAFE_OWNERS_BASE: '0xownerA',
-        EXPECTED_SAFE_THRESHOLD_BASE: '1',
-        SAFE_ADDRESS_BASE: '0xSafe',
+        ACTIVE_CHAINS: 'solana',
+        EXPECTED_SQUADS_MEMBERS: 'PubKeyAlpha,PubKeyBeta',
+        EXPECTED_SQUADS_THRESHOLD: '2',
       });
-      // Simulate a future regression: SquadsRpcNotImplementedError thrown from
-      // within the EVM-path try block (e.g. getSafeInfo accidentally delegating
-      // to SquadsRpc). This exercises the outer catch SquadsRpcNotImplementedError branch.
-      (safeTxService.getSafeInfo as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-        new SquadsRpcNotImplementedError('getMultisigInfo'),
-      );
+      squadsRpc = makeSquadsRpc({
+        members: ['PubKeyAlpha', 'PubKeyBeta', 'PubKeyAttacker'], // unexpected member
+        threshold: 2,
+      });
       const processor = makeProcessor(config, safeTxService, squadsRpc, notificationsService, systemService);
-      // Capture spy AFTER makeProcessor (which resets all mock implementations)
-      const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
 
       await processor.process(makeJob());
 
-      const errorMessages = errorSpy.mock.calls.map((call) => String(call[0]));
-      const hasNotImplementedError = errorMessages.some((msg) => msg.includes('SquadsRpcNotImplementedError'));
-      expect(hasNotImplementedError).toBe(true);
+      expect(notificationsService.sendCriticalAlert).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'rug_warning', agent: 'governance' }),
+      );
+    });
+
+    it('sends rug_warning alert when Squads threshold lowered', async () => {
+      const config = makeConfigService({
+        ACTIVE_CHAINS: 'solana',
+        EXPECTED_SQUADS_MEMBERS: 'PubKeyAlpha,PubKeyBeta',
+        EXPECTED_SQUADS_THRESHOLD: '2',
+      });
+      squadsRpc = makeSquadsRpc({ members: ['PubKeyAlpha', 'PubKeyBeta'], threshold: 1 });
+      const processor = makeProcessor(config, safeTxService, squadsRpc, notificationsService, systemService);
+
+      await processor.process(makeJob());
+
+      expect(notificationsService.sendCriticalAlert).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'rug_warning' }),
+      );
+    });
+
+    it('alert message contains chainName "solana" and drift detail', async () => {
+      const config = makeConfigService({
+        ACTIVE_CHAINS: 'solana',
+        EXPECTED_SQUADS_MEMBERS: 'PubKeyAlpha',
+        EXPECTED_SQUADS_THRESHOLD: '1',
+      });
+      squadsRpc = makeSquadsRpc({ members: ['PubKeyAlpha', 'PubKeyEvil'], threshold: 1 });
+      const processor = makeProcessor(config, safeTxService, squadsRpc, notificationsService, systemService);
+
+      await processor.process(makeJob());
+
+      const callArg = (notificationsService.sendCriticalAlert as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+        message: string;
+      };
+      expect(callArg?.message).toContain('solana');
+      expect(callArg?.message).toContain('member_added');
+    });
+
+    it('swallows SquadsAddressMissingError and continues (debug log only)', async () => {
+      const config = makeConfigService({
+        ACTIVE_CHAINS: 'solana',
+        EXPECTED_SQUADS_MEMBERS: 'PubKeyAlpha',
+        EXPECTED_SQUADS_THRESHOLD: '1',
+      });
+      squadsRpc = makeSquadsRpc();
+      (squadsRpc.getMultisigInfo as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new SquadsAddressMissingError());
+      const processor = makeProcessor(config, safeTxService, squadsRpc, notificationsService, systemService);
+
+      await expect(processor.process(makeJob())).resolves.not.toThrow();
+      expect(notificationsService.sendCriticalAlert).not.toHaveBeenCalled();
+      expect(systemService.setMeta).toHaveBeenCalled(); // meta still written
+    });
+
+    it('swallows SquadsRpcError and continues (warn log)', async () => {
+      const config = makeConfigService({
+        ACTIVE_CHAINS: 'solana',
+        EXPECTED_SQUADS_MEMBERS: 'PubKeyAlpha',
+        EXPECTED_SQUADS_THRESHOLD: '1',
+      });
+      squadsRpc = makeSquadsRpc();
+      (squadsRpc.getMultisigInfo as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new SquadsRpcError('getMultisigInfo', 'RPC unreachable'),
+      );
+      const processor = makeProcessor(config, safeTxService, squadsRpc, notificationsService, systemService);
+
+      await expect(processor.process(makeJob())).resolves.not.toThrow();
+      expect(notificationsService.sendCriticalAlert).not.toHaveBeenCalled();
+    });
+
+    it('last_governance_drift_at written even when getMultisigInfo throws', async () => {
+      const config = makeConfigService({
+        ACTIVE_CHAINS: 'solana',
+        EXPECTED_SQUADS_MEMBERS: 'PubKeyAlpha',
+        EXPECTED_SQUADS_THRESHOLD: '1',
+      });
+      squadsRpc = makeSquadsRpc();
+      (squadsRpc.getMultisigInfo as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new SquadsRpcError('getMultisigInfo', 'network error'),
+      );
+      const processor = makeProcessor(config, safeTxService, squadsRpc, notificationsService, systemService);
+
+      await processor.process(makeJob());
+
+      expect(systemService.setMeta).toHaveBeenCalledWith(expect.objectContaining({ key: 'last_governance_drift_at' }));
     });
   });
 
