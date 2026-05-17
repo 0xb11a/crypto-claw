@@ -9,7 +9,7 @@
   },
   "description": "cclaw CLI — CryptoClaw API command-line interface",
   "scripts": {
-    "build": "tsc --build tsconfig.build.json",
+    "build": "tsc --build",
     "typecheck": "tsc --build"
   },
   "dependencies": {
