@@ -1,6 +1,6 @@
 # ADR-0025 — Notifications deferred: log-only stub in P1c-i, real Telegram in a later slice
 
-**Status:** Accepted
+**Status:** Superseded by ADR-0028
 **Date:** 2026-05-11
 
 ## Context
@@ -47,6 +47,14 @@ Cross-links: SPEC §11 (logging — the canonical surface for the stub), SPEC §
 - `entrypoint.sh` invokes `send-alert.js` in `run_executor_loop` and `run_sentinel_loop` for model failure, emergency mode, and recovered events — no NestJS-side replacement for these shell-to-Telegram paths yet.
 - All four agents reference `send-alert.js` in their agent markdown for the retained hold-back alert paths. Removing them before the supersession PR would leave agents with no Telegram alerting path.
 
-The supersession PR (P5c) will: implement `libs/notifications/src/telegram.client.ts`, add the env vars to `libs/config/src/schema.ts`, gate tests behind `CCLAW_TELEGRAM_TESTS_ENABLED=1`, delete `scripts/send-alert.js` + `scripts/log.js` + `scripts/redact.js`, and set this ADR's `Status:` to `Superseded`.
+The supersession PR (P5c) was expected to: implement `libs/notifications/src/telegram.client.ts`, add the env vars to `libs/config/src/schema.ts`, gate tests behind `CCLAW_TELEGRAM_TESTS_ENABLED=1`, delete `scripts/send-alert.js` + `scripts/log.js` + `scripts/redact.js`, and set this ADR's `Status:` to `Superseded`.
 
-**Status remains: Accepted.** Supersession deferred to P5c per plan.
+**Status now: Superseded by ADR-0028.** See Addendum 2 below.
+
+## Addendum 2 (2026-05-17) — Superseded by ADR-0028
+
+P5c landed. `scripts/send-alert.js` was deleted; `scripts/log.js` and `scripts/redact.js` were retained (Addendum 1 incorrectly said they would be deleted — they have four other importers: `heartbeat-check.js`, `emergency-sentinel.js`, `emergency-executor.js`, and `promote-pattern.js`).
+
+The plan-stated supersession path was implemented via `POST /v1/alerts/send` + `cclaw alerts send` wired to `NotificationsService.sendCriticalAlert` (ADR-0028). The Telegram env vars (`TELEGRAM_BOT_TOKEN`, `TG_TOPIC_*`) were already present in `libs/config/src/schema.ts` from an earlier PR; no new schema changes were required in P5c.
+
+See ADR-0028 for the full decision record.

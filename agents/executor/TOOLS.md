@@ -165,26 +165,26 @@ node scripts/emergency-executor.js
 ```
 Script-only sell executor — runs when executor agent can't reach any model. Processes SELL orders only (never buys). Delegates to the `ExecuteOrderProcessor` via direct DB mutation as a fallback path.
 
-### Send Alert (legacy hold-back)
+### Send Alert
 ```bash
-node scripts/send-alert.js --type trade_executed --agent executor --message "BUY executed: TOKEN"
+cclaw alerts send --type trade_executed --agent executor --message "BUY executed: TOKEN"
 ```
 ```bash
-node scripts/send-alert.js --type trade_failed --agent executor --message "Order fetch failed: <reason>"
+cclaw alerts send --type trade_failed --agent executor --message "Order fetch failed: <reason>"
 ```
 ```bash
-node scripts/send-alert.js --type model_failure --agent executor --message "Agent failed"
+cclaw alerts send --type model_failure --agent executor --message "Agent failed"
 ```
 ```bash
-node scripts/send-alert.js --type emergency_mode --agent executor --message "Emergency mode active"
+cclaw alerts send --type emergency_mode --agent executor --message "Emergency mode active"
 ```
 ```bash
-node scripts/send-alert.js --type system_health --agent executor --message "log/heartbeat write failed: <reason>"
+cclaw alerts send --type system_health --agent executor --message "log/heartbeat write failed: <reason>"
 ```
 ```bash
-node scripts/send-alert.js --type recovered --agent executor --message "Back to normal"
+cclaw alerts send --type recovered --agent executor --message "Back to normal"
 ```
-Alerts route to the correct Telegram supergroup topic automatically. Every successful `node scripts/send-alert.js` invocation also writes an `[info] [send-alert]` entry to `/tmp/openclaw/system.log` — this is Observer's correlation signal for silent-crash detection.
+Alerts route to the correct Telegram supergroup topic automatically. `cclaw alerts send` returns `{ "accepted": true }` immediately; delivery is fire-and-forget. To verify a send reached the audit log, compute an ISO timestamp first: `SINCE=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ)`, then `cclaw system audit --path /v1/alerts/send --since "$SINCE"`.
 
 ## Configuration
 

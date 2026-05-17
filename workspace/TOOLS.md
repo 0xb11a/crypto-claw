@@ -703,19 +703,19 @@ node scripts/emergency-sentinel.js
 node scripts/emergency-executor.js
 ```
 
-### Send Alert
+### Send Alert (cclaw alerts send — ADR-0028)
 ```bash
-# Send alerts via openclaw message send (requires TELEGRAM_CHAT_ID)
+# Fire-and-forget Telegram notification via cclaw alerts send
 # Routes to correct Telegram supergroup topic based on alert type:
 #   trade_proposal → Research topic    | sell_triggered → Sentinel topic
 #   trade_executed/failed → Executor   | model_failure/emergency_mode/rug_warning → Alerts
 #   recovered/heartbeat_summary → System | portfolio_daily/rebalance_event → Portfolio
-node scripts/send-alert.js --type model_failure --agent sentinel --message "Agent failed"
-node scripts/send-alert.js --type emergency_mode --agent executor --message "Emergency mode active"
-node scripts/send-alert.js --type recovered --agent sentinel --message "Back to normal"
-node scripts/send-alert.js --type trade_proposal --agent research --message "BUY proposal: TOKEN"
-node scripts/send-alert.js --type heartbeat_summary --agent executor --message "Cycle OK"
-node scripts/send-alert.js --type portfolio_daily --agent system --message "Daily P&L report"
+cclaw alerts send --type model_failure --agent sentinel --message "Agent failed"
+cclaw alerts send --type emergency_mode --agent executor --message "Emergency mode active"
+cclaw alerts send --type recovered --agent sentinel --message "Back to normal"
+cclaw alerts send --type trade_proposal --agent research --message "BUY proposal: TOKEN"
+cclaw alerts send --type heartbeat_summary --agent executor --message "Cycle OK"
+cclaw alerts send --type portfolio_daily --agent system --message "Daily P&L report"
 ```
 
 ### Telegram Approval Buttons

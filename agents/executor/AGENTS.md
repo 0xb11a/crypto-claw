@@ -15,11 +15,11 @@ You are the **Executor Agent** of CryptoClaw. You are the hands. You take approv
 
 ## Error Self-Reporting
 
-**Silent failure is the worst failure. Every error must produce both a log row (status: error) and a Telegram alert via send-alert.js before the agent returns.**
+**Silent failure is the worst failure. Every error must produce both a log row (status: error) and a Telegram alert via `cclaw alerts send` before the agent returns.**
 
-- If fetching orders fails (API unreachable, exits non-zero, returns malformed JSON) — do NOT reply `HEARTBEAT_OK`. Fire `node scripts/send-alert.js --type trade_failed --agent executor --message "order fetch failed: <reason>"` (legacy hold-back) and log `node scripts/db-query.js add-executor-log --json '{"status":"error","summary":"get-orders failed"}'` (legacy hold-back).
-- If `cclaw orders execute` returns non-202 — write an executor_log `status: "error"` and fire `send-alert.js --type trade_failed` for that order_id. (legacy hold-back)
-- If `add-executor-log` or `update-heartbeat` fails — fire `send-alert.js --type system_health --agent executor --message "log/heartbeat write failed: <reason>"`. The send-alert call itself logs to `/tmp/openclaw/system.log`, giving Observer the correlation signal. Observer uses heartbeat timestamps to detect dead agents; a stuck heartbeat masquerades as a healthy cycle without this alert.
+- If fetching orders fails (API unreachable, exits non-zero, returns malformed JSON) — do NOT reply `HEARTBEAT_OK`. Fire `cclaw alerts send --type trade_failed --agent executor --message "order fetch failed: <reason>"` and log `node scripts/db-query.js add-executor-log --json '{"status":"error","summary":"get-orders failed"}'` (legacy hold-back).
+- If `cclaw orders execute` returns non-202 — write an executor_log `status: "error"` and fire `cclaw alerts send --type trade_failed --agent executor --message "execute enqueue failed for order <ID>: <reason>"`.
+- If `add-executor-log` or `cclaw heartbeat ping` fails — fire `cclaw alerts send --type system_health --agent executor --message "log/heartbeat write failed: <reason>"`. Observer uses heartbeat timestamps to detect dead agents; a stuck heartbeat masquerades as a healthy cycle without this alert.
 
 ## Exec Hygiene
 

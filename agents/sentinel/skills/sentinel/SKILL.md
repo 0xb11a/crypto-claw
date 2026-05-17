@@ -93,7 +93,7 @@ node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tok
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
-| ≥2 distinct `smart_money` wallets sold a held token in 30 min | HIGH | `send-alert.js --type sell_triggered --agent sentinel --message "Smart-money exiting $TOKEN — N wallets sold in 30m, consider tightening stops"`. Informational — do NOT auto-write a sell order. |
+| ≥2 distinct `smart_money` wallets sold a held token in 30 min | HIGH | `cclaw alerts send --type sell_triggered --agent sentinel --message "Smart-money exiting $TOKEN — N wallets sold in 30m, consider tightening stops"`. Informational — do NOT auto-write a sell order. |
 | 1 `smart_money` sell on a held token | NOTABLE | Log to sentinel_log with status:"notable". No Telegram. |
 | 0 sells | INFO | Silent. |
 
@@ -120,7 +120,7 @@ node scripts/db-query.js get-contract-snapshots --address <TOKEN_ADDRESS> --chai
 
 ## Alert Format
 
-The `send-alert.js` script wraps your message with a title, separators, and fund ID automatically. Your `--message` should contain just the structured body:
+`cclaw alerts send` wraps your message with an emoji prefix, agent header, separators, and fund ID automatically. Your `--message` should contain just the structured body:
 
 **Critical alert message body:**
 ```
@@ -157,7 +157,7 @@ cclaw orders propose --json '{"id":"sell-<timestamp>","action":"sell","symbol":"
 
 After writing a sell order, notify the human:
 ```bash
-node scripts/send-alert.js --type sell_triggered --agent sentinel --message "SELL $TOKEN on <chain> — <amount> — reason: <reason>"
+cclaw alerts send --type sell_triggered --agent sentinel --message "SELL $TOKEN on <chain> — <amount> — reason: <reason>"
 ```
 
 The Executor agent polls for approved orders every heartbeat and executes them through the Safe wallet.
@@ -172,7 +172,7 @@ The Executor agent polls for approved orders every heartbeat and executes them t
 - Quiet cycle = no sells, no notable events → zero Telegram messages
 
 ## Error Handling
-Per AGENTS.md § Error Self-Reporting: every tool crash must produce both a sentinel_log row (`status: "error"`) and a Telegram alert via `send-alert.js` — the "quiet heartbeat" exception never applies to failed checks. If `add-alert` or `add-order` itself fails, escalate with the strongest alert (`sell_triggered` for failed sell-writes, `rug_warning` for failed monitoring) — capital is unprotected until the operator intervenes.
+Per AGENTS.md § Error Self-Reporting: every tool crash must produce both a sentinel_log row (`status: "error"`) and a Telegram alert via `cclaw alerts send` — the "quiet heartbeat" exception never applies to failed checks. If `add-alert` or `add-order` itself fails, escalate with the strongest alert (`sell_triggered` for failed sell-writes, `rug_warning` for failed monitoring) — capital is unprotected until the operator intervenes.
 
 ## Promotion
 If an exit pattern (e.g., a recurring rug signature, LP-drain precursor, or false-alarm condition) recurs 3+ times across daily logs, promote via `scripts/promote-pattern.js`. **Never edit `MEMORY.md` directly** — manual edits are rejected by pre-commit (PR 3.1). The script validates the pattern's provenance against trusted DB tables and emits the marker pre-commit requires.

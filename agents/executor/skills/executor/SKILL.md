@@ -18,4 +18,4 @@ To fetch approved orders, use:
 
 **Always start by reading `HEARTBEAT.md` and `AGENTS.md` in this agent's workspace** — they hold the full step-by-step procedure (load orders, execute each, log + heartbeat, error self-reporting). This skill is loaded lazily; do not assume those files are already resident in context.
 
-Every failure path must produce both a `status: "error"` executor_log row (via `node scripts/db-query.js add-executor-log`, legacy hold-back) AND a Telegram alert via `node scripts/send-alert.js` (legacy hold-back) before the agent returns. Silent failure is the single worst Executor path — a quiet cycle is only quiet if the order fetch actually succeeded and `cclaw orders execute` returned 202 for each order.
+Every failure path must produce both a `status: "error"` executor_log row (via `node scripts/db-query.js add-executor-log`, legacy hold-back) AND a Telegram alert via `cclaw alerts send` before the agent returns. Silent failure is the single worst Executor path — a quiet cycle is only quiet if the order fetch actually succeeded and `cclaw orders execute` returned 202 for each order.

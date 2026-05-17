@@ -24,8 +24,8 @@ cclaw heartbeat ping --agent sentinel --check price_check
 - If stop-loss hit → write sell order: `cclaw orders propose --json '{"action":"sell",...}'`, alert human
 - If take-profit hit → write partial sell order, inform human
 - If price dropped >20% since last check → write alert
-- **If `cclaw positions list` fails:** log `node scripts/db-query.js add-sentinel-log --json '{"check_type":"price","status":"error","summary":"<reason>"}'` AND `node scripts/send-alert.js --type rug_warning --agent sentinel --message "price check failed — positions unmonitored: <reason>"`. Do not proceed to evaluate stops against stale data. (See AGENTS.md § Error Self-Reporting.)
-- **If `cclaw orders propose` for a sell fails:** `node scripts/send-alert.js --type sell_triggered --agent sentinel --message "SELL ORDER WRITE FAILED for <symbol>: <reason>"`. The worst failure mode Sentinel has.
+- **If `cclaw positions list` fails:** log `node scripts/db-query.js add-sentinel-log --json '{"check_type":"price","status":"error","summary":"<reason>"}'` AND `cclaw alerts send --type rug_warning --agent sentinel --message "price check failed — positions unmonitored: <reason>"`. Do not proceed to evaluate stops against stale data. (See AGENTS.md § Error Self-Reporting.)
+- **If `cclaw orders propose` for a sell fails:** `cclaw alerts send --type sell_triggered --agent sentinel --message "SELL ORDER WRITE FAILED for <symbol>: <reason>"`. The worst failure mode Sentinel has.
 
 ### 2. Liquidity Check (CRITICAL)
 [cclaw expansion pending P5b — `cclaw positions check-liquidity` not yet implemented; liquidity monitoring is now also handled by LiquidityCheckProcessor (NestJS worker). Check liquidity snapshots via db-query hold-back.]
@@ -41,7 +41,7 @@ cclaw heartbeat ping --agent sentinel --check liquidity_check
 - If dropped >15% in 24h → HIGH: write alert
 - If no snapshot exists inside a window (fresh position), that band is skipped for this cycle
 - Save new snapshot: `node scripts/db-query.js add-liquidity-snapshot --address ... --chain ... --liquidity ...` (legacy hold-back)
-- **If the liquidity query fails:** log `node scripts/db-query.js add-sentinel-log --json '{"check_type":"liquidity","status":"error","summary":"<reason>"}'` AND `node scripts/send-alert.js --type rug_warning --agent sentinel --message "liquidity check failed — rug detection blind: <reason>"`. A failed liquidity check means you cannot detect a rug this cycle.
+- **If the liquidity query fails:** log `node scripts/db-query.js add-sentinel-log --json '{"check_type":"liquidity","status":"error","summary":"<reason>"}'` AND `cclaw alerts send --type rug_warning --agent sentinel --message "liquidity check failed — rug detection blind: <reason>"`. A failed liquidity check means you cannot detect a rug this cycle.
 
 ### 3. Wallet Check (if positions exist)
 [cclaw expansion pending P5b — `cclaw wallets check --positions` not yet implemented; dev/whale wallet monitoring is now also handled by WalletMonitorProcessor (NestJS worker). Use smart-money signals as a proxy below.]
@@ -54,7 +54,7 @@ cclaw heartbeat ping --agent sentinel --check wallet_check
 ```
 - Check smart-money signals for dev/deployer wallets selling held tokens
 - If dev selling detected → write sell-all order, alert human
-- **If the query fails:** log `node scripts/db-query.js add-sentinel-log --json '{"check_type":"wallet","status":"error","summary":"<reason>"}'` AND `node scripts/send-alert.js --type rug_warning --agent sentinel --message "wallet check failed — dev/whale activity unknown this cycle: <reason>"`.
+- **If the query fails:** log `node scripts/db-query.js add-sentinel-log --json '{"check_type":"wallet","status":"error","summary":"<reason>"}'` AND `cclaw alerts send --type rug_warning --agent sentinel --message "wallet check failed — dev/whale activity unknown this cycle: <reason>"`.
 
 ### 4. Smart-Money Exit Signals (if positions exist)
 Read SELL signals on tokens we currently hold, written by the WalletActivityProcessor (NestJS worker):
@@ -68,7 +68,7 @@ cclaw heartbeat ping --agent sentinel --check smart_money_exits
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
-| ≥ 2 distinct `smart_money` wallets sold a held token in last 30 min | HIGH | Alert via `node scripts/send-alert.js --type sell_triggered --agent sentinel --message "Smart-money exiting $TOKEN — N wallets sold in 30m, consider tightening stops"`. Do NOT auto-write a sell order — informational only. |
+| ≥ 2 distinct `smart_money` wallets sold a held token in last 30 min | HIGH | Alert via `cclaw alerts send --type sell_triggered --agent sentinel --message "Smart-money exiting $TOKEN — N wallets sold in 30m, consider tightening stops"`. Do NOT auto-write a sell order — informational only. |
 | 1 `smart_money` sell on a held token | NOTABLE | Log to `sentinel_log` with `status:"notable"`. No Telegram alert. |
 | 0 sells | INFO | Silent. |
 
@@ -91,7 +91,7 @@ cclaw heartbeat ping --agent sentinel --check contract_check
 - If became honeypot/pausable/blacklisted/proxy changed → CRITICAL: write sell-all order, alert human
 - If owner changed, tax increased >5%, became mintable → HIGH: write alert
 - First run per token stores baseline snapshot (no alerts)
-- **If the contract query fails:** log `node scripts/db-query.js add-sentinel-log --json '{"check_type":"contract","status":"error","summary":"<reason>"}'` AND `node scripts/send-alert.js --type rug_warning --agent sentinel --message "contract check failed — can't detect proxy/pausable/blacklist changes: <reason>"`.
+- **If the contract query fails:** log `node scripts/db-query.js add-sentinel-log --json '{"check_type":"contract","status":"error","summary":"<reason>"}'` AND `cclaw alerts send --type rug_warning --agent sentinel --message "contract check failed — can't detect proxy/pausable/blacklist changes: <reason>"`.
 
 ### 6. Log Results
 ```bash
@@ -115,7 +115,7 @@ Decide whether to send a periodic summary. Do NOT send alerts for quiet heartbea
 
 Summary format:
 ```bash
-node scripts/send-alert.js --type heartbeat_summary --agent sentinel --message "SENTINEL SUMMARY (last 3h)\nHeartbeats: N | Positions: N\nNotable: [events or all clear]\nSells written: N\nStatus: OPERATIONAL"
+cclaw alerts send --type heartbeat_summary --agent sentinel --message "SENTINEL SUMMARY (last 3h)\nHeartbeats: N | Positions: N\nNotable: [events or all clear]\nSells written: N\nStatus: OPERATIONAL"
 ```
 
 ## Rules
@@ -123,7 +123,7 @@ node scripts/send-alert.js --type heartbeat_summary --agent sentinel --message "
 - Never skip a check to save tokens — your whole job is checking
 - If no open positions in DB → bump every heartbeat (see *No-positions heartbeat* below) and then reply HEARTBEAT_OK. Skipping the bump makes Observer think the agent died.
 - Keep total response under 500 tokens when nothing is wrong
-- Do NOT call `node scripts/send-alert.js` when all checks pass with no events — quiet runs produce zero Telegram messages
+- Do NOT call `cclaw alerts send` when all checks pass with no events — quiet runs produce zero Telegram messages
 - Only send Telegram alerts for: sell orders (immediate), periodic summaries (3h cadence if notable events), or 24h proof-of-life
 
 ## No-positions heartbeat

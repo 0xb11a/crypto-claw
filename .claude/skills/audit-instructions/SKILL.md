@@ -18,7 +18,7 @@ Run all passes in order and produce a single structured report. The guiding ques
 
 Before any audit pass, read two files end-to-end:
 
-1. **`CLAUDE.md` at repo root.** The project's single-page orientation: four agents, two-layer memory, data flow, wallet pipeline, safety rules, conventions. You need this context to distinguish intentional repetition (e.g. safety rules stated in both Research and Executor by design) from drift (the same rule stated with different numbers). As of P5, the legacy `scripts/` inventory in CLAUDE.md lists only the retained set (db.js, db-query.js, chains.js, order-approval.js, send-alert.js, log.js, redact.js, promote-pattern.js, emergency-executor.js, emergency-sentinel.js, heartbeat-check.js, agent-idleness.js, pre-commit-check.js, memory-backup.sh, codex-login.sh) — other scripts have been deleted. chains.js and order-approval.js are load-time imports of the retained db-query.js and will be deleted in P6 with it.
+1. **`CLAUDE.md` at repo root.** The project's single-page orientation: four agents, two-layer memory, data flow, wallet pipeline, safety rules, conventions. You need this context to distinguish intentional repetition (e.g. safety rules stated in both Research and Executor by design) from drift (the same rule stated with different numbers). As of P5c, the legacy `scripts/` inventory in CLAUDE.md lists only the retained set (db.js, db-query.js, chains.js, order-approval.js, log.js, redact.js, promote-pattern.js, emergency-executor.js, emergency-sentinel.js, heartbeat-check.js, agent-idleness.js, pre-commit-check.js, memory-backup.sh, codex-login.sh) — other scripts have been deleted. `send-alert.js` was deleted in P5c (superseded by `cclaw alerts send`). chains.js and order-approval.js are load-time imports of the retained db-query.js and will be deleted in P6 with it.
 2. **`entrypoint.sh`.** This is where OpenClaw is configured — the project has **no standalone `openclaw.json` file**. All runtime settings (`reserveTokensFloor`, `memoryFlush.softThresholdTokens`, `HEARTBEAT_CADENCES` gates, per-agent tool allowlists, cron `--every` intervals, `agents.list[N]` overrides) are applied via `openclaw config set` CLI calls in this file. Passes 3b, 3c, 10, and 12 all read from it. Do not look for `openclaw.json`; do not warn operators to create one.
 
 No findings are emitted from Pass 0. It just primes you.
@@ -88,9 +88,8 @@ Each pass describes what it checks, why it matters, and the severity it assigns.
   - `migrate`, `set-paper-cash`, `set-meta`, `get-meta`, `get-chains`, `get-chain-config`, `get-portfolio`, `get-cash`, `get-trade-stats`, `get-watchlist`, `add-to-watchlist`, `update-watchlist`, `remove-from-watchlist`, `get-liquidity`, `add-liquidity-snapshot`, `get-contract-snapshots`, `add-contract-snapshot`, `get-tracked-wallets`, `add-tracked-wallet`, `propose-wallet`, `get-unscored-wallets`, `update-wallet-score`, `remove-tracked-wallet`, `get-smart-money-signals`, `check-token-status`, `cache-analysis`, `get-analysis-cache`, `clear-expired-cache`, `sync-portfolio`, `get-sync-status`, `set-onchain-balance`, `cancel-order`, `retry-order`, `get-order-history`, `get-sentinel-log`, `get-executor-log`, `get-research-log`, `get-observer-log`, `add-sentinel-log`, `add-executor-log`, `add-research-log`, `add-observer-log`
 - `scripts/chains.js` — retained (load-time import of db-query.js; deletes in P6 with db-query.js). Not directly invoked by agents — no agent instruction commands reference it.
 - `scripts/order-approval.js` — retained (load-time import of db-query.js; deletes in P6 with db-query.js). Not directly invoked by agents — no agent instruction commands reference it.
-- `scripts/send-alert.js` — retained (ADR-0025; supersession pending P5c)
-- `scripts/log.js` — retained (required by send-alert.js)
-- `scripts/redact.js` — retained (required by log.js)
+- `scripts/log.js` — retained (required by heartbeat-check.js, emergency-sentinel.js, emergency-executor.js, promote-pattern.js)
+- `scripts/redact.js` — retained (required by log.js and promote-pattern.js)
 - `scripts/promote-pattern.js` — retained (MEMORY.md write-protection)
 - `scripts/emergency-executor.js` — retained (entrypoint.sh loop)
 - `scripts/emergency-sentinel.js` — retained (entrypoint.sh loop)
@@ -101,7 +100,7 @@ Each pass describes what it checks, why it matters, and the severity it assigns.
 - `scripts/codex-login.sh` — retained (operator OAuth setup)
 - `scripts/ci/*.mjs` — retained (CI guards)
 
-**Flag as CRITICAL** any `node scripts/<file>` reference in agent instructions where `<file>` is NOT in the whitelist above. These reference deleted scripts. Example: `node scripts/process-order.js` is post-P5 CRITICAL; `node scripts/send-alert.js` is acceptable.
+**Flag as CRITICAL** any `node scripts/<file>` reference in agent instructions where `<file>` is NOT in the whitelist above. These reference deleted scripts. Example: `node scripts/process-order.js` is post-P5 CRITICAL; `node scripts/send-alert.js` is post-P5c CRITICAL (deleted in P5c — use `cclaw alerts send` instead).
 
 ### Pass 1b — Compound-command preflight (mechanical)
 

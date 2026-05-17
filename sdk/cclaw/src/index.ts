@@ -306,6 +306,31 @@ alertsCmd
     output(data);
   });
 
+alertsCmd
+  .command('send')
+  .description('Send a Telegram notification (fire-and-forget, 202 accepted)')
+  .requiredOption('--type <type>', 'Alert type (e.g. model_failure, emergency_mode, recovered)')
+  .requiredOption('--agent <agent>', 'Agent name shown in the alert header (e.g. executor, sentinel)')
+  .requiredOption('--message <message>', 'Alert message body (max 4000 chars)')
+  .option('--data <json>', 'Optional JSON metadata (stored in audit log, not sent to Telegram)')
+  .action(async (opts: { type: string; agent: string; message: string; data?: string }) => {
+    const body: Record<string, unknown> = {
+      type: opts.type,
+      agent: opts.agent,
+      message: opts.message,
+    };
+    if (opts.data !== undefined) {
+      try {
+        body['data'] = JSON.parse(opts.data) as unknown;
+      } catch {
+        process.stderr.write('[cclaw] Error: --data must be valid JSON\n');
+        process.exit(1);
+      }
+    }
+    const data = await apiCall<unknown>('POST', '/alerts/send', body);
+    output(data);
+  });
+
 // -------------------------------------------------------------------------
 // heartbeat
 // -------------------------------------------------------------------------

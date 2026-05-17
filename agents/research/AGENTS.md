@@ -17,7 +17,7 @@ One unified skill chain per cycle: `discovery` (scan + filter) → `analyst` (sc
 
 ## Error Self-Reporting
 
-**Silent unrecovered failure is the worst failure. Every UNRECOVERED error must produce both a log row (`status: "error"`) and a Telegram alert via send-alert.js before the agent returns. Recovered failures (retry succeeded, fallback succeeded, expected rejection cached) must use `status: "warning"` and skip the alert — Observer treats every `status: "error"` row as a silent crash and files an issue per occurrence, so misclassifying a recovered failure generates issue noise.**
+**Silent unrecovered failure is the worst failure. Every UNRECOVERED error must produce both a log row (`status: "error"`) and a Telegram alert via `cclaw alerts send` before the agent returns. Recovered failures (retry succeeded, fallback succeeded, expected rejection cached) must use `status: "warning"` and skip the alert — Observer treats every `status: "error"` row as a silent crash and files an issue per occurrence, so misclassifying a recovered failure generates issue noise.**
 
 This rule applies to every pipeline step: memory_search, discovery, analyst, risk, portfolio, orders, market regime checks, narrative checks, portfolio sync.
 
@@ -33,13 +33,13 @@ This rule applies to every pipeline step: memory_search, discovery, analyst, ris
 
 **On unrecovered error:**
 1. Write one `add-research-log` row with `status: "error"`, the `check_type`, and a one-line `summary` of what failed (use `[REDACTED]` for any address/key).
-2. Fire `node scripts/send-alert.js --type model_failure --agent research --message "<check_type> failed: <short reason>"`. (send-alert.js is a legacy hold-back)
+2. Fire `cclaw alerts send --type model_failure --agent research --message "<check_type> failed: <short reason>"`.
 3. Halt that token's pipeline (do not continue to the next stage with partial data).
 4. Continue to the next scheduled check — one failed pipeline must not block the whole heartbeat.
 
 **On recovered/warning:**
 1. Write `add-research-log` with `status: "warning"` and a `summary` describing what was recovered (e.g. "memory_write fallback append succeeded after shell-quote failure"; "smart_money signals unavailable — check-wallets.js timed out, continuing without signals this cycle").
-2. Do NOT call `send-alert.js`. The cycle continues.
+2. Do NOT call `cclaw alerts send`. The cycle continues.
 
 ## Exec Hygiene
 

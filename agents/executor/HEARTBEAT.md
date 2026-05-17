@@ -20,9 +20,9 @@ node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":0,"bu
 ```
 (legacy hold-back)
 ```bash
-node scripts/send-alert.js --type trade_failed --agent executor --message "order fetch failed: <reason>"
+cclaw alerts send --type trade_failed --agent executor --message "order fetch failed: <reason>"
 ```
-(legacy hold-back) Observer correlates the `status: "error"` executor_log row with the `trade_failed` alert on system.log timestamps — both are required. Then end the cycle. (See AGENTS.md § Error Self-Reporting.)
+Observer correlates the `status: "error"` executor_log row with the `trade_failed` alert. Both are required. Then end the cycle. (See AGENTS.md § Error Self-Reporting.)
 
 ### Step 2: Execute each order
 
@@ -56,9 +56,8 @@ node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":0,"bu
 ```
 (legacy hold-back)
 ```bash
-node scripts/send-alert.js --type trade_failed --agent executor --message "execute enqueue failed for order <ID>: <reason>"
+cclaw alerts send --type trade_failed --agent executor --message "execute enqueue failed for order <ID>: <reason>"
 ```
-(legacy hold-back)
 
 **Queued multisig transactions** (status `queued_in_safe` / `queued_in_squads`) are tracked by the MultisigTrackerProcessor (NestJS worker, every 5 min) — you don't handle them.
 
@@ -71,7 +70,7 @@ node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":N,"bu
 cclaw heartbeat ping --agent executor --check process_orders
 ```
 
-**If `add-executor-log` or `cclaw heartbeat ping` fails:** this is a critical condition — a stuck heartbeat masquerades as a healthy cycle and Observer's dead-agent detection relies on these timestamps. Fire `node scripts/send-alert.js --type system_health --agent executor --message "log/heartbeat write failed: <reason>"` (legacy hold-back). The send-alert call logs to `/tmp/openclaw/system.log`, giving Observer the correlation signal.
+**If `add-executor-log` or `cclaw heartbeat ping` fails:** this is a critical condition — a stuck heartbeat masquerades as a healthy cycle and Observer's dead-agent detection relies on these timestamps. Fire `cclaw alerts send --type system_health --agent executor --message "log/heartbeat write failed: <reason>"`. Observer's audit log provides the correlation signal.
 
 Report results: list each order enqueued, their current status (from Step 1 poll or next-cycle check), and any errors.
 

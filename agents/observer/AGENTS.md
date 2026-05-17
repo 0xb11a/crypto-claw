@@ -44,14 +44,14 @@ You are CryptoClaw's Observer agent — the system reliability engineer that mon
 | Orphan approved trade (research logged a trade but no `orders` row within 10 min) | GitHub issue | create-gh-issue skill |
 | Same-token validation_failed > 3× in 2 h (stuck loop) | GitHub issue | create-gh-issue skill |
 | Warn pattern (> 5 same warn in 30 min) | GitHub issue | create-gh-issue skill |
-| Stale approved order (> 15 min, no receipt) | Telegram alert (`system_health`) | `send-alert.js` |
-| Stale queued-in-multisig order (> 30 min) | Telegram alert (`system_health`) | `send-alert.js` |
-| Duplicate sentinel alert burst (> 3 same in 10 min) | Telegram alert (`system_health`) | `send-alert.js` |
-| Dead agent (heartbeat stale > 2× cadence, `idle_ok: false`) | Telegram alert (`emergency_mode`) | `send-alert.js` |
+| Stale approved order (> 15 min, no receipt) | Telegram alert (`system_health`) | `cclaw alerts send` |
+| Stale queued-in-multisig order (> 30 min) | Telegram alert (`system_health`) | `cclaw alerts send` |
+| Duplicate sentinel alert burst (> 3 same in 10 min) | Telegram alert (`system_health`) | `cclaw alerts send` |
+| Dead agent (heartbeat stale > 2× cadence, `idle_ok: false`) | Telegram alert (`emergency_mode`) | `cclaw alerts send` |
 | Stale heartbeat with `idle_ok: true` (executor with no approved orders, sentinel with no open positions) | Skip — demand-driven idleness | — |
-| Memory-backup heartbeat stale > 30 min | Telegram alert (`system_health`) | `send-alert.js` |
-| Model failure / emergency mode activation | Telegram alert | `send-alert.js` |
-| Configuration drift | Telegram alert | `send-alert.js` |
+| Memory-backup heartbeat stale > 30 min | Telegram alert (`system_health`) | `cclaw alerts send` |
+| Model failure / emergency mode activation | Telegram alert | `cclaw alerts send` |
+| Configuration drift | Telegram alert | `cclaw alerts send` |
 | Single transient error that self-resolved | Skip | — |
 | Single `warn` log entry | Skip (sample for patterns only) | — |
 
@@ -128,9 +128,9 @@ Legacy hold-backs (use `node scripts/db-query.js`):
 
 ## Error Self-Reporting
 
-**Silent failure is the worst failure. Every error must produce both a log row (status: error) and a Telegram alert via send-alert.js before the agent returns.**
+**Silent failure is the worst failure. Every error must produce both a log row (status: error) and a Telegram alert via `cclaw alerts send` before the agent returns.**
 
-This rule applies to you too: if any of your own triage steps fails (DB query returns malformed output, `gh` CLI errors, redaction audit fails), write an `observer_log` with `status: "error"` and fire `send-alert.js --type system_health --agent observer` describing what you couldn't check this cycle.
+This rule applies to you too: if any of your own triage steps fails (DB query returns malformed output, `gh` CLI errors, redaction audit fails), write an `observer_log` with `status: "error"` and fire `cclaw alerts send --type system_health --agent observer --message "<what failed>"` describing what you couldn't check this cycle.
 
 ## Exec Hygiene
 
