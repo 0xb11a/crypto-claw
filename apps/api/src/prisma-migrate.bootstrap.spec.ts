@@ -6,9 +6,10 @@
  * SPEC §4 — boot sequence invariant: migration runs BEFORE NestFactory.create.
  *
  * DB verification uses a child `node -e` process with the built-in node:sqlite
- * module (Node.js 22+) rather than a direct import, because Vite (underlying
- * Vitest's bundler) does not resolve 'node:sqlite' as an ES module in this
- * project's vitest.config.ts (environment: 'node' + Vite 5 bundler).
+ * module rather than a direct import, because Vite (underlying Vitest's bundler)
+ * does not resolve 'node:sqlite' as an ES module in this project's vitest.config.ts
+ * (environment: 'node' + Vite 5 bundler). The `--experimental-sqlite` flag is
+ * required on Node 22.x (.nvmrc); harmless on Node 24+ where it's stable.
  *
  * The function under test calls execFileSync with the compiled Prisma binary,
  * so it exercises the real CLI code path — not a mock.
@@ -53,7 +54,7 @@ function querySqlite(dbPath: string, sql: string, params: string[] = []): unknow
     db.close();
     process.stdout.write(JSON.stringify(rows));
   `;
-  const output = execFileSync(process.execPath, ['-e', script], {
+  const output = execFileSync(process.execPath, ['--experimental-sqlite', '-e', script], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 10_000,

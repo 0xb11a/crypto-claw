@@ -60,8 +60,10 @@ const BASE_ENV: NodeJS.ProcessEnv = {
 
 /**
  * Check whether a specific table exists in the SQLite file.
- * Uses a child `node -e` process with node:sqlite (built-in, Node.js 22+)
- * because Vite (Vitest's bundler) cannot resolve 'node:sqlite' as an import.
+ * Uses a child `node -e` process with node:sqlite (built-in) because Vite
+ * (Vitest's bundler) cannot resolve 'node:sqlite' as an import. The
+ * `--experimental-sqlite` flag is required on Node 22.x (.nvmrc); harmless
+ * on Node 24+ where it's stable.
  */
 function hasTable(dbPath: string, tableName: string): boolean {
   const script = `
@@ -74,7 +76,7 @@ function hasTable(dbPath: string, tableName: string): boolean {
     process.stdout.write(JSON.stringify(rows.length > 0));
   `;
   try {
-    const out = execFileSync(process.execPath, ['-e', script], {
+    const out = execFileSync(process.execPath, ['--experimental-sqlite', '-e', script], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 10_000,
