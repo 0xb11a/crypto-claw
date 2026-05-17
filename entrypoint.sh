@@ -794,44 +794,50 @@ run_memory_backup_loop() {
 # below limits this loop to Solana-only during the transition.
 # To complete Solana cutover: remove the filter and disable this loop.
 # ============================================================
+# run_governance_drift_loop — DISABLED (Squads SDK port complete, PR #29)
+# Solana governance drift is now handled by NestJS GovernanceDriftProcessor
+# (SquadsRpcAdapter.getMultisigInfo() — real @sqds/multisig implementation).
+# EVM was already handled by GovernanceDriftProcessor since PR #26.
+# To re-enable during rollback: uncomment the body, uncomment the & invocation.
 run_governance_drift_loop() {
-  if [ "$PAPER_MODE" = "true" ]; then
-    echo "[governance-drift] paper mode — skipping"
-    return 0
-  fi
-  sleep 300  # wait 5 min after startup so RPC clients are warm
-  while true; do
-    IFS=',' read -ra CHAINS <<< "${ACTIVE_CHAINS:-base,solana}"
-    for chain in "${CHAINS[@]}"; do
-      chain=$(echo "$chain" | xargs) # trim
-      if [ -z "$chain" ]; then continue; fi
-      # P4 cutover: EVM handled by GovernanceDriftProcessor (PR #26). Solana stays
-      # until SquadsRpcAdapter SDK port lands (SquadsRpcNotImplementedError stub).
-      if [ "$chain" != "solana" ]; then continue; fi
-      if [ "$chain" = "solana" ]; then
-        SCRIPT="$EXECUTOR_WS/scripts/check-squads-status.js"
-        FLAGS="--check-drift"
-      else
-        SCRIPT="$EXECUTOR_WS/scripts/check-safe-status.js"
-        FLAGS="--chain $chain --check-drift"
-      fi
-      if [ ! -f "$SCRIPT" ]; then continue; fi
-      OUTPUT=$(SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" node "$SCRIPT" $FLAGS 2>&1)
-      EXIT=$?
-      echo "$OUTPUT" | sed 's/^/[governance-drift] /'
-      if [ "$EXIT" = "2" ]; then
-        # Drift detected — fire critical alert
-        SUMMARY=$(echo "$OUTPUT" | grep -i 'governance_drift' | head -1 | tr -d '\n' | head -c 400)
-        SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" node "$EXECUTOR_WS/scripts/send-alert.js" \
-          --type rug_warning \
-          --agent observer \
-          --message "GOVERNANCE DRIFT on $chain: $SUMMARY" 2>&1 | sed 's/^/[governance-drift-alert] /' || true
-      elif [ "$EXIT" != "0" ]; then
-        echo "[governance-drift] chain=$chain status check exit=$EXIT (non-fatal)"
-      fi
-    done
-    sleep 86400  # 24 hours
-  done
+  echo "[p5-squads-sdk] governance-drift loop disabled — fully handled by NestJS GovernanceDriftProcessor"
+  # if [ "$PAPER_MODE" = "true" ]; then
+  #   echo "[governance-drift] paper mode — skipping"
+  #   return 0
+  # fi
+  # sleep 300  # wait 5 min after startup so RPC clients are warm
+  # while true; do
+  #   IFS=',' read -ra CHAINS <<< "${ACTIVE_CHAINS:-base,solana}"
+  #   for chain in "${CHAINS[@]}"; do
+  #     chain=$(echo "$chain" | xargs) # trim
+  #     if [ -z "$chain" ]; then continue; fi
+  #     # P4 cutover: EVM handled by GovernanceDriftProcessor (PR #26). Solana stays
+  #     # until SquadsRpcAdapter SDK port lands (SquadsRpcNotImplementedError stub).
+  #     if [ "$chain" != "solana" ]; then continue; fi
+  #     if [ "$chain" = "solana" ]; then
+  #       SCRIPT="$EXECUTOR_WS/scripts/check-squads-status.js"
+  #       FLAGS="--check-drift"
+  #     else
+  #       SCRIPT="$EXECUTOR_WS/scripts/check-safe-status.js"
+  #       FLAGS="--chain $chain --check-drift"
+  #     fi
+  #     if [ ! -f "$SCRIPT" ]; then continue; fi
+  #     OUTPUT=$(SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" node "$SCRIPT" $FLAGS 2>&1)
+  #     EXIT=$?
+  #     echo "$OUTPUT" | sed 's/^/[governance-drift] /'
+  #     if [ "$EXIT" = "2" ]; then
+  #       # Drift detected — fire critical alert
+  #       SUMMARY=$(echo "$OUTPUT" | grep -i 'governance_drift' | head -1 | tr -d '\n' | head -c 400)
+  #       SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" node "$EXECUTOR_WS/scripts/send-alert.js" \
+  #         --type rug_warning \
+  #         --agent observer \
+  #         --message "GOVERNANCE DRIFT on $chain: $SUMMARY" 2>&1 | sed 's/^/[governance-drift-alert] /' || true
+  #     elif [ "$EXIT" != "0" ]; then
+  #       echo "[governance-drift] chain=$chain status check exit=$EXIT (non-fatal)"
+  #     fi
+  #   done
+  #   sleep 86400  # 24 hours
+  # done
 }
 
 # ============================================================
@@ -893,17 +899,23 @@ run_governance_drift_loop() {
 # stays byte-untouched per DoD §I until P5.
 # ============================================================
 
+# run_multisig_tracker_loop — DISABLED (Squads SDK port complete, PR #29)
+# Solana multisig tracking is now handled by NestJS MultisigTrackerProcessor
+# (SquadsRpcAdapter.getPendingTransactions() — real @sqds/multisig implementation).
+# EVM was already handled by MultisigTrackerProcessor since PR #26.
+# To re-enable during rollback: uncomment the body, uncomment the & invocation.
 run_multisig_tracker_loop() {
-  if [ "${PAPER_MODE:-false}" = "true" ]; then
-    return  # paper mode has no multisig transactions
-  fi
-  sleep 120  # wait for startup
-  while true; do
-    SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" \
-      node "$EXECUTOR_WS/scripts/track-multisig.js" 2>&1 | \
-      sed 's/^/[multisig-tracker] /'
-    sleep 300  # 5 minutes
-  done
+  echo "[p5-squads-sdk] multisig-tracker loop disabled — fully handled by NestJS MultisigTrackerProcessor"
+  # if [ "${PAPER_MODE:-false}" = "true" ]; then
+  #   return  # paper mode has no multisig transactions
+  # fi
+  # sleep 120  # wait for startup
+  # while true; do
+  #   SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" \
+  #     node "$EXECUTOR_WS/scripts/track-multisig.js" 2>&1 | \
+  #     sed 's/^/[multisig-tracker] /'
+  #   sleep 300  # 5 minutes
+  # done
 }
 
 # ============================================================
@@ -1131,10 +1143,10 @@ run_sentinel_loop() {
 #    multisig tracker, executor loop, sentinel loop in background,
 #    then exec the gateway as PID 1.
 #
-#    P4 cutover status (2026-05-15):
+#    P4 cutover status (2026-05-15), updated P5 (2026-05-17):
 #      KEEP    run_memory_backup_loop      — git workspace ops, stays in shell
-#      KEEP    run_governance_drift_loop   — Solana-only filter (EVM → NestJS PR #26)
-#      KEEP    run_multisig_tracker_loop   — EVM idempotent; Solana sole handler
+#      DISABLE run_governance_drift_loop   — Squads SDK port complete (PR #29)
+#      DISABLE run_multisig_tracker_loop   — Squads SDK port complete (PR #29)
 #      KEEP    run_executor_loop           — LLM-agent loop (SPEC §4 #5)
 #      KEEP    run_sentinel_loop           — LLM-agent loop (SPEC §4 #5)
 #      DISABLE run_wallet_scoring_loop     — → WalletScoringProcessor (PR #22)
@@ -1149,10 +1161,12 @@ echo "[p4-cutover] wallet-scoring → NestJS WalletScoringProcessor (PR #22)"
 # run_wallet_scoring_loop &
 echo "[p4-cutover] activity-wallets → NestJS WalletActivityProcessor (PR #23)"
 # run_activity_wallets_loop &
-run_governance_drift_loop &
+echo "[p5-squads-sdk] governance-drift Solana → NestJS GovernanceDriftProcessor (Squads SDK port)"
+# run_governance_drift_loop &
 echo "[p4-cutover] position-reconcile → NestJS PositionReconcileProcessor (PR #27)"
 # run_position_reconcile_loop &
-run_multisig_tracker_loop &
+echo "[p5-squads-sdk] multisig-tracker Solana → NestJS MultisigTrackerProcessor (Squads SDK port)"
+# run_multisig_tracker_loop &
 run_executor_loop &
 run_sentinel_loop &
 echo "[p4-cutover] portfolio-report → NestJS PortfolioReportProcessor (PR #27)"

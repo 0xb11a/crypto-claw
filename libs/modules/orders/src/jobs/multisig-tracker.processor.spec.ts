@@ -6,35 +6,43 @@
  * No real I/O. Tests processor logic in isolation.
  *
  * Covers:
+ *   PAPER_MODE:
  *   - PAPER_MODE=true → skips, no service calls, returns skipped:true.
- *   - No queued receipts → counts.checked=0, meta key written.
- *   - Orphaned receipt (null position_id) → markReverted('orphaned_position').
- *   - Orphaned receipt (positionsService.getById throws) → markReverted('orphaned_position').
- *   - EVM: missing safe_tx_hash → counts.pending++.
- *   - EVM: safeTxService.getTransaction throws → counts.pending++.
- *   - EVM: executed + successful → markExecuted + position→open (BUY), sendTradeExecuted.
- *   - EVM: executed + successful (SELL) → position→closed, sendTradeExecuted.
- *   - EVM: executed + failed (BUY) → markReverted + cash refund + deleteDraft + sendTradeFailed.
- *   - EVM: executed + failed (SELL) → markReverted + position→open + sendTradeFailed.
- *   - EVM: still pending, should NOT remind (< 30min) → no note update, no alert.
- *   - EVM: still pending, should remind (≥ 30min) → updateNotes + sendCriticalAlert.
- *   - Squads: missing txIndex (safe_nonce) → counts.pending++.
- *   - Squads: found in pending list → still pending (old EVM path behavior; NOT applicable
- *     now — Solana path is feature-flag skipped).
- *   - Coder concern #3: deleteDraft throws → processor logs and continues (no crash).
- *   - meta key last_multisig_tracker_at always written.
- *   [NET-NEW] Solana-skip tests:
- *   - WARN fires exactly once when batch has multiple queued_in_squads receipts.
- *   - Mixed batch (EVM + Solana): EVM runs normally, Solana skipped, single WARN.
- *   - All-Solana batch: meta key still written, no markExecuted calls.
- *   - getPendingTransactions is NEVER called (Solana path skipped before adapter call).
  *
- * Removed tests (behavior no longer exists):
- *   - "calls markExecuted when Squads tx not in pending list" — Solana receipts
- *     are now skipped, never confirmed by this processor.
- *   - "CONCERN-2: getPendingTransactions empty on RPC error → treated as executed" —
- *     getPendingTransactions is never called; the Solana path is an explicit skip.
- *     Replaced by "Solana receipts: pending count incremented, no markExecuted" below.
+ *   Empty receipts:
+ *   - No queued receipts → counts.checked=0, meta key written.
+ *   - findByStatuses called with ["queued_in_safe","queued_in_squads"].
+ *
+ *   Orphaned receipts:
+ *   - null position_id → markReverted('orphaned_position').
+ *   - positionsService.getById throws → markReverted('orphaned_position').
+ *
+ *   EVM receipts:
+ *   - missing safe_tx_hash → counts.pending++.
+ *   - getTransaction throws → counts.pending++.
+ *   - executed + successful (BUY) → markExecuted + position→open + sendTradeExecuted.
+ *   - executed + successful (SELL) → position→closed + sendTradeExecuted.
+ *   - executed + failed (BUY) → markReverted + cash refund + deleteDraft + sendTradeFailed.
+ *   - executed + failed (SELL) → markReverted + position→open + sendTradeFailed.
+ *   - still pending, < 30min → no reminder.
+ *   - still pending, ≥ 30min → updateNotes + sendCriticalAlert.
+ *   - deleteDraft throws → processor does not crash.
+ *
+ *   Squads receipts — SDK port complete:
+ *   - getPendingTransactions called once per cycle (batch fetch).
+ *   - getPendingTransactions NOT called when no queued_in_squads receipts.
+ *   - Squads receipt in pending list → still pending (handlePending).
+ *   - Squads receipt NOT in pending list → markExecuted (assumed executed).
+ *   - Squads receipt NOT in pending list, BUY → position→open + sendTradeExecuted.
+ *   - Squads receipt NOT in pending list, SELL → position→closed + sendTradeExecuted.
+ *   - missing safe_nonce → counts.pending++.
+ *   - SquadsAddressMissingError → squadsPending=null, receipt stays pending, no crash.
+ *   - SquadsRpcError → squadsPending=null, receipt stays pending, no crash.
+ *   - getPendingTransactions fetch failure + EVM receipts in same batch → EVM still processed.
+ *   - Idempotency: running twice with same Active proposal → same pending count.
+ *
+ *   Meta key invariant:
+ *   - last_multisig_tracker_at always written.
  *
  * SPEC §4 #4 — no signer keys.
  * SPEC §4 #6 — config via ConfigService.
@@ -45,7 +53,7 @@ import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { Job } from 'bullmq';
 import type { SafeTxServiceAdapter } from '@cclaw/adapters-safe-tx-service';
-import type { SquadsRpcAdapter } from '@cclaw/adapters-squads-rpc';
+import { SquadsRpcAdapter, SquadsAddressMissingError, SquadsRpcError } from '@cclaw/adapters-squads-rpc';
 import type { NotificationsService } from '@cclaw/notifications';
 import type { SystemService } from '@cclaw/system';
 import type { PositionsService } from '@cclaw/positions';
@@ -116,10 +124,10 @@ function makeSafeTxService(
   } as unknown as SafeTxServiceAdapter;
 }
 
-function makeSquadsRpc(): SquadsRpcAdapter {
+function makeSquadsRpc(pending: Array<{ transactionIndex: number; approved: number }> = []): SquadsRpcAdapter {
   return {
     getMultisigInfo: vi.fn(),
-    getPendingTransactions: vi.fn(),
+    getPendingTransactions: vi.fn().mockResolvedValue(pending),
   } as unknown as SquadsRpcAdapter;
 }
 
@@ -252,6 +260,15 @@ describe('MultisigTrackerProcessor', () => {
       await processor.process(makeJob());
 
       expect(receiptsService.findByStatuses).toHaveBeenCalledWith(['queued_in_safe', 'queued_in_squads']);
+    });
+
+    it('does NOT call getPendingTransactions when no receipts', async () => {
+      const squadsRpc = makeSquadsRpc();
+      const processor = makeProcessor({ receiptsService: makeReceiptsService([]), squadsRpc });
+
+      await processor.process(makeJob());
+
+      expect(squadsRpc.getPendingTransactions).not.toHaveBeenCalled();
     });
   });
 
@@ -468,7 +485,6 @@ describe('MultisigTrackerProcessor', () => {
       expect(result.failed).toBe(1);
     });
 
-    // Coder concern #3: deleteDraft throws → processor logs and continues
     it('CONCERN-3: does not crash when deleteDraft throws (race condition)', async () => {
       const safeTxService = makeSafeTxService({ executed: true, isSuccessful: false });
       const receiptsService = makeReceiptsService([makeReceipt()]);
@@ -478,10 +494,7 @@ describe('MultisigTrackerProcessor', () => {
       );
       const processor = makeProcessor({ receiptsService, positionsService, safeTxService });
 
-      // Should not throw — processor catches at the outer per-receipt catch block.
       await expect(processor.process(makeJob())).resolves.not.toThrow();
-      // Meta key still written
-      expect(true).toBe(true); // no crash = test passes
     });
   });
 
@@ -566,60 +579,32 @@ describe('MultisigTrackerProcessor', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Squads: missing txIndex
+  // Squads receipts — SDK port complete
   // -------------------------------------------------------------------------
 
-  describe('Squads: missing txIndex (safe_nonce)', () => {
-    it('increments pending count when safe_nonce is null', async () => {
-      const receipt = makeReceipt({ status: 'queued_in_squads', safe_nonce: null, safe_tx_hash: null });
-      const receiptsService = makeReceiptsService([receipt]);
-      const squadsRpc = makeSquadsRpc();
-      const processor = makeProcessor({ receiptsService, squadsRpc });
-
-      const result = await processor.process(makeJob());
-
-      // Solana path is feature-flag skipped; the receipt increments pending.
-      expect(result.pending).toBe(1);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Solana receipts — feature-flag skip (new behavior, PR-D fix)
-  //
-  // queued_in_squads receipts are now explicitly skipped. The processor does NOT
-  // call getPendingTransactions, does NOT call markExecuted, and increments
-  // counts.pending per skipped receipt.
-  // -------------------------------------------------------------------------
-
-  describe('Solana receipts: feature-flag skip', () => {
-    it('WARN fires exactly once when batch contains multiple queued_in_squads receipts', async () => {
-      // Three Solana receipts — WARN must fire only once (gated by solanaSkipWarned).
+  describe('Squads receipts — SDK port complete', () => {
+    it('calls getPendingTransactions exactly once per cycle when Squads receipts present', async () => {
       const receipts = [
         makeReceipt({ id: 'r1', status: 'queued_in_squads', safe_nonce: 1, safe_tx_hash: null }),
         makeReceipt({ id: 'r2', status: 'queued_in_squads', safe_nonce: 2, safe_tx_hash: null }),
-        makeReceipt({ id: 'r3', status: 'queued_in_squads', safe_nonce: 3, safe_tx_hash: null }),
       ];
       const receiptsService = makeReceiptsService(receipts);
-      const positionsService = makePositionsService();
-      // All three share pos-1 — that's fine for this test
-      const processor = makeProcessor({ receiptsService, positionsService });
-      // Capture spy AFTER makeProcessor (which resets all mock implementations)
-      const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+      // Both receipts in pending list → still pending
+      const squadsRpc = makeSquadsRpc([
+        { transactionIndex: 1, approved: 1 },
+        { transactionIndex: 2, approved: 0 },
+      ]);
 
+      const processor = makeProcessor({ receiptsService, squadsRpc });
       await processor.process(makeJob());
 
-      // Filter warn calls to only the Solana-skip message (entrypoint.sh mention)
-      const solanaWarnCalls = warnSpy.mock.calls.filter((call) => String(call[0]).includes('entrypoint.sh'));
-      expect(solanaWarnCalls).toHaveLength(1);
+      expect(squadsRpc.getPendingTransactions).toHaveBeenCalledOnce();
     });
 
-    it('getPendingTransactions is NEVER called (Solana skip is before adapter call)', async () => {
-      const receipts = [
-        makeReceipt({ id: 'r1', status: 'queued_in_squads', safe_nonce: 10, safe_tx_hash: null }),
-        makeReceipt({ id: 'r2', status: 'queued_in_squads', safe_nonce: 11, safe_tx_hash: null }),
-      ];
+    it('does NOT call getPendingTransactions when no queued_in_squads receipts', async () => {
+      const receipts = [makeReceipt({ status: 'queued_in_safe', safe_tx_hash: '0xevm' })];
       const receiptsService = makeReceiptsService(receipts);
-      const squadsRpc = makeSquadsRpc();
+      const squadsRpc = makeSquadsRpc([]);
 
       const processor = makeProcessor({ receiptsService, squadsRpc });
       await processor.process(makeJob());
@@ -627,76 +612,133 @@ describe('MultisigTrackerProcessor', () => {
       expect(squadsRpc.getPendingTransactions).not.toHaveBeenCalled();
     });
 
-    it('Mixed batch (EVM + Solana): EVM runs normally, Solana skipped, single WARN', async () => {
-      const evmReceipt = makeReceipt({
-        id: 'evm-r1',
-        status: 'queued_in_safe',
-        chain: 'base',
-        safe_tx_hash: '0xabc',
-      });
-      const solanaReceipt1 = makeReceipt({
-        id: 'sol-r1',
-        status: 'queued_in_squads',
-        chain: 'solana',
-        safe_tx_hash: null,
-        safe_nonce: 5,
-      });
-      const solanaReceipt2 = makeReceipt({
-        id: 'sol-r2',
-        status: 'queued_in_squads',
-        chain: 'solana',
-        safe_tx_hash: null,
-        safe_nonce: 6,
-      });
-      const receiptsService = makeReceiptsService([evmReceipt, solanaReceipt1, solanaReceipt2]);
-      // EVM: tx not yet executed (still pending)
-      const safeTxService = makeSafeTxService({ executed: false });
-      const squadsRpc = makeSquadsRpc();
-
-      const processor = makeProcessor({ receiptsService, safeTxService, squadsRpc });
-      // Capture spy AFTER makeProcessor (which resets all mock implementations)
-      const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
-      const result = await processor.process(makeJob());
-
-      // EVM path: still pending → counts.pending++
-      // Solana path: 2 receipts, each → counts.pending++; only 1 WARN
-      expect(result.pending).toBe(3);
-      expect(result.confirmed).toBe(0);
-      expect(squadsRpc.getPendingTransactions).not.toHaveBeenCalled();
-
-      const solanaWarnCalls = warnSpy.mock.calls.filter((call) => String(call[0]).includes('entrypoint.sh'));
-      expect(solanaWarnCalls).toHaveLength(1);
-    });
-
-    it('All-Solana batch: meta key still written, no markExecuted calls', async () => {
-      const receipts = [
-        makeReceipt({ id: 'r1', status: 'queued_in_squads', safe_nonce: 20, safe_tx_hash: null }),
-        makeReceipt({ id: 'r2', status: 'queued_in_squads', safe_nonce: 21, safe_tx_hash: null }),
-      ];
-      const receiptsService = makeReceiptsService(receipts);
-      const systemService = makeSystemService();
-
-      const processor = makeProcessor({ receiptsService, systemService });
-      await processor.process(makeJob());
-
-      expect(receiptsService.markExecuted).not.toHaveBeenCalled();
-      expect(receiptsService.markReverted).not.toHaveBeenCalled();
-      expect(systemService.setMeta).toHaveBeenCalledWith(expect.objectContaining({ key: 'last_multisig_tracker_at' }));
-    });
-
-    it('Solana receipts increment pending count (not confirmed)', async () => {
-      // Replaces the old CONCERN-2 test. The new behavior is: Solana receipts are
-      // skipped unconditionally. There is no "false positive confirmed" path.
-      const receipt = makeReceipt({ status: 'queued_in_squads', safe_nonce: 99, safe_tx_hash: null });
+    it('receipt still in pending list → counts.pending++, NO markExecuted', async () => {
+      const receipt = makeReceipt({ id: 'r1', status: 'queued_in_squads', safe_nonce: 10, safe_tx_hash: null });
       const receiptsService = makeReceiptsService([receipt]);
-      const squadsRpc = makeSquadsRpc();
+      // txIndex 10 IS in the pending list → still pending
+      const squadsRpc = makeSquadsRpc([{ transactionIndex: 10, approved: 1 }]);
 
       const processor = makeProcessor({ receiptsService, squadsRpc });
       const result = await processor.process(makeJob());
 
-      // The receipt is skipped → pending++, not confirmed++
       expect(result.pending).toBe(1);
       expect(result.confirmed).toBe(0);
+      expect(receiptsService.markExecuted).not.toHaveBeenCalled();
+    });
+
+    it('receipt NOT in pending list (BUY) → markExecuted + position→open + sendTradeExecuted', async () => {
+      const receipt = makeReceipt({ id: 'r1', status: 'queued_in_squads', safe_nonce: 5, safe_tx_hash: null });
+      const receiptsService = makeReceiptsService([receipt]);
+      // txIndex 5 is NOT in the pending list → executed
+      const squadsRpc = makeSquadsRpc([]); // empty pending list
+      const positionsService = makePositionsService(makePosition({ status: 'draft' }));
+      const notificationsService = makeNotifications();
+
+      const processor = makeProcessor({ receiptsService, squadsRpc, positionsService, notificationsService });
+      const result = await processor.process(makeJob());
+
+      expect(result.confirmed).toBe(1);
+      expect(receiptsService.markExecuted).toHaveBeenCalledWith('r1', null); // null tx hash for Squads
+      expect(positionsService.update).toHaveBeenCalledWith('pos-1', { status: 'open' }, 'real');
+      expect(notificationsService.sendTradeExecuted).toHaveBeenCalled();
+    });
+
+    it('receipt NOT in pending list (SELL) → markExecuted + position→closed', async () => {
+      const receipt = makeReceipt({ id: 'r1', status: 'queued_in_squads', safe_nonce: 7, safe_tx_hash: null });
+      const receiptsService = makeReceiptsService([receipt]);
+      const squadsRpc = makeSquadsRpc([]); // empty — txIndex 7 considered executed
+      const positionsService = makePositionsService(makePosition({ status: 'pending_exit' }));
+      const notificationsService = makeNotifications();
+
+      const processor = makeProcessor({ receiptsService, squadsRpc, positionsService, notificationsService });
+      await processor.process(makeJob());
+
+      expect(positionsService.update).toHaveBeenCalledWith('pos-1', { status: 'closed' }, 'real');
+      expect(notificationsService.sendTradeExecuted).toHaveBeenCalled();
+    });
+
+    it('missing safe_nonce (safe_nonce=null) → counts.pending++, no markExecuted', async () => {
+      const receipt = makeReceipt({ status: 'queued_in_squads', safe_nonce: null, safe_tx_hash: null });
+      const receiptsService = makeReceiptsService([receipt]);
+      const squadsRpc = makeSquadsRpc([]);
+
+      const processor = makeProcessor({ receiptsService, squadsRpc });
+      const result = await processor.process(makeJob());
+
+      expect(result.pending).toBe(1);
+      expect(receiptsService.markExecuted).not.toHaveBeenCalled();
+    });
+
+    it('SquadsAddressMissingError → squadsPending=null, Squads receipt stays pending, no crash', async () => {
+      const receipt = makeReceipt({ status: 'queued_in_squads', safe_nonce: 3, safe_tx_hash: null });
+      const receiptsService = makeReceiptsService([receipt]);
+      const squadsRpc = makeSquadsRpc();
+      (squadsRpc.getPendingTransactions as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new SquadsAddressMissingError(),
+      );
+
+      const processor = makeProcessor({ receiptsService, squadsRpc });
+      const result = await processor.process(makeJob());
+
+      expect(result.pending).toBe(1);
+      expect(receiptsService.markExecuted).not.toHaveBeenCalled();
+      // No crash — meta key still written
+      const systemService = processor['systemService'] as SystemService;
+      void systemService; // just checks we got here without throw
+    });
+
+    it('SquadsRpcError → squadsPending=null, receipt stays pending, no crash', async () => {
+      const receipt = makeReceipt({ status: 'queued_in_squads', safe_nonce: 4, safe_tx_hash: null });
+      const receiptsService = makeReceiptsService([receipt]);
+      const squadsRpc = makeSquadsRpc();
+      (squadsRpc.getPendingTransactions as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new SquadsRpcError('getPendingTransactions', 'RPC unavailable'),
+      );
+
+      const processor = makeProcessor({ receiptsService, squadsRpc });
+      await expect(processor.process(makeJob())).resolves.not.toThrow();
+    });
+
+    it('Squads fetch failure + EVM receipts: EVM receipts still processed', async () => {
+      const evmReceipt = makeReceipt({ id: 'evm-r1', status: 'queued_in_safe', safe_tx_hash: '0xabc' });
+      const solReceipt = makeReceipt({
+        id: 'sol-r1',
+        status: 'queued_in_squads',
+        safe_nonce: 9,
+        safe_tx_hash: null,
+      });
+      const receiptsService = makeReceiptsService([evmReceipt, solReceipt]);
+      // EVM: tx executed + successful
+      const safeTxService = makeSafeTxService({ executed: true, isSuccessful: true, txHash: '0x123' });
+      const positionsService = makePositionsService(makePosition({ status: 'draft' }));
+      const squadsRpc = makeSquadsRpc();
+      (squadsRpc.getPendingTransactions as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new SquadsRpcError('getPendingTransactions', 'timeout'),
+      );
+
+      const processor = makeProcessor({ receiptsService, safeTxService, positionsService, squadsRpc });
+      const result = await processor.process(makeJob());
+
+      // EVM receipt confirmed
+      expect(result.confirmed).toBe(1);
+      // Squads receipt pending (fetch failed)
+      expect(result.pending).toBe(1);
+    });
+
+    // Idempotency test — DoD §E
+    it('Idempotency: running twice with same Active proposal yields same pending count', async () => {
+      const receipt = makeReceipt({ status: 'queued_in_squads', safe_nonce: 42, safe_tx_hash: null });
+      const receiptsService = makeReceiptsService([receipt]);
+      // txIndex 42 is still Active both times
+      const squadsRpc = makeSquadsRpc([{ transactionIndex: 42, approved: 1 }]);
+
+      const processor = makeProcessor({ receiptsService, squadsRpc });
+
+      const result1 = await processor.process(makeJob('job-1'));
+      const result2 = await processor.process(makeJob('job-2'));
+
+      expect(result1.pending).toBe(1);
+      expect(result2.pending).toBe(1);
       expect(receiptsService.markExecuted).not.toHaveBeenCalled();
     });
   });

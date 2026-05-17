@@ -11,13 +11,18 @@
  *      a. Load position via `positionsService.getById(position_id)`.
  *         If orphaned → `receiptsService.markReverted(id, 'orphaned_position')`.
  *      b. EVM (`queued_in_safe`): `safeTxService.getTransaction(chain, safe_tx_hash)`.
- *      c. Solana (`queued_in_squads`): feature-flag skipped (SquadsRpcAdapter SDK port pending).
- *         Receipt stays in `queued_in_squads` for scripts/track-multisig.js to handle.
- *         Per OPEN-8: `safe_nonce` field stores the Squads transactionIndex — accepted overload.
+ *      c. Solana (`queued_in_squads`): call `squadsRpc.getPendingTransactions()` once
+ *         per cycle (batched, not per-receipt). Per OPEN-8: `safe_nonce` field stores
+ *         the Squads transactionIndex — accepted overload.
  *      d. Confirmed+successful → `receiptsService.markExecuted`, position status update.
  *      e. Confirmed+failed → `receiptsService.markReverted`, cash refund for BUY rejection.
  *      f. Still pending → reminder gate (30 min interval, via `shouldSendReminder`).
  *   4. Always write `systemService.setMeta('last_multisig_tracker_at', now)`.
+ *
+ * Squads batch-fetch strategy:
+ *   `getPendingTransactions()` is called at most once per cycle (when ≥1
+ *   `queued_in_squads` receipts are present). The result is passed to
+ *   `handleSquadsReceipt` for each receipt, avoiding N RPC calls for N receipts.
  *
  * Cross-module coordination:
  *   ReceiptsService → markExecuted / markReverted / updateNotes
@@ -25,15 +30,14 @@
  *   SystemService → setCash / setMeta
  *   NotificationsService → sendTradeExecuted / sendTradeFailed
  *   SafeTxServiceAdapter → getTransaction (EVM)
- *   SquadsRpcAdapter → Solana path feature-flag skipped (SDK port pending);
- *     receipts in `queued_in_squads` remain handled by scripts/track-multisig.js
- *     via entrypoint.sh:run_executor_loop until a dedicated PR lands.
+ *   SquadsRpcAdapter → getPendingTransactions (Solana, SDK port complete)
  *
  * Idempotency (DoD §E):
  *   Running twice with the same receipt state leaves the DB identical (only
  *   `last_multisig_tracker_at` advances). markExecuted and markReverted are
  *   idempotent because Prisma update on a row that is already in the target
- *   state is a no-op (same field values).
+ *   state is a no-op (same field values). getPendingTransactions is read-only
+ *   and side-effect-free.
  *
  * Config access (ADR-0026 — per-field):
  *   - `PAPER_MODE`
@@ -46,7 +50,8 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
 import type { Job } from 'bullmq';
 import { SafeTxServiceAdapter } from '@cclaw/adapters-safe-tx-service';
-import { SquadsRpcAdapter, SquadsRpcNotImplementedError } from '@cclaw/adapters-squads-rpc';
+import { SquadsRpcAdapter, SquadsAddressMissingError, SquadsRpcError } from '@cclaw/adapters-squads-rpc';
+import type { SquadsPendingTransaction } from '@cclaw/adapters-squads-rpc';
 import { NotificationsService } from '@cclaw/notifications';
 import { SystemService } from '@cclaw/system';
 import { PositionsService } from '@cclaw/positions';
@@ -85,10 +90,7 @@ export class MultisigTrackerProcessor extends WorkerHost {
     private readonly systemService: SystemService,
     private readonly notificationsService: NotificationsService,
     private readonly safeTxService: SafeTxServiceAdapter,
-    // squadsRpc retained in DI graph so the module stays wired when the SDK
-    // port PR re-enables the Solana path. Solana tracking is currently handled
-    // by entrypoint.sh:run_executor_loop (scripts/track-multisig.js).
-    private readonly _squadsRpc: SquadsRpcAdapter,
+    private readonly squadsRpc: SquadsRpcAdapter,
   ) {
     super();
   }
@@ -113,12 +115,29 @@ export class MultisigTrackerProcessor extends WorkerHost {
       this.logger.debug('multisig-tracker: no queued receipts found');
     }
 
-    // Solana multisig tracking feature-flag: SquadsRpcAdapter is a stub that
-    // throws SquadsRpcNotImplementedError. Solana receipts are intentionally
-    // skipped here and remain handled by entrypoint.sh:run_executor_loop via
-    // scripts/track-multisig.js until a dedicated SDK-port PR lands.
-    // See libs/adapters/squads-rpc/src/squads-rpc.adapter.ts for rationale.
-    let solanaSkipWarned = false;
+    // Batch-fetch Squads pending transactions once per cycle if any Squads receipts exist.
+    // This avoids N RPC calls for N receipts — one call feeds all handleSquadsReceipt calls.
+    let squadsPending: SquadsPendingTransaction[] | null = null;
+
+    const hasSquadsReceipts = receipts.some((r) => r.status === 'queued_in_squads');
+    if (hasSquadsReceipts) {
+      try {
+        const signal = AbortSignal.timeout(30_000);
+        squadsPending = await this.squadsRpc.getPendingTransactions(signal);
+        this.logger.debug(`multisig-tracker: Squads pending count=${squadsPending.length}`);
+      } catch (err) {
+        if (err instanceof SquadsAddressMissingError) {
+          // No multisig address configured — log debug and skip Squads receipts this cycle.
+          this.logger.debug(`multisig-tracker: Squads address missing — ${(err as Error).message}`);
+        } else if (err instanceof SquadsRpcError) {
+          // RPC error (network, Borsh decode). Do NOT include RPC URL in log.
+          this.logger.warn(`multisig-tracker: Squads RPC error — ${(err as Error).message}`);
+        } else {
+          this.logger.warn(`multisig-tracker: Squads getPendingTransactions error — ${(err as Error).message}`);
+        }
+        // squadsPending remains null; Squads receipts will be counted as pending this cycle.
+      }
+    }
 
     for (const receipt of receipts) {
       const receiptId = receipt.id;
@@ -165,46 +184,19 @@ export class MultisigTrackerProcessor extends WorkerHost {
         if (receipt.status === 'queued_in_safe') {
           await this.handleSafeReceipt(receiptSubset, positionSubset, counts);
         } else if (receipt.status === 'queued_in_squads') {
-          /**
-           * FEATURE FLAG — Solana tracking deferred to legacy script.
-           *
-           * SquadsRpcAdapter.getPendingTransactions() throws
-           * SquadsRpcNotImplementedError (SDK port pending). This branch
-           * explicitly skips Solana receipts so they remain handled by
-           * entrypoint.sh:run_executor_loop → scripts/track-multisig.js until
-           * a dedicated PR adds @sqds/multisig with real fixture validation.
-           *
-           * The receipt is NOT touched (no status transition, no markExecuted,
-           * no markReverted). It stays in `queued_in_squads` for the legacy
-           * loop to process. A single warn is emitted per cycle (not per receipt)
-           * to avoid log spam.
-           */
-          if (!solanaSkipWarned) {
-            this.logger.warn(
-              'multisig-tracker: Solana multisig tracking deferred to ' +
-                'entrypoint.sh:run_executor_loop; SquadsRpcAdapter SDK port pending',
+          if (squadsPending === null) {
+            // Squads fetch failed this cycle — treat as pending (retry next cycle).
+            this.logger.debug(
+              `multisig-tracker: Squads fetch unavailable this cycle — receipt ${receiptId} stays pending`,
             );
-            solanaSkipWarned = true;
+            counts.pending++;
+          } else {
+            await this.handleSquadsReceipt(receiptSubset, positionSubset, squadsPending, counts);
           }
-          this.logger.debug(
-            `multisig-tracker: skipping queued_in_squads receipt ${receiptId} — handled by scripts/track-multisig.js`,
-          );
-          counts.pending++;
         }
       } catch (err) {
-        // Defense-in-depth: if SquadsRpcNotImplementedError somehow escapes the
-        // explicit skip above (e.g. after a future refactor accidentally re-enables
-        // the adapter call), log loudly rather than silently swallowing bad data.
-        if (err instanceof SquadsRpcNotImplementedError) {
-          this.logger.error(
-            `multisig-tracker: SquadsRpcNotImplementedError reached unexpectedly for receipt ${receiptId} — ` +
-              'Solana tracking must remain in entrypoint.sh:run_executor_loop until SDK port lands',
-          );
-          counts.pending++;
-        } else {
-          this.logger.warn(`multisig-tracker: error processing receipt ${receiptId} — ${(err as Error).message}`);
-          counts.pending++;
-        }
+        this.logger.warn(`multisig-tracker: error processing receipt ${receiptId} — ${(err as Error).message}`);
+        counts.pending++;
       }
     }
 
@@ -265,12 +257,23 @@ export class MultisigTrackerProcessor extends WorkerHost {
    *
    * OPEN-8: `receipt.safe_nonce` stores the Squads transactionIndex (deliberate overload).
    *
+   * Decision logic (mirrors legacy `scripts/track-multisig.js:checkSquadsTransaction`):
+   *   - If the transactionIndex is present in `squadsPending` → still pending.
+   *   - If absent from `squadsPending` → assumed executed (Squads removes on execution).
+   *   - If txIndex is missing from the receipt → treated as pending (skip + warn).
+   *
+   * Note: Squads does not provide an on-chain failure/rejection signal in the
+   * pending list — a rejected/cancelled proposal also disappears. The current
+   * behaviour (treat absent as executed) is a deliberate legacy-parity choice;
+   * handling the cancellation case requires a separate Squads SDK call and is
+   * deferred to a follow-up PR.
+   *
    * @internal
    */
   private async handleSquadsReceipt(
     receipt: { id: string; safe_nonce?: number; symbol: string; notes?: string },
     position: { id: string; status: string; chain: string; value_usd?: number },
-    squadsPending: { transactionIndex: number; approved: number }[],
+    squadsPending: SquadsPendingTransaction[],
     counts: { confirmed: number; pending: number; failed: number },
   ): Promise<void> {
     const txIndex = receipt.safe_nonce;
