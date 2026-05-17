@@ -34,7 +34,7 @@ Positions, trades, orders, alerts, receipts — everything tied to a specific Sa
 
 - Database path: `data/<SAFE_ID>.db`
 - Primary access via `cclaw <resource> <action>` (canonical post-P5); legacy `node scripts/db-query.js <command>` for hold-back commands (pending P5b/P6 expansion)
-- Schema managed by auto-migrations in `scripts/db.js` (retained until P6) AND Prisma migrations in `prisma/migrations/` (NestJS layer)
+- Schema managed by two parallel migration systems: (1) `scripts/db.js` auto-migrates on first `getDb()` call (legacy layer, retained until P5b/P6 expansion completes); (2) `prisma/migrations/` Prisma migrations applied automatically by `apps/api` on startup via `runPrismaMigrateDeploy()` in `apps/api/src/main.ts` (P6-fragment)
 - 21 tables: positions, trades, orders, receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_positions, paper_receipts, analysis_cache, portfolio_sync, contract_snapshots, research_log, observer_log, smart_money_signals, _migrations
 
 ### Why Two Layers?

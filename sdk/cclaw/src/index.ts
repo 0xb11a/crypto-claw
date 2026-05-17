@@ -424,6 +424,35 @@ systemCmd
   );
 
 // -------------------------------------------------------------------------
+// system meta (get / set)
+// -------------------------------------------------------------------------
+
+// Nested 'meta' subcommand group — Commander v14 requires the parent be
+// registered once; `.command('meta get')` + `.command('meta set')` would
+// throw "cannot add command 'meta' as already have command 'meta'" at
+// module load and break the entire cclaw binary.
+const metaCmd = systemCmd.command('meta').description('Portfolio meta key/value operations');
+
+metaCmd
+  .command('get')
+  .description('Get a portfolio_meta key/value')
+  .requiredOption('--key <key>', 'Meta key to retrieve')
+  .action(async (opts: { key: string }) => {
+    const data = await apiCall<unknown>('GET', `/system/meta?key=${encodeURIComponent(opts.key)}`);
+    output(data);
+  });
+
+metaCmd
+  .command('set')
+  .description('Set a portfolio_meta key/value (writes audit trail)')
+  .requiredOption('--key <key>', 'Meta key to set')
+  .requiredOption('--value <value>', 'Value to store (stored as string)')
+  .action(async (opts: { key: string; value: string }) => {
+    const data = await apiCall<unknown>('PATCH', '/system/meta', { key: opts.key, value: opts.value });
+    output(data);
+  });
+
+// -------------------------------------------------------------------------
 // Run
 // -------------------------------------------------------------------------
 
