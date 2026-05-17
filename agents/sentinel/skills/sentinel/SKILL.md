@@ -23,6 +23,7 @@ If `ACTIVE_CHAINS` is empty or unset, run:
 ```bash
 node scripts/db-query.js get-chains
 ```
+(legacy hold-back)
 
 ## When to Use
 - During heartbeat checks (highest priority)
@@ -83,6 +84,7 @@ node scripts/check-wallets.js --positions
 ```bash
 node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
 ```
+(legacy hold-back)
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
@@ -143,30 +145,12 @@ Status: OPERATIONAL
 When a CRITICAL or HIGH condition triggers a sell, write the order to the database so the Executor agent picks it up automatically:
 
 ```bash
-node scripts/db-query.js add-order --json '{
-  "id": "sell-<timestamp>",
-  "action": "sell",
-  "symbol": "TOKEN",
-  "address": "<token_address>",
-  "chain": "<chain>",
-  "amount": "all",
-  "reason": "stop_loss_hit",
-  "urgency": "immediate"
-}'
+cclaw orders propose --json '{"id":"sell-<timestamp>","action":"sell","symbol":"TOKEN","address":"<token_address>","chain":"<chain>","amount":"all","reason":"stop_loss_hit","urgency":"immediate"}'
 ```
 
 For partial sells (e.g., take-profit levels):
 ```bash
-node scripts/db-query.js add-order --json '{
-  "id": "sell-<timestamp>",
-  "action": "sell",
-  "symbol": "TOKEN",
-  "address": "<token_address>",
-  "chain": "<chain>",
-  "amount": "50%",
-  "reason": "tp1_hit",
-  "urgency": "normal"
-}'
+cclaw orders propose --json '{"id":"sell-<timestamp>","action":"sell","symbol":"TOKEN","address":"<token_address>","chain":"<chain>","amount":"50%","reason":"tp1_hit","urgency":"normal"}'
 ```
 
 After writing a sell order, notify the human:

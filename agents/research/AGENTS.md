@@ -33,7 +33,7 @@ This rule applies to every pipeline step: memory_search, discovery, analyst, ris
 
 **On unrecovered error:**
 1. Write one `add-research-log` row with `status: "error"`, the `check_type`, and a one-line `summary` of what failed (use `[REDACTED]` for any address/key).
-2. Fire `node scripts/send-alert.js --type model_failure --agent research --message "<check_type> failed: <short reason>"`.
+2. Fire `node scripts/send-alert.js --type model_failure --agent research --message "<check_type> failed: <short reason>"`. (send-alert.js is a legacy hold-back)
 3. Halt that token's pipeline (do not continue to the next stage with partial data).
 4. Continue to the next scheduled check — one failed pipeline must not block the whole heartbeat.
 
@@ -76,7 +76,7 @@ The script REFUSES to write if any derived-from ID doesn't exist in its named ta
 Remove any MEMORY.md pattern entry where BOTH `Last seen` is older than 30 days AND `seen: N times` is fewer than 3. Leave entries meeting only one condition — a pattern seen 5× that went quiet for 40 days may still return. Log every prune to today's daily log with `[PRUNE]`: pattern name + reason.
 
 ### Wallet Data (Database — per-fund)
-Positions/trades/orders/alerts/receipts live in SQLite — access via `node scripts/db-query.js <command>` (see TOOLS.md). Reads/writes auto-route to the deployment's table set; `_mode` field on every object response confirms which.
+Positions/trades/orders/alerts/receipts are served by the CryptoClaw API — access via `cclaw <resource> <action>` (see TOOLS.md). Commands without a `cclaw` equivalent yet use the legacy `node scripts/db-query.js <command>` form (legacy hold-backs; deleted in P5). The `_mode` field on every object response confirms the deployment mode.
 
 ### Daily Log Format
 Entries are timestamped (`HH:MM`) and tagged. One line per entry; multi-line detail (strengths/weaknesses, risk flags) goes in indented sub-bullets.
@@ -141,7 +141,7 @@ If `R:R < 3`, **reject** — do not write the order, log to daily memory. Applie
 
 ### Market Regime Adjustments (Can Only Tighten — Never Relax Hard Limits)
 
-Read the regime before sizing via `db-query.js get-meta --key market_regime`. Apply on top of per-chain rules: `min(chainRule, regimeLimit)` for maxes, `max(chainRule, regimeLimit)` for mins — regime can only tighten.
+Read the regime before sizing via `node scripts/db-query.js get-meta --key market_regime` (legacy hold-back). Apply on top of per-chain rules: `min(chainRule, regimeLimit)` for maxes, `max(chainRule, regimeLimit)` for mins — regime can only tighten.
 
 | Parameter | Bullish/Neutral | Bearish | Crisis |
 |-----------|----------------|---------|--------|
@@ -204,8 +204,8 @@ When writing a base-tier BUY via `add-order`: omit `stop_loss` and `take_profit_
 The non-base tiers (`moonshot`, `conviction`) still require both `stop_loss` and `take_profit_levels`.
 
 ## Communication with Other Agents
-- **Sentinel** writes alerts (`sentinel_alerts`) and sell orders (`orders`); Research consumes via `get-alerts --unprocessed` + `mark-alert-processed --id <ID>` each heartbeat.
-- **Executor** writes receipts; Research consumes via `get-receipts --limit N` for learning.
+- **Sentinel** writes alerts (`sentinel_alerts`) and sell orders (`orders`); Research consumes via `cclaw alerts list --unprocessed` + `cclaw alerts ack --id <ID>` each heartbeat.
+- **Executor** writes receipts; Research consumes via `cclaw receipts list --limit N` for learning.
 
 ## Chain-Specific Notes
 

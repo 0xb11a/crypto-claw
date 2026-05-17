@@ -88,22 +88,43 @@ One sentence describing the problem and its portfolio impact.
 
 ## Wallet Data Access
 
-Access the shared SQLite database via CLI:
+Access data via the `cclaw` CLI (preferred) or legacy `node scripts/db-query.js` for hold-backs. Read-only commands available to you:
+
 ```bash
-node scripts/db-query.js <command> [--flags]
+cclaw receipts list --status tx_failed --limit 20
+```
+```bash
+cclaw orders list --status approved --limit 20
+```
+```bash
+cclaw orders list --status queued_in_safe --limit 20
+```
+```bash
+cclaw orders list --status queued_in_squads --limit 20
+```
+```bash
+cclaw orders list --status failed --limit 20
+```
+```bash
+cclaw alerts list
+```
+Inspect `sentinel_alerts` for storms (omit `--unprocessed`; storm detection needs ALL recent alerts, not just un-triaged ones).
+```bash
+cclaw heartbeat list
+```
+Dead-agent and cadence-drift detection.
+```bash
+cclaw positions list --status open
 ```
 
-Read-only commands available to you:
-- `get-receipts [--status tx_failed|validation_failed|reverted] [--limit 20]`
-- `get-orders [--status approved|queued_in_safe|queued_in_squads|pending|failed] [--limit 20]`
+Legacy hold-backs (use `node scripts/db-query.js`):
 - `get-executor-log [--limit 30]`
 - `get-sentinel-log [--limit 30]`
 - `get-research-log [--limit 30]`
 - `get-observer-log [--limit 20]`
-- `get-alerts` — inspect `sentinel_alerts` for storms (omit `--unprocessed`; storm detection needs ALL recent alerts, not just un-triaged ones)
-- `get-heartbeats [--agent <name>]` — dead-agent and cadence-drift detection
-- `get-positions [--status open]`
-- `get-portfolio`
+- `get-meta --key last_activity_wallets_bg_at`
+- `get-meta --key last_score_wallets_bg_at`
+- `get-smart-money-signals --since 2h --limit 1`
 
 ## Error Self-Reporting
 

@@ -22,7 +22,7 @@ Convert risk-assessed opportunities into concrete trade proposals. Manage sizing
 ```bash
 node scripts/db-query.js get-chains
 ```
-Read the active chains. Always include `--chain <chain>` on portfolio and cash commands.
+(legacy hold-back — `cclaw system chains` pending P5) Read the active chains. Always include `--chain <chain>` on portfolio and cash commands.
 
 ## When to Use
 - After risk skill approves a token
@@ -113,7 +113,7 @@ Reply APPROVE or REJECT
 - After portfolio drawdown >15%
 
 ### How to Rebalance
-1. Run `node scripts/db-query.js get-portfolio --chain <chain>` and `get-cash --chain <chain>`
+1. Run `cclaw positions list --chain <chain>` and `node scripts/db-query.js get-cash --chain <chain>` (get-cash is legacy hold-back)
 2. Calculate current vs target allocation
 3. Identify overweight/underweight tiers
 4. Propose specific sells (weakest positions in overweight tier)
@@ -134,22 +134,7 @@ After formatting the trade proposal, write the order via `add-order`. It returns
 - `pending` → human approval required. Call `send-approval.js` (below) to surface inline buttons.
 
 ```bash
-node scripts/db-query.js add-order --json '{
-  "id": "trade-<timestamp>",
-  "symbol": "TOKEN",
-  "address": "0x...",
-  "chain": "<CHAIN>",
-  "action": "buy",
-  "amount": 500,
-  "percent_of_portfolio": 4,
-  "tier": "moonshot",
-  "entry_price": 0.001,
-  "stop_loss": 0.0005,
-  "take_profit_levels": [{"level":1,"price":0.002,"sellPercent":50}],
-  "analysis_score": 76,
-  "risk_score": 20,
-  "reasoning": "..."
-}'
+cclaw orders propose --json '{"id":"trade-<timestamp>","symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","action":"buy","amount":500,"percent_of_portfolio":4,"tier":"moonshot","entry_price":0.001,"stop_loss":0.0005,"take_profit_levels":[{"level":1,"price":0.002,"sellPercent":50}],"analysis_score":76,"risk_score":20,"reasoning":"..."}'
 ```
 
 **After writing an order, always notify the human:**
@@ -166,7 +151,7 @@ This sends the trade proposal to Telegram with inline Approve/Reject buttons. On
 
 The human approves or rejects via chat (orders skill). The Executor agent polls for approved orders every minute, validates independently, builds the Safe wallet transaction, signs, and submits. You do NOT execute trades directly — the Executor handles all wallet operations.
 
-Check execution results later via `node scripts/db-query.js get-receipts --limit 5`.
+Check execution results later via `cclaw receipts list --limit 5`.
 
 ## Market Regime Awareness
 
@@ -174,6 +159,7 @@ Before sizing any position, read the current market regime:
 ```bash
 node scripts/db-query.js get-meta --key market_regime
 ```
+(legacy hold-back)
 
 Apply regime-adjusted limits using `min(chainRule, regimeLimit)` for maximums and `max(chainRule, regimeLimit)` for minimums. See `AGENTS.md § Market Regime Adjustments` for the full parameter table.
 

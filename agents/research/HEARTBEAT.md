@@ -36,13 +36,13 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 ## How to Run
 
 1. Run overlap guard (see above)
-2. Run `node scripts/db-query.js get-overdue-checks --agent research` — returns checks that are due (cadence computed server-side, do NOT override or add extra checks).
+2. Run `cclaw heartbeat overdue --agent research` — returns checks that are due (cadence computed server-side, do NOT override or add extra checks).
 3. Read the `overdue` array from the output. If empty, your reply IS the summary: a single line `**Research Heartbeat** — nothing overdue`. End the cycle — no further steps (no log rows to write either, since no checks ran).
 4. Split overdue checks into two groups using the Type column above:
    - **Quick checks**: `sentinel_alerts`, `market_regime`, `smart_money_signals`, `narrative_check`, `rebalance_review`, `daily_summary`, `watchlist_check`, `portfolio_sync`, `base_rebalance`
    - **Pipeline checks**: `token_scan`, `conviction_scan`, `narrative_deep_scan`
 5. Run ALL overdue quick checks, in the order they appear in the table (highest-cadence first). After each, update its timestamp:
-   `node scripts/db-query.js update-heartbeat --agent research --check <check_type>`
+   `cclaw heartbeat ping --agent research --check <check_type>`
 6. Run the SINGLE most-overdue pipeline check (if any pipeline check is overdue). **Run the FULL pipeline autonomously: discovery → analysis → risk → trade proposal.** Do not stop after scanning. You decide what to buy — that is your job. Update its timestamp after completion.
 7. **Reply with a work summary** (required whenever at least one check ran). This is your final message and is delivered to chat. List every check that ran this cycle. Format:
    ```
@@ -65,13 +65,14 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
    - `tokens_scanned`: tokens that passed initial filters. `tokens_analyzed`: those that went through the full pipeline.
    - `summary`: one human-readable sentence for that specific check
    - **If a check failed partway through (script crash, malformed JSON, DB error, memory_search error, etc.):** you MUST log `status: "error"` AND fire `node scripts/send-alert.js --type model_failure --agent research --message "<check_type> failed: <reason>"`. A failed check with no log row — or with a log row but no alert — is itself a bug (Observer detects this as a silent crash). See AGENTS.md § Error Self-Reporting.
+   - Note: `add-research-log` is a legacy hold-back; use `node scripts/db-query.js add-research-log` until a `cclaw agent-logs create` command is available in P5.
 
 ## Check Details
 
 ### Check Sentinel Alerts (quick — always first priority)
-- Run `node scripts/db-query.js get-alerts --unprocessed`
+- Run `cclaw alerts list --unprocessed`
 - If new alerts exist: process them and log to daily memory. Notify the human via `send-alert.js --type sentinel_alert_followup --agent research` only when the alert led to a concrete decision (sell-order written, watchlist update, position re-tier). Routine processing produces no Telegram message.
-- Mark processed: `node scripts/db-query.js mark-alert-processed --id <alert_id>`
+- Mark processed: `cclaw alerts ack --id <alert_id>`
 
 ### New Token Scan (pipeline)
 - Run `node scripts/scan-tokens.js --chain all --sort trending --limit 50`
@@ -85,9 +86,10 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
   node scripts/db-query.js get-smart-money-signals --since 35m --action buy --group-by token --min-wallets 2
   ```
   The 35-min window absorbs 5 min of cron jitter on the 30-min cadence; the discovery skill uses a wider 6-h window for pre-trade context. Both windows are intentional — do not collapse them.
+  Note: `get-smart-money-signals` is a legacy hold-back; use `node scripts/db-query.js get-smart-money-signals` until a `cclaw wallets signals` command is available in P5.
 - For each token returned, run dedup via `check-token-status`, then the full pipeline (analysis → risk → trade proposal). Treat as high-urgency discoveries.
 - For deployer wallets surfaced by `check-contract.js`, call `propose-wallet` (see TOOLS.md). For urgent multi-token wallets, score inline: `node scripts/score-wallet.js --address <ADDR> --chain <CHAIN> --add`.
-- Background scoring (`score-wallets-bg.js`, 10 min) and signal production (`activity-wallets-bg.js`, 30 min, 24 h retention) run autonomously — heartbeat only consumes. See CLAUDE.md § Wallet Pipeline for the full flow.
+- Background scoring (WalletScoringProcessor, every 10 min via NestJS worker) and signal production (WalletActivityProcessor, every 30 min, 24 h retention) run autonomously — heartbeat only consumes. See CLAUDE.md § Wallet Pipeline for the full flow.
 
 ### Conviction Token Scan (pipeline)
 - Run `node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30`
@@ -103,7 +105,7 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 - Other checks read regime from DB — this check keeps it fresh
 
 ### Base Tier Rebalance Check (quick)
-- **First:** read market regime from DB: `node scripts/db-query.js get-meta --key market_regime`
+- **First:** read market regime from DB: `node scripts/db-query.js get-meta --key market_regime` (legacy hold-back — `cclaw system meta` pending P5)
 - If regime is `bearish` or `crisis` (`baseBuyingEnabled: false`): log "Base tier buying paused — market regime: {regime}" and skip
 - For each chain where `base` is in `tiersEnabled` (from `get-chain-config --chain <CHAIN>`), use `maxBasePosition` from that config as the cap (see AGENTS.md § Base Tier Rebalancing)
 - If a base position drops below `maxBasePosition / 2`: propose buying that asset up to the target (`maxBasePosition − 10%`); pick the most underweight per chain from `baseTierTokens`
@@ -121,28 +123,28 @@ Research heartbeat runs every 30 minutes. Run ALL overdue checks each heartbeat 
 - Run AFTER narrative trend check (uses its momentum data)
 - Run `node scripts/narrative-deep-scan.js --narrative all --hot-only --quick`
 - Returns top 3 tokens per hot/warming narrative (lightweight agent mode)
-- For each token in results: run dedup with `node scripts/db-query.js check-token-status --address <ADDR> --chain <CHAIN>` (skip on `action: "skip"`), then full pipeline (analysis → risk → trade proposal)
+- For each token in results: run dedup with `node scripts/db-query.js check-token-status --address <ADDR> --chain <CHAIN>` (legacy hold-back) (skip on `action: "skip"`), then full pipeline (analysis → risk → trade proposal)
 - This is the primary mechanism for narrative-driven discovery — it finds the BEST tokens in each pumping narrative
 
 ### Rebalance Review (quick)
-- Run `node scripts/db-query.js get-portfolio --chain <chain>` and `get-cash --chain <chain>`
+- Run `cclaw positions list --chain <chain>` and `node scripts/db-query.js get-cash --chain <chain>` (get-cash is legacy hold-back)
 - Check allocation vs targets, propose rebalance if needed
 
 ### Daily Summary (quick)
-- `node scripts/db-query.js get-portfolio --chain <chain>`, `get-trade-stats --chain <chain>`, `get-receipts --limit 20`
+- `cclaw positions list --chain <chain>`, `node scripts/db-query.js get-trade-stats --chain <chain>` (legacy hold-back), `cclaw receipts list --limit 20`
 - Compile: total value, daily P&L, trades executed, alerts
 - The system sends a daily portfolio Telegram alert separately — just compile the summary in your reply and log to daily memory
-- Run `node scripts/db-query.js clear-expired-cache` to prune stale analysis cache entries
+- Run `node scripts/db-query.js clear-expired-cache` to prune stale analysis cache entries (legacy hold-back)
 
 ### Watchlist Entry Check (quick)
-- Run `node scripts/db-query.js get-watchlist --active`
+- Run `node scripts/db-query.js get-watchlist --active` (legacy hold-back — `cclaw watchlist list` pending P5)
 - For each watchlisted token, check if target entry price hit
 - If hit → run through analysis → risk → propose trade
 
 ### Portfolio Sync (On-Chain) (quick)
-- Read active chains via `get-chains`. For EACH active chain, run the appropriate loader. Loaders return `{status: 'skipped'}` when on-chain sync is disabled — proceed without action when you see that.
+- Read active chains via `node scripts/db-query.js get-chains` (legacy hold-back). For EACH active chain, run the appropriate loader. Loaders return `{status: 'skipped'}` when on-chain sync is disabled — proceed without action when you see that.
   - EVM chains: `node scripts/portfolio-load-evm.js --chain <CHAIN> --trigger periodic`
   - Solana chains: `node scripts/portfolio-load-solana.js --chain <CHAIN> --trigger periodic`
-- After sync, check for auto-discovered tokens: `node scripts/db-query.js get-positions --status pending_analysis`
+- After sync, check for auto-discovered tokens: `cclaw positions list --status pending_analysis`
 - If found: run full pipeline on each (analysis → risk → categorize/propose)
 - Log sync results to daily memory with `[SYNC]` tag

@@ -24,7 +24,7 @@ Find new, high-potential crypto tokens before the crowd. You are the system's ey
 ## Process
 
 ### Step 1: Check Market Regime
-Read the current regime before scanning: `node scripts/db-query.js get-meta --key market_regime`
+Read the current regime before scanning: `node scripts/db-query.js get-meta --key market_regime` (legacy hold-back)
 
 - **Crisis regime:** Skip moonshot scanning entirely (no new moonshot positions allowed). Run the conviction scan (Step 3) only when `narrative-check.js` shows at least one `hot` or `warming` narrative with `strong_conviction` or `lean_conviction` affinity — otherwise skip Step 3 this cycle.
 - **Bearish regime:** Reduce scan limits (use `--limit 20` instead of 50), raise minimum liquidity filter (`--min-liquidity 20000` instead of 10000).
@@ -95,6 +95,7 @@ For each token in scan results, check if it needs analysis:
 ```bash
 node scripts/db-query.js check-token-status --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```
+(legacy hold-back — `cclaw analysis check-token` pending P5)
 - `action: "skip"` → remove from batch, no further processing (already has position, pending order, watchlist entry, or recent cached analysis)
 - `action: "analyze"` → keep for Step 6 filtering
 
@@ -112,8 +113,8 @@ From the raw results, apply these filters:
 
 **Strong Positive Signals:**
 - Buy:sell ratio > 1.5
-- Smart-money wallets entering — broader pre-trade scan (`db-query.js get-smart-money-signals --since 6h --action buy --chain <CHAIN> --group-by token --min-wallets 2`). Heartbeat consumption uses a 35-min window (jitter tolerance on a 30-min cadence); discovery uses 6 h for pre-trade context. Both windows are intentional — do not collapse them.
-  - **If the query times out / returns empty / errors:** the activity-wallets-bg loop may be stalled or the upstream RPC is congested. Treat this as a *recovered failure*: log `add-research-log --json '{"check_type":"smart_money","status":"warning","summary":"smart-money signals unavailable this cycle"}'` and continue discovery without the signal. Do NOT `send-alert` (a data gap is not a crash; Observer's bg-loop staleness check on `last_activity_wallets_bg_at` covers actual liveness). See AGENTS.md § Error Self-Reporting for the full classification table.
+- Smart-money wallets entering — broader pre-trade scan (`node scripts/db-query.js get-smart-money-signals --since 6h --action buy --chain <CHAIN> --group-by token --min-wallets 2`) (legacy hold-back). Heartbeat consumption uses a 35-min window (jitter tolerance on a 30-min cadence); discovery uses 6 h for pre-trade context. Both windows are intentional — do not collapse them.
+  - **If the query times out / returns empty / errors:** the WalletActivityProcessor may be stalled or the upstream RPC is congested. Treat this as a *recovered failure*: log `node scripts/db-query.js add-research-log --json '{"check_type":"smart_money","status":"warning","summary":"smart-money signals unavailable this cycle"}'` (legacy hold-back) and continue discovery without the signal. Do NOT `send-alert` (a data gap is not a crash; Observer's bg-loop staleness check on `last_activity_wallets_bg_at` covers actual liveness). See AGENTS.md § Error Self-Reporting for the full classification table.
 - Fits an active narrative (26 tracked — AI infra, AI agents, DeFi, restaking, LST, RWA, L2, ZK, modular, DePIN, memecoins, gaming, etc.)
 - Dev wallet < 10% of supply
 - Liquidity locked or burned
@@ -127,7 +128,7 @@ From the raw results, apply these filters:
 - No social presence at all
 
 ### Step 7: Wallet Harvesting (Self-Seeding)
-The background scorer (`score-wallets-bg.js`) self-seeds every 60 minutes by fetching Birdeye top 100 gainers for every active chain (~300 wallets/harvest). Scoring continues every 10 min. Additional sources:
+The background scorer (WalletScoringProcessor, NestJS worker) self-seeds every 60 minutes by fetching Birdeye top 100 gainers for every active chain (~300 wallets/harvest). Scoring continues every 10 min. Additional sources:
 - **Scoring pipeline**: Each `score-wallet.js` call also harvests token top traders (~50 per token scored)
 - **Holder analysis**: When you call `holder-distribution.js` with `--propose`, top 5 non-contract holders are auto-proposed
 
@@ -138,15 +139,11 @@ node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN> --
 
 **For deployer wallets from check-contract.js**, propose manually:
 ```bash
-node scripts/db-query.js propose-wallet --json '{
-  "address": "<DEPLOYER_ADDRESS>",
-  "chain": "<CHAIN>",
-  "label": "Deployer of TOKEN",
-  "source_token": "<TOKEN_ADDRESS>"
-}'
+node scripts/db-query.js propose-wallet --json '{"address":"<DEPLOYER_ADDRESS>","chain":"<CHAIN>","label":"Deployer of TOKEN","source_token":"<TOKEN_ADDRESS>"}'
 ```
+(legacy hold-back — `cclaw wallets propose` pending P5)
 
-The background scoring pipeline (`score-wallets-bg.js`) self-seeds from Birdeye leaderboards and picks up proposed wallets every 10 minutes, scoring them via Birdeye/Zerion APIs. Each scoring call also harvests token top traders (snowball effect). No need to wait — discovery can continue immediately.
+The background scoring pipeline (WalletScoringProcessor, NestJS worker, every 10 min) self-seeds from Birdeye leaderboards and picks up proposed wallets, scoring them via Birdeye/Zerion APIs. Each scoring call also harvests token top traders (snowball effect). No need to wait — discovery can continue immediately.
 
 **For high-priority wallets** (e.g., wallet appears in 3+ discovered tokens), score immediately:
 ```bash
