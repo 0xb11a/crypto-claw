@@ -11,9 +11,9 @@
 - `info` — routine step completed. Never actionable. **Skip.**
 - `warn` — degraded but self-healing. **Sample for patterns:** if the same warn (same source+message shape) fires >5 times within 30 min, treat as an `error`-equivalent and open a GitHub issue.
 - `error` — an operation did not complete. **Each instance is actionable** — correlate with DB state and file a GitHub issue unless a duplicate already exists.
-- `critical` — safety/integrity violation. **Immediate Telegram alert** (`node scripts/send-alert.js --type system_health` or `emergency_mode`).
+- `critical` — safety/integrity violation. **Immediate Telegram alert** (`cclaw alerts send --type system_health` or `emergency_mode`).
 
-If an agent's log table (research_log/sentinel_log/executor_log) has a `status:"error"` row and system.log has no matching `send-alert` call near that timestamp, that is a **silent crash** — file a GitHub issue. The agent tried to report but something upstream broke.
+If an agent's log table (research_log/sentinel_log/executor_log) has a `status:"error"` row and the audit log has no matching `POST /v1/alerts/send` entry near that timestamp, that is a **silent crash** — file a GitHub issue. Compute `SINCE=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ)` then query `cclaw system audit --path /v1/alerts/send --since "$SINCE"` (the `--since` flag requires ISO format). The agent tried to report but something upstream broke.
 
 ## API CLI (`cclaw`) and legacy CLI (`db-query.js`)
 
@@ -132,16 +132,16 @@ gh issue comment <NUMBER> --repo "$OBSERVER_ISSUES_REPO" --body "Recurrence obse
 
 **Security:** The `gh` CLI does NOT redact sensitive data. Always manually replace wallet addresses, keys, and hashes with `[REDACTED]` before creating issues or comments.
 
-## Telegram Alerts (legacy hold-back — `cclaw notifications` pending P5c)
+## Telegram Alerts
 
 ```bash
-node scripts/send-alert.js --type system_health --agent observer --message "Observer: stale approved order for <symbol> (<N> min old)"
+cclaw alerts send --type system_health --agent observer --message "Observer: stale approved order for <symbol> (<N> min old)"
 ```
 ```bash
-node scripts/send-alert.js --type emergency_mode --agent observer --message "Agent <X>/<check> heartbeat stale: last run <N> min ago"
+cclaw alerts send --type emergency_mode --agent observer --message "Agent <X>/<check> heartbeat stale: last run <N> min ago"
 ```
 ```bash
-node scripts/send-alert.js --type signer_low_balance --agent observer --message "Signer on <chain> has <balance> <symbol> — below threshold <threshold>"
+cclaw alerts send --type signer_low_balance --agent observer --message "Signer on <chain> has <balance> <symbol> — below threshold <threshold>"
 ```
 
 Alert type → topic routing for Observer-initiated alerts:
@@ -161,7 +161,7 @@ node scripts/db-query.js get-executor-log --limit 5
 If any low-balance indicator appears, send an alert:
 
 ```bash
-node scripts/send-alert.js --type signer_low_balance --agent observer --message "Signer on <chain> has <balance> <symbol> — below threshold <threshold>"
+cclaw alerts send --type signer_low_balance --agent observer --message "Signer on <chain> has <balance> <symbol> — below threshold <threshold>"
 ```
 
 ## Log Files

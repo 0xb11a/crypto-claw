@@ -242,7 +242,7 @@ As of P5, the standalone data-fetching scripts were deleted. Market data is now 
 Alerts route to the correct supergroup topic automatically. Types used by Research: `trade_proposal` → Research topic, `model_failure` → Alerts topic, `rebalance_event` → Portfolio topic, `recovered` → System topic, `sentinel_alert_followup` → Research topic.
 
 ```bash
-node scripts/send-alert.js --type <TYPE> --agent research --message "<MESSAGE>"
+cclaw alerts send --type <TYPE> --agent research --message "<MESSAGE>"
 ```
 
 Per AGENTS.md § Error Self-Reporting, fire `model_failure` whenever any pipeline step fails.

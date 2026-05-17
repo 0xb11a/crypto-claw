@@ -169,23 +169,23 @@ Script-only position monitor — runs when sentinel agent can't reach any model.
 
 ### Send Alert
 ```bash
-node scripts/send-alert.js --type sell_triggered --agent sentinel --message "Stop-loss triggered for TOKEN"
+cclaw alerts send --type sell_triggered --agent sentinel --message "Stop-loss triggered for TOKEN"
 ```
 ```bash
-node scripts/send-alert.js --type rug_warning --agent sentinel --message "Liquidity drain or failed monitoring check — capital exposed"
+cclaw alerts send --type rug_warning --agent sentinel --message "Liquidity drain or failed monitoring check — capital exposed"
 ```
 ```bash
-node scripts/send-alert.js --type model_failure --agent sentinel --message "Agent failed"
+cclaw alerts send --type model_failure --agent sentinel --message "Agent failed"
 ```
 ```bash
-node scripts/send-alert.js --type emergency_mode --agent sentinel --message "Emergency mode active"
+cclaw alerts send --type emergency_mode --agent sentinel --message "Emergency mode active"
 ```
 ```bash
-node scripts/send-alert.js --type recovered --agent sentinel --message "Back to normal"
+cclaw alerts send --type recovered --agent sentinel --message "Back to normal"
 ```
-Alerts route to the correct Telegram supergroup topic automatically. send-alert.js is a retained script (ADR-0025; supersession pending P5c).
+Alerts route to the correct Telegram supergroup topic automatically. `cclaw alerts send` returns `{ "accepted": true }` immediately; delivery is fire-and-forget (ADR-0028).
 
-Use `rug_warning` when a monitoring script (`check-positions`, `check-liquidity`, `check-wallets`, `check-contract`) exits non-zero or returns no JSON — an unmonitored position is an emergency. Use `sell_triggered` when a sell order was successfully written (or when a sell-order write FAILED — see AGENTS.md § Error Self-Reporting).
+Use `rug_warning` when a monitoring script exits non-zero or returns no JSON — an unmonitored position is an emergency. Use `sell_triggered` when a sell order was successfully written (or when a sell-order write FAILED — see AGENTS.md § Error Self-Reporting).
 
 ## Configuration
 

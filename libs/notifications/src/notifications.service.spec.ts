@@ -26,7 +26,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { TelegramAdapter } from './telegram.adapter.js';
-import { TelegramBotTokenMissingError, TelegramApiError } from './telegram.adapter.js';
+import { TelegramBotTokenMissingError, TelegramApiError, TOPIC_MAP, EMOJI_MAP } from './telegram.adapter.js';
 import { NotificationsService } from './notifications.service.js';
 
 // ---------------------------------------------------------------------------
@@ -314,5 +314,114 @@ describe('NotificationsService', () => {
         expect.objectContaining({ threadId: '107' }), // TG_TOPIC_PORTFOLIO
       );
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Parameterized topic-routing: ALL 15 AlertType literals × TOPIC_MAP
+  // SPEC §14, ADR-0028, plan §D item 11
+  // -------------------------------------------------------------------------
+
+  describe('sendCriticalAlert() — parameterized topic routing for all 15 AlertType literals', () => {
+    /**
+     * Every AlertType in TOPIC_MAP must resolve to the correct TG_TOPIC_* env var.
+     * This table encodes: type → expected env-var name → thread ID set in makeConfigService().
+     *
+     * If TOPIC_MAP / AlertType count ever diverges from 15, this test fails — making
+     * the mismatch visible immediately (BLOCKER per P5c plan).
+     */
+    const ROUTING_TABLE: Array<{ type: string; envVar: string; threadId: string }> = [
+      { type: 'recovered', envVar: 'TG_TOPIC_SYSTEM', threadId: '106' },
+      { type: 'trade_proposal', envVar: 'TG_TOPIC_RESEARCH', threadId: '105' },
+      { type: 'trade_executed', envVar: 'TG_TOPIC_EXECUTOR', threadId: '103' },
+      { type: 'trade_failed', envVar: 'TG_TOPIC_EXECUTOR', threadId: '103' },
+      { type: 'trade_retry', envVar: 'TG_TOPIC_EXECUTOR', threadId: '103' },
+      { type: 'sell_triggered', envVar: 'TG_TOPIC_SENTINEL', threadId: '104' },
+      { type: 'sentinel_alert_followup', envVar: 'TG_TOPIC_RESEARCH', threadId: '105' },
+      { type: 'model_failure', envVar: 'TG_TOPIC_ALERTS', threadId: '101' },
+      { type: 'emergency_mode', envVar: 'TG_TOPIC_ALERTS', threadId: '101' },
+      { type: 'rug_warning', envVar: 'TG_TOPIC_ALERTS', threadId: '101' },
+      { type: 'signer_low_balance', envVar: 'TG_TOPIC_ALERTS', threadId: '101' },
+      { type: 'system_health', envVar: 'TG_TOPIC_OBSERVER', threadId: '102' },
+      { type: 'heartbeat_summary', envVar: 'TG_TOPIC_SYSTEM', threadId: '106' },
+      { type: 'portfolio_daily', envVar: 'TG_TOPIC_PORTFOLIO', threadId: '107' },
+      { type: 'rebalance_event', envVar: 'TG_TOPIC_PORTFOLIO', threadId: '107' },
+    ];
+
+    // Structural integrity check: TOPIC_MAP must have exactly 15 entries.
+    it('TOPIC_MAP has exactly 15 entries (AlertType count matches routing table)', () => {
+      expect(Object.keys(TOPIC_MAP)).toHaveLength(15);
+    });
+
+    // Structural integrity check: every entry in this table is present in TOPIC_MAP.
+    it('routing table covers every key present in TOPIC_MAP — no orphan type', () => {
+      const tableTypes = new Set(ROUTING_TABLE.map((r) => r.type));
+      for (const key of Object.keys(TOPIC_MAP)) {
+        expect(tableTypes.has(key)).toBe(true);
+      }
+    });
+
+    // Structural integrity check: every entry in TOPIC_MAP is covered in the table.
+    it('routing table has no extra types absent from TOPIC_MAP', () => {
+      const topicMapKeys = new Set(Object.keys(TOPIC_MAP));
+      for (const row of ROUTING_TABLE) {
+        expect(topicMapKeys.has(row.type)).toBe(true);
+      }
+    });
+
+    // Structural integrity check: EMOJI_MAP has same keys as TOPIC_MAP.
+    it('EMOJI_MAP has the same 15 keys as TOPIC_MAP', () => {
+      const topicKeys = Object.keys(TOPIC_MAP).sort();
+      const emojiKeys = Object.keys(EMOJI_MAP).sort();
+      expect(emojiKeys).toEqual(topicKeys);
+    });
+
+    // Per-type: assert correct threadId and emoji present in formatted message.
+    for (const row of ROUTING_TABLE) {
+      const { type, envVar, threadId } = row;
+
+      it(`type="${type}" → threadId=${threadId} (${envVar})`, async () => {
+        const svc = new NotificationsService(telegram, configService);
+        (telegram.sendMessage as ReturnType<typeof vi.fn>).mockClear();
+
+        await svc.sendCriticalAlert({
+          type: type as Parameters<typeof svc.sendCriticalAlert>[0]['type'],
+          agent: 'test-agent',
+          message: 'test msg',
+        });
+
+        expect(telegram.sendMessage).toHaveBeenCalledOnce();
+        expect(telegram.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ threadId }));
+      });
+
+      it(`type="${type}" → message includes emoji from EMOJI_MAP`, async () => {
+        const expectedEmoji = EMOJI_MAP[type as keyof typeof EMOJI_MAP];
+        const svc = new NotificationsService(telegram, configService);
+        (telegram.sendMessage as ReturnType<typeof vi.fn>).mockClear();
+
+        await svc.sendCriticalAlert({
+          type: type as Parameters<typeof svc.sendCriticalAlert>[0]['type'],
+          agent: 'test-agent',
+          message: 'emoji check',
+        });
+
+        const callArg = (telegram.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { text: string };
+        expect(callArg?.text).toMatch(new RegExp(expectedEmoji.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      });
+
+      it(`type="${type}" → message includes [TEST-AGENT] and safeId footer`, async () => {
+        const svc = new NotificationsService(telegram, configService);
+        (telegram.sendMessage as ReturnType<typeof vi.fn>).mockClear();
+
+        await svc.sendCriticalAlert({
+          type: type as Parameters<typeof svc.sendCriticalAlert>[0]['type'],
+          agent: 'test-agent',
+          message: 'footer check',
+        });
+
+        const callArg = (telegram.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { text: string };
+        expect(callArg?.text).toContain('[TEST-AGENT]');
+        expect(callArg?.text).toContain('test-fund');
+      });
+    }
   });
 });

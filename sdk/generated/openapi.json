@@ -745,6 +745,48 @@
         },
         "type": "object"
       },
+      "SendAlertDto": {
+        "properties": {
+          "agent": {
+            "description": "Agent name tag shown in the alert header (e.g. \"executor\", \"sentinel\")",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "data": {
+            "description": "Arbitrary JSON metadata stored in the audit log; not forwarded to Telegram",
+            "type": "object"
+          },
+          "message": {
+            "description": "Alert message body — HTML-safe text (Telegram 4 000-character cap enforced)",
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "type": {
+            "description": "Alert type — determines the Telegram topic topic routing (TG_TOPIC_*)",
+            "enum": [
+              "trade_proposal",
+              "sentinel_alert_followup",
+              "sell_triggered",
+              "trade_executed",
+              "trade_failed",
+              "trade_retry",
+              "model_failure",
+              "emergency_mode",
+              "rug_warning",
+              "signer_low_balance",
+              "recovered",
+              "system_health",
+              "heartbeat_summary",
+              "portfolio_daily",
+              "rebalance_event"
+            ],
+            "type": "string"
+          }
+        },
+        "required": ["type", "agent", "message"],
+        "type": "object"
+      },
       "SetCashDto": {
         "properties": {
           "amount": {
@@ -1176,6 +1218,40 @@
           }
         ],
         "summary": "Create a sentinel alert",
+        "tags": ["alerts"]
+      }
+    },
+    "/v1/alerts/send": {
+      "post": {
+        "operationId": "AlertsController_send",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendAlertDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Alert accepted for delivery"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "403": {
+            "description": "Forbidden — agent role required"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Send a Telegram notification (fire-and-forget, 202)",
         "tags": ["alerts"]
       }
     },

@@ -91,9 +91,8 @@ node scripts/db-query.js get-executor-log --limit 5
 If any `no_signer_key` or low-balance error appears in executor_log or system.log, send an alert for each affected chain:
 
 ```bash
-node scripts/send-alert.js --type signer_low_balance --agent observer --message "Signer on <chain> has <balance> <symbol> — below threshold <threshold>. Refill needed to prevent silent execution failures."
+cclaw alerts send --type signer_low_balance --agent observer --message "Signer on <chain> has <balance> <symbol> — below threshold <threshold>. Refill needed to prevent silent execution failures."
 ```
-(legacy hold-back)
 
 This is always an operational issue (not a code bug). Do not create a GitHub issue for it.
 
@@ -103,13 +102,13 @@ For each error or failure found, run through the full signal catalogue below and
 
 **A. Code bugs (→ GitHub issue via create-gh-issue skill)**
 1. Execution failures: `tx_failed`, `validation_failed`, `reverted` receipts with a reproducible cause (not just transient 429).
-2. Silent crashes: an agent's log table has `status: "error"` but no matching `send-alert.js` call in system.log near that timestamp. The agent tried to record a failure but the alerting path itself broke.
+2. Silent crashes: an agent's log table has `status: "error"` but no matching `POST /v1/alerts/send` audit entry near that timestamp. Compute `SINCE=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ)` then `cclaw system audit --path /v1/alerts/send --since "$SINCE"` (the `--since` flag requires ISO format). The agent tried to record a failure but the alerting path itself broke.
 3. Orphan approved trades: Research `research_log` row shows `trades_proposed: N` but fewer than N matching `orders` rows created in the following 10 min — the handoff dropped trades.
 4. Stuck-token loops: the same token has >3 `validation_failed` receipts in the last 2 h — discovery/dedup is stuck re-proposing a bad token.
 5. Warn pattern: the same warn shape (same source + same message pattern) fired >5 times in a 30-min window — "self-healing" is masking a real bug.
 6. Repeated transient errors on the same script across multiple cycles.
 
-**B. Operational issues (→ Telegram alert via `node scripts/send-alert.js`)**
+**B. Operational issues (→ Telegram alert via `cclaw alerts send`)**
 1. Stale orders: `approved` > 15 min, `queued_in_safe`/`queued_in_squads` > 30 min, `pending` > 2 h — use `system_health`.
 2. Dead agents: `cclaw heartbeat list` shows `seconds_since > 2 × expected_cadence_seconds` AND `idle_ok` is `false` — use `emergency_mode`. Skip rows where `idle_ok: true` (executor/sentinel are demand-driven and idle on purpose when there are no approved orders / open positions).
 3. Memory-backup loop stopped: `system/memory-backup` heartbeat stale > 30 min — use `system_health`.
@@ -126,7 +125,7 @@ For each error or failure found, run through the full signal catalogue below and
 - Single network blip with successful retry.
 
 **D. Redaction failure** (→ Stop, do NOT file — log + alert)
-- If any log row or receipt you're about to include in an issue still contains an unredacted address/key/hash after the create-gh-issue skill's redaction audit, STOP. Write `observer_log` with `status: "error"` and `node scripts/send-alert.js --type system_health` describing the redaction failure. Fixing the leak takes priority over reporting the original bug.
+- If any log row or receipt you're about to include in an issue still contains an unredacted address/key/hash after the create-gh-issue skill's redaction audit, STOP. Write `observer_log` with `status: "error"` and `cclaw alerts send --type system_health --agent observer --message "Redaction audit blocked GitHub issue; see observer_log"` describing the redaction failure. Fixing the leak takes priority over reporting the original bug.
 
 ### Step 4: Create Issues (max 3 per cycle)
 
@@ -144,9 +143,8 @@ Provide the skill with:
 
 For operational issues:
 ```bash
-node scripts/send-alert.js --type system_health --agent observer --message "<concise description>"
+cclaw alerts send --type system_health --agent observer --message "<concise description>"
 ```
-(legacy hold-back)
 
 ### Step 6: Log the Cycle
 

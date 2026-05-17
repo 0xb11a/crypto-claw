@@ -124,7 +124,7 @@ Reply APPROVE or REJECT
    - **If moonshot tier is underweight:** Normal discovery pipeline handles this
 6. Write the orders via `add-order` (it returns `{status, approved_by}`). If any return `status: pending`, send the rebalance proposal to the human:
    ```bash
-   node scripts/send-alert.js --type rebalance_event --agent research --message "Rebalance proposed on <CHAIN>: sell overweight <TIER>, buy underweight <TIER>. X orders pending approval."
+   cclaw alerts send --type rebalance_event --agent research --message "Rebalance proposed on <CHAIN>: sell overweight <TIER>, buy underweight <TIER>. X orders pending approval."
    ```
 
 ## Writing Orders to Database
@@ -139,8 +139,7 @@ cclaw orders propose --json '{"id":"trade-<timestamp>","symbol":"TOKEN","address
 
 **After writing an order, always notify the human:**
 ```bash
-# Text notification (all orders — pending and auto-approved):
-node scripts/send-alert.js --type trade_proposal --agent research --message "BUY $TOKEN on <CHAIN> — $500 (4% moonshot) — score: 76"
+cclaw alerts send --type trade_proposal --agent research --message "BUY $TOKEN on <CHAIN> — $500 (4% moonshot) — score: 76"
 ```
 
 **For pending orders, interactive approval buttons are handled by ApprovalBotService (NestJS worker, ADR-0027).** [cclaw expansion pending P5b — `send-approval.js` deleted in P5; approval buttons are now sent automatically by `ApprovalBotService` when an order is set to `pending` status] Human can also approve via chat (orders skill).
@@ -176,6 +175,6 @@ If a portfolio pattern (e.g., a regime-specific outcome, recurring rebalance tri
 
 ## Error Handling
 Per AGENTS.md § Error Self-Reporting:
-- If `get-portfolio` / `get-cash` / `get-chain-config` fails: log `status: "error"` to research_log, fire `send-alert.js --type model_failure --agent research`, halt the proposal. You cannot size safely without current allocation state.
+- If `get-portfolio` / `get-cash` / `get-chain-config` fails: log `status: "error"` to research_log, fire `cclaw alerts send --type model_failure --agent research --message "portfolio fetch failed: <reason>"`, halt the proposal. You cannot size safely without current allocation state.
 - If `add-order` fails: log `status: "error"` and alert immediately — a proposal that was analyzed but never written to the orders table is the orphan case Observer looks for.
-- If `send-approval.js` errors (approval bot misconfigured or offline), treat as `warn`, not `error` — the order is still in the DB and can be approved via chat or CLI.
+- If the approval bot is misconfigured or offline, treat as `warn`, not `error` — the order is still in the DB and can be approved via chat or CLI.

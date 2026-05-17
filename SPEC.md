@@ -206,7 +206,7 @@ Eight of ten current shell loops move into the worker. Two LLM-agent loops stay 
 | position-reconcile | `reconcile-positions.js` | every 60 min | scheduler enqueues; worker runs |
 | multisig-tracking | `track-multisig.js` | every 5 min | scheduler enqueues; worker runs |
 | memory-backup | `memory-backup.sh` | every 15 min | **stays in entrypoint.sh** (git ops on workspace mount) |
-| portfolio-report | `portfolio-summary.js` + `send-alert.js` | every 30 min | scheduler enqueues; worker runs |
+| portfolio-report | `portfolio-summary.js` + `cclaw alerts send` | every 30 min | scheduler enqueues; worker runs |
 | approval-bot | `approval-bot.js` | continuous | worker runs as a permanent task (NestJS continuous service — see ADR-0027; no BullMQ queue, no Cron) |
 | executor-loop (LLM) | `entrypoint.sh:run_executor_loop` | every 60 s | **stays in entrypoint.sh** — invokes `openclaw` |
 | sentinel-loop (LLM) | `entrypoint.sh:run_sentinel_loop` | every 15 min | **stays in entrypoint.sh** — invokes `openclaw` |

@@ -151,4 +151,4 @@ If no pending orders, say "No pending orders."
 - If human tries an invalid transition, explain the correct command to use
 
 ## Error Handling
-Per AGENTS.md § Error Self-Reporting: if `cclaw orders approve`, `cclaw orders reject`, or `cancel-order`/`retry-order` returns non-zero, log `node scripts/db-query.js add-research-log` with `status: "error"` and fire `node scripts/send-alert.js --type model_failure --agent research`. The human thought they approved/rejected something; a silent failure leaves the order in the wrong state and the operator misinformed.
+Per AGENTS.md § Error Self-Reporting: if `cclaw orders approve`, `cclaw orders reject`, or `cancel-order`/`retry-order` returns non-zero, log `node scripts/db-query.js add-research-log` with `status: "error"` and fire `cclaw alerts send --type model_failure --agent research --message "orders action failed: <reason>"`. The human thought they approved/rejected something; a silent failure leaves the order in the wrong state and the operator misinformed.

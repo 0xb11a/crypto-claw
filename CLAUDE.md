@@ -143,9 +143,8 @@ scripts/                  # Node.js scripts (retained set post-P5; all others de
   agent-idleness.js       # Shared executor/sentinel idleness predicates
   emergency-sentinel.js   # Emergency sentinel activation on repeated model failures
   emergency-executor.js   # Emergency executor activation on repeated model failures
-  send-alert.js           # Telegram alerts via openclaw message send (topic routing) — ADR-0025; supersession P5c
-  redact.js               # Sensitive data redaction (shared module) — retained until P5c
-  log.js                  # Structured logging helper (writes to system.log + stderr) — retained until P5c
+  redact.js               # Sensitive data redaction (shared module) — retained (importers: log.js, promote-pattern.js)
+  log.js                  # Structured logging helper (writes to system.log + stderr) — retained (importers: heartbeat-check.js, emergency-sentinel.js, emergency-executor.js, promote-pattern.js)
   promote-pattern.js      # MEMORY.md write-protection (provenance trail enforcement)
   pre-commit-check.js     # Secret scanner + MEMORY.md trail gate + npm-audit gate
   memory-backup.sh        # Git auto-commit for agent memory

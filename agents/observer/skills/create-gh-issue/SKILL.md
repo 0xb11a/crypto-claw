@@ -61,7 +61,7 @@ Scan for these regex patterns:
 **If ANY pattern matches:**
 1. Replace the offending substring with `[REDACTED]` in both title and body.
 2. Re-scan once more. If the replacement version is still dirty (e.g., pattern overlaps), STOP — do not call `gh`.
-3. Write `observer_log` with `status: "error"` and `summary: "issue body failed redaction audit (pattern: <which>)"`, then `send-alert.js --type system_health --agent observer --message "Redaction audit blocked GitHub issue; see observer_log"`.
+3. Write `observer_log` with `status: "error"` and `summary: "issue body failed redaction audit (pattern: <which>)"`, then `cclaw alerts send --type system_health --agent observer --message "Redaction audit blocked GitHub issue; see observer_log"`.
 4. Treat the redaction leak as itself a high-priority bug: fixing `scripts/redact.js` or the upstream log call is now the follow-up.
 
 Refusing to post is correct behavior. It is far worse to leak a key than to miss filing one issue.

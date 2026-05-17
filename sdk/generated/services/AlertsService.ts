@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { AcknowledgeAlertDto } from '../models/AcknowledgeAlertDto';
 import type { CreateAlertDto } from '../models/CreateAlertDto';
+import type { SendAlertDto } from '../models/SendAlertDto';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import type { BaseHttpRequest } from '../core/BaseHttpRequest';
 export class AlertsService {
@@ -51,6 +52,24 @@ export class AlertsService {
       mediaType: 'application/json',
       errors: {
         400: `Validation error`,
+      },
+    });
+  }
+  /**
+   * Send a Telegram notification (fire-and-forget, 202)
+   * @param requestBody
+   * @returns any Alert accepted for delivery
+   * @throws ApiError
+   */
+  public alertsControllerSend(requestBody: SendAlertDto): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'POST',
+      url: '/v1/alerts/send',
+      body: requestBody,
+      mediaType: 'application/json',
+      errors: {
+        400: `Validation error`,
+        403: `Forbidden — agent role required`,
       },
     });
   }

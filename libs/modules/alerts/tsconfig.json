@@ -9,7 +9,8 @@
       "@cclaw/config": ["../../config/src/index.ts"],
       "@cclaw/prisma": ["../../prisma/src/index.ts"],
       "@cclaw/auth": ["../../auth/src/index.ts"],
-      "@cclaw/audit": ["../../audit/src/index.ts"]
+      "@cclaw/audit": ["../../audit/src/index.ts"],
+      "@cclaw/notifications": ["../../notifications/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
@@ -18,6 +19,7 @@
     { "path": "../../config" },
     { "path": "../../prisma" },
     { "path": "../../auth" },
-    { "path": "../../audit" }
+    { "path": "../../audit" },
+    { "path": "../../notifications" }
   ]
 }

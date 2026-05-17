@@ -32,6 +32,7 @@ export type { ProposeOrderDto } from './models/ProposeOrderDto';
 export type { ProposeWalletDto } from './models/ProposeWalletDto';
 export type { RejectOrderDto } from './models/RejectOrderDto';
 export type { RetryOrderDto } from './models/RetryOrderDto';
+export type { SendAlertDto } from './models/SendAlertDto';
 export type { SetCashDto } from './models/SetCashDto';
 export type { SetMetaDto } from './models/SetMetaDto';
 export type { UpdatePositionDto } from './models/UpdatePositionDto';

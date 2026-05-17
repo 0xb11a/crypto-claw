@@ -1146,13 +1146,15 @@ The table below maps every `node scripts/db-query.js <command>` referenced in ag
 - `cclaw positions list`, `cclaw positions get`
 - `cclaw orders list`, `cclaw orders get`, `cclaw orders propose`, `cclaw orders approve`, `cclaw orders reject`, `cclaw orders execute`
 - `cclaw receipts list`, `cclaw receipts get`, `cclaw receipts create`
-- `cclaw alerts list`, `cclaw alerts get`, `cclaw alerts create`, `cclaw alerts ack`
+- `cclaw alerts list`, `cclaw alerts get`, `cclaw alerts create`, `cclaw alerts ack`, `cclaw alerts send`
 - `cclaw heartbeat list`, `cclaw heartbeat get`, `cclaw heartbeat overdue`, `cclaw heartbeat ping`
 - `cclaw system audit`
 
-### §13.3 P5 deletion record — retained scripts (post-deletion residue)
+### §13.3 P5c deletion record — retained scripts (post-P5c residue)
 
-The P5 legacy-deletion PR deleted ~38 scripts. The following ~15 files were explicitly **retained** as of P5. Agent markdown references them without qualification (the `(legacy hold-back)` annotation has been dropped for retained scripts; unmapped commands pending P5b are still annotated).
+The P5 legacy-deletion PR deleted ~38 scripts. P5c deleted `scripts/send-alert.js` (superseded by `cclaw alerts send` / POST /v1/alerts/send per ADR-0028). The following **14** files are explicitly retained. Agent markdown references them without qualification.
+
+**Retained-set count: 14** (was 15 before P5c).
 
 | Script | Retained by | Closing PR |
 |---|---|---|
@@ -1160,9 +1162,8 @@ The P5 legacy-deletion PR deleted ~38 scripts. The following ~15 files were expl
 | `scripts/db-query.js` | `entrypoint.sh:261-262` (paper-cash seed) + agent `add-*-log` writes; all 4 agents use legacy log commands | P6-fragment |
 | `scripts/chains.js` | Required by retained `db-query.js` (imported at line 120; provides `getAllChains`, `getActiveChains`, `getChain`, `isSolana`, `getPortfolioRules`). Deletes in P6 with `db-query.js`. | P6-fragment |
 | `scripts/order-approval.js` | Required by retained `db-query.js` (imported at line 122; provides `determineOrderApproval` used at line 657). Deletes in P6 with `db-query.js`. | P6-fragment |
-| `scripts/send-alert.js` | ADR-0025 — Telegram notification path for shell loops + agent heartbeats; no `cclaw notifications` yet | P5c |
-| `scripts/log.js` | Required by `send-alert.js` (redact + system.log writes) | P5c |
-| `scripts/redact.js` | Required by `log.js` and `send-alert.js` | P5c |
+| `scripts/log.js` | Required by `heartbeat-check.js`, `emergency-sentinel.js`, `emergency-executor.js`, and `promote-pattern.js` (NOT send-alert.js — deleted). | TBD |
+| `scripts/redact.js` | Required by `log.js` and `promote-pattern.js`. | TBD |
 | `scripts/promote-pattern.js` | MEMORY.md write-protection (PR 3.1 provenance trail); no cclaw equivalent | TBD |
 | `scripts/emergency-executor.js` | `entrypoint.sh:run_executor_loop` invokes on 3 consecutive model failures | TBD |
 | `scripts/emergency-sentinel.js` | `entrypoint.sh:run_sentinel_loop` invokes on first model failure | TBD |
@@ -1172,6 +1173,14 @@ The P5 legacy-deletion PR deleted ~38 scripts. The following ~15 files were expl
 | `scripts/memory-backup.sh` | `entrypoint.sh:run_memory_backup_loop` — git workspace backup every 15 min; SPEC §8 | n/a |
 | `scripts/codex-login.sh` | One-time Codex OAuth setup helper for operators; permanent operator tool | n/a |
 | `scripts/ci/*.mjs` | CI guards (vitest-workspace, dockerfile-modules checks); permanent | n/a |
+
+**cclaw alerts send** — operator/agent Telegram alert path (ADR-0028):
+
+```bash
+cclaw alerts send --type <TYPE> --agent <AGENT> --message "<MESSAGE>" [--data '{"key":"val"}']
+```
+
+All 15 alert types supported: `recovered`, `trade_proposal`, `trade_executed`, `trade_failed`, `trade_retry`, `sell_triggered`, `sentinel_alert_followup`, `model_failure`, `emergency_mode`, `rug_warning`, `signer_low_balance`, `system_health`, `heartbeat_summary`, `portfolio_daily`, `rebalance_event`.
 
 ### §13.4 Solana cutover complete (PR #29 — Squads SDK port)
 
@@ -1361,7 +1370,7 @@ The executor now **reports "enqueued N orders"** per cycle instead of "executed 
 ### §14.3 Follow-up issues
 
 - **P5b** — cclaw CLI expansion: `cclaw orders cancel`, `cclaw orders retry`, `cclaw wallets signals`, `cclaw watchlist list`, `cclaw system chains/meta`, `cclaw agent-logs create`. About 10 commands needed to eliminate the remaining `db-query.js` hold-backs.
-- **P5c** — Notifications: implement `libs/notifications/src/telegram.client.ts`, supersede ADR-0025, delete `scripts/send-alert.js` + `scripts/log.js` + `scripts/redact.js`.
+- **P5c** ✓ DONE — Notifications: `POST /v1/alerts/send` + `cclaw alerts send` wired to `NotificationsService.sendCriticalAlert`. ADR-0025 superseded by ADR-0028. `scripts/send-alert.js` deleted; `scripts/log.js` + `scripts/redact.js` retained (4 other importers — not send-alert.js as the P5 runbook incorrectly stated).
 - **P6-fragment** — NestJS startup migration runner: replace `entrypoint.sh:247` (`db-query.js migrate`) and `entrypoint.sh:261-262` (paper-cash seed) with NestJS calls; delete `scripts/db.js` + `scripts/db-query.js`.
 
 ### §14.4 Rollback

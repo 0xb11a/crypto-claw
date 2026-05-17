@@ -640,7 +640,6 @@ crypto-claw/
 |   +-- emergency-sentinel.js        # Emergency sentinel activation on failures
 |   +-- emergency-executor.js        # Emergency executor activation on failures
 |   +-- track-multisig.js            # Multisig approval workflow tracking
-|   +-- send-alert.js                # Telegram alerts via openclaw message send
 |   +-- redact.js                    # Sensitive data redaction (shared module)
 |   +-- log.js                       # Structured logging helper
 |   +-- create-issue.js              # GitHub issue creation (Observer agent)
