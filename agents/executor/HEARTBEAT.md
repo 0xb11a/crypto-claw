@@ -5,8 +5,6 @@ Executor heartbeat runs every 1 minute. Keep processing fast and mechanical.
 
 ## Procedure
 
-`node scripts/process-order.js` owns the entire order lifecycle — validation, transaction handling, receipts, position writes, cash updates, and per-order failure modes (including `markFailed(..., 'no_signer_key')` when a chain's signer key is missing). Your job is to call it and report what it returns. (`process-order.js` is a legacy hold-back; a cclaw equivalent is pending P5.)
-
 ### Step 1: Load approved orders (sells first, then buys)
 ```bash
 cclaw orders list --status approved --action sell
@@ -26,31 +24,43 @@ node scripts/send-alert.js --type trade_failed --agent executor --message "order
 ```
 (legacy hold-back) Observer correlates the `status: "error"` executor_log row with the `trade_failed` alert on system.log timestamps — both are required. Then end the cycle. (See AGENTS.md § Error Self-Reporting.)
 
-### Step 2: Process each order with process-order.js
+### Step 2: Execute each order
 
-For **each** order (sells first, then buys), run:
+For **each** order (sells first, then buys), call:
 ```bash
-node scripts/process-order.js --order-id ORDER_ID
+cclaw orders execute --id ORDER_ID
+```
+
+A 202 response means the order has been **enqueued** in the BullMQ job queue. The `ExecuteOrderProcessor` (NestJS worker) picks it up within seconds and runs the full lifecycle atomically:
+- Validates (cash, price, position)
+- Executes (routes to the correct chain — Safe EVM or Squads Solana)
+- Writes receipt (linked to position via `position_id`)
+- Creates/closes position (or `draft`/`pending_exit` for queued multisig)
+- Updates cash
+- Marks order executed or failed
+- Sends alert notification (structured log entry)
+
+**You do NOT need to run any other commands for order processing.** The processor does everything.
+
+**Verify on next 1-minute cycle:** after enqueuing, poll status on your subsequent heartbeat via:
+```bash
+cclaw orders get --id ORDER_ID
+```
+Status will progress to `executed` / `failed` / `rejected`. Sentinel may see positions in `draft` or `pending_exit` mid-cycle — this is expected while multisig approval is pending.
+
+**Report "enqueued N orders" not "executed N orders" per cycle.** Execution confirmation arrives on the next heartbeat.
+
+**If `cclaw orders execute` returns 4xx/5xx or no response:**
+```bash
+node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":0,"buy_orders_processed":0,"success_count":0,"fail_count":1,"status":"error"}'
+```
+(legacy hold-back)
+```bash
+node scripts/send-alert.js --type trade_failed --agent executor --message "execute enqueue failed for order <ID>: <reason>"
 ```
 (legacy hold-back)
 
-The script handles the **entire lifecycle** atomically:
-- Validates (cash, price, position)
-- Executes (the script handles transaction routing and signing for the deployment)
-- Writes receipt (linked to position via `position_id`)
-- Creates/closes position (or creates `draft`/`pending_exit` for queued multisig)
-- Updates cash
-- Marks order executed or failed
-- Sends alert notification
-
-Parse the JSON output. Each result contains:
-- `ok` — true if processed successfully
-- `status` — "executed", "queued_in_safe", "queued_in_squads", or "failed"
-- `receipt_id` — proof of execution
-- `position_id` — the position created or affected
-- `error` — reason if failed
-
-**You do NOT need to run any other commands for order processing.** The script does everything. Queued multisig transactions are tracked by the MultisigTrackerProcessor (NestJS worker, every 5 min) — you don't handle them.
+**Queued multisig transactions** (status `queued_in_safe` / `queued_in_squads`) are tracked by the MultisigTrackerProcessor (NestJS worker, every 5 min) — you don't handle them.
 
 ### Step 3: Log + done
 ```bash
@@ -63,10 +73,11 @@ cclaw heartbeat ping --agent executor --check process_orders
 
 **If `add-executor-log` or `cclaw heartbeat ping` fails:** this is a critical condition — a stuck heartbeat masquerades as a healthy cycle and Observer's dead-agent detection relies on these timestamps. Fire `node scripts/send-alert.js --type system_health --agent executor --message "log/heartbeat write failed: <reason>"` (legacy hold-back). The send-alert call logs to `/tmp/openclaw/system.log`, giving Observer the correlation signal.
 
-Report results: list each order processed with its status, receipt ID, and any errors.
+Report results: list each order enqueued, their current status (from Step 1 poll or next-cycle check), and any errors.
 
 ## Rules
 - Process sell orders BEFORE buy orders — every heartbeat
-- **Use `node scripts/process-order.js --order-id X` for all order processing.** Do NOT manually construct receipt/position/cash commands.
-- If `process-order.js` returns `ok: false`, report the error. The script already marked the order as failed.
-- Report every result in your reply — the receipt ID proves work was done.
+- **Use `cclaw orders execute --id X` for all order processing.** Do NOT manually construct receipt/position/cash commands.
+- If `cclaw orders execute` returns non-202, report the error and log it.
+- Report every enqueue in your reply — the order ID and 202 acknowledgement proves work was done.
+- Confirm execution status on subsequent heartbeats via `cclaw orders get --id ORDER_ID` — status will progress to `executed` / `failed` / `rejected`.

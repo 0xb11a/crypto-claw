@@ -126,19 +126,11 @@ jobs:
           pnpm run build:sdk
           git diff --exit-code sdk/generated/
 
-      # Step 12 — Shim-parity gate (ADVISORY in P1a per ADR-0020)
-      # The empty-baseline only catches structural drift; the load-bearing
-      # parity assertion is the per-module synthetic-data unit tests.
-      - name: Shim-parity gate (advisory)
-        continue-on-error: true
-        run: |
-          node tests/shim-parity/compare-baseline.js \
-            --safe-id ci-test \
-            --only positions,orders
-        env:
-          SAFE_ID: ci-test
-          DB_PATH: ./data/ci-test.db
-          PAPER_MODE: 'false'
+      # Step 12 — Shim-parity gate: REMOVED in P5 (ADR-0020 retired).
+      # The baseline harness (tests/shim-parity/) was deleted along with
+      # the legacy scripts/db-query.js output it compared against.
+      # Per-module synthetic-data parity specs were the load-bearing
+      # assertion and remain in tests/integration/<module>/*.spec.ts.
 
       # Validate Renovate config — cheap gate; fails fast on Renovate config errors
       - name: Validate renovate.json
@@ -211,13 +203,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Parity tests (tests/integration/parity/) spawn `node scripts/db-query.js`
-      # which transitively requires `better-sqlite3` from the LEGACY scripts/
-      # tree (DoD §I — legacy untouched). That tree has its own package.json
-      # outside the pnpm workspace; install it explicitly here so parity tests
-      # can run.
-      - name: Install legacy scripts/ deps (for parity tests)
-        run: cd scripts && npm install
+      # Parity tests (tests/integration/parity/) were deleted in P5 along with
+      # the legacy scripts/ dependencies they relied on. No install step needed.
 
       # Prisma generates per-project types from prisma/schema.prisma into
       # node_modules/.prisma/client/. Repositories type-only-import { Position,

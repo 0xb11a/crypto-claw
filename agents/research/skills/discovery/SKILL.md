@@ -31,35 +31,14 @@ Read the current regime before scanning: `node scripts/db-query.js get-meta --ke
 - **Bullish/Neutral:** Proceed normally.
 
 ### Step 2: Gather Data
-Run the scanning script. The `--chain all` flag scans all active chains (controlled by `ACTIVE_CHAINS` env var, query via `get-chains`).
+[cclaw expansion pending P5b — `scan-tokens.js` deleted in P5; `cclaw market scan` not yet implemented. Token discovery data now comes from the market data layer. Use available market data from your context and any web search results available to identify trending tokens.]
 
-Bullish/Neutral — full scan across active chains:
-```bash
-node scripts/scan-tokens.js --chain all --sort trending --limit 50
-```
-
-Bearish — reduced scan:
-```bash
-node scripts/scan-tokens.js --chain all --sort trending --limit 20
-```
-
-Also check for new deployments on each active chain.
-
-Bullish/Neutral — scan each active chain for newest tokens:
-```bash
-node scripts/scan-tokens.js --chain all --sort newest --min-liquidity 10000 --limit 30
-```
-
-Bearish — tighter filters:
-```bash
-node scripts/scan-tokens.js --chain all --sort newest --min-liquidity 20000 --limit 20
-```
+Retrieve trending token data for all active chains (pending P5b cclaw market expansion):
+- Check `cclaw positions list --status pending_analysis` for auto-discovered tokens
+- Use available market context or research skill memory for trend identification
 
 ### Step 3: Scan for Conviction Candidates
-Run established token scan to find conviction-tier opportunities:
-```bash
-node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30
-```
+[cclaw expansion pending P5b — established token scan pending `cclaw market scan --sort established`]
 
 Apply conviction-specific filters:
 - Age > 7 days (not brand new)
@@ -72,12 +51,9 @@ These feed into the same analysis pipeline but will be assigned conviction tier 
 
 ### Step 4: Narrative-Guided Discovery
 
-After trending and newest scans, check narrative momentum and run deep scans for hot/warming narratives:
+[cclaw expansion pending P5b — `narrative-deep-scan.js` and `narrative-check.js` deleted in P5; `cclaw market narrative-scan` not yet implemented]
 
-```bash
-# Get top 3 tokens per hot/warming narrative (lightweight agent mode)
-node scripts/narrative-deep-scan.js --narrative all --hot-only --quick
-```
+After scanning, check narrative momentum based on recent MEMORY.md patterns and daily logs. Identify hot/warming narratives from your stored knowledge.
 
 Merge these results with trending/newest scan results. If a token appears in BOTH a trending scan AND a narrative deep scan, boost its urgency to `high` — it has both organic momentum and narrative tailwind.
 
@@ -128,27 +104,17 @@ From the raw results, apply these filters:
 - No social presence at all
 
 ### Step 7: Wallet Harvesting (Self-Seeding)
-The background scorer (WalletScoringProcessor, NestJS worker) self-seeds every 60 minutes by fetching Birdeye top 100 gainers for every active chain (~300 wallets/harvest). Scoring continues every 10 min. Additional sources:
-- **Scoring pipeline**: Each `score-wallet.js` call also harvests token top traders (~50 per token scored)
-- **Holder analysis**: When you call `holder-distribution.js` with `--propose`, top 5 non-contract holders are auto-proposed
+The background scorer (WalletScoringProcessor, NestJS worker) self-seeds every 60 minutes by fetching Birdeye top 100 gainers for every active chain (~300 wallets/harvest). Scoring continues every 10 min.
 
-**Always use `--propose` when calling holder-distribution.js:**
-```bash
-node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN> --propose
-```
+[cclaw expansion pending P5b — `holder-distribution.js` and `score-wallet.js` deleted in P5; `cclaw analysis holder-distribution` and `cclaw wallets score` not yet implemented]
 
-**For deployer wallets from check-contract.js**, propose manually:
+**For deployer wallets**, propose for background scoring:
 ```bash
 node scripts/db-query.js propose-wallet --json '{"address":"<DEPLOYER_ADDRESS>","chain":"<CHAIN>","label":"Deployer of TOKEN","source_token":"<TOKEN_ADDRESS>"}'
 ```
-(legacy hold-back — `cclaw wallets propose` pending P5)
+(legacy hold-back — `cclaw wallets propose` pending P5b)
 
-The background scoring pipeline (WalletScoringProcessor, NestJS worker, every 10 min) self-seeds from Birdeye leaderboards and picks up proposed wallets, scoring them via Birdeye/Zerion APIs. Each scoring call also harvests token top traders (snowball effect). No need to wait — discovery can continue immediately.
-
-**For high-priority wallets** (e.g., wallet appears in 3+ discovered tokens), score immediately:
-```bash
-node scripts/score-wallet.js --address <WALLET_ADDRESS> --chain <CHAIN> --add --label "Multi-token holder"
-```
+The background scoring pipeline (WalletScoringProcessor, NestJS worker, every 10 min) self-seeds from Birdeye leaderboards and picks up proposed wallets autonomously. No need to wait — discovery can continue immediately.
 
 **Classifications (set by background scorer):**
 | Score | Classification | Action |

@@ -22,7 +22,7 @@ Convert risk-assessed opportunities into concrete trade proposals. Manage sizing
 ```bash
 node scripts/db-query.js get-chains
 ```
-(legacy hold-back — `cclaw system chains` pending P5) Read the active chains. Always include `--chain <chain>` on portfolio and cash commands.
+(legacy hold-back — `cclaw system chains` pending P5b) Read the active chains. Always include `--chain <chain>` on portfolio and cash commands.
 
 ## When to Use
 - After risk skill approves a token
@@ -118,9 +118,9 @@ Reply APPROVE or REJECT
 3. Identify overweight/underweight tiers
 4. Propose specific sells (weakest positions in overweight tier)
 5. Propose specific buys or cash retention for underweight tier:
-   - **If base tier is underweight:** Base tier buys are restricted to wrapped native tokens only. Never classify or propose a non-native token as base tier to fill an underweight base allocation. If no base token is available or appropriate, leave the allocation underweight and allocate to cash instead. Query `get-chain-config --chain <CHAIN>` for `baseTierTokens`. These are the only tokens eligible for base tier allocation on each chain. Propose buying the most underweight base asset from that list. Prefer spreading across multiple base assets when available on the same chain to improve diversification. Use `node scripts/token-metrics.js --address <BASE_TOKEN_ADDRESS> --chain <CHAIN>` to get current price.
+   - **If base tier is underweight:** Base tier buys are restricted to wrapped native tokens only. Never classify or propose a non-native token as base tier to fill an underweight base allocation. If no base token is available or appropriate, leave the allocation underweight and allocate to cash instead. Query `get-chain-config --chain <CHAIN>` for `baseTierTokens`. These are the only tokens eligible for base tier allocation on each chain. Propose buying the most underweight base asset from that list. Prefer spreading across multiple base assets when available on the same chain to improve diversification. [cclaw expansion pending P5b — `token-metrics.js` deleted in P5; use price data available in your context for sizing]
 
-   - **If conviction tier is underweight:** Check watchlist and recent analyses for conviction-rated tokens, or trigger a conviction scan via `node scripts/scan-tokens.js --chain all --sort established --min-liquidity 100000 --limit 30`
+   - **If conviction tier is underweight:** Check watchlist and recent analyses for conviction-rated tokens, or use the discovery skill for established token scan. [cclaw expansion pending P5b — `scan-tokens.js` deleted in P5]
    - **If moonshot tier is underweight:** Normal discovery pipeline handles this
 6. Write the orders via `add-order` (it returns `{status, approved_by}`). If any return `status: pending`, send the rebalance proposal to the human:
    ```bash
@@ -143,11 +143,7 @@ cclaw orders propose --json '{"id":"trade-<timestamp>","symbol":"TOKEN","address
 node scripts/send-alert.js --type trade_proposal --agent research --message "BUY $TOKEN on <CHAIN> — $500 (4% moonshot) — score: 76"
 ```
 
-**For pending orders, also send interactive approval buttons:**
-```bash
-node scripts/send-approval.js --order-id trade-<timestamp>
-```
-This sends the trade proposal to Telegram with inline Approve/Reject buttons. Only works when `TELEGRAM_APPROVAL_BOT_TOKEN` is configured (gracefully skips otherwise). Human can also approve via chat (orders skill) or CLI as before.
+**For pending orders, interactive approval buttons are handled by ApprovalBotService (NestJS worker, ADR-0027).** [cclaw expansion pending P5b — `send-approval.js` deleted in P5; approval buttons are now sent automatically by `ApprovalBotService` when an order is set to `pending` status] Human can also approve via chat (orders skill).
 
 The human approves or rejects via chat (orders skill). The Executor agent polls for approved orders every minute, validates independently, builds the Safe wallet transaction, signs, and submits. You do NOT execute trades directly — the Executor handles all wallet operations.
 

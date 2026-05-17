@@ -31,9 +31,11 @@ Last line of defense before capital is committed. Be paranoid. Better to miss a 
 ## Process
 
 ### Step 1: Contract Deep Scan
+[cclaw expansion pending P5b — `check-contract.js` deleted in P5; `cclaw analysis contract-check` not yet implemented. Use cached contract snapshot from db-query hold-back:]
 ```bash
-node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN> --deep
+node scripts/db-query.js get-contract-snapshots --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```
+(legacy hold-back — cached GoPlus data; if empty, this token hasn't been scanned by ContractSafetyProcessor yet)
 
 ### Step 2: Score Risk (0-100, higher = riskier)
 

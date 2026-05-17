@@ -1090,9 +1090,9 @@ The table below maps every `node scripts/db-query.js <command>` referenced in ag
 | `add-order --json` | `cclaw orders propose --json` | Converted |
 | `approve-order --id --by` | `cclaw orders approve --id --by` | Converted |
 | `reject-order --id --reason --by` | `cclaw orders reject --id --reason` | Converted |
-| `cancel-order --id --reason --by` | legacy hold-back — `cclaw orders cancel` pending P5 | Hold-back |
-| `retry-order --id --by` | legacy hold-back — `cclaw orders retry` pending P5 | Hold-back |
-| `mark-order-executed --id` | `cclaw orders execute --id` | Converted |
+| `cancel-order --id --reason --by` | legacy hold-back — `cclaw orders cancel` pending P5b | Hold-back (pending P5b) |
+| `retry-order --id --by` | legacy hold-back — `cclaw orders retry` pending P5b | Hold-back (pending P5b) |
+| `mark-order-executed --id` | `cclaw orders execute --id` (now async 202; agent polls next cycle) | Converted (P5 semantic) |
 | `get-order-history [--limit] [--status]` | legacy hold-back | Hold-back |
 | `get-receipts [--status] [--limit]` | `cclaw receipts list [--status] [--limit]` | Converted |
 | `get-receipt --id` | `cclaw receipts get --id` | Converted |
@@ -1150,18 +1150,28 @@ The table below maps every `node scripts/db-query.js <command>` referenced in ag
 - `cclaw heartbeat list`, `cclaw heartbeat get`, `cclaw heartbeat overdue`, `cclaw heartbeat ping`
 - `cclaw system audit`
 
-### §13.3 Legacy holdovers
+### §13.3 P5 deletion record — retained scripts (post-deletion residue)
 
-The following scripts are kept byte-untouched (DoD §I) through P4 and will be deleted in P5:
+The P5 legacy-deletion PR deleted ~38 scripts. The following ~15 files were explicitly **retained** as of P5. Agent markdown references them without qualification (the `(legacy hold-back)` annotation has been dropped for retained scripts; unmapped commands pending P5b are still annotated).
 
-| Script | Used by | Rationale for hold-back |
+| Script | Retained by | Closing PR |
 |---|---|---|
-| `scripts/send-alert.js` | All four agents (alerts), `entrypoint.sh` (emergency) | No `cclaw notifications` endpoint yet; Telegram topic routing is internal to this script |
-| `scripts/log.js` | All scripts (`redact.js` integration, system.log writes) | Observer correlation depends on the log format; NestJS pino covers new code |
-| `scripts/promote-pattern.js` | Research, Sentinel, Observer (MEMORY.md writes) | Write-protect provenance contract; no cclaw equivalent planned |
-| `scripts/process-order.js` | Executor agent heartbeat | Atomic order lifecycle (validate → execute → receipt → position → cash); NestJS equivalent is the `ExecuteOrderProcessor` BullMQ job, but agent-invokable form not yet exposed |
-
-All four will be deleted at the start of P5 cleanup. Until then, agent markdown references them with `(legacy hold-back)` annotations.
+| `scripts/db.js` | `entrypoint.sh:247` runs `db-query.js migrate` (schema + migrations); P6-fragment will replace with NestJS startup migration runner | P6-fragment |
+| `scripts/db-query.js` | `entrypoint.sh:261-262` (paper-cash seed) + agent `add-*-log` writes; all 4 agents use legacy log commands | P6-fragment |
+| `scripts/chains.js` | Required by retained `db-query.js` (imported at line 120; provides `getAllChains`, `getActiveChains`, `getChain`, `isSolana`, `getPortfolioRules`). Deletes in P6 with `db-query.js`. | P6-fragment |
+| `scripts/order-approval.js` | Required by retained `db-query.js` (imported at line 122; provides `determineOrderApproval` used at line 657). Deletes in P6 with `db-query.js`. | P6-fragment |
+| `scripts/send-alert.js` | ADR-0025 — Telegram notification path for shell loops + agent heartbeats; no `cclaw notifications` yet | P5c |
+| `scripts/log.js` | Required by `send-alert.js` (redact + system.log writes) | P5c |
+| `scripts/redact.js` | Required by `log.js` and `send-alert.js` | P5c |
+| `scripts/promote-pattern.js` | MEMORY.md write-protection (PR 3.1 provenance trail); no cclaw equivalent | TBD |
+| `scripts/emergency-executor.js` | `entrypoint.sh:run_executor_loop` invokes on 3 consecutive model failures | TBD |
+| `scripts/emergency-sentinel.js` | `entrypoint.sh:run_sentinel_loop` invokes on first model failure | TBD |
+| `scripts/heartbeat-check.js` | `entrypoint.sh` SKIP predicate for executor/sentinel demand-driven loops | TBD |
+| `scripts/agent-idleness.js` | Required by `heartbeat-check.js` | TBD |
+| `scripts/pre-commit-check.js` | Secret scanner + MEMORY.md trail gate + npm-audit gate; permanent infrastructure | n/a |
+| `scripts/memory-backup.sh` | `entrypoint.sh:run_memory_backup_loop` — git workspace backup every 15 min; SPEC §8 | n/a |
+| `scripts/codex-login.sh` | One-time Codex OAuth setup helper for operators; permanent operator tool | n/a |
+| `scripts/ci/*.mjs` | CI guards (vitest-workspace, dockerfile-modules checks); permanent | n/a |
 
 ### §13.4 Solana cutover complete (PR #29 — Squads SDK port)
 
@@ -1315,3 +1325,45 @@ To selectively disable individual loops after rollback (while keeping others), u
 2. Verify `last_score_wallets_bg_at` and `last_activity_wallets_bg_at` are refreshing in `portfolio_meta`.
 3. Verify `cclaw heartbeat list` shows all four agents as healthy.
 4. Open a post-mortem issue documenting the regression before re-attempting cutover.
+
+---
+
+## §14 P5 cleanup record (2026-05-17)
+
+### §14.1 Files deleted in P5
+
+**Scripts (~38 files):**
+- Background loops: `harvest.js`, `score-wallets-bg.js`, `score-wallet.js`, `activity-wallets-bg.js`, `governance-drift.js`, `track-multisig.js`, `reconcile-positions.js`, `portfolio-summary.js`, `approval-bot.js`, `send-approval.js`
+- Execution scripts: `execute-trade-evm.js`, `execute-trade-solana.js`, `check-safe-status.js`, `check-squads-status.js`, `backfill-squads-nonce.js`, `process-order.js`
+- Sentinel/Research tools: `check-positions.js`, `check-liquidity.js`, `check-wallets.js`, `check-contract.js`, `check-signer-balances.js`, `holder-distribution.js`, `token-metrics.js`, `scan-tokens.js`, `narrative-check.js`, `narrative-deep-scan.js`, `narrative-config.js`, `market-overview.js`, `market-regime.js`, `price-oracle.js`, `portfolio-load-evm.js`, `portfolio-load-solana.js`, `onchain-balance.js`, `address-validator.js`, `order-approval.js`, `chains.js`
+- One-off scripts: `telegram-get-topics.js`, `test-solana-tx-size.js`
+
+**Tests:**
+- `tests/test-*.js` (40 legacy test files), `tests/test-helpers.js`, `tests/run-all.js`, `tests/package.json`
+- `tests/data/` (SQLite test fixtures)
+- `tests/shim-parity/` (baseline harness tree — ADR-0020 retired)
+- `tests/integration/parity/*.spec.ts` (17 parity specs)
+
+**CI:** shim-parity gate step and legacy-deps install step removed from `.github/workflows/pr.yml`.
+
+**Package.json:** `legacy:lint` and `legacy:test` scripts removed.
+
+### §14.2 Load-bearing semantic change
+
+`agents/executor/HEARTBEAT.md` Step 2 was rewritten from:
+- _Call `node scripts/process-order.js --order-id X`, parse synchronous JSON envelope `{ok, status, receipt_id, position_id, error}`_
+
+to:
+- _Call `cclaw orders execute --id X` (returns 202 = enqueued), verify on next 1-minute cycle via `cclaw orders get --id X` or `cclaw receipts list --order-id X`_
+
+The executor now **reports "enqueued N orders"** per cycle instead of "executed N orders". Execution confirmation arrives on the next heartbeat. This aligns the agent instructions with the actual `ExecuteOrderProcessor` BullMQ async behavior.
+
+### §14.3 Follow-up issues
+
+- **P5b** — cclaw CLI expansion: `cclaw orders cancel`, `cclaw orders retry`, `cclaw wallets signals`, `cclaw watchlist list`, `cclaw system chains/meta`, `cclaw agent-logs create`. About 10 commands needed to eliminate the remaining `db-query.js` hold-backs.
+- **P5c** — Notifications: implement `libs/notifications/src/telegram.client.ts`, supersede ADR-0025, delete `scripts/send-alert.js` + `scripts/log.js` + `scripts/redact.js`.
+- **P6-fragment** — NestJS startup migration runner: replace `entrypoint.sh:247` (`db-query.js migrate`) and `entrypoint.sh:261-262` (paper-cash seed) with NestJS calls; delete `scripts/db.js` + `scripts/db-query.js`.
+
+### §14.4 Rollback
+
+`git revert <P5-PR-merge-sha>` snaps back cleanly. Commit 3 (the big deletion) is the single atomic commit for file removal; surrounding commits are additive/comment-only and are harmless to leave reverted partially.

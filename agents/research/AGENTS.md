@@ -76,7 +76,7 @@ The script REFUSES to write if any derived-from ID doesn't exist in its named ta
 Remove any MEMORY.md pattern entry where BOTH `Last seen` is older than 30 days AND `seen: N times` is fewer than 3. Leave entries meeting only one condition — a pattern seen 5× that went quiet for 40 days may still return. Log every prune to today's daily log with `[PRUNE]`: pattern name + reason.
 
 ### Wallet Data (Database — per-fund)
-Positions/trades/orders/alerts/receipts are served by the CryptoClaw API — access via `cclaw <resource> <action>` (see TOOLS.md). Commands without a `cclaw` equivalent yet use the legacy `node scripts/db-query.js <command>` form (legacy hold-backs; deleted in P5). The `_mode` field on every object response confirms the deployment mode.
+Positions/trades/orders/alerts/receipts are served by the CryptoClaw API — access via `cclaw <resource> <action>` (see TOOLS.md). Commands without a `cclaw` equivalent yet use the legacy `node scripts/db-query.js <command>` form (legacy hold-backs; pending P5b/P6 expansion). The `_mode` field on every object response confirms the deployment mode.
 
 ### Daily Log Format
 Entries are timestamped (`HH:MM`) and tagged. One line per entry; multi-line detail (strengths/weaknesses, risk flags) goes in indented sub-bullets.

@@ -39,3 +39,14 @@ The superseding PR MUST: (1) set this ADR's `Status:` to `Superseded` and add a 
 - Locked time-bound: stub form valid for P1c-i and the rewrite window only. The PR that wires real Telegram MUST supersede this ADR; no third notifications path is admissible.
 
 Cross-links: SPEC §11 (logging — the canonical surface for the stub), SPEC §17 (Telegram topics — the contract the real slice must satisfy), ADR-0010 (executor isolation — the source of failure events), `libs/logger/src/redactor.ts` (the redaction patterns the alert log line uses), legacy `scripts/send-alert.js` (the contract the real slice must port).
+
+## Addendum 1 (2026-05-17) — P5 retention reaffirmed
+
+`scripts/send-alert.js`, `scripts/log.js`, and `scripts/redact.js` were explicitly retained in the P5 legacy-deletion PR (the "big deletion" commit). These three scripts remain as the sole Telegram notification path for the legacy OpenClaw agent layer. Their retention was reviewed against ADR-0025 and confirmed appropriate:
+
+- `entrypoint.sh` invokes `send-alert.js` in `run_executor_loop` and `run_sentinel_loop` for model failure, emergency mode, and recovered events — no NestJS-side replacement for these shell-to-Telegram paths yet.
+- All four agents reference `send-alert.js` in their agent markdown for the retained hold-back alert paths. Removing them before the supersession PR would leave agents with no Telegram alerting path.
+
+The supersession PR (P5c) will: implement `libs/notifications/src/telegram.client.ts`, add the env vars to `libs/config/src/schema.ts`, gate tests behind `CCLAW_TELEGRAM_TESTS_ENABLED=1`, delete `scripts/send-alert.js` + `scripts/log.js` + `scripts/redact.js`, and set this ADR's `Status:` to `Superseded`.
+
+**Status remains: Accepted.** Supersession deferred to P5c per plan.

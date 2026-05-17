@@ -28,7 +28,7 @@ If an unhandled exception kills a step, log at `error` or `critical` — never `
 
 ## API CLI (`cclaw`) and legacy CLI (`db-query.js`)
 
-During P4–P5, both CLI surfaces are available. Prefer `cclaw` where listed; fall back to `node scripts/db-query.js` for legacy hold-backs (commands without a `cclaw` equivalent yet, deleted in P5).
+Prefer `cclaw` where listed; use `node scripts/db-query.js` for legacy hold-backs (commands without a `cclaw` equivalent yet, pending P5b/P6 expansion). Commands without a `cclaw` equivalent are annotated `(legacy hold-back)`.
 
 **Run one command per exec call.** Never chain with `&&`, `||`, `;`, and never redirect with `2>/dev/null`.
 
@@ -48,7 +48,7 @@ cclaw positions list [--status open|closed|all] [--chain <CHAIN>]
 cclaw positions get --id <ID>
 ```
 
-### Portfolio & cash (legacy hold-back — `cclaw portfolio` pending P5)
+### Portfolio & cash (legacy hold-back — `cclaw portfolio` pending P5b)
 ```bash
 node scripts/db-query.js get-portfolio [--chain <CHAIN>]
 ```
@@ -81,11 +81,11 @@ cclaw orders reject --id <ID> --reason "<r>"
 ```bash
 node scripts/db-query.js cancel-order --id <ID> --reason "<r>" --by human
 ```
-(cancel-order is legacy hold-back — `cclaw orders cancel` pending P5)
+(cancel-order is legacy hold-back — `cclaw orders cancel` pending P5b)
 ```bash
 node scripts/db-query.js retry-order --id <ID> --by human
 ```
-(retry-order is legacy hold-back — `cclaw orders retry` pending P5)
+(retry-order is legacy hold-back — `cclaw orders retry` pending P5b)
 
 ### Receipts
 ```bash
@@ -106,7 +106,7 @@ cclaw alerts list --unprocessed
 cclaw alerts ack --id <ID>
 ```
 
-### Watchlist (legacy hold-back — `cclaw watchlist` pending P5)
+### Watchlist (legacy hold-back — `cclaw watchlist` pending P5b)
 ```bash
 node scripts/db-query.js get-watchlist [--active]
 ```
@@ -134,7 +134,7 @@ node scripts/db-query.js get-contract-snapshots --address <ADDR> --chain <CHAIN>
 node scripts/db-query.js add-contract-snapshot --address <ADDR> --chain <CHAIN> --json '<safety_data>'
 ```
 
-### Wallet tracking & scoring (legacy hold-back — `cclaw wallets` pending P5)
+### Wallet tracking & scoring (legacy hold-back — `cclaw wallets` pending P5b)
 Wallet types: `smart_money` (75+), `whale` (55-74), `trader` (35-54), `retail` (0-34), plus `dev`, `deployer`. With `type` set → `status='scored'`; without → `status='proposed'`.
 
 ```bash
@@ -159,7 +159,7 @@ node scripts/db-query.js update-wallet-score --address <ADDR> --chain <CHAIN> --
 
 `source_token` values: `agent`, `leaderboard`, `token_traders`, `holder_extraction`. Background scoring (WalletScoringProcessor, every 10 min) auto-classifies; failed wallets retry up to 3 times. See CLAUDE.md § Wallet Pipeline for the full flow.
 
-### Smart-money signals (legacy hold-back — `cclaw wallets signals` pending P5)
+### Smart-money signals (legacy hold-back — `cclaw wallets signals` pending P5b)
 Per-swap signals from WalletActivityProcessor (NestJS worker, every 30 min, 24 h retention).
 
 ```bash
@@ -185,7 +185,7 @@ cclaw heartbeat ping --agent research --check <check_type>
 ```bash
 node scripts/db-query.js add-research-log --json '{check_type, tokens_scanned?, tokens_analyzed?, trades_proposed?, alerts_processed?, watchlist_hits?, summary, status:"ok"|"error"}'
 ```
-(add-research-log is legacy hold-back — `cclaw agent-logs create` pending P5)
+(add-research-log is legacy hold-back — `cclaw agent-logs create` pending P5b)
 ```bash
 node scripts/db-query.js get-research-log [--limit N]
 ```
@@ -223,56 +223,35 @@ node scripts/db-query.js get-analysis-cache
 node scripts/db-query.js clear-expired-cache
 ```
 
-## Data Fetching Scripts
+## Data Sources (P5 — NestJS-backed)
 
-### Token data
-- `scan-tokens.js --chain <CHAIN>|all --sort trending|newest|established [--min-liquidity <N>] [--limit <N>]`.
-- `token-metrics.js --address <ADDR> --chain <CHAIN>`.
-- `check-contract.js --address <ADDR> --chain <CHAIN> [--deep] [--changes]`. `--changes` (with or without an address) reports recent contract-state diffs.
+As of P5, the standalone data-fetching scripts were deleted. Market data is now provided by NestJS worker processors or read from the database via db-query.js hold-backs. [cclaw expansion pending P5b for full cclaw market commands]
 
-### Portfolio monitoring
-- `check-positions.js`, `check-liquidity.js [--chain <CHAIN>]`, `portfolio-summary.js [--chain <CHAIN>]`.
-- On-chain sync (real mode only; native ETH/SOL stored as gas metadata, stablecoins accumulate as cash):
-  - EVM (Safe TX Service primary, DeBank fallback): `portfolio-load-evm.js --chain <CHAIN> [--trigger periodic|post_trade]`.
-  - Solana (Helius DAS primary, RPC fallback): `portfolio-load-solana.js --chain solana [--trigger periodic|post_trade]`.
+### Token data (pending P5b cclaw expansion)
+- Token scanning: `cclaw positions list --status pending_analysis` (auto-discovered tokens from on-chain sync)
+- Contract snapshots: `node scripts/db-query.js get-contract-snapshots --address <ADDR> --chain <CHAIN>` (legacy hold-back — cached GoPlus data)
+- Liquidity snapshots: `node scripts/db-query.js get-liquidity --address <ADDR> --chain <CHAIN>` (legacy hold-back)
 
-### Wallet tracking
-- `check-wallets.js [--positions] [--chain <CHAIN>] [--type smart_money] [--limit N]`.
-- `holder-distribution.js --address <ADDR> --chain <CHAIN> [--propose]` — `--propose` auto-proposes the top 5 non-contract holders for scoring.
-
-### Wallet scoring
-- `score-wallet.js --address <ADDR> --chain <CHAIN> [--add] [--label "<L>"]` — uses Birdeye (Solana + EVM) and Zerion (EVM fallback). Classifications and threshold breakdown match the wallet-tracking commands above.
-
-### Market data
-- `market-overview.js`.
-- `market-regime.js` → `{status, regime:"bullish"|"neutral"|"bearish"|"crisis", regimeChanged, adjustments:{…}}`. Anti-whipsaw: regime changes only after 2 consecutive consistent readings. Auto-updates `portfolio_meta.market_regime` and the heartbeat timestamp; other checks read regime from DB via `get-meta --key market_regime`.
-- `narrative-check.js [--narrative <ID>]` — 26 narratives tracked; full ID list in `scripts/narrative-config.js`. Returns momentum (`hot`/`warming`/`cooling`/`cold`), volume, top picks, rotation detection.
-- `narrative-deep-scan.js --narrative <ID>|all [--hot-only] [--quick]` — `--quick` agent mode (1 keyword, top 3); `--hot-only` skips cold/cooling. Returns ranked tokens with score, suggested tier, volume, liquidity, buy ratio.
+### Market regime
+- Read current regime: `node scripts/db-query.js get-meta --key market_regime` (legacy hold-back — set by MarketRegimeProcessor NestJS worker)
 
 ### Heartbeat pre-check
-- `heartbeat-check.js --agent <executor|sentinel>` → `{agent, skip, reason|open_positions}`.
+- `heartbeat-check.js --agent <executor|sentinel>` → `{agent, skip, reason|open_positions}` (retained script).
 
-### Telegram approval buttons
-- `send-approval.js --order-id <ID>` → `{status, order_id, message_id}`. Only fires when `TELEGRAM_APPROVAL_BOT_TOKEN` is set; gracefully skips otherwise.
-
-### Send alert
+### Telegram alerts
 Alerts route to the correct supergroup topic automatically. Types used by Research: `trade_proposal` → Research topic, `model_failure` → Alerts topic, `rebalance_event` → Portfolio topic, `recovered` → System topic, `sentinel_alert_followup` → Research topic.
 
 ```bash
 node scripts/send-alert.js --type <TYPE> --agent research --message "<MESSAGE>"
 ```
 
-Per AGENTS.md § Error Self-Reporting, fire `model_failure` whenever any pipeline step (memory_search, discovery, analyst, risk, portfolio, orders, market_regime, narrative, portfolio_sync) exits non-zero, throws, or returns malformed JSON.
+Per AGENTS.md § Error Self-Reporting, fire `model_failure` whenever any pipeline step fails.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ACTIVE_CHAINS` | env | Comma-separated active chains. Run `get-chains` for the live list. |
-
-## API Keys (set in environment)
-`DEBANK_API_KEY` (EVM portfolio sync) · `GOPLUS_API_KEY` (contract security) · `ETHERSCAN_API_KEY` / `BASESCAN_API_KEY` (EVM wallets/contracts) · `BIRDEYE_API_KEY` (wallet PnL + token data, Sol+EVM) · `ZERION_API_KEY` (EVM wallet PnL fallback) · `SOLSCAN_API_KEY` / `HELIUS_API_KEY` (Solana wallets). DEXScreener and CoinGecko free tiers need no key.
+| `ACTIVE_CHAINS` | env | Comma-separated active chains. Run `node scripts/db-query.js get-chains` (legacy hold-back) for the live list. |
 
 ## Important Notes
-- Scripts cache responses for 60 s; rate limits handled internally.
 - NEVER pass wallet private keys to any script — scripts only READ external data.

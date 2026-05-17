@@ -51,13 +51,13 @@ Cancel an approved or failed order (was approved, changed mind):
 ```bash
 node scripts/db-query.js cancel-order --id <id> --reason "<reason>" --by human
 ```
-(legacy hold-back — `cclaw orders cancel` pending P5)
+(legacy hold-back — `cclaw orders cancel` pending P5b)
 
 Retry a failed sell order (re-queue for execution):
 ```bash
 node scripts/db-query.js retry-order --id <id> --by human
 ```
-(legacy hold-back — `cclaw orders retry` pending P5)
+(legacy hold-back — `cclaw orders retry` pending P5b)
 
 Order history (all statuses):
 ```bash

@@ -17,7 +17,7 @@ If an agent's log table (research_log/sentinel_log/executor_log) has a `status:"
 
 ## API CLI (`cclaw`) and legacy CLI (`db-query.js`)
 
-During P4–P5, both CLI surfaces are available. Prefer `cclaw` where listed; use legacy `node scripts/db-query.js` for hold-backs (deleted in P5).
+Prefer `cclaw` where listed; use legacy `node scripts/db-query.js` for hold-backs (commands without a `cclaw` equivalent yet, pending P5b/P6 expansion). Commands without a `cclaw` equivalent are annotated `(legacy hold-back)`.
 
 ### Recent failed receipts
 ```bash
@@ -132,7 +132,7 @@ gh issue comment <NUMBER> --repo "$OBSERVER_ISSUES_REPO" --body "Recurrence obse
 
 **Security:** The `gh` CLI does NOT redact sensitive data. Always manually replace wallet addresses, keys, and hashes with `[REDACTED]` before creating issues or comments.
 
-## Telegram Alerts (legacy hold-back — `cclaw notifications` pending P5)
+## Telegram Alerts (legacy hold-back — `cclaw notifications` pending P5c)
 
 ```bash
 node scripts/send-alert.js --type system_health --agent observer --message "Observer: stale approved order for <symbol> (<N> min old)"
@@ -151,14 +151,14 @@ Alert type → topic routing for Observer-initiated alerts:
 
 ## Signer Balance Monitoring
 
-```bash
-node scripts/check-signer-balances.js
-```
-```bash
-node scripts/check-signer-balances.js --chain base
-```
+[cclaw expansion pending P5b — `scripts/check-signer-balances.js` was deleted in P5. Detect signer balance issues via executor_log errors instead.]
 
-Output includes `anyBelowThreshold` boolean. If `true`, send an alert:
+```bash
+node scripts/db-query.js get-executor-log --limit 5
+```
+(legacy hold-back — look for `no_signer_key` or similar errors indicating drained gas accounts)
+
+If any low-balance indicator appears, send an alert:
 
 ```bash
 node scripts/send-alert.js --type signer_low_balance --agent observer --message "Signer on <chain> has <balance> <symbol> — below threshold <threshold>"

@@ -12,8 +12,8 @@
   "scripts": {
     "prepare": "husky",
     "typecheck": "tsc --build",
-    "lint": "eslint 'apps/**/*.ts' && eslint 'libs/modules/**/*.ts' 'libs/adapters/**/*.ts' && eslint 'libs/audit/**/*.ts' 'libs/auth/**/*.ts' 'libs/chain/**/*.ts' 'libs/config/**/*.ts' 'libs/domain/**/*.ts' 'libs/execution/**/*.ts' 'libs/health/**/*.ts' 'libs/logger/**/*.ts' 'libs/market/**/*.ts' 'libs/notifications/**/*.ts' 'libs/portfolio/**/*.ts' 'libs/prisma/**/*.ts' 'sdk/**/*.ts' && eslint 'scripts/**/*.js' 'tests/**/*.js'",
-    "lint:fix": "eslint --fix 'apps/**/*.ts' && eslint --fix 'libs/modules/**/*.ts' 'libs/adapters/**/*.ts' && eslint --fix 'libs/audit/**/*.ts' 'libs/auth/**/*.ts' 'libs/chain/**/*.ts' 'libs/config/**/*.ts' 'libs/domain/**/*.ts' 'libs/execution/**/*.ts' 'libs/health/**/*.ts' 'libs/logger/**/*.ts' 'libs/market/**/*.ts' 'libs/notifications/**/*.ts' 'libs/portfolio/**/*.ts' 'libs/prisma/**/*.ts' 'sdk/**/*.ts' && eslint --fix 'scripts/**/*.js' 'tests/**/*.js'",
+    "lint": "eslint 'apps/**/*.ts' && eslint 'libs/modules/**/*.ts' 'libs/adapters/**/*.ts' && eslint 'libs/audit/**/*.ts' 'libs/auth/**/*.ts' 'libs/chain/**/*.ts' 'libs/config/**/*.ts' 'libs/domain/**/*.ts' 'libs/execution/**/*.ts' 'libs/health/**/*.ts' 'libs/logger/**/*.ts' 'libs/market/**/*.ts' 'libs/notifications/**/*.ts' 'libs/portfolio/**/*.ts' 'libs/prisma/**/*.ts' 'sdk/**/*.ts' && eslint 'scripts/**/*.js'",
+    "lint:fix": "eslint --fix 'apps/**/*.ts' && eslint --fix 'libs/modules/**/*.ts' 'libs/adapters/**/*.ts' && eslint --fix 'libs/audit/**/*.ts' 'libs/auth/**/*.ts' 'libs/chain/**/*.ts' 'libs/config/**/*.ts' 'libs/domain/**/*.ts' 'libs/execution/**/*.ts' 'libs/health/**/*.ts' 'libs/logger/**/*.ts' 'libs/market/**/*.ts' 'libs/notifications/**/*.ts' 'libs/portfolio/**/*.ts' 'libs/prisma/**/*.ts' 'sdk/**/*.ts' && eslint --fix 'scripts/**/*.js'",
     "test": "pnpm test:unit && pnpm test:integration",
     "test:unit": "vitest run --project '*:unit'",
     "test:integration": "vitest run --project 'integration' --no-file-parallelism",
@@ -25,8 +25,6 @@
     "dev:worker": "tsx apps/worker/src/main.ts",
     "dev:scheduler": "tsx apps/scheduler/src/main.ts",
     "dev:executor": "tsx apps/executor/src/main.ts",
-    "legacy:lint": "eslint 'scripts/**/*.js' 'tests/**/*.js'",
-    "legacy:test": "cd tests && node run-all.js --offline",
     "check:vitest-workspace": "node scripts/ci/check-vitest-workspace.mjs",
     "check:dockerfile-modules": "node scripts/ci/check-dockerfile-modules.mjs"
   },

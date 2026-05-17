@@ -26,7 +26,7 @@ node scripts/db-query.js get-chain-config --chain <CHAIN>
 
 ## API CLI (`cclaw`) and legacy CLI (`db-query.js`)
 
-During P4–P5, both CLI surfaces are available. Prefer `cclaw` where listed; use legacy `node scripts/db-query.js` for hold-backs (commands without a `cclaw` equivalent yet, deleted in P5).
+Prefer `cclaw` where listed; use legacy `node scripts/db-query.js` for hold-backs (commands without a `cclaw` equivalent yet, pending P5b/P6 expansion). Commands without a `cclaw` equivalent are annotated `(legacy hold-back)`.
 
 ### Positions
 ```bash
@@ -113,7 +113,7 @@ node scripts/db-query.js get-sentinel-log --limit 12
 ```bash
 node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"sells_executed":0,"status":"ok"}'
 ```
-(legacy hold-back — `cclaw agent-logs create` pending P5)
+(legacy hold-back — `cclaw agent-logs create` pending P5b)
 
 ### Smart-Money Exit Signals (Read-Only, legacy hold-back)
 Per-swap signals written by the WalletActivityProcessor (NestJS worker, every 30 min, 24 h retention).
@@ -126,43 +126,37 @@ node scripts/db-query.js get-smart-money-signals --since 1h --action sell --toke
 ```
 The `--tokens-in-positions` flag joins against the deployment's positions table with status in `open|partial_exit|draft|pending_exit`. Empty result = no smart-money exits on held tokens.
 
-## Monitoring Scripts
+## Monitoring Data Sources
 
-### Position Monitoring
+[cclaw expansion pending P5b — the monitoring scripts (`check-positions.js`, `check-liquidity.js`, `check-wallets.js`, `check-contract.js`) were deleted in P5. Their functionality is now handled by NestJS workers (PriceCheckProcessor, LiquidityCheckProcessor, WalletMonitorProcessor, ContractSafetyProcessor). The Sentinel agent reads monitoring data via the sources below.]
+
+### Position Data (cclaw)
 ```bash
-node scripts/check-positions.js
-```
-```bash
-node scripts/check-liquidity.js
-```
-```bash
-node scripts/check-liquidity.js --chain <CHAIN>
+cclaw positions list --status open
 ```
 
-### Wallet Monitoring
+### Liquidity Snapshots (legacy hold-back)
 ```bash
-node scripts/check-wallets.js
+node scripts/db-query.js get-liquidity --address 0x... --chain <CHAIN> --limit 2
 ```
 ```bash
-node scripts/check-wallets.js --positions
+node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain <CHAIN> --liquidity 50000
 ```
-```bash
-node scripts/check-wallets.js --chain <CHAIN>
-```
-```bash
-node scripts/check-wallets.js --type smart_money
-```
-```bash
-node scripts/check-wallets.js --limit <N>
-```
-Caps at 10 wallets per chain by default (override with `--limit N` or `CHECK_WALLETS_LIMIT_PER_CHAIN`). Fail-fast on 3 consecutive errors per chain. `skippedByCap` in JSON output reports how many wallets were not checked this cycle.
 
-### Contract Safety Monitoring
+### Contract Snapshots (legacy hold-back)
 ```bash
-node scripts/check-contract.js --changes
+node scripts/db-query.js get-contract-snapshots --address 0x... --chain <CHAIN> --limit 2
 ```
 ```bash
-node scripts/check-contract.js --changes --address <TOKEN_ADDRESS> --chain <CHAIN>
+node scripts/db-query.js add-contract-snapshot --address 0x... --chain <CHAIN> --json '<safety_data_json>'
+```
+
+### Smart-Money Signals — covers wallet/dev activity (legacy hold-back)
+```bash
+node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
+```
+```bash
+node scripts/db-query.js get-smart-money-signals --since 1h --action sell --tokens-in-positions --limit 50
 ```
 
 ## Emergency & Alerts
@@ -189,7 +183,7 @@ node scripts/send-alert.js --type emergency_mode --agent sentinel --message "Eme
 ```bash
 node scripts/send-alert.js --type recovered --agent sentinel --message "Back to normal"
 ```
-Alerts route to the correct Telegram supergroup topic automatically. send-alert.js is a legacy hold-back.
+Alerts route to the correct Telegram supergroup topic automatically. send-alert.js is a retained script (ADR-0025; supersession pending P5c).
 
 Use `rug_warning` when a monitoring script (`check-positions`, `check-liquidity`, `check-wallets`, `check-contract`) exits non-zero or returns no JSON — an unmonitored position is an emergency. Use `sell_triggered` when a sell order was successfully written (or when a sell-order write FAILED — see AGENTS.md § Error Self-Reporting).
 

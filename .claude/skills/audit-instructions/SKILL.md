@@ -18,7 +18,7 @@ Run all passes in order and produce a single structured report. The guiding ques
 
 Before any audit pass, read two files end-to-end:
 
-1. **`CLAUDE.md` at repo root.** The project's single-page orientation: four agents, two-layer memory, data flow, wallet pipeline, safety rules, conventions. You need this context to distinguish intentional repetition (e.g. safety rules stated in both Research and Executor by design) from drift (the same rule stated with different numbers).
+1. **`CLAUDE.md` at repo root.** The project's single-page orientation: four agents, two-layer memory, data flow, wallet pipeline, safety rules, conventions. You need this context to distinguish intentional repetition (e.g. safety rules stated in both Research and Executor by design) from drift (the same rule stated with different numbers). As of P5, the legacy `scripts/` inventory in CLAUDE.md lists only the retained set (db.js, db-query.js, chains.js, order-approval.js, send-alert.js, log.js, redact.js, promote-pattern.js, emergency-executor.js, emergency-sentinel.js, heartbeat-check.js, agent-idleness.js, pre-commit-check.js, memory-backup.sh, codex-login.sh) — other scripts have been deleted. chains.js and order-approval.js are load-time imports of the retained db-query.js and will be deleted in P6 with it.
 2. **`entrypoint.sh`.** This is where OpenClaw is configured — the project has **no standalone `openclaw.json` file**. All runtime settings (`reserveTokensFloor`, `memoryFlush.softThresholdTokens`, `HEARTBEAT_CADENCES` gates, per-agent tool allowlists, cron `--every` intervals, `agents.list[N]` overrides) are applied via `openclaw config set` CLI calls in this file. Passes 3b, 3c, 10, and 12 all read from it. Do not look for `openclaw.json`; do not warn operators to create one.
 
 No findings are emitted from Pass 0. It just primes you.
@@ -27,10 +27,11 @@ No findings are emitted from Pass 0. It just primes you.
 
 These are the code files the markdown must stay in sync with. The code wins in every discrepancy — the agent will execute what the code enforces regardless of what the markdown says.
 
-- `scripts/db-query.js` — extract every valid CLI command name from the command dispatch, AND the `HEARTBEAT_CADENCES` object (minutes per check per agent).
-- `scripts/chains.js` — portfolio rule constants (position limits, cash reserves, slippage), chain config, cash tokens.
-- `scripts/db.js` — SQLite schema (tables, columns) from the migrations.
-- `scripts/` directory listing — all valid script filenames.
+- `scripts/db-query.js` — extract the `HEARTBEAT_CADENCES` object (minutes per check per agent) AND the valid legacy command names (for Pass 1.5 validation only — not a canonical command surface post-P5).
+- `libs/chain/src/portfolio-rules.ts` — portfolio rule constants (position limits, cash reserves, slippage) — **canonical post-P5**. `scripts/chains.js` is retained in P5 as a load-time import of `db-query.js` (deletes in P6); `portfolio-rules.ts` is the canonical source for portfolio limit values.
+- `scripts/db.js` — SQLite schema (tables, columns) from the migrations (retained until P6).
+- `scripts/` directory listing — the retained script filenames (post-P5 set only).
+- `sdk/cclaw/src/index.ts` — canonical cclaw command surface.
 - `build-templates.sh` — which scripts get deployed to which agent.
 - `entrypoint.sh` — sole OpenClaw config surface. Read for:
   - cron schedules (`--every <interval>` per agent, used by Pass 3b)
@@ -67,17 +68,40 @@ Each pass describes what it checks, why it matters, and the severity it assigns.
 
 **Why:** If an agent exec's a command that `db-query.js` or the `cclaw` CLI doesn't recognize, it crashes mid-heartbeat. Silent runtime failure is among the worst outcomes because Observer may not catch it immediately.
 
-**During P4–P5, both CLI surfaces are tolerated in agent markdown.** Instructions may use `node scripts/db-query.js <cmd>` (legacy) OR `cclaw <resource> <action>` (new) for equivalent operations. Both are valid; the pass checks that every referenced command exists in its respective surface.
+**As of P5, `cclaw` is the canonical CLI surface.** All new commands must use `cclaw <resource> <action>`. The retained legacy commands (see Pass 1.5 whitelist) may still appear as `node scripts/db-query.js <cmd>` — those are the ONLY acceptable legacy references.
 
-1. Extract every valid command name from TWO sources in parallel:
-   - **Legacy surface:** the switch/case or if-else dispatch in `scripts/db-query.js`.
+1. Extract every valid command name from the canonical source:
    - **cclaw surface:** the `.command(...)` calls in `sdk/cclaw/src/index.ts` — produces the command map `cclaw <resource> <action>` (e.g. `cclaw positions list`, `cclaw orders approve`, `cclaw heartbeat ping`).
-2. Grep every instruction file for BOTH patterns:
-   - `db-query.js <command>` (e.g. `db-query.js get-positions`)
-   - `cclaw <resource> <action>` (e.g. `cclaw orders approve`)
-3. For each `db-query.js <command>` match, verify the command exists in the legacy dispatch.
-4. For each `cclaw <resource> <action>` match, verify it exists in the cclaw command map from `sdk/cclaw/src/index.ts`.
-5. **Flag as CRITICAL** any referenced command that doesn't match a real one in its respective surface. Include the suggested real command if the difference is a typo.
+2. Grep every instruction file for:
+   - `cclaw <resource> <action>` references — verify each exists in the cclaw command map from `sdk/cclaw/src/index.ts`.
+   - `db-query.js <command>` references — these must be validated against Pass 1.5 (retained whitelist).
+3. For each `cclaw <resource> <action>` match, verify it exists in the cclaw command map.
+4. For each `db-query.js <command>` match, verify the command is in the Pass 1.5 retained whitelist AND exists in the `db-query.js` dispatch.
+5. **Flag as CRITICAL** any referenced `cclaw` command that doesn't exist in the command map. Include the suggested real command if the difference is a typo.
+
+### Pass 1.5 — Retained legacy whitelist (mechanical)
+
+**Why:** After P5, only a small set of legacy `db-query.js` commands remain acceptable in agent instructions. Any `node scripts/<file>` reference outside this whitelist is a post-P5 stale reference — the script was deleted.
+
+**Retained scripts whitelist** (load from `docs/runbook.md §13.3 P5 deletion record`):
+- `scripts/db-query.js` — retained (entrypoint migration + agent log writes); **only the following commands** are expected in agent instructions:
+  - `migrate`, `set-paper-cash`, `set-meta`, `get-meta`, `get-chains`, `get-chain-config`, `get-portfolio`, `get-cash`, `get-trade-stats`, `get-watchlist`, `add-to-watchlist`, `update-watchlist`, `remove-from-watchlist`, `get-liquidity`, `add-liquidity-snapshot`, `get-contract-snapshots`, `add-contract-snapshot`, `get-tracked-wallets`, `add-tracked-wallet`, `propose-wallet`, `get-unscored-wallets`, `update-wallet-score`, `remove-tracked-wallet`, `get-smart-money-signals`, `check-token-status`, `cache-analysis`, `get-analysis-cache`, `clear-expired-cache`, `sync-portfolio`, `get-sync-status`, `set-onchain-balance`, `cancel-order`, `retry-order`, `get-order-history`, `get-sentinel-log`, `get-executor-log`, `get-research-log`, `get-observer-log`, `add-sentinel-log`, `add-executor-log`, `add-research-log`, `add-observer-log`
+- `scripts/chains.js` — retained (load-time import of db-query.js; deletes in P6 with db-query.js). Not directly invoked by agents — no agent instruction commands reference it.
+- `scripts/order-approval.js` — retained (load-time import of db-query.js; deletes in P6 with db-query.js). Not directly invoked by agents — no agent instruction commands reference it.
+- `scripts/send-alert.js` — retained (ADR-0025; supersession pending P5c)
+- `scripts/log.js` — retained (required by send-alert.js)
+- `scripts/redact.js` — retained (required by log.js)
+- `scripts/promote-pattern.js` — retained (MEMORY.md write-protection)
+- `scripts/emergency-executor.js` — retained (entrypoint.sh loop)
+- `scripts/emergency-sentinel.js` — retained (entrypoint.sh loop)
+- `scripts/heartbeat-check.js` — retained (entrypoint.sh SKIP predicate)
+- `scripts/agent-idleness.js` — retained (required by heartbeat-check.js)
+- `scripts/pre-commit-check.js` — retained (CI infrastructure)
+- `scripts/memory-backup.sh` — retained (SPEC §8)
+- `scripts/codex-login.sh` — retained (operator OAuth setup)
+- `scripts/ci/*.mjs` — retained (CI guards)
+
+**Flag as CRITICAL** any `node scripts/<file>` reference in agent instructions where `<file>` is NOT in the whitelist above. These reference deleted scripts. Example: `node scripts/process-order.js` is post-P5 CRITICAL; `node scripts/send-alert.js` is acceptable.
 
 ### Pass 1b — Compound-command preflight (mechanical)
 
@@ -103,21 +127,21 @@ cmd-b
 
 **Why:** Same failure mode as Pass 1 but for scripts. A deleted or renamed script still referenced in instructions = runtime crash. An existing script not deployed to an agent = silent "command not found" when that agent tries it.
 
-**During P4–P5, both CLI surfaces are tolerated in agent markdown.** Instructions may reference `node scripts/<file>` (legacy) OR use `cclaw <resource> <action>` for equivalent operations. Both are valid; check each against its respective surface.
+**As of P5, `cclaw` is the canonical command surface.** Script references must only appear for retained scripts (see Pass 1.5 whitelist). Any reference to a deleted script is CRITICAL.
 
-1. List all `.js` files in `scripts/`.
-2. Grep every instruction file for `node scripts/<file>` and bare `scripts/<file>` references, AND for `cclaw <resource> <action>` references (cross-check against `sdk/cclaw/src/index.ts`).
-3. **Flag as CRITICAL** any reference to a non-existent script.
+1. List all `.js` and `.sh` files currently in `scripts/` (the retained set post-P5).
+2. Grep every instruction file for `node scripts/<file>` and bare `scripts/<file>` references.
+3. **Flag as CRITICAL** any reference to a non-existent script (i.e., a script deleted in P5 but still referenced in instructions).
 4. Read `build-templates.sh` to determine which scripts each agent receives.
-5. **Flag as WARNING** any script referenced in an agent's instructions that is NOT deployed to that agent.
+5. **Flag as WARNING** any retained script referenced in an agent's instructions that is NOT deployed to that agent.
 
 ### Pass 3 — Constant consistency (semi-mechanical)
 
-**Why:** `chains.js` is the single source of truth for portfolio rules. If AGENTS.md says "max moonshot 6%" but `chains.js` enforces 5%, the code will reject proposals the markdown told the LLM to make. The LLM is the one who looks wrong.
+**Why:** `libs/chain/src/portfolio-rules.ts` is the single source of truth for portfolio rules post-P5 (previously `scripts/chains.js`, which is retained in P5 only as a load-time import of `db-query.js`, not as the limit authority). If AGENTS.md says "max moonshot 6%" but `portfolio-rules.ts` enforces 5%, the code will reject proposals the markdown told the LLM to make. The LLM is the one who looks wrong.
 
-1. Extract all numeric portfolio rule constants from `scripts/chains.js` (position limits, cash reserves, slippage limits, narrative caps).
+1. Extract all numeric portfolio rule constants from `libs/chain/src/portfolio-rules.ts` (position limits, cash reserves, slippage limits, narrative caps). This is canonical post-P5. `scripts/chains.js` is retained in P5 as a db-query.js import dependency but `portfolio-rules.ts` is authoritative for limit values — do not use chains.js as the source for limit comparisons.
 2. Extract numeric constants from instruction files — portfolio rule tables, safety rules, limit references.
-3. **Flag as CRITICAL** any mismatch between markdown-stated values and `chains.js` values.
+3. **Flag as CRITICAL** any mismatch between markdown-stated values and `portfolio-rules.ts` values.
 4. Regime adjustment tables often appear in multiple files. They must be byte-identical.
 5. **Flag as WARNING** any regime-table discrepancy.
 
@@ -142,7 +166,7 @@ The three sources:
 1. Agent count and cadences — CLAUDE.md mentions four agents with specific heartbeat intervals. Verify each agent is represented in `entrypoint.sh` with the stated interval.
 2. Script list — CLAUDE.md contains a "Project Structure" section listing scripts under `scripts/`. Verify every script listed exists; **flag as INFO** any script in `scripts/` that is not listed (CLAUDE.md doesn't have to be exhaustive, but conspicuous omissions are worth noting).
 3. DB table count — CLAUDE.md names tables explicitly ("21 tables: positions, trades, …"). Cross-check against the CREATE TABLE statements in `scripts/db.js` migrations. **Flag as WARNING** on count or name mismatch.
-4. Safety rule constants — CLAUDE.md duplicates the portfolio limits under "Safety Rules". Cross-check against `chains.js` the same way as Pass 3. **Flag as CRITICAL** on mismatch.
+4. Safety rule constants — CLAUDE.md duplicates the portfolio limits under "Safety Rules". Cross-check against `libs/chain/src/portfolio-rules.ts` (canonical post-P5) the same way as Pass 3. **Flag as CRITICAL** on mismatch.
 5. Command lists in CLAUDE.md (e.g. database query examples) — validate the same way as Pass 1.
 
 ### Pass 4 — Cross-file behavioral consistency (semantic)
