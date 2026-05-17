@@ -1158,10 +1158,10 @@ The P5 legacy-deletion PR deleted ~38 scripts. P5c deleted `scripts/send-alert.j
 
 | Script | Retained by | Closing PR |
 |---|---|---|
-| `scripts/db.js` | `entrypoint.sh:247` runs `db-query.js migrate` (schema + migrations); P6-fragment will replace with NestJS startup migration runner | P6-fragment |
-| `scripts/db-query.js` | `entrypoint.sh:261-262` (paper-cash seed) + agent `add-*-log` writes; all 4 agents use legacy log commands | P6-fragment |
-| `scripts/chains.js` | Required by retained `db-query.js` (imported at line 120; provides `getAllChains`, `getActiveChains`, `getChain`, `isSolana`, `getPortfolioRules`). Deletes in P6 with `db-query.js`. | P6-fragment |
-| `scripts/order-approval.js` | Required by retained `db-query.js` (imported at line 122; provides `determineOrderApproval` used at line 657). Deletes in P6 with `db-query.js`. | P6-fragment |
+| `scripts/db.js` | Auto-migrates on first `getDb()` call (agents trigger on first `db-query.js` use); P6-fragment shipped the NestJS migration runner. Retained until P5b+retained-scripts port allows `db-query.js` deletion. | Follow-up: P5b + port off db.js |
+| `scripts/db-query.js` | Agent `add-*-log` writes + hold-back commands (53 invocations in agent markdown); no cclaw equivalent for log writes yet | Follow-up: P5b cclaw expansion |
+| `scripts/chains.js` | Required by retained `db-query.js` (imported at line 120; provides `getAllChains`, `getActiveChains`, `getChain`, `isSolana`, `getPortfolioRules`). Deletes with `db-query.js`. | Follow-up: with db-query.js |
+| `scripts/order-approval.js` | Required by retained `db-query.js` (imported at line 122; provides `determineOrderApproval` used at line 657). Deletes with `db-query.js`. | Follow-up: with db-query.js |
 | `scripts/log.js` | Required by `heartbeat-check.js`, `emergency-sentinel.js`, `emergency-executor.js`, and `promote-pattern.js` (NOT send-alert.js — deleted). | TBD |
 | `scripts/redact.js` | Required by `log.js` and `promote-pattern.js`. | TBD |
 | `scripts/promote-pattern.js` | MEMORY.md write-protection (PR 3.1 provenance trail); no cclaw equivalent | TBD |
@@ -1344,7 +1344,9 @@ To selectively disable individual loops after rollback (while keeping others), u
 **Scripts (~38 files):**
 - Background loops: `harvest.js`, `score-wallets-bg.js`, `score-wallet.js`, `activity-wallets-bg.js`, `governance-drift.js`, `track-multisig.js`, `reconcile-positions.js`, `portfolio-summary.js`, `approval-bot.js`, `send-approval.js`
 - Execution scripts: `execute-trade-evm.js`, `execute-trade-solana.js`, `check-safe-status.js`, `check-squads-status.js`, `backfill-squads-nonce.js`, `process-order.js`
-- Sentinel/Research tools: `check-positions.js`, `check-liquidity.js`, `check-wallets.js`, `check-contract.js`, `check-signer-balances.js`, `holder-distribution.js`, `token-metrics.js`, `scan-tokens.js`, `narrative-check.js`, `narrative-deep-scan.js`, `narrative-config.js`, `market-overview.js`, `market-regime.js`, `price-oracle.js`, `portfolio-load-evm.js`, `portfolio-load-solana.js`, `onchain-balance.js`, `address-validator.js`, `order-approval.js`, `chains.js`
+- Sentinel/Research tools: `check-positions.js`, `check-liquidity.js`, `check-wallets.js`, `check-contract.js`, `check-signer-balances.js`, `holder-distribution.js`, `token-metrics.js`, `scan-tokens.js`, `narrative-check.js`, `narrative-deep-scan.js`, `narrative-config.js`, `market-overview.js`, `market-regime.js`, `price-oracle.js`, `portfolio-load-evm.js`, `portfolio-load-solana.js`, `onchain-balance.js`, `address-validator.js`
+
+> **Correction (P6-fragment, 2026-05-17):** `order-approval.js` and `chains.js` were NOT deleted in P5. Both are load-time imports of the retained `db-query.js` (see §13.3) and must remain on disk until `db-query.js` is deleted. Deletion is gated on P5b cclaw CLI expansion AND porting `heartbeat-check.js` / `promote-pattern.js` / `emergency-*.js` off `db.js`.
 - One-off scripts: `telegram-get-topics.js`, `test-solana-tx-size.js`
 
 **Tests:**
@@ -1371,7 +1373,12 @@ The executor now **reports "enqueued N orders"** per cycle instead of "executed 
 
 - **P5b** — cclaw CLI expansion: `cclaw orders cancel`, `cclaw orders retry`, `cclaw wallets signals`, `cclaw watchlist list`, `cclaw system chains/meta`, `cclaw agent-logs create`. About 10 commands needed to eliminate the remaining `db-query.js` hold-backs.
 - **P5c** ✓ DONE — Notifications: `POST /v1/alerts/send` + `cclaw alerts send` wired to `NotificationsService.sendCriticalAlert`. ADR-0025 superseded by ADR-0028. `scripts/send-alert.js` deleted; `scripts/log.js` + `scripts/redact.js` retained (4 other importers — not send-alert.js as the P5 runbook incorrectly stated).
-- **P6-fragment** — NestJS startup migration runner: replace `entrypoint.sh:247` (`db-query.js migrate`) and `entrypoint.sh:261-262` (paper-cash seed) with NestJS calls; delete `scripts/db.js` + `scripts/db-query.js`.
+- **P6-fragment** ✓ DONE (2026-05-17) — NestJS startup migration runner shipped. Scope delivered:
+  - `apps/api/src/prisma-migrate.bootstrap.ts` — `runPrismaMigrateDeploy()` inserted in main.ts boot sequence (assertNoSignerKeysInEnv → assertConfigValid → runPrismaMigrateDeploy → NestFactory.create).
+  - `entrypoint.sh` section 4: dropped `db-query.js migrate` block; paper-cash seed moved to `seed_paper_cash_bg` background function (waits for apps/api `/healthz`, then calls `cclaw system meta set`).
+  - `cclaw system meta set` + `cclaw system meta get` subcommands added to `sdk/cclaw/src/index.ts`.
+  - Runbook §13.3 updated; §14.1 corrected (chains.js + order-approval.js retained — see correction note above).
+  - **Deletion of db.js / db-query.js / chains.js / order-approval.js remains deferred** — 5 + 53 + 2 + 1 active importers; gated on P5b cclaw expansion AND porting retained scripts off db.js.
 
 ### §14.4 Rollback
 

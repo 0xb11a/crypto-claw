@@ -6,9 +6,9 @@
 #   1. Sync code-owned workspace files from templates into volumes
 #   2. Repopulate sentinel/executor tmpfs workspaces from agent templates
 #   3. Set up symlinks (memory dirs, data dirs, node_modules, shared files)
-#   4. Run DB migrations (+ paper mode balance seeding)
+#   4. Export DB path; schedule paper-mode balance seeding (waits for apps/api)
 #   5. First-run: configure gateway, register agents, set heartbeats, add cron jobs
-#   6. Start OpenClaw gateway
+#   6. Start OpenClaw gateway (+ background seed loop)
 # ============================================================
 
 set -euo pipefail
@@ -237,32 +237,62 @@ done
 echo "[entrypoint]   Symlinks ready"
 
 # ============================================================
-# 4. Run DB migrations + paper mode balance seeding
+# 4. DB path export + paper mode balance seeding (deferred)
+#
+# Migration notes (P6-fragment):
+#   - Legacy SQLite migrations (scripts/db.js):
+#       db-query.js auto-migrates on first connection (getDb() calls migrate()).
+#       No explicit migration step needed here — the first agent db-query.js
+#       invocation triggers it automatically.
+#   - Prisma migrations (prisma/migrations/):
+#       apps/api runs `prisma migrate deploy` on its own startup (see
+#       apps/api/src/prisma-migrate.bootstrap.ts).  No manual step required.
+#
+# Paper-cash seeding is moved to a background function (seed_paper_cash_bg)
+# that waits for apps/api to be ready before calling `cclaw system meta set`.
 # ============================================================
-echo "[entrypoint] Running database migrations..."
-
 export SAFE_ID
 export DB_PATH="${DB_PATH:-$DB_DIR/$SAFE_ID.db}"
+echo "[entrypoint] Database path: $DB_PATH (migrations handled on first use / apps/api boot)"
 
-if (cd "$RESEARCH_WS" && node scripts/db-query.js migrate) > /dev/null; then
-  echo "[entrypoint] Database ready ($SAFE_ID.db)"
-else
-  echo "[entrypoint] ERROR: Database migration failed"
-  exit 1
-fi
+# Background function: wait for apps/api, then seed paper-mode balances.
+# Called from Section 6 alongside other background loops.
+seed_paper_cash_bg() {
+  if [ "$PAPER_MODE" != "true" ]; then
+    return 0
+  fi
 
-# Seed paper cash from env if paper mode enabled (per-chain)
-if [ "$PAPER_MODE" = "true" ]; then
+  # Poll apps/api /healthz until ready or timeout.
+  # Default API port is 7878; override via CCLAW_API_PORT if non-standard.
+  _api_port="${CCLAW_API_PORT:-7878}"
+  _api_ready=false
+  for _i in $(seq 1 60); do
+    if curl -sf "http://127.0.0.1:${_api_port}/healthz" > /dev/null 2>&1; then
+      echo "[paper-seed] apps/api ready after ${_i}s"
+      _api_ready=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$_api_ready" != "true" ]; then
+    echo "[paper-seed] WARNING: apps/api not ready after 60s — skipping paper-cash seed" >&2
+    echo "[paper-seed] To seed manually: cclaw system meta set --key paper_cash_<chain> --value <amount>"
+    return 0
+  fi
+
   IFS=',' read -ra _CHAINS <<< "${ACTIVE_CHAINS:-base,ethereum,solana}"
   for _chain in "${_CHAINS[@]}"; do
     _chain=$(echo "$_chain" | xargs)
     _override_var="PAPER_STARTING_BALANCE_$(echo "$_chain" | tr '[:lower:]' '[:upper:]')"
     _balance="${!_override_var:-$PAPER_STARTING_BALANCE}"
-    (cd "$RESEARCH_WS" && node scripts/db-query.js set-paper-cash --chain "$_chain" --amount "$_balance") > /dev/null
-    (cd "$RESEARCH_WS" && node scripts/db-query.js set-meta --key "paper_initial_balance_$_chain" --value "$_balance") > /dev/null
-    echo "[entrypoint] Paper mode balance seeded: $_chain = \$$_balance"
+    CCLAW_API_BASE="http://127.0.0.1:${_api_port}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+      cclaw system meta set --key "paper_cash_${_chain}" --value "$_balance" > /dev/null
+    CCLAW_API_BASE="http://127.0.0.1:${_api_port}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+      cclaw system meta set --key "paper_initial_balance_${_chain}" --value "$_balance" > /dev/null
+    echo "[paper-seed] Paper mode balance seeded: ${_chain} = \$${_balance}"
   done
-fi
+}
 
 # ============================================================
 # 5. First-run: configure gateway, register agents, heartbeats, cron
@@ -917,12 +947,15 @@ run_sentinel_loop() {
 #      KEEP    run_memory_backup_loop — git workspace ops, stays in shell
 #      KEEP    run_executor_loop      — LLM-agent loop (SPEC §4 #5)
 #      KEEP    run_sentinel_loop      — LLM-agent loop (SPEC §4 #5)
+#    P6-fragment additions:
+#      KEEP    seed_paper_cash_bg     — waits for apps/api, then seeds paper-mode balances
 #    All other loops deleted (see §5e–§5h2 tombstones above).
 # ============================================================
 echo "[entrypoint] Starting OpenClaw gateway..."
 run_memory_backup_loop &
 run_executor_loop &
 run_sentinel_loop &
+seed_paper_cash_bg &
 ensure_cron_jobs &
 
 # Ensure Node.js heap limit is set for the gateway process (default V8 limit is ~2GB).
