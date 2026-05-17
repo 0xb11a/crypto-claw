@@ -1,7 +1,8 @@
 # ADR-0020 — Shim-parity baseline: capture-once, compare-every-PR until P5
 
-**Status:** Accepted
+**Status:** Retired (P5)
 **Date:** 2026-05-10
+**Retired:** 2026-05-17 — `tests/shim-parity/`, `tests/integration/parity/`, and the shim-parity CI step were deleted in the P5 legacy-deletion PR. Per Decision #6 in this ADR: "At P5 cutover, the harness is deleted." See the P5 PR for the deletion record.
 
 ## Context
 SPEC §19 verification #2 requires `cclaw <…>` JSON byte-identical to `node scripts/db-query.js <…>` against the same DB during the rewrite (P1–P5). The legacy `scripts/db.js` schema and `scripts/db-query.js` output format are the de-facto contract — operator-facing tools, agent skill markdown, and emergency runbook commands all assume that exact JSON shape. Any drift in the rewrite that the unit/integration tests don't catch (column ordering, JSON-string field encoding, NULL vs missing-key, datetime format) will silently break consumers.

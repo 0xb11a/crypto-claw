@@ -44,10 +44,12 @@ node scripts/db-query.js get-research-log --limit 30
 (legacy hold-back)
 
 ### 3. Check Signer Balances
+[cclaw expansion pending P5b — `cclaw executor check-signer-balances` not yet implemented; `scripts/check-signer-balances.js` was deleted in P5. Read signer balance state from system logs and the executor_log table instead. Alert via `node scripts/send-alert.js` with type `signer_low_balance` if logs indicate drained gas accounts.]
 ```bash
-node scripts/check-signer-balances.js
+node scripts/db-query.js get-executor-log --limit 5
 ```
-If any signer balance is below threshold, alert immediately via `node scripts/send-alert.js` with type `signer_low_balance`. This prevents silent executor failures from drained gas accounts.
+(legacy hold-back — look for `status:"error"` rows mentioning `no_signer_key` or low-balance errors)
+If any signer balance is indicated as below threshold in executor_log errors or system.log, alert immediately via `node scripts/send-alert.js` with type `signer_low_balance`. This prevents silent executor failures from drained gas accounts.
 
 ### 4. Silent-Crash Scan
 From the three `get-*-log` outputs above, filter rows where `status = "error"`. For each one, check the system log tail from Step 1: was a `send-alert.js` call logged near the same timestamp (±5 min)?

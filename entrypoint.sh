@@ -690,7 +690,7 @@ ensure_cron_jobs() {
   add_if_missing "research-cycle" \
     --every "30m" --agent research --model "$RESEARCH_MODEL" --session isolated \
     $RESEARCH_CRON_DELIVERY \
-    --message "OVERLAP GUARD: First run openclaw cron list --json to find the research-cycle job ID, then run openclaw cron runs --id <that-id> --limit 5. The output has an entries array. Skip the most recent entry (that is you). If any other entry has action other than finished, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent research. Run the most overdue check. If the check produces discoveries, run the FULL pipeline autonomously: analysis, risk assessment, trade proposal. Do not stop after scanning — you decide what to buy. Update timestamps via db-query.js. Log results to daily memory and database (add-research-log). ALWAYS end with a short work summary: what check ran, what was found, counts (scanned/analyzed/proposed)."
+    --message "OVERLAP GUARD: First run openclaw cron list --json to find the research-cycle job ID, then run openclaw cron runs --id <that-id> --limit 5. The output has an entries array. Skip the most recent entry (that is you). If any other entry has action other than finished, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Check heartbeat state: cclaw heartbeat get --agent research. Run the most overdue check. If the check produces discoveries, run the FULL pipeline autonomously: analysis, risk assessment, trade proposal. Do not stop after scanning — you decide what to buy. Update timestamps via cclaw heartbeat ping. Log results to daily memory and database (add-research-log). ALWAYS end with a short work summary: what check ran, what was found, counts (scanned/analyzed/proposed)."
 
   # --- Observer cycle (cron-based, replaces background loop) ---
   if [ -n "${OBSERVER_ISSUES_REPO:-}" ] && [ -n "${GH_TOKEN:-}" ]; then
@@ -702,7 +702,7 @@ ensure_cron_jobs() {
     add_if_missing "observer-cycle" \
       --every "120m" --agent observer --model "$OBSERVER_MODEL" --session isolated \
       $OBSERVER_CRON_DELIVERY \
-      --message "OVERLAP GUARD: First run openclaw cron list --json to find the observer-cycle job ID, then run openclaw cron runs --id <that-id> --limit 5. The output has an entries array. Skip the most recent entry (that is you). If any other entry has action other than finished, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Run the triage skill now: read system logs, query DB for failures, analyze, and take action (create issues or send alerts). Check heartbeat state: node scripts/db-query.js get-heartbeat --agent observer. Update heartbeat when done. If nothing to report, reply HEARTBEAT_OK."
+      --message "OVERLAP GUARD: First run openclaw cron list --json to find the observer-cycle job ID, then run openclaw cron runs --id <that-id> --limit 5. The output has an entries array. Skip the most recent entry (that is you). If any other entry has action other than finished, reply HEARTBEAT_SKIP and stop. Otherwise proceed. — Read HEARTBEAT.md. Run the triage skill now: read system logs, query DB for failures, analyze, and take action (create issues or send alerts). Check heartbeat state: cclaw heartbeat get --agent observer. Update heartbeat when done. If nothing to report, reply HEARTBEAT_OK."
   else
     echo "[cron-setup] Observer skipped — OBSERVER_ISSUES_REPO or GH_TOKEN not set"
   fi
@@ -728,194 +728,36 @@ run_memory_backup_loop() {
 }
 
 # ============================================================
-# 5e. Wallet scoring background loop
-#     Runs score-wallets-bg.js every 10 minutes to pick up
-#     proposed wallets and score them via Birdeye/Zerion APIs.
+# 5e. Wallet scoring background loop — Deleted P5
+#     Replaced by WalletScoringProcessor (NestJS worker, PR #22).
 # ============================================================
-# ----------------------------------------------------------------------
-# P4 cutover (2026-05-15): disabled — replaced by WalletScoringProcessor
-# in apps/worker (PR #22). Legacy script (scripts/score-wallets-bg.js)
-# stays byte-untouched per DoD §I until P5.
-# To roll back: uncomment this block AND the invocation in section 6.
-# ----------------------------------------------------------------------
-# run_wallet_scoring_loop() {
-#   sleep 120  # wait for startup + first heartbeat
-#   while true; do
-#     SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" \
-#       node "$RESEARCH_WS/scripts/score-wallets-bg.js" 2>&1 | \
-#       sed 's/^/[wallet-scorer-bg] /'
-#     sleep 600  # 10 minutes
-#   done
-# }
 
 # ============================================================
-# 5e2. Smart-money activity background loop
-#      Runs activity-wallets-bg.js every 30 minutes. Polls a
-#      rotating slice of 10 smart_money wallets for recent swaps
-#      and writes per-swap rows to smart_money_signals (24 h
-#      retention, pruned each cycle). Research and Sentinel read
-#      the table via db-query.js get-smart-money-signals.
+# 5e2. Smart-money activity background loop — Deleted P5
+#      Replaced by WalletActivityProcessor (NestJS worker, PR #23).
 # ============================================================
-# ----------------------------------------------------------------------
-# P4 cutover (2026-05-15): disabled — replaced by WalletActivityProcessor
-# in apps/worker (PR #23). Legacy script (scripts/activity-wallets-bg.js)
-# stays byte-untouched per DoD §I until P5.
-# To roll back: uncomment this block AND the invocation in section 6.
-# ----------------------------------------------------------------------
-# run_activity_wallets_loop() {
-#   sleep 180  # wait for startup + first scoring cycle
-#   while true; do
-#     SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" \
-#       node "$RESEARCH_WS/scripts/activity-wallets-bg.js" 2>&1 | \
-#       sed 's/^/[activity-wallets-bg] /'
-#     sleep 1800  # 30 minutes
-#   done
-# }
 
 # ============================================================
-# 5e3. Governance drift cron (PR 3.2)
-#      Once per day, reads each active chain's Safe / Squads config
-#      and asserts owners + threshold + modules match the
-#      EXPECTED_SAFE_*_<CHAIN> / EXPECTED_SQUADS_* env vars set at
-#      fund setup. Drift fires a critical rug_warning Telegram alert
-#      because owner-add / threshold-lower is the highest-leverage
-#      attack possible — it doesn't drain anything immediately, it
-#      grants permanent unilateral control. The next "legitimate"
-#      transaction is the drain.
-#
-#      Skipped chains where no expected config is set, with a noisy
-#      log so the operator notices. Paper mode skips entirely (no
-#      on-chain governance to drift).
-#
-# P4 cutover (PARTIAL): EVM replaced by GovernanceDriftProcessor in
-# apps/worker (PR #26). Solana filter kept because SquadsRpcAdapter is
-# a stub (throws SquadsRpcNotImplementedError) until a dedicated SDK-port
-# PR adds @sqds/multisig with real fixture validation. The one-line filter
-# below limits this loop to Solana-only during the transition.
-# To complete Solana cutover: remove the filter and disable this loop.
+# 5e3. Governance drift loop — Deleted P5
+#      Fully replaced by GovernanceDriftProcessor (NestJS worker, PR #26 + #29).
 # ============================================================
-# run_governance_drift_loop — DISABLED (Squads SDK port complete, PR #29)
-# Solana governance drift is now handled by NestJS GovernanceDriftProcessor
-# (SquadsRpcAdapter.getMultisigInfo() — real @sqds/multisig implementation).
-# EVM was already handled by GovernanceDriftProcessor since PR #26.
-# To re-enable during rollback: uncomment the body, uncomment the & invocation.
 run_governance_drift_loop() {
-  echo "[p5-squads-sdk] governance-drift loop disabled — fully handled by NestJS GovernanceDriftProcessor"
-  # if [ "$PAPER_MODE" = "true" ]; then
-  #   echo "[governance-drift] paper mode — skipping"
-  #   return 0
-  # fi
-  # sleep 300  # wait 5 min after startup so RPC clients are warm
-  # while true; do
-  #   IFS=',' read -ra CHAINS <<< "${ACTIVE_CHAINS:-base,solana}"
-  #   for chain in "${CHAINS[@]}"; do
-  #     chain=$(echo "$chain" | xargs) # trim
-  #     if [ -z "$chain" ]; then continue; fi
-  #     # P4 cutover: EVM handled by GovernanceDriftProcessor (PR #26). Solana stays
-  #     # until SquadsRpcAdapter SDK port lands (SquadsRpcNotImplementedError stub).
-  #     if [ "$chain" != "solana" ]; then continue; fi
-  #     if [ "$chain" = "solana" ]; then
-  #       SCRIPT="$EXECUTOR_WS/scripts/check-squads-status.js"
-  #       FLAGS="--check-drift"
-  #     else
-  #       SCRIPT="$EXECUTOR_WS/scripts/check-safe-status.js"
-  #       FLAGS="--chain $chain --check-drift"
-  #     fi
-  #     if [ ! -f "$SCRIPT" ]; then continue; fi
-  #     OUTPUT=$(SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" node "$SCRIPT" $FLAGS 2>&1)
-  #     EXIT=$?
-  #     echo "$OUTPUT" | sed 's/^/[governance-drift] /'
-  #     if [ "$EXIT" = "2" ]; then
-  #       # Drift detected — fire critical alert
-  #       SUMMARY=$(echo "$OUTPUT" | grep -i 'governance_drift' | head -1 | tr -d '\n' | head -c 400)
-  #       SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" node "$EXECUTOR_WS/scripts/send-alert.js" \
-  #         --type rug_warning \
-  #         --agent observer \
-  #         --message "GOVERNANCE DRIFT on $chain: $SUMMARY" 2>&1 | sed 's/^/[governance-drift-alert] /' || true
-  #     elif [ "$EXIT" != "0" ]; then
-  #       echo "[governance-drift] chain=$chain status check exit=$EXIT (non-fatal)"
-  #     fi
-  #   done
-  #   sleep 86400  # 24 hours
-  # done
+  # Deleted P5 — replaced by NestJS GovernanceDriftProcessor
+  :
 }
 
 # ============================================================
-# 5e4. Position reconciliation loop (PR 3.3)
-#      Once per hour, runs reconcile-positions.js against every
-#      open position. Reads the actual on-chain balance from the
-#      vault and compares to positions.quantity. Drift > 1% writes
-#      a marker into positions.notes AND fires a critical
-#      rug_warning alert so the operator can investigate.
-#
-#      Defense in depth on top of PR 2.6 (which only catches drift
-#      at the moment of the buy). Continuous fee-on-transfer,
-#      rebase, freeze-authority confiscation, and backdoor mints
-#      all show up here.
-# ============================================================
-# ----------------------------------------------------------------------
-# P4 cutover (2026-05-15): disabled — replaced by PositionReconcileProcessor
-# in apps/worker (PR #27). Legacy script (scripts/reconcile-positions.js)
-# stays byte-untouched per DoD §I until P5.
-# To roll back: uncomment this block AND the invocation in section 6.
-# ----------------------------------------------------------------------
-# run_position_reconcile_loop() {
-#   if [ "$PAPER_MODE" = "true" ]; then
-#     echo "[position-reconcile] paper mode — skipping"
-#     return 0
-#   fi
-#   sleep 600  # wait 10 min after startup so positions exist
-#   while true; do
-#     OUTPUT=$(SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" \
-#       node "$SENTINEL_WS/scripts/reconcile-positions.js" 2>&1)
-#     EXIT=$?
-#     echo "$OUTPUT" | sed 's/^/[position-reconcile] /'
-#     if [ "$EXIT" = "0" ]; then
-#       DRIFT_COUNT=$(echo "$OUTPUT" | grep -o '"driftCount": *[0-9]*' | head -1 | grep -o '[0-9]*' || echo 0)
-#       if [ "$DRIFT_COUNT" != "0" ] && [ -n "$DRIFT_COUNT" ]; then
-#         SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" node "$SENTINEL_WS/scripts/send-alert.js" \
-#           --type rug_warning \
-#           --agent sentinel \
-#           --message "POSITION DRIFT detected on $DRIFT_COUNT position(s) — check positions.notes for recon_drift markers and decide whether to exit." \
-#           2>&1 | sed 's/^/[position-reconcile-alert] /' || true
-#       fi
-#     else
-#       echo "[position-reconcile] script exit=$EXIT (non-fatal)"
-#     fi
-#     sleep 3600  # 60 minutes
-#   done
-# }
-
-# ============================================================
-# 5f. Multisig transaction tracker (real mode only)
-#     Monitors queued Safe/Squads transactions every 5 minutes.
-#     Confirms or reverts draft/pending_exit positions.
-#     No LLM needed — deterministic script.
-#
-# P4 cutover — EVM duplicated by NestJS MultisigTrackerProcessor (PR #26);
-# Solana sole handler until SquadsRpcAdapter SDK port. Both writers are
-# idempotent (DoD §E) — the NestJS processor skips queued_in_squads
-# receipts with a WARN log; this loop handles them. The legacy script
-# stays byte-untouched per DoD §I until P5.
+# 5e4. Position reconciliation loop — Deleted P5
+#      Replaced by PositionReconcileProcessor (NestJS worker, PR #27).
 # ============================================================
 
-# run_multisig_tracker_loop — DISABLED (Squads SDK port complete, PR #29)
-# Solana multisig tracking is now handled by NestJS MultisigTrackerProcessor
-# (SquadsRpcAdapter.getPendingTransactions() — real @sqds/multisig implementation).
-# EVM was already handled by MultisigTrackerProcessor since PR #26.
-# To re-enable during rollback: uncomment the body, uncomment the & invocation.
+# ============================================================
+# 5f. Multisig transaction tracker — Deleted P5
+#     Fully replaced by MultisigTrackerProcessor (NestJS worker, PR #26 + #29).
+# ============================================================
 run_multisig_tracker_loop() {
-  echo "[p5-squads-sdk] multisig-tracker loop disabled — fully handled by NestJS MultisigTrackerProcessor"
-  # if [ "${PAPER_MODE:-false}" = "true" ]; then
-  #   return  # paper mode has no multisig transactions
-  # fi
-  # sleep 120  # wait for startup
-  # while true; do
-  #   SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" \
-  #     node "$EXECUTOR_WS/scripts/track-multisig.js" 2>&1 | \
-  #     sed 's/^/[multisig-tracker] /'
-  #   sleep 300  # 5 minutes
-  # done
+  # Deleted P5 — replaced by NestJS MultisigTrackerProcessor
+  :
 }
 
 # ============================================================
@@ -925,7 +767,7 @@ run_multisig_tracker_loop() {
 # ============================================================
 
 # Build executor inline message (on-demand heartbeat — reads HEARTBEAT.md for details)
-EXECUTOR_MSG="Read HEARTBEAT.md. Process all pending orders now. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent executor. Update heartbeat when done. If nothing pending, reply HEARTBEAT_OK."
+EXECUTOR_MSG="Read HEARTBEAT.md. Process all pending orders now. Check heartbeat state: cclaw heartbeat get --agent executor. Update heartbeat when done. If nothing pending, reply HEARTBEAT_OK."
 
 run_executor_loop() {
   sleep 30  # wait for gateway + agent registration
@@ -996,7 +838,7 @@ run_executor_loop() {
 # ============================================================
 
 # Build sentinel inline message (on-demand heartbeat — reads HEARTBEAT.md for details)
-SENTINEL_MSG="Read HEARTBEAT.md. Run all monitoring checks on open positions now. Check heartbeat state: node scripts/db-query.js get-heartbeat --agent sentinel. Update heartbeat when done. If nothing to report, reply HEARTBEAT_OK."
+SENTINEL_MSG="Read HEARTBEAT.md. Run all monitoring checks on open positions now. Check heartbeat state: cclaw heartbeat get --agent sentinel. Update heartbeat when done. If nothing to report, reply HEARTBEAT_OK."
 
 run_sentinel_loop() {
   sleep 60  # wait for gateway + agent registration
@@ -1060,119 +902,27 @@ run_sentinel_loop() {
 }
 
 # ============================================================
-# 5h. Portfolio daily report loop
-#     Posts a portfolio summary to the Portfolio topic once per day.
-#     Only runs if TELEGRAM_CHAT_ID and TG_TOPIC_PORTFOLIO are set.
+# 5h. Portfolio daily report loop — Deleted P5
+#     Replaced by PortfolioReportProcessor (NestJS worker, PR #27).
 # ============================================================
-# ----------------------------------------------------------------------
-# P4 cutover (2026-05-15): disabled — replaced by PortfolioReportProcessor
-# in apps/worker (PR #27). Legacy script (scripts/portfolio-summary.js)
-# stays byte-untouched per DoD §I until P5.
-# To roll back: uncomment this block AND the invocation in section 6.
-# ----------------------------------------------------------------------
-# PORTFOLIO_REPORT_HOUR=${PORTFOLIO_REPORT_HOUR:-0}  # UTC hour (0 = midnight)
-#
-# run_portfolio_report_loop() {
-#   if [ -z "${TELEGRAM_CHAT_ID:-}" ] || [ -z "${TG_TOPIC_PORTFOLIO:-}" ]; then
-#     echo "[portfolio-report] Skipped — TG_TOPIC_PORTFOLIO or TELEGRAM_CHAT_ID not set"
-#     return
-#   fi
-#   sleep 120  # wait for gateway + DB initialization
-#   local last_report_day=""
-#
-#   while true; do
-#     CURRENT_HOUR=$(date -u +%H)
-#     CURRENT_DAY=$(date -u +%Y-%m-%d)
-#     if [ "$CURRENT_HOUR" = "$(printf '%02d' $PORTFOLIO_REPORT_HOUR)" ] && [ "$CURRENT_DAY" != "$last_report_day" ]; then
-#       echo "[portfolio-report] Generating daily portfolio report..."
-#       SUMMARY=$(SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
-#         node "$RESEARCH_WS/scripts/portfolio-summary.js" 2>/dev/null || echo 'Portfolio summary unavailable')
-#       # Escape dollar signs so they survive shell expansion in the --message argument
-#       SAFE_SUMMARY=$(printf '%s' "$SUMMARY" | sed 's/\$/\\$/g')
-#       SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
-#         node "$RESEARCH_WS/scripts/send-alert.js" --type portfolio_daily --agent system \
-#         --message "$SAFE_SUMMARY" 2>/dev/null || true
-#       last_report_day="$CURRENT_DAY"
-#       echo "[portfolio-report] Daily report sent"
-#     fi
-#     sleep 1800  # check every 30 minutes
-#   done
-# }
 
 # ============================================================
-# 5h. Telegram approval bot (optional — requires separate bot token)
-#     Long-polls getUpdates for callback_query (inline button presses).
-#     Handles Approve/Reject for pending buy trade proposals.
+# 5h2. Telegram approval bot — Deleted P5
+#      Replaced by ApprovalBotService (NestJS worker, PR #28, ADR-0027).
 # ============================================================
-# ----------------------------------------------------------------------
-# P4 cutover (2026-05-15): disabled — replaced by ApprovalBotService
-# in apps/worker (PR #28, ADR-0027). Legacy script (scripts/approval-bot.js)
-# stays byte-untouched per DoD §I until P5.
-# To roll back: uncomment this block AND the invocation in section 6.
-# ----------------------------------------------------------------------
-# run_approval_bot() {
-#   if [ "${ENABLE_CHANNELS:-false}" != "true" ]; then
-#     return  # channels disabled — Telegram bot has nothing to deliver
-#   fi
-#   if [ -z "${TELEGRAM_APPROVAL_BOT_TOKEN:-}" ]; then
-#     return  # approval bot not configured — skip silently
-#   fi
-#   if [ -z "${TELEGRAM_OWNER_ID:-}" ]; then
-#     echo "[approval-bot] Skipped — TELEGRAM_OWNER_ID required for button approval"
-#     return
-#   fi
-#   sleep 30  # wait for gateway + DB initialization
-#   echo "[approval-bot] Starting Telegram approval bot..."
-#   while true; do
-#     SAFE_ID="$SAFE_ID" DB_PATH="$DB_PATH" \
-#       TELEGRAM_APPROVAL_BOT_TOKEN="$TELEGRAM_APPROVAL_BOT_TOKEN" \
-#       TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}" \
-#       TELEGRAM_OWNER_ID="${TELEGRAM_OWNER_ID:-}" \
-#       TG_TOPIC_APPROVALS="${TG_TOPIC_APPROVALS:-}" \
-#       TG_TOPIC_RESEARCH="${TG_TOPIC_RESEARCH:-}" \
-#       node "$RESEARCH_WS/scripts/approval-bot.js" 2>&1 | \
-#       sed 's/^/[approval-bot] /'
-#     echo "[approval-bot] Process exited, restarting in 5s..."
-#     sleep 5
-#   done
-# }
 
 # ============================================================
 # 6. Start OpenClaw gateway
-#    Launch cron setup, memory backup, Solana governance drift,
-#    multisig tracker, executor loop, sentinel loop in background,
-#    then exec the gateway as PID 1.
-#
-#    P4 cutover status (2026-05-15), updated P5 (2026-05-17):
-#      KEEP    run_memory_backup_loop      — git workspace ops, stays in shell
-#      DISABLE run_governance_drift_loop   — Squads SDK port complete (PR #29)
-#      DISABLE run_multisig_tracker_loop   — Squads SDK port complete (PR #29)
-#      KEEP    run_executor_loop           — LLM-agent loop (SPEC §4 #5)
-#      KEEP    run_sentinel_loop           — LLM-agent loop (SPEC §4 #5)
-#      DISABLE run_wallet_scoring_loop     — → WalletScoringProcessor (PR #22)
-#      DISABLE run_activity_wallets_loop   — → WalletActivityProcessor (PR #23)
-#      DISABLE run_position_reconcile_loop — → PositionReconcileProcessor (PR #27)
-#      DISABLE run_portfolio_report_loop   — → PortfolioReportProcessor (PR #27)
-#      DISABLE run_approval_bot            — → ApprovalBotService (PR #28)
+#    P5 active loops (2026-05-17):
+#      KEEP    run_memory_backup_loop — git workspace ops, stays in shell
+#      KEEP    run_executor_loop      — LLM-agent loop (SPEC §4 #5)
+#      KEEP    run_sentinel_loop      — LLM-agent loop (SPEC §4 #5)
+#    All other loops deleted (see §5e–§5h2 tombstones above).
 # ============================================================
 echo "[entrypoint] Starting OpenClaw gateway..."
 run_memory_backup_loop &
-echo "[p4-cutover] wallet-scoring → NestJS WalletScoringProcessor (PR #22)"
-# run_wallet_scoring_loop &
-echo "[p4-cutover] activity-wallets → NestJS WalletActivityProcessor (PR #23)"
-# run_activity_wallets_loop &
-echo "[p5-squads-sdk] governance-drift Solana → NestJS GovernanceDriftProcessor (Squads SDK port)"
-# run_governance_drift_loop &
-echo "[p4-cutover] position-reconcile → NestJS PositionReconcileProcessor (PR #27)"
-# run_position_reconcile_loop &
-echo "[p5-squads-sdk] multisig-tracker Solana → NestJS MultisigTrackerProcessor (Squads SDK port)"
-# run_multisig_tracker_loop &
 run_executor_loop &
 run_sentinel_loop &
-echo "[p4-cutover] portfolio-report → NestJS PortfolioReportProcessor (PR #27)"
-# run_portfolio_report_loop &
-echo "[p4-cutover] approval-bot → NestJS ApprovalBotService (PR #28)"
-# run_approval_bot &
 ensure_cron_jobs &
 
 # Ensure Node.js heap limit is set for the gateway process (default V8 limit is ~2GB).

@@ -81,11 +81,14 @@ node scripts/db-query.js get-smart-money-signals --since 2h --limit 1
 
 ### Step 2: Check Signer Balances
 
-```bash
-node scripts/check-signer-balances.js
-```
+[cclaw expansion pending P5b — `cclaw executor check-signer-balances` not yet implemented; `scripts/check-signer-balances.js` was deleted in P5. Check signer balance status from executor_log errors and system.log instead.]
 
-If `anyBelowThreshold` is `true`, send an alert for each chain that is below threshold:
+```bash
+node scripts/db-query.js get-executor-log --limit 5
+```
+(legacy hold-back — look for `no_signer_key` errors or `signer_low_balance` entries)
+
+If any `no_signer_key` or low-balance error appears in executor_log or system.log, send an alert for each affected chain:
 
 ```bash
 node scripts/send-alert.js --type signer_low_balance --agent observer --message "Signer on <chain> has <balance> <symbol> — below threshold <threshold>. Refill needed to prevent silent execution failures."

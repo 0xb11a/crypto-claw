@@ -34,8 +34,9 @@ node scripts/db-query.js get-chains
 ## Monitoring Checks
 
 ### Price Monitoring
+[cclaw expansion pending P5b — `check-positions.js` deleted in P5; use `cclaw positions list --status open` to read current position data and evaluate stops manually]
 ```bash
-node scripts/check-positions.js
+cclaw positions list --status open
 ```
 
 | Condition | Severity | Action |
@@ -57,9 +58,11 @@ node scripts/check-positions.js
 **Trailing stop check**: On every price check, if trailing active and `currentPrice < maxPrice * (1 - trailPct)` → write sell_all order.
 
 ### Liquidity Monitoring
+[cclaw expansion pending P5b — `check-liquidity.js` deleted in P5; use db-query.js hold-back to read liquidity snapshots]
 ```bash
-node scripts/check-liquidity.js
+node scripts/db-query.js get-liquidity --address <ADDR> --chain <CHAIN> --limit 2
 ```
+(legacy hold-back)
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
@@ -68,10 +71,12 @@ node scripts/check-liquidity.js
 | LP increased significantly | INFO | Log as positive signal |
 | LP provider count dropping | MEDIUM | Watch closely |
 
-### Wallet Activity (direct dev/deployer polling)
+### Wallet Activity (via smart-money signals)
+[cclaw expansion pending P5b — `check-wallets.js` deleted in P5; use smart-money signals as proxy for dev/whale activity]
 ```bash
-node scripts/check-wallets.js --positions
+node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
 ```
+(legacy hold-back)
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
@@ -95,16 +100,13 @@ node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tok
 Why no auto-sell: smart-money "sells" can be wallet-to-wallet rotations or bridges misclassified as swaps. Dev/whale direct polling above writes sell orders because dev selling is unambiguous; smart-money exit clusters are a heads-up for Research/operator to act on.
 
 ### Contract Monitoring
+[cclaw expansion pending P5b — `check-contract.js` deleted in P5; use contract snapshot diff via db-query hold-back]
 
-Scan all open positions for contract changes (heartbeat usage):
+Compare latest vs previous contract snapshot for safety field changes:
 ```bash
-node scripts/check-contract.js --changes
+node scripts/db-query.js get-contract-snapshots --address <TOKEN_ADDRESS> --chain <CHAIN> --limit 2
 ```
-
-Scan a specific token:
-```bash
-node scripts/check-contract.js --changes --address <TOKEN_ADDRESS> --chain <CHAIN>
-```
+(legacy hold-back)
 
 | Condition | Severity | Action |
 |-----------|----------|--------|

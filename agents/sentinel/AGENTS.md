@@ -81,7 +81,7 @@ Log check results:
 ```bash
 node scripts/db-query.js add-sentinel-log --json '{"check_type":"price","positions_checked":5,"alerts_generated":0,"sells_executed":0,"status":"ok"}'
 ```
-(legacy hold-back — `cclaw agent-logs create` pending P5)
+(legacy hold-back — `cclaw agent-logs create` pending P5b)
 
 Add liquidity snapshot:
 ```bash

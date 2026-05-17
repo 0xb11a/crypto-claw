@@ -33,8 +33,8 @@ Patterns, lessons, scoring calibration — knowledge that applies across all fun
 Positions, trades, orders, alerts, receipts — everything tied to a specific Safe wallet. One database per fund, identified by `SAFE_ID`.
 
 - Database path: `data/<SAFE_ID>.db`
-- Access via CLI: `node scripts/db-query.js <command> [--flags]`
-- Schema managed by auto-migrations in `scripts/db.js`
+- Primary access via `cclaw <resource> <action>` (canonical post-P5); legacy `node scripts/db-query.js <command>` for hold-back commands (pending P5b/P6 expansion)
+- Schema managed by auto-migrations in `scripts/db.js` (retained until P6) AND Prisma migrations in `prisma/migrations/` (NestJS layer)
 - 21 tables: positions, trades, orders, receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_positions, paper_receipts, analysis_cache, portfolio_sync, contract_snapshots, research_log, observer_log, smart_money_signals, _migrations
 
 ### Why Two Layers?
@@ -54,7 +54,7 @@ Research → orders (auto-approved)          → Executor → paper_receipts + p
 Sentinel → orders                          → Executor → paper_receipts + paper_positions
 ```
 
-All agent-to-agent communication goes through the database via `db-query.js`.
+All agent-to-agent communication goes through the database, accessed via `cclaw` CLI or legacy `db-query.js` hold-backs.
 
 ## Wallet Pipeline (smart-money signal flow)
 
@@ -66,28 +66,27 @@ Smart-money tracking is a four-role pipeline. Each role has a bounded contract; 
 │ status=proposed │     │ status=scored/failed │     │ smart_money_signals    │     │ Research → BUY signals        │
 │ (free, async)   │     │ (heavy, throttled)   │     │ (per-swap rows, 24h)   │     │ Sentinel → SELL on positions  │
 └─────────────────┘     └──────────────────────┘     └────────────────────────┘     └──────────────────────────────┘
-   harvest.js              score-wallets-bg.js          activity-wallets-bg.js        Research/Sentinel heartbeats
-   propose-wallet           (every 10 min)               (every 30 min)                via db-query.js
-   holder-distribution     batch=10, 30s/wallet         batch=10 by oldest             get-smart-money-signals
-   token top traders         calls 3 APIs in parallel    last_checked_at, fail-fast
+   propose-wallet           WalletScoringProcessor       WalletActivityProcessor       Research/Sentinel heartbeats
+   (db-query.js)            (NestJS worker, 10 min)      (NestJS worker, 30 min)       via db-query.js
+                            batch=10, 30s/wallet         batch=10 by oldest             get-smart-money-signals
+                            calls 3 APIs in parallel    last_checked_at, fail-fast
 ```
 
 **Role 1 — Proposal** (cheap, on-demand)
-- Anyone in the system inserts wallets with `status='proposed'` via `harvest.js`, `propose-wallet`, `holder-distribution --propose`
-- Sources: Birdeye leaderboards, token top traders, position deployer/holder extraction, agent manual
+- Anyone in the system inserts wallets with `status='proposed'` via `propose-wallet` (db-query.js command)
+- Sources: Birdeye leaderboards (WalletHarvestProcessor NestJS worker), agent manual proposals
 - Unbounded growth allowed. Dedup via `INSERT OR IGNORE` on `(address, chain)` PK.
 
 **Role 2 — Classification** (heavy, bounded, throttled)
-- `score-wallets-bg.js` background loop, every 10 min (`entrypoint.sh:run_wallet_scoring_loop`)
-- Picks 10 `proposed` wallets per cycle; spawns `score-wallet.js` with **30 s execFileSync timeout**
-- Each wallet: 3 parallel API calls (Birdeye trader, Birdeye token-traders, Zerion PnL)
+- `WalletScoringProcessor` NestJS worker, every 10 min
+- Picks 10 `proposed` wallets per cycle; each wallet: 3 parallel API calls (Birdeye trader, Birdeye token-traders, Zerion PnL)
 - Result: `status='scored'` with type `smart_money` (75+) / `whale` (55-74), or `status='failed'` with `retry_count++` (max 3 retries)
 - Self-seeds Birdeye top-10 gainers per chain every 60 min (gated by `portfolio_meta.last_birdeye_harvest_at`)
 - **Bounded:** ≤ 5.5 min per cycle, ≤ 600 wallets/day throughput
-- Health: `portfolio_meta.last_score_wallets_bg_at` (written every cycle). Observer alerts via `system_health` if > 30 min stale. Failure mode: stuck wallets fall to `failed` state, loop continues.
+- Health: `portfolio_meta.last_score_wallets_bg_at` (written every cycle). Observer alerts via `system_health` if > 30 min stale.
 
 **Role 3 — Activity polling** (medium, bounded, rotated)
-- `activity-wallets-bg.js` background loop, every 30 min (`entrypoint.sh:run_activity_wallets_loop`)
+- `WalletActivityProcessor` NestJS worker, every 30 min
 - Picks **10 wallets per cycle** WHERE `type='smart_money' AND status='scored'`, ORDER BY `last_checked_at ASC NULLS FIRST` (rotation)
 - Per wallet: fetches recent transfers (EVM `tokentx`) or parsed transactions (Solana Helius). **Per-fetch hard cap 10 s** via `AbortSignal.timeout`. **Per-chain fail-fast at 5 consecutive timeouts** → skip remainder of that chain this cycle.
 - Groups transfers by `tx_hash`, identifies swap legs (one stable/native + one subject side), emits one signal per swap
@@ -101,21 +100,21 @@ Smart-money tracking is a four-role pipeline. Each role has a bounded contract; 
 **Role 4 — Signal consumption** (cheap, agent-owned)
 - **Research** heartbeat (`smart_money_signals` check, every 30 min):
   ```
-  db-query.js get-smart-money-signals --since 35m --action buy --group-by token --min-wallets 2
+  node scripts/db-query.js get-smart-money-signals --since 35m --action buy --group-by token --min-wallets 2
   ```
   Returns tokens where ≥2 distinct `smart_money` wallets bought in last 35 min. Pipes into discovery → analysis → risk → trade proposal.
 - **Sentinel** heartbeat (`smart_money_exits` check, every 15 min):
   ```
-  db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
+  node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
   ```
-  Returns held tokens that `smart_money` wallets are dumping. **Informational only** (no auto-sell) — alerts the operator. Sentinel's separate `wallet_check` (via `check-wallets.js --positions`) handles unambiguous dev-wallet selling and does write sell orders.
+  Returns held tokens that `smart_money` wallets are dumping. **Informational only** (no auto-sell) — alerts the operator.
 - 35 min sliding window absorbs 5 min of heartbeat-jitter overlap; same signal may be returned by 2 consecutive heartbeat cycles. Consumers tolerate this (Research dedups via `check-token-status` cache).
 
 **Failure boundaries:**
 | Component | Failure | Detected by | Surface |
 |---|---|---|---|
-| Wallet scoring API down | `score-wallets-bg` marks wallets `failed`, retries up to 3× | `last_score_wallets_bg_at` staleness | Observer `system_health` alert |
-| Activity polling API down | `activity-wallets-bg` per-chain fail-fast, signal table grows stale | `last_activity_wallets_bg_at` staleness | Observer `system_health` alert |
+| Wallet scoring API down | `WalletScoringProcessor` marks wallets `failed`, retries up to 3× | `last_score_wallets_bg_at` staleness | Observer `system_health` alert |
+| Activity polling API down | `WalletActivityProcessor` per-chain fail-fast, signal table grows stale | `last_activity_wallets_bg_at` staleness | Observer `system_health` alert |
 | Heartbeat consumer query empty | Research/Sentinel reports "no signals" | implicit (no signals ≠ no activity) | Observer correlates with bg health row |
 
 **Known limitations (accepted):**
@@ -136,53 +135,23 @@ workspace/                # Shared workspace (copied to all agents by build-temp
   IDENTITY.md             # Agent identity
   TOOLS.md                # Full tool reference (not deployed — per-agent versions in agents/{name}/TOOLS.md)
   BOOT.md                 # First-run setup
-scripts/                  # Node.js scripts
-  db.js                   # SQLite data access layer (schema, migrations)
-  db-query.js             # CLI interface for agents to read/write DB
-  package.json            # Dependencies (better-sqlite3, dotenv)
-  scan-tokens.js          # DEXScreener trending/new
-  token-metrics.js        # Detailed token data
-  check-contract.js       # GoPlus safety scan
-  check-positions.js      # Current prices vs stops/TPs
-  check-liquidity.js      # LP change detection
-  check-wallets.js        # Wallet activity tracking (multi-chain, reads from SQLite)
-  harvest.js              # Wallet harvesting — proposes wallets from Birdeye/holders/top traders into tracked_wallets (status='proposed')
-  score-wallet.js         # Smart-money scoring via Birdeye/Zerion PnL
-  score-wallets-bg.js     # Background wallet scoring pipeline (runs one cycle, exits)
-  activity-wallets-bg.js  # Background smart-money activity poller — writes per-swap rows to smart_money_signals (one cycle, exits)
-  market-overview.js      # BTC dominance, fear/greed
-  market-regime.js        # Market regime classification + parameter adjustment
+scripts/                  # Node.js scripts (retained set post-P5; all others deleted)
+  db.js                   # SQLite data access layer (schema, migrations) — retained until P6
+  db-query.js             # CLI interface for agents to read/write DB — retained until P6
+  package.json            # Dependencies (better-sqlite3, dotenv) — retained until P6
   heartbeat-check.js      # Pre-check for sentinel/executor background loops
-  agent-idleness.js       # Shared executor/sentinel idleness predicates — used by heartbeat-check.js (skip decision) and db-query.js get-heartbeats (idle_ok flag)
-  portfolio-summary.js    # Allocation + P&L
-  portfolio-load-evm.js   # On-chain portfolio sync (EVM via DeBank)
-  portfolio-load-solana.js # On-chain portfolio sync (Solana via Helius)
-  chains.js               # Centralized chain config (single source of truth)
-  execute-trade-evm.js    # Safe wallet swap execution (EVM)
-  execute-trade-solana.js # Squads/Jupiter swap execution (Solana)
-  check-safe-status.js    # Safe wallet status check (EVM)
-  check-squads-status.js  # Squads multisig status check (Solana)
-  check-signer-balances.js # Signer-key gas/SOL balance check (used by Observer triage and entrypoint health)
-  backfill-squads-nonce.js # One-off recovery: matches stuck Squads receipts to their transactionIndex and writes safe_nonce
-  narrative-check.js      # Narrative momentum
-  narrative-config.js     # Narrative definitions and tier affinities
-  narrative-deep-scan.js  # Deep narrative analysis
-  holder-distribution.js  # Top holder analysis
-  process-order.js        # Atomic order processing with status workflow and multisig tracking
+  agent-idleness.js       # Shared executor/sentinel idleness predicates
   emergency-sentinel.js   # Emergency sentinel activation on repeated model failures
   emergency-executor.js   # Emergency executor activation on repeated model failures
-  track-multisig.js       # Multisig approval workflow tracking
-  send-alert.js           # Telegram alerts via openclaw message send (topic routing)
-  send-approval.js        # Telegram approval-request message with inline approve/reject buttons (research/portfolio)
-  approval-bot.js         # Long-running Telegram bot — handles approve/reject button callbacks (background loop in entrypoint)
-  redact.js               # Sensitive data redaction (shared module)
-  log.js                  # Structured logging helper (writes to system.log + stderr)
-  telegram-get-topics.js  # Setup helper: discover supergroup topic thread IDs
-  pre-commit-check.js     # Secret scanner wired into .git/hooks/pre-commit (blocks commits containing keys)
-  test-solana-tx-size.js  # Standalone diagnostic — proves the Squads LUT fix keeps the meta-tx under 1232 bytes
+  send-alert.js           # Telegram alerts via openclaw message send (topic routing) — ADR-0025; supersession P5c
+  redact.js               # Sensitive data redaction (shared module) — retained until P5c
+  log.js                  # Structured logging helper (writes to system.log + stderr) — retained until P5c
+  promote-pattern.js      # MEMORY.md write-protection (provenance trail enforcement)
+  pre-commit-check.js     # Secret scanner + MEMORY.md trail gate + npm-audit gate
   memory-backup.sh        # Git auto-commit for agent memory
   codex-login.sh          # One-time Codex OAuth login (ChatGPT subscription)
-tests/                    # 18 test suites + runner + helpers
+  ci/                     # CI guard scripts (check-vitest-workspace.mjs, check-dockerfile-modules.mjs)
+tests/                    # Integration test suites (parity specs deleted in P5; unit + integration remain)
 Dockerfile                # Based on ghcr.io/openclaw/openclaw:latest
 docker-compose.yml        # One-command deployment
 build-templates.sh        # Docker build-time template assembly
@@ -196,45 +165,30 @@ build-templates.sh        # Docker build-time template assembly
 | `agents/research/AGENTS.md` | Core operating contract — pipeline, safety rules, memory protocol, approval logic |
 | `agents/sentinel/AGENTS.md` | Monitoring rules, sell order logic, alert format |
 | `agents/executor/AGENTS.md` | Transaction rules, validation logic, receipt format, Safe integration |
-| `scripts/db.js` | SQLite schema, migrations, connection management |
-| `scripts/db-query.js` | 35+ CLI commands for agents to interact with wallet data |
-| `scripts/chains.js` | Centralized chain config — Safe/Squads env vars, portfolio rules, cash tokens |
+| `scripts/db.js` | SQLite schema, migrations, connection management (retained until P6) |
+| `scripts/db-query.js` | Legacy CLI for agents to read/write DB — retained for agent log writes until P6 |
+| `libs/chain/src/portfolio-rules.ts` | Portfolio rule constants — canonical post-P5 (previously `scripts/chains.js`, deleted) |
 | `agents/{name}/TOOLS.md` | Per-agent CLI usage guide — each agent gets only the commands/scripts it uses |
-| `scripts/redact.js` | Sensitive data redaction — used by log.js (2-layer defense) |
-| `scripts/log.js` | Structured logging — writes redacted entries to /tmp/openclaw/system.log + stderr |
+| `scripts/redact.js` | Sensitive data redaction — used by log.js (2-layer defense; retained until P5c) |
+| `scripts/log.js` | Structured logging — writes redacted entries to /tmp/openclaw/system.log + stderr (retained until P5c) |
 | `workspace/TOOLS.md` | Full tool reference (not deployed) — check this for the complete picture |
-| `scripts/process-order.js` | Atomic order processing — validates, executes, updates status, writes receipts |
 | `entrypoint.sh` | Docker runtime init — per-agent config, background loops, workspace seeding |
-| `build-templates.sh` | Build-time deployment — which scripts/skills/markdown each agent gets |
+| `build-templates.sh` | Build-time deployment — which scripts/skills/markdown each agent gets (P5: retained set only) |
 
 ## Commands
 
 ```bash
-# Run all tests (offline — no API calls)
-cd tests && node run-all.js --offline
+# Type-check the monorepo
+pnpm typecheck
 
-# Run all tests including network-dependent script tests
-cd tests && node run-all.js
+# Lint TypeScript + retained legacy scripts
+pnpm lint
 
-# Run individual test suites
-node tests/test-memory.js       # Agent memory + SQLite schema + CRUD
-node tests/test-safety.js       # Safety rule logic
-node tests/test-pipeline.js     # Pipeline stage integration + executor handoff
-node tests/test-executor.js     # Executor validation, slippage, receipts, portfolio updates
-node tests/test-paper-mode.js   # Paper trading lifecycle, P&L, stats
-node tests/test-e2e-paper.js    # End-to-end paper trading + multi-chain
-node tests/test-e2e-real.js     # End-to-end real trading
-node tests/test-regime.js       # Market regime classification, adjustments, anti-whipsaw
-node tests/test-chains.js       # Chain config + portfolio sync
-node tests/test-execution.js    # Trade execution flow
-node tests/test-emergency.js    # Emergency sentinel/executor activation
-node tests/test-telegram.js     # Telegram alerts + topic routing
-node tests/test-scripts.js      # Script output format (needs network)
-node tests/test-process-order.js # Order processing lifecycle (needs network)
-node tests/test-observer.js     # Observer agent, redaction, logging, GitHub integration
-node tests/test-harvest.js      # Wallet harvesting — INSERT OR IGNORE, dedup, exclusions
-node tests/test-activity-bg.js  # activity-wallets-bg producer + smart_money_signals schema/dedup/rotation/pruning
-node tests/test-backfill-squads-nonce.js # backfill-squads-nonce matcher and applyBackfill
+# Run unit tests
+pnpm test:unit
+
+# Run integration tests (requires prior pnpm build)
+pnpm build && pnpm test:integration
 
 # Database queries (from project root)
 SAFE_ID=my-fund node scripts/db-query.js get-portfolio
@@ -266,10 +220,10 @@ PAPER_MODE=true PAPER_STARTING_BALANCE=5000 docker compose up -d
 ## Conventions
 
 - **Agent instructions** live in Markdown files (AGENTS.md, SOUL.md, HEARTBEAT.md, skills/*/SKILL.md). These are natural language, not code.
-- **Wallet data** is in SQLite, accessed exclusively through `db-query.js`. Agents never import db.js directly.
+- **Wallet data** for agents is accessed via the `cclaw` CLI (canonical post-P5) for commands with a cclaw equivalent, and via `node scripts/db-query.js` for legacy hold-back commands (agent logs, watchlist, smart-money signals, etc. — pending P5b expansion). Agents never import db.js directly.
 - **Agent memory** (MEMORY.md, daily logs) is in markdown, versioned in a separate private git repo.
-- **Scripts** take CLI flags, output JSON to stdout, errors to stderr. Always exit 0 on success, 1 on failure.
-- **Tests** use a custom minimal framework in `test-helpers.js` — no Jest, no Mocha. Functions: `describe()`, `test()`, `testAsync()`, `assert()`, `assertEqual()`, `assertType()`, `summary()`.
+- **Retained legacy scripts** take CLI flags, output JSON to stdout, errors to stderr. Always exit 0 on success, 1 on failure.
+- **Tests** use vitest (unit + integration). Legacy `tests/test-*.js` suites were deleted in P5.
 - **Safety rules are hard-coded** in `agents/research/AGENTS.md` under "Portfolio Rules" and in `agents/executor/AGENTS.md` under "Pre-Execution Validation." Never weaken these without explicit human approval.
 - **Private keys** live ONLY in environment variables. Never in any file, log, receipt, or agent instruction.
 - **SAFE_ID** env var determines which database file is used. One DB per fund/wallet.
@@ -280,16 +234,16 @@ PAPER_MODE=true PAPER_STARTING_BALANCE=5000 docker compose up -d
 
 ## Safety Rules (Do Not Weaken)
 
-These limits are intentionally strict and must not be relaxed:
+These limits are intentionally strict and must not be relaxed. Canonical source of truth: `libs/chain/src/portfolio-rules.ts` (TypeScript, compiler-enforced; `scripts/chains.js` was deleted in P5).
 
-- Max moonshot position: 5% of chain portfolio (Solana: 7% — see `scripts/chains.js`)
+- Max moonshot position: 5% of chain portfolio (Solana: 7% — see `libs/chain/src/portfolio-rules.ts`)
 - Max conviction position: 10%
 - Max base position: 30%
 - Max total moonshot allocation: 30%
 - Min cash reserve: 10%
 - Max same-narrative positions: 3
 - Auto-reject: honeypot, top holder >30%, liquidity <$5k, known scam deployers, pausable contracts
-- Slippage limits: 5% moonshot, 2% conviction/base (enforced in `scripts/process-order.js:171`)
+- Slippage limits: 5% moonshot, 2% conviction/base (enforced in `ExecuteOrderProcessor` NestJS worker)
 - Stale order protection: reject if price drifted >10% from proposal
 
 ## Paper Mode
@@ -347,12 +301,12 @@ Configure `PORTFOLIO_REPORT_HOUR` (0-23, default: 0) to receive automated daily 
 
 ## When Modifying
 
-- **Adding a new script:** Add it to `scripts/`, document it in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md` (per-agent reference), add output validation to `tests/test-scripts.js`, add it to the appropriate agent's copy list in `build-templates.sh`, and add it to the agent's shell allowlist in `entrypoint.sh` (see per-agent `agents.list[N]` overrides).
-- **Adding a new DB table:** Add a migration in `scripts/db.js` (increment migration number), add CLI commands in `db-query.js`, add schema tests to `tests/test-memory.js`, document commands in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md`.
-- **Changing safety rules:** Update `agents/research/AGENTS.md` AND `agents/executor/AGENTS.md` (if execution-related) AND `tests/test-safety.js` AND `tests/test-executor.js` — tests enforce the exact limits.
+- **Adding a new script:** Add it to `scripts/` (if it's in the retained set), document it in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md` (per-agent reference), add it to the appropriate agent's copy list in `build-templates.sh`, and add it to the agent's shell allowlist in `entrypoint.sh` (see per-agent `agents.list[N]` overrides). New data-fetching scripts are no longer the preferred pattern — prefer NestJS processors in `apps/worker/src/processors/`.
+- **Adding a new DB table:** Add a migration in `scripts/db.js` (increment migration number), add CLI commands in `db-query.js`, document commands in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md`. Also add a Prisma migration in `prisma/migrations/` and a corresponding NestJS repository.
+- **Changing safety rules:** Update `agents/research/AGENTS.md` AND `agents/executor/AGENTS.md` (if execution-related) AND `libs/chain/src/portfolio-rules.ts` — the TypeScript source is the canonical enforcement point.
 - **Adding a new agent:** Follow the pattern in `agents/observer/` (the most recently added agent) — create a directory with AGENTS.md, SOUL.md, HEARTBEAT.md, and skills/. Add per-agent config overrides on `agents.list[N]` in `entrypoint.sh` (tools, permissions, memory, compaction — follow least privilege). Add directory creation, file copy, and symlink logic to `build-templates.sh`. Add heartbeat_state seeds in the db.js migration. Add the agent name to `HEARTBEAT_CADENCES` and `AGENT_HEARTBEAT_INTERVALS` in `scripts/db-query.js`. Update `docker-compose.yml` if it needs different resources.
 - **Changing agent tool/permission config:** OpenClaw global config applies to all agents — per-agent tool restriction is enforced by **script deployment** (which .js files each agent gets in its workspace) and **skills directories** (each agent only sees its own skills). Edit `entrypoint.sh` for global settings, `build-templates.sh` for per-agent script deployment.
-- **Modifying the pipeline:** Update `tests/test-pipeline.js` to verify the new data flow between stages.
+- **Modifying the pipeline:** Update the corresponding NestJS processor in `apps/worker/src/processors/` and its vitest integration spec.
 - **Changing Safe wallet config:** Update `.env.example`, `docker-compose.yml`, and `agents/executor/AGENTS.md`. Never put keys in files.
 - **Multi-fund deployment:** Set different `SAFE_ID` values. Each gets its own SQLite database. Agent memory (markdown) is shared across all deployments.
 - **Changing agent instructions:** After editing any AGENTS.md, HEARTBEAT.md, SOUL.md, or SKILL.md file, run `/audit-instructions` to check for inconsistencies with source-of-truth files and other agent instructions.
@@ -376,12 +330,12 @@ To make a depth pass possible by default, run reviews from a local Claude Code s
 ## Common Pitfalls
 
 - **No command chaining in agent instructions.** OpenClaw's exec preflight rejects compound commands (`&&`, `||`, `;`, `2>/dev/null`). Every bash code block in agent markdown files (AGENTS.md, HEARTBEAT.md, SKILL.md, TOOLS.md) must contain exactly one command. If you need to show multiple commands, use separate code fences. Each agent's TOOLS.md has the rule "Run one command per exec call" — never remove it.
-- Scripts use ESM (`import`), not CommonJS (`require`). The package.json has `"type": "module"`.
-- Sentinel only gets monitoring scripts (check-positions, check-liquidity, check-wallets) + db access. Executor only gets db access + execution scripts. Don't assume an agent has access to all scripts.
+- Retained scripts use ESM (`import`), not CommonJS (`require`). The `scripts/package.json` has `"type": "module"`.
+- Sentinel only gets monitoring scripts (retained set: db access + emergency + alerting). Executor only gets db access + emergency scripts. Execution is now via `cclaw orders execute`. Don't assume an agent has access to deleted scripts.
 - Agent memory (markdown) is symlinked between all three agents. Daily logs written by any agent are visible to all.
 - The database is also shared via symlinked `data/` directory — all agents read/write the same SQLite file.
 - `entrypoint.sh` skips existing MEMORY.md to preserve learned patterns. If you need to reset, delete it first.
 - Docker runs as non-root (UID 1000). File permissions matter.
 - The Executor's `SAFE_SIGNER_KEY` must NEVER appear in any log, receipt, or file. Only read from env var.
-- Executor validates orders independently (defense in depth) — don't assume Research's validation is sufficient.
+- The `ExecuteOrderProcessor` validates orders independently (defense in depth) — don't assume Research's validation is sufficient.
 - SQLite uses WAL mode for concurrent reads. Agents can query simultaneously without locking issues.

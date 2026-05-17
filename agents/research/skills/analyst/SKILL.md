@@ -26,24 +26,23 @@ Evaluate every token discovery on fundamentals, tokenomics, social sentiment, na
 
 ### Step 1: Gather Deep Data
 
-Get full token metrics:
+[cclaw expansion pending P5b — `token-metrics.js`, `check-contract.js`, and `holder-distribution.js` deleted in P5; `cclaw analysis token-metrics`, `cclaw analysis contract-check`, and `cclaw analysis holder-distribution` not yet implemented. Use available on-chain data from your context for fundamentals analysis.]
+
+Get contract snapshots (db hold-back):
 ```bash
-node scripts/token-metrics.js --address <TOKEN_ADDRESS> --chain <CHAIN>
+node scripts/db-query.js get-contract-snapshots --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```
+(legacy hold-back — cached GoPlus safety data; may be stale if ContractSafetyProcessor hasn't run for this token)
 
-Check contract safety:
+> **Two-source confirmation:** the executor enforces, at signing time, that BOTH DEXScreener and Birdeye see the token and agree on price within 2%. Tokens that fail this gate are auto-quarantined with a Telegram alert. You don't need to verify two-source agreement during analysis — the gate fires regardless — but if you find a token that DEXScreener has and Birdeye doesn't, expect quarantine.
+
+> **Recovered safety rejections:** when a structural reject occurs (*not fungible*, *not a token*, *no holder data*), this is a cached avoid decision. Cache the verdict via `cache-analysis --json '{"verdict":"avoid","reason":"<reason>",...}'` and log to `add-research-log` with `"status":"warning"` (NOT `"error"`). Reserve `status:"error"` for unrecovered crashes.
+
+Holder distribution snapshots (db hold-back):
 ```bash
-node scripts/check-contract.js --address <TOKEN_ADDRESS> --chain <CHAIN>
+node scripts/db-query.js get-tracked-wallets --status scored
 ```
-
-> **Two-source confirmation (PR 4.2):** the executor enforces, at signing time, that BOTH DEXScreener and Birdeye see the token and agree on price within 2%. Tokens that fail this gate are auto-quarantined with a Telegram alert. You don't need to verify two-source agreement during analysis — the gate fires regardless — but if you find a token that DEXScreener has and Birdeye doesn't, expect quarantine. The 2-source check exists because single-source tokens (typically newly-listed, obscure venue, or post-list-but-pre-Birdeye-indexing) carry concentrated rug risk.
-
-> **Recovered safety rejections (e.g. GoPlus "Not fungible SPL token address"):** when `check-contract.js` returns a structural reject like *not fungible*, *not a token*, or *no holder data*, this is a cached avoid decision — the token shouldn't be analyzed further, but the pipeline didn't crash. Cache the verdict via `cache-analysis --json '{"verdict":"avoid","reason":"<reason>",...}'` and log to `add-research-log` with `"status":"warning"` (NOT `"error"`). Reserve `status:"error"` for unrecovered crashes (network timeouts, JSON parse failures with no usable output). Observer treats `error` as a silent crash and files an issue per occurrence.
-
-Check holder distribution:
-```bash
-node scripts/holder-distribution.js --address <TOKEN_ADDRESS> --chain <CHAIN> --propose
-```
+(legacy hold-back — view scored wallets associated with this token's deployer/holders)
 
 ### Step 2: Score Across 6 Dimensions
 
@@ -210,7 +209,7 @@ The tier determines position limits, stop-loss levels, and slippage tolerance.
   ```bash
   node scripts/db-query.js add-to-watchlist --json '{"symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","reason":"...","target_entry":0.001}'
   ```
-  (legacy hold-back — `cclaw watchlist create` pending P5)
+  (legacy hold-back — `cclaw watchlist create` pending P5b)
 - If avoid → cache the result and end:
   ```bash
   node scripts/db-query.js cache-analysis --json '{"address":"<TOKEN_ADDRESS>","chain":"<CHAIN>","symbol":"<SYMBOL>","analysis_score":<SCORE>,"verdict":"avoid","reasoning":"<REASON>"}'
