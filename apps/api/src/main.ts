@@ -30,7 +30,16 @@ async function bootstrap(): Promise<void> {
   assertNoSignerKeysInEnv(process.env);
 
   // Step 2 — config validation (SPEC §4 #6)
-  assertConfigValid(process.env);
+  const config = assertConfigValid(process.env);
+
+  // Step 2.5 — derive DATABASE_URL from validated DB_PATH BEFORE runPrismaMigrateDeploy
+  // spawns the prisma child process. PrismaModule.register() also sets this at Nest
+  // bootstrap (libs/prisma/src/prisma.module.ts:43), but that runs AFTER step 3 — too
+  // late for migrate-deploy. Mirroring the same connection-limit=1 shape so the URL
+  // is identical across the lifetime of the process.
+  if (!(process.env as NodeJS.ProcessEnv)['DATABASE_URL']) {
+    (process.env as NodeJS.ProcessEnv)['DATABASE_URL'] = `file:${config.DB_PATH}?connection_limit=1`;
+  }
 
   // Step 3 — apply pending Prisma migrations (ADR-0002, ADR-0026).
   // Runs before NestFactory.create so the schema is guaranteed present before any
