@@ -10,7 +10,7 @@ triggers:
   - should I buy
 ---
 
-> **Note:** This skill requires deep reasoning. Gather all data (check-contract --deep output, analysis results, current portfolio/positions, market regime) before executing.
+> **Note:** This skill requires deep reasoning. Gather all data (contract snapshots via `cclaw contracts list`, analysis results, current portfolio/positions via `cclaw system portfolio` and `cclaw positions list`, market regime) before executing.
 
 # Risk Skill
 
@@ -31,11 +31,11 @@ Last line of defense before capital is committed. Be paranoid. Better to miss a 
 ## Process
 
 ### Step 1: Contract Deep Scan
-[cclaw expansion pending P5b — `check-contract.js` deleted in P5; `cclaw analysis contract-check` not yet implemented. Use cached contract snapshot from db-query hold-back:]
+[cclaw expansion pending — `cclaw analysis contract-check` not yet implemented. Use cached contract snapshot:]
 ```bash
-node scripts/db-query.js get-contract-snapshots --address <TOKEN_ADDRESS> --chain <CHAIN>
+cclaw contracts list --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```
-(legacy hold-back — cached GoPlus data; if empty, this token hasn't been scanned by ContractSafetyProcessor yet)
+(cached GoPlus data; if empty, this token hasn't been scanned by ContractSafetyProcessor yet)
 
 ### Step 2: Score Risk (0-100, higher = riskier)
 
@@ -98,7 +98,7 @@ If ANY of these are true → immediate REJECT, no exceptions:
 6. Owner can pause transfers
 
 ### Step 4: Regime Risk-Score Penalty
-Read the current market regime: `node scripts/db-query.js get-meta --key market_regime` (legacy hold-back)
+Read the current market regime: `cclaw system meta get --key market_regime`
 
 Apply regime-based risk score adjustments (base tier tokens are exempt — their buying is gated separately in the heartbeat):
 
@@ -113,9 +113,9 @@ Add the modifier to the overall risk score calculated in Step 2. This makes it h
 In `crisis` regime: if tier is `moonshot`, auto-reject (max position = 0%).
 
 ### Step 5: Portfolio-Level Checks
-Use `get-portfolio --chain <chain>` and `get-positions` — both auto-route to the deployment's table set.
+Use `cclaw system portfolio --chain <chain>` and `cclaw positions list --status open --chain <chain>` — both auto-route to the deployment's table set.
 
-Read the target chain's portfolio rules via `get-chain-config --chain <CHAIN>`. All checks below use the chain-specific limits, not global defaults.
+Read the target chain's portfolio rules via `cclaw system chain-config --chain <CHAIN>`. All checks below use the chain-specific limits, not global defaults.
 
 - Would this push moonshot allocation above the chain's `maxMoonshotAllocation`?
 - Would this push conviction allocation above the chain's `maxConvictionPosition` * position count?
@@ -126,7 +126,7 @@ Read the target chain's portfolio rules via `get-chain-config --chain <CHAIN>`. 
 
 ### Step 6: Verdict & Position Sizing
 
-Load the chain's `rules` from `get-chain-config --chain <CHAIN>` and use `maxMoonshotPosition` / `maxConvictionPosition` as the tier cap for that chain.
+Load the chain's `rules` from `cclaw system chain-config --chain <CHAIN>` and use `maxMoonshotPosition` / `maxConvictionPosition` as the tier cap for that chain.
 
 | Overall Risk | Verdict | Max Position |
 |-------------|---------|-------------|
@@ -166,9 +166,8 @@ Cap `maxPositionPercent` at the regime-adjusted limit for the token's tier:
 - If verdict is not reject → pass to portfolio skill for trade proposal
 - If verdict is reject → cache the rejection and end:
   ```bash
-  node scripts/db-query.js cache-analysis --json '{"address":"<TOKEN_ADDRESS>","chain":"<CHAIN>","symbol":"<SYMBOL>","analysis_score":<ANALYSIS_SCORE>,"risk_score":<RISK_SCORE>,"verdict":"risk_rejected","reasoning":"<REASON>"}'
+  cclaw analysis cache --json '{"address":"<TOKEN_ADDRESS>","chain":"<CHAIN>","symbol":"<SYMBOL>","analysis_score":<ANALYSIS_SCORE>,"risk_score":<RISK_SCORE>,"verdict":"risk_rejected","reasoning":"<REASON>"}'
   ```
-  (legacy hold-back)
 
 ## Promotion
 If a risk pattern (e.g., a recurring red-flag combination, deployer signature, or contract behavior that consistently precedes losses) recurs 3+ times across daily logs, promote it to `MEMORY.md` using the template in `AGENTS.md § MEMORY.md Updates`.

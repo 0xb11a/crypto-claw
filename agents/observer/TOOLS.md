@@ -4,7 +4,7 @@
 - All scripts output JSON to stdout. Parse with `jq` or read directly.
 - Errors go to stderr.
 - **Run one command per exec call.** Never chain commands with `&&`, `||`, or `;`. If you need multiple commands, make separate exec calls for each.
-- `SAFE_ID` is exported by entrypoint.sh — both `cclaw` and legacy `db-query.js` pick it up automatically.
+- `SAFE_ID` is exported by entrypoint.sh — `cclaw` picks it up automatically.
 
 ## Logging Severity Rubric (what you're scanning for in /tmp/openclaw/system.log)
 `scripts/log.js` produces four levels. Your detection rules use all but `info`:
@@ -15,9 +15,9 @@
 
 If an agent's log table (research_log/sentinel_log/executor_log) has a `status:"error"` row and the audit log has no matching `POST /v1/alerts/send` entry near that timestamp, that is a **silent crash** — file a GitHub issue. Compute `SINCE=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ)` then query `cclaw system audit --path /v1/alerts/send --since "$SINCE"` (the `--since` flag requires ISO format). The agent tried to report but something upstream broke.
 
-## API CLI (`cclaw`) and legacy CLI (`db-query.js`)
+## API CLI (`cclaw`)
 
-Prefer `cclaw` where listed; use legacy `node scripts/db-query.js` for hold-backs (commands without a `cclaw` equivalent yet, pending P5b/P6 expansion). Commands without a `cclaw` equivalent are annotated `(legacy hold-back)`.
+All wallet data is accessed via `cclaw <resource> <action>`. Run one command per exec call.
 
 ### Recent failed receipts
 ```bash
@@ -35,19 +35,19 @@ cclaw receipts list --status reverted --limit 10
 cclaw orders list --status failed --limit 20
 ```
 
-### Agent cycle logs (legacy hold-back — `cclaw agent-logs` pending P5)
+### Agent cycle logs
 Agent log tables have `status:"error"` rows as silent-crash signals.
 ```bash
-node scripts/db-query.js get-executor-log --limit 30
+cclaw logs executor list --limit 30
 ```
 ```bash
-node scripts/db-query.js get-sentinel-log --limit 30
+cclaw logs sentinel list --limit 30
 ```
 ```bash
-node scripts/db-query.js get-research-log --limit 30
+cclaw logs research list --limit 30
 ```
 ```bash
-node scripts/db-query.js get-observer-log --limit 20
+cclaw logs observer list --limit 20
 ```
 
 ### Stale-order detection (compute age from created_at)
@@ -79,19 +79,19 @@ Each row carries `idle_ok=true` when staleness is expected: executor/process_ord
 cclaw heartbeat list --agent system
 ```
 
-### Background-loop liveness (legacy hold-back)
+### Background-loop liveness
 Written by WalletScoringProcessor / WalletActivityProcessor (NestJS workers) at the end of every cycle — staler than 3× cadence means the job has stalled.
 ```bash
-node scripts/db-query.js get-meta --key last_activity_wallets_bg_at
+cclaw system meta get --key last_activity_wallets_bg_at
 ```
 ```bash
-node scripts/db-query.js get-meta --key last_score_wallets_bg_at
+cclaw system meta get --key last_score_wallets_bg_at
 ```
 
-### Smart-money signal volume (silent-API-regression scan, legacy hold-back)
+### Smart-money signal volume (silent-API-regression scan)
 Empty result over a 2 h window while `last_activity_wallets_bg_at` is fresh means the loop is running but producing nothing — likely upstream API returning 200 OK with empty results, or schema drift.
 ```bash
-node scripts/db-query.js get-smart-money-signals --since 2h --limit 1
+cclaw wallets signals --since 2h --limit 1
 ```
 
 ### Positions and portfolio
@@ -102,9 +102,9 @@ cclaw positions list --status open
 cclaw receipts list --limit 20
 ```
 
-### Observer logging (legacy hold-back)
+### Observer logging
 ```bash
-node scripts/db-query.js add-observer-log --json '{"errors_analyzed": 5, "issues_created": 1, "alerts_sent": 0, "summary": "Created issue for Safe rate limit", "status": "ok"}'
+cclaw logs observer append --json '{"errors_analyzed": 5, "issues_created": 1, "alerts_sent": 0, "summary": "Created issue for Safe rate limit", "status": "ok"}'
 ```
 
 ### Heartbeat tracking
@@ -112,9 +112,9 @@ node scripts/db-query.js add-observer-log --json '{"errors_analyzed": 5, "issues
 cclaw heartbeat ping --agent observer --check triage
 ```
 
-### Chain discovery (legacy hold-back)
+### Chain discovery
 ```bash
-node scripts/db-query.js get-chains
+cclaw system chains
 ```
 
 ## GitHub Integration
@@ -151,12 +151,12 @@ Alert type → topic routing for Observer-initiated alerts:
 
 ## Signer Balance Monitoring
 
-[cclaw expansion pending P5b — `scripts/check-signer-balances.js` was deleted in P5. Detect signer balance issues via executor_log errors instead.]
+[cclaw expansion pending — `scripts/check-signer-balances.js` was deleted in P5. Detect signer balance issues via executor_log errors instead.]
 
 ```bash
-node scripts/db-query.js get-executor-log --limit 5
+cclaw logs executor list --limit 5
 ```
-(legacy hold-back — look for `no_signer_key` or similar errors indicating drained gas accounts)
+(look for `no_signer_key` or similar errors indicating drained gas accounts)
 
 If any low-balance indicator appears, send an alert:
 

@@ -68,27 +68,27 @@ Each pass describes what it checks, why it matters, and the severity it assigns.
 
 **Why:** If an agent exec's a command that `db-query.js` or the `cclaw` CLI doesn't recognize, it crashes mid-heartbeat. Silent runtime failure is among the worst outcomes because Observer may not catch it immediately.
 
-**As of P5, `cclaw` is the canonical CLI surface.** All new commands must use `cclaw <resource> <action>`. The retained legacy commands (see Pass 1.5 whitelist) may still appear as `node scripts/db-query.js <cmd>` — those are the ONLY acceptable legacy references.
+**As of P5b, `cclaw` is the sole agent-markdown CLI surface.** All agent markdown must use `cclaw <resource> <action>`. There are ZERO acceptable `node scripts/db-query.js` references in agent markdown post-P5b (see Pass 1.5).
 
 1. Extract every valid command name from the canonical source:
-   - **cclaw surface:** the `.command(...)` calls in `sdk/cclaw/src/index.ts` — produces the command map `cclaw <resource> <action>` (e.g. `cclaw positions list`, `cclaw orders approve`, `cclaw heartbeat ping`).
+   - **cclaw surface:** the `.command(...)` calls in `sdk/cclaw/src/index.ts` — produces the command map `cclaw <resource> <action>` (e.g. `cclaw positions list`, `cclaw orders approve`, `cclaw heartbeat ping`). The P5b expansion added: `system chains`, `system chain-config`, `system portfolio`, `system cash get`, `system cash set`, `system gas`, `system meta get`, `system meta set`, `system sync-status`, `system sync-portfolio`, `system trade-stats`, `system audit`, `orders cancel`, `orders retry`, `orders history`, `orders execute`, `positions set-onchain-balance`, `watchlist list`, `watchlist add`, `watchlist update`, `watchlist remove`, `contracts list`, `contracts add`, `liquidity list`, `liquidity add`, `analysis check`, `analysis cache`, `analysis list`, `analysis clear-expired`, `wallets list`, `wallets add`, `wallets propose`, `wallets unscored`, `wallets update-score`, `wallets remove`, `wallets signals`, `logs research list`, `logs research append`, `logs sentinel list`, `logs sentinel append`, `logs executor list`, `logs executor append`, `logs observer list`, `logs observer append`.
 2. Grep every instruction file for:
    - `cclaw <resource> <action>` references — verify each exists in the cclaw command map from `sdk/cclaw/src/index.ts`.
-   - `db-query.js <command>` references — these must be validated against Pass 1.5 (retained whitelist).
+   - `db-query.js <command>` references in agent markdown — flag CRITICAL (zero allowed post-P5b).
 3. For each `cclaw <resource> <action>` match, verify it exists in the cclaw command map.
-4. For each `db-query.js <command>` match, verify the command is in the Pass 1.5 retained whitelist AND exists in the `db-query.js` dispatch.
+4. **Flag as CRITICAL** any `node scripts/db-query.js` reference found in agent markdown files (agents/ directory). This is a definitive post-P5b violation.
 5. **Flag as CRITICAL** any referenced `cclaw` command that doesn't exist in the command map. Include the suggested real command if the difference is a typo.
 
 ### Pass 1.5 — Retained legacy whitelist (mechanical)
 
-**Why:** After P5, only a small set of legacy `db-query.js` commands remain acceptable in agent instructions. Any `node scripts/<file>` reference outside this whitelist is a post-P5 stale reference — the script was deleted.
+**Why:** After P5b, `cclaw` is the sole agent-markdown CLI surface. The 4 retained scripts (`db.js`, `db-query.js`, `chains.js`, `order-approval.js`) stay on disk for other importers but are NOT invoked from agent markdown. Any `node scripts/db-query.js` reference in agent markdown is **CRITICAL**.
 
-**Retained scripts whitelist** (load from `docs/runbook.md §13.3 P5 deletion record`):
-- `scripts/db-query.js` — retained (agent log writes + hold-back commands; 53 invocations in agent markdown); **only the following commands** are expected in agent instructions:
-  - `get-meta`, `get-chains`, `get-chain-config`, `get-portfolio`, `get-cash`, `get-trade-stats`, `get-watchlist`, `add-to-watchlist`, `update-watchlist`, `remove-from-watchlist`, `get-liquidity`, `add-liquidity-snapshot`, `get-contract-snapshots`, `add-contract-snapshot`, `get-tracked-wallets`, `add-tracked-wallet`, `propose-wallet`, `get-unscored-wallets`, `update-wallet-score`, `remove-tracked-wallet`, `get-smart-money-signals`, `check-token-status`, `cache-analysis`, `get-analysis-cache`, `clear-expired-cache`, `sync-portfolio`, `get-sync-status`, `set-onchain-balance`, `cancel-order`, `retry-order`, `get-order-history`, `get-sentinel-log`, `get-executor-log`, `get-research-log`, `get-observer-log`, `add-sentinel-log`, `add-executor-log`, `add-research-log`, `add-observer-log`
-  - **Removed from whitelist (P6-fragment):** `migrate` (entrypoint.sh no longer calls this; db-query.js auto-migrates on first `getDb()` use); `set-paper-cash` and `set-meta` (replaced by `cclaw system meta set` in entrypoint.sh `seed_paper_cash_bg`).
-- `scripts/chains.js` — retained (load-time import of db-query.js; deletes with db-query.js). Not directly invoked by agents — no agent instruction commands reference it.
-- `scripts/order-approval.js` — retained (load-time import of db-query.js; deletes with db-query.js). Not directly invoked by agents — no agent instruction commands reference it.
+**Agent markdown rule (post-P5b):** `grep -r "node scripts/db-query.js" agents/` MUST return zero matches. Any match is CRITICAL — the P5b markdown sweep eliminated all 172 hold-back references.
+
+**Retained scripts whitelist** (scripts that still exist on disk — the file-level whitelist below is for Pass 2 validation of `node scripts/<file>` non-db-query references in instruction text):
+- `scripts/db-query.js` — retained on disk (5 importers: heartbeat-check.js, promote-pattern.js, emergency-sentinel.js, emergency-executor.js, db-query.js itself). **Not invoked from agent markdown post-P5b.**
+- `scripts/chains.js` — retained (load-time import of db-query.js; deletes with db-query.js). Not invoked by agents.
+- `scripts/order-approval.js` — retained (load-time import of db-query.js; deletes with db-query.js). Not invoked by agents.
 - `scripts/log.js` — retained (required by heartbeat-check.js, emergency-sentinel.js, emergency-executor.js, promote-pattern.js)
 - `scripts/redact.js` — retained (required by log.js and promote-pattern.js)
 - `scripts/promote-pattern.js` — retained (MEMORY.md write-protection)
@@ -101,7 +101,7 @@ Each pass describes what it checks, why it matters, and the severity it assigns.
 - `scripts/codex-login.sh` — retained (operator OAuth setup)
 - `scripts/ci/*.mjs` — retained (CI guards)
 
-**Flag as CRITICAL** any `node scripts/<file>` reference in agent instructions where `<file>` is NOT in the whitelist above. These reference deleted scripts. Example: `node scripts/process-order.js` is post-P5 CRITICAL; `node scripts/send-alert.js` is post-P5c CRITICAL (deleted in P5c — use `cclaw alerts send` instead).
+**Flag as CRITICAL** any `node scripts/<file>` reference in agent instructions where `<file>` is NOT in the whitelist above (e.g. `node scripts/process-order.js`, `node scripts/send-alert.js`). Also flag as CRITICAL any `node scripts/db-query.js` reference in agent markdown — all hold-backs were eliminated in P5b.
 
 ### Pass 1b — Compound-command preflight (mechanical)
 
@@ -228,7 +228,7 @@ Every 6.3.b and 6.3.c finding must propose a concrete fix: either inline the ref
 
 Candidates to watch: `smart money` / `smart-money`; `stop-loss` / `stoploss`; `take-profit` / `take profit`; `paper mode` / `paper-mode`; `rug warning` / `rug_warning` (outside JSON); `multi-chain` / `multichain`. Severity: STRUCTURE.
 
-**Rule 7.2 — Command-reference variants.** Within a single file, pick the dominant form of how commands are invoked (e.g. `node scripts/db-query.js get-X` inside fenced blocks, bare `db-query.js get-X` in inline prose). Flag deviations from the file's dominant form. This is a consistency rule, not a global rule — different files can legitimately pick different dominant forms.
+**Rule 7.2 — Command-reference variants.** Within a single file, pick the dominant form of how commands are invoked (e.g. `cclaw <resource> <action>` inside fenced blocks, bare `cclaw resource action` in inline prose). Flag deviations from the file's dominant form. Post-P5b, the dominant form in all agent markdown is `cclaw <resource> <action>` — any `node scripts/db-query.js` form is a CRITICAL deviation. This is a consistency rule, not a global rule — different files can legitimately pick different dominant forms.
 
 **Rule 7.3 — Undefined acronyms.** ALL_CAPS terms (`TP`, `LP`, `PnL`, `DCA`, `TVL`, `LUT`) that appear without prior expansion in the same file. Severity: INFO. The LLM usually infers from context but it's cheap hygiene.
 
@@ -308,13 +308,13 @@ Pass 11 accepts higher false-positive rates than mechanical passes. Every findin
 **Why:** OpenClaw compaction is lossy by design — anything not written to a file before compaction is gone. The persistence hooks that protect continuity are:
 - `memory/YYYY-MM-DD.md` — daily working log (written by the agent during its heartbeat)
 - `MEMORY.md` — promoted long-term patterns (written when a pattern is observed 3+ times)
-- `db-query.js add-*-log` — structured per-agent event log (research_log, sentinel_log, executor_log, observer_log)
+- `cclaw logs <agent> append` — structured per-agent event log (research_log, sentinel_log, executor_log, observer_log)
 
 If an agent's `HEARTBEAT.md` never instructs a persist step, every lesson the agent learns within a cycle is discarded at the next compaction. The agent appears to perpetually re-discover the same patterns — on the operator side this reads as amnesia or confabulation. If a finding-producing `SKILL.md` has no promotion clause, useful patterns stay buried in daily logs forever.
 
 **Rule 12.1 — Heartbeat persist step.** For each agent's `HEARTBEAT.md`, grep for at least one of:
 - `memory/YYYY-MM-DD.md`, `memory/$(date`, `append … memory`, `daily log`, `write … memory`
-- `db-query.js add-research-log`, `add-sentinel-log`, `add-executor-log`, `add-observer-log`
+- `cclaw logs research append`, `cclaw logs sentinel append`, `cclaw logs executor append`, `cclaw logs observer append`
 - Explicit `MEMORY.md` update instruction tied to cycle-end.
 
 If no match → **CRITICAL**. Quote the heartbeat's final step(s) and propose a rewrite that appends findings to the daily log or the appropriate `*_log` table before the heartbeat exits.

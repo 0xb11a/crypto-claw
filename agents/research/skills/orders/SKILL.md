@@ -49,27 +49,23 @@ cclaw orders reject --id <id> --reason "<reason>"
 
 Cancel an approved or failed order (was approved, changed mind):
 ```bash
-node scripts/db-query.js cancel-order --id <id> --reason "<reason>" --by human
+cclaw orders cancel --id <id> --reason "<reason>" --by human
 ```
-(legacy hold-back — `cclaw orders cancel` pending P5b)
 
 Retry a failed sell order (re-queue for execution):
 ```bash
-node scripts/db-query.js retry-order --id <id> --by human
+cclaw orders retry --id <id> --by human
 ```
-(legacy hold-back — `cclaw orders retry` pending P5b)
 
 Order history (all statuses):
 ```bash
-node scripts/db-query.js get-order-history --limit 20
+cclaw orders history --limit 20
 ```
-(legacy hold-back)
 
 Order history filtered by status:
 ```bash
-node scripts/db-query.js get-order-history --status rejected --limit 10
+cclaw orders history --status rejected --limit 10
 ```
-(legacy hold-back)
 
 ## State Machine
 
@@ -80,9 +76,9 @@ pending  --> approved    (cclaw orders approve)
 pending  --> rejected    (cclaw orders reject)
 approved --> executed    (Executor — automatic)
 approved --> failed      (Executor — automatic)
-approved --> cancelled   (cancel-order legacy hold-back)
-failed   --> approved    (retry-order legacy hold-back, sells only)
-failed   --> cancelled   (cancel-order legacy hold-back)
+approved --> cancelled   (cclaw orders cancel)
+failed   --> approved    (cclaw orders retry, sells only)
+failed   --> cancelled   (cclaw orders cancel)
 ```
 
 - **reject** = order was never approved (human says "no" to the idea)
@@ -131,16 +127,16 @@ If no pending orders, say "No pending orders."
 2. Confirm: "Rejected [id] — reason: <reason>"
 
 ### "cancel <id>"
-1. Run `node scripts/db-query.js cancel-order --id <id> --reason "<reason>" --by human` (legacy hold-back)
+1. Run `cclaw orders cancel --id <id> --reason "<reason>" --by human`
 2. Confirm: "Cancelled [id] — reason: <reason>"
 
 ### "retry <id>"
 1. Verify it's a sell order (buys cannot be retried)
-2. Run `node scripts/db-query.js retry-order --id <id> --by human` (legacy hold-back)
+2. Run `cclaw orders retry --id <id> --by human`
 3. Confirm: "Retried [id] — re-queued for execution."
 
 ### "order history" / "recent orders"
-1. Run `node scripts/db-query.js get-order-history --limit 10` (legacy hold-back)
+1. Run `cclaw orders history --limit 10`
 2. Format as a table with id, action, symbol, status, and timestamp
 
 ## Safety Rules
@@ -151,4 +147,4 @@ If no pending orders, say "No pending orders."
 - If human tries an invalid transition, explain the correct command to use
 
 ## Error Handling
-Per AGENTS.md § Error Self-Reporting: if `cclaw orders approve`, `cclaw orders reject`, or `cancel-order`/`retry-order` returns non-zero, log `node scripts/db-query.js add-research-log` with `status: "error"` and fire `cclaw alerts send --type model_failure --agent research --message "orders action failed: <reason>"`. The human thought they approved/rejected something; a silent failure leaves the order in the wrong state and the operator misinformed.
+Per AGENTS.md § Error Self-Reporting: if `cclaw orders approve`, `cclaw orders reject`, `cclaw orders cancel`, or `cclaw orders retry` returns non-zero, log `cclaw logs research append --json '{"check_type":"orders","status":"error","summary":"orders action failed: <reason>"}'` and fire `cclaw alerts send --type model_failure --agent research --message "orders action failed: <reason>"`. The human thought they approved/rejected something; a silent failure leaves the order in the wrong state and the operator misinformed.

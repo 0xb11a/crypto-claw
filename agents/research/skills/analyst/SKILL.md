@@ -10,7 +10,7 @@ triggers:
   - analysis
 ---
 
-> **Note:** This skill requires deep reasoning. Gather all data (token-metrics, check-contract, holder-distribution outputs, current portfolio, relevant memory patterns) before executing.
+> **Note:** This skill requires deep reasoning. Gather all available data (contract snapshots via `cclaw contracts list`, scored wallets via `cclaw wallets list`, current portfolio, relevant memory patterns) before executing.
 
 # Analyst Skill
 
@@ -28,21 +28,19 @@ Evaluate every token discovery on fundamentals, tokenomics, social sentiment, na
 
 [cclaw expansion pending P5b — `token-metrics.js`, `check-contract.js`, and `holder-distribution.js` deleted in P5; `cclaw analysis token-metrics`, `cclaw analysis contract-check`, and `cclaw analysis holder-distribution` not yet implemented. Use available on-chain data from your context for fundamentals analysis.]
 
-Get contract snapshots (db hold-back):
+Get contract snapshots (cached GoPlus safety data; may be stale if ContractSafetyProcessor hasn't run for this token):
 ```bash
-node scripts/db-query.js get-contract-snapshots --address <TOKEN_ADDRESS> --chain <CHAIN>
+cclaw contracts list --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```
-(legacy hold-back — cached GoPlus safety data; may be stale if ContractSafetyProcessor hasn't run for this token)
 
 > **Two-source confirmation:** the executor enforces, at signing time, that BOTH DEXScreener and Birdeye see the token and agree on price within 2%. Tokens that fail this gate are auto-quarantined with a Telegram alert. You don't need to verify two-source agreement during analysis — the gate fires regardless — but if you find a token that DEXScreener has and Birdeye doesn't, expect quarantine.
 
-> **Recovered safety rejections:** when a structural reject occurs (*not fungible*, *not a token*, *no holder data*), this is a cached avoid decision. Cache the verdict via `cache-analysis --json '{"verdict":"avoid","reason":"<reason>",...}'` and log to `add-research-log` with `"status":"warning"` (NOT `"error"`). Reserve `status:"error"` for unrecovered crashes.
+> **Recovered safety rejections:** when a structural reject occurs (*not fungible*, *not a token*, *no holder data*), this is a cached avoid decision. Cache the verdict via `cclaw analysis cache --json '{"verdict":"avoid","reason":"<reason>",...}'` and log to `cclaw logs research append` with `"status":"warning"` (NOT `"error"`). Reserve `status:"error"` for unrecovered crashes.
 
-Holder distribution snapshots (db hold-back):
+Holder distribution snapshots (scored wallets associated with this token's deployer/holders):
 ```bash
-node scripts/db-query.js get-tracked-wallets --status scored
+cclaw wallets list --status scored
 ```
-(legacy hold-back — view scored wallets associated with this token's deployer/holders)
 
 ### Step 2: Score Across 6 Dimensions
 
@@ -88,7 +86,7 @@ node scripts/db-query.js get-tracked-wallets --status scored
 
 **Narrative Fit (Weight: 10%)**
 
-26 narratives tracked (see `scripts/narrative-config.js` for full list): ai_infra, ai_agents, defi, restaking, lst, yield, payfi, rwa, prediction, l2, zk, modular, intents, depin, memecoin, socialfi, gaming, nft_infra, btc_eco, btc_l2, privacy, telegram, consumer, desci, degov, energy.
+26 narratives tracked (see MEMORY.md for current narrative tracking): ai_infra, ai_agents, defi, restaking, lst, yield, payfi, rwa, prediction, l2, zk, modular, intents, depin, memecoin, socialfi, gaming, nft_infra, btc_eco, btc_l2, privacy, telegram, consumer, desci, degov, energy.
 
 | Signal | Points |
 |--------|--------|
@@ -122,13 +120,13 @@ Based on token characteristics AND narrative context, assign the appropriate por
 
 | Criteria | Tier |
 |----------|------|
-| Token address matches any entry in `baseTierTokens` from `get-chain-config --chain <CHAIN>` AND `base` is in the chain's `tiersEnabled` | `base` |
+| Token address matches any entry in `baseTierTokens` from `cclaw system chain-config --chain <CHAIN>` AND `base` is in the chain's `tiersEnabled` | `base` |
 
-**Base tier is a closed set.** ONLY the tokens listed in `baseTierTokens` from `get-chain-config` can be base tier. No other token — regardless of liquidity, age, market cap, or how underweight the base allocation is — may be classified as base. If a token is not in `baseTierTokens`, or if `base` is not in the chain's `tiersEnabled`, proceed to the narrative-aware assignment below.
+**Base tier is a closed set.** ONLY the tokens listed in `baseTierTokens` from `cclaw system chain-config` can be base tier. No other token — regardless of liquidity, age, market cap, or how underweight the base allocation is — may be classified as base. If a token is not in `baseTierTokens`, or if `base` is not in the chain's `tiersEnabled`, proceed to the narrative-aware assignment below.
 
 #### Narrative-aware tier assignment
 
-Each narrative has a tier affinity (defined in `scripts/narrative-config.js`). Use this decision tree:
+Each narrative has a tier affinity (listed below). Use this decision tree:
 
 ```
 Is tierAffinity "strong_moonshot"?
@@ -207,14 +205,12 @@ The tier determines position limits, stop-loss levels, and slippage tolerance.
 - If recommendation is buy or strong_buy → proceed to risk skill
 - If watch → add to watchlist via database:
   ```bash
-  node scripts/db-query.js add-to-watchlist --json '{"symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","reason":"...","target_entry":0.001}'
+  cclaw watchlist add --json '{"symbol":"TOKEN","address":"0x...","chain":"<CHAIN>","reason":"...","target_entry":0.001}'
   ```
-  (legacy hold-back — `cclaw watchlist create` pending P5b)
 - If avoid → cache the result and end:
   ```bash
-  node scripts/db-query.js cache-analysis --json '{"address":"<TOKEN_ADDRESS>","chain":"<CHAIN>","symbol":"<SYMBOL>","analysis_score":<SCORE>,"verdict":"avoid","reasoning":"<REASON>"}'
+  cclaw analysis cache --json '{"address":"<TOKEN_ADDRESS>","chain":"<CHAIN>","symbol":"<SYMBOL>","analysis_score":<SCORE>,"verdict":"avoid","reasoning":"<REASON>"}'
   ```
-  (legacy hold-back)
 
 ## Rules
 - NEVER let excitement override analysis

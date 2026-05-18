@@ -26,18 +26,16 @@ If an unhandled exception kills a step, log at `error` or `critical` — never `
 
 **Watchlist entry:** `{symbol, address, chain, reason, target_entry}`.
 
-## API CLI (`cclaw`) and legacy CLI (`db-query.js`)
+## API CLI (`cclaw`)
 
-Prefer `cclaw` where listed; use `node scripts/db-query.js` for legacy hold-backs (commands without a `cclaw` equivalent yet, pending P5b/P6 expansion). Commands without a `cclaw` equivalent are annotated `(legacy hold-back)`.
+All wallet data is accessed via `cclaw <resource> <action>`. Run one command per exec call. Never chain with `&&`, `||`, `;`, and never redirect with `2>/dev/null`.
 
-**Run one command per exec call.** Never chain with `&&`, `||`, `;`, and never redirect with `2>/dev/null`.
-
-### Chain discovery (legacy hold-back)
+### Chain discovery
 ```bash
-node scripts/db-query.js get-chains
+cclaw system chains
 ```
 ```bash
-node scripts/db-query.js get-chain-config --chain <CHAIN>
+cclaw system chain-config --chain <CHAIN>
 ```
 
 ### Positions
@@ -48,15 +46,15 @@ cclaw positions list [--status open|closed|all] [--chain <CHAIN>]
 cclaw positions get --id <ID>
 ```
 
-### Portfolio & cash (legacy hold-back — `cclaw portfolio` pending P5b)
+### Portfolio & cash
 ```bash
-node scripts/db-query.js get-portfolio [--chain <CHAIN>]
+cclaw system portfolio [--chain <CHAIN>]
 ```
 ```bash
-node scripts/db-query.js get-cash [--chain <CHAIN>]
+cclaw system cash get [--chain <CHAIN>]
 ```
 ```bash
-node scripts/db-query.js get-meta --key <K>
+cclaw system meta get --key <K>
 ```
 
 ### Orders (Research → Executor)
@@ -71,7 +69,7 @@ cclaw orders get --id <ID>
 ```bash
 cclaw orders propose --json '<Order(buy)>'
 ```
-Returns `{status, approved_by}`; act on the returned status (`pending` → call `send-approval.js`; `approved` → Executor will pick it up).
+Returns `{status, approved_by}`; act on the returned status (`pending` → `ApprovalBotService` sends Telegram approval buttons automatically; `approved` → Executor picks it up within ~1 min).
 ```bash
 cclaw orders approve --id <ID> --by human
 ```
@@ -79,13 +77,11 @@ cclaw orders approve --id <ID> --by human
 cclaw orders reject --id <ID> --reason "<r>"
 ```
 ```bash
-node scripts/db-query.js cancel-order --id <ID> --reason "<r>" --by human
+cclaw orders cancel --id <ID> --reason "<r>" --by human
 ```
-(cancel-order is legacy hold-back — `cclaw orders cancel` pending P5b)
 ```bash
-node scripts/db-query.js retry-order --id <ID> --by human
+cclaw orders retry --id <ID> --by human
 ```
-(retry-order is legacy hold-back — `cclaw orders retry` pending P5b)
 
 ### Receipts
 ```bash
@@ -106,67 +102,67 @@ cclaw alerts list --unprocessed
 cclaw alerts ack --id <ID>
 ```
 
-### Watchlist (legacy hold-back — `cclaw watchlist` pending P5b)
+### Watchlist
 ```bash
-node scripts/db-query.js get-watchlist [--active]
+cclaw watchlist list [--status watching]
 ```
 ```bash
-node scripts/db-query.js add-to-watchlist --json '<Watchlist>'
+cclaw watchlist add --json '<Watchlist>'
 ```
 ```bash
-node scripts/db-query.js update-watchlist --id <ID> --json '{target_entry?, reason?}'
+cclaw watchlist update --id <ID> --json '{target_entry?, reason?}'
 ```
 ```bash
-node scripts/db-query.js remove-from-watchlist --id <ID>
-```
-
-### Liquidity & contract snapshots (legacy hold-back)
-```bash
-node scripts/db-query.js get-liquidity --address <ADDR> --chain <CHAIN>
-```
-```bash
-node scripts/db-query.js add-liquidity-snapshot --address <ADDR> --chain <CHAIN> --liquidity <N>
-```
-```bash
-node scripts/db-query.js get-contract-snapshots --address <ADDR> --chain <CHAIN> [--limit N]
-```
-```bash
-node scripts/db-query.js add-contract-snapshot --address <ADDR> --chain <CHAIN> --json '<safety_data>'
+cclaw watchlist remove --id <ID>
 ```
 
-### Wallet tracking & scoring (legacy hold-back — `cclaw wallets` pending P5b)
+### Liquidity & contract snapshots
+```bash
+cclaw liquidity list --address <ADDR> --chain <CHAIN>
+```
+```bash
+cclaw liquidity add --address <ADDR> --chain <CHAIN> --liquidity <N>
+```
+```bash
+cclaw contracts list --address <ADDR> --chain <CHAIN> [--limit N]
+```
+```bash
+cclaw contracts add --address <ADDR> --chain <CHAIN> --json '<safety_data>'
+```
+
+### Wallet tracking & scoring
 Wallet types: `smart_money` (75+), `whale` (55-74), `trader` (35-54), `retail` (0-34), plus `dev`, `deployer`. With `type` set → `status='scored'`; without → `status='proposed'`.
 
 ```bash
-node scripts/db-query.js get-tracked-wallets [--status scored]
+cclaw wallets list [--status scored]
 ```
 ```bash
-node scripts/db-query.js add-tracked-wallet --json '{address,chain,label,type}'
+cclaw wallets add --json '{address,chain,label,type}'
 ```
 ```bash
-node scripts/db-query.js remove-tracked-wallet --address <ADDR> --chain <CHAIN>
+cclaw wallets remove --address <ADDR> --chain <CHAIN>
 ```
 ```bash
-node scripts/db-query.js propose-wallet --json '{address,chain,label,source_token}'
+cclaw wallets propose --json '{address,chain,label,source_token}'
 ```
 Fast, no API calls; consumed by WalletScoringProcessor (NestJS worker, every 10 min).
 ```bash
-node scripts/db-query.js get-unscored-wallets [--limit N]
+cclaw wallets unscored [--limit N]
 ```
 ```bash
-node scripts/db-query.js update-wallet-score --address <ADDR> --chain <CHAIN> --json '{score,type,score_breakdown:{…},status:"scored"}'
+cclaw wallets update-score --address <ADDR> --chain <CHAIN> --json '{score,type,score_breakdown:{…},status:"scored"}'
 ```
 
 `source_token` values: `agent`, `leaderboard`, `token_traders`, `holder_extraction`. Background scoring (WalletScoringProcessor, every 10 min) auto-classifies; failed wallets retry up to 3 times. See CLAUDE.md § Wallet Pipeline for the full flow.
 
-### Smart-money signals (legacy hold-back — `cclaw wallets signals` pending P5b)
+### Smart-money signals
 Per-swap signals from WalletActivityProcessor (NestJS worker, every 30 min, 24 h retention).
 
 ```bash
-node scripts/db-query.js get-smart-money-signals --since 35m --action buy --group-by token --min-wallets 2
+cclaw wallets signals --since 35m --action buy --group-by token --min-wallets 2
 ```
 ```bash
-node scripts/db-query.js get-smart-money-signals --since 1h --chain <CHAIN> --limit 50
+cclaw wallets signals --since 1h --chain <CHAIN> --limit 50
 ```
 - Aggregated row: `{token_address, chain, token_symbol, signal_count, n_wallets, avg_score, buys, sells, first_seen, last_seen}` sorted by `n_wallets DESC, signal_count DESC`.
 - Raw row (no `--group-by`): full record with `tx_hash, wallet_address, wallet_score, action, counter_token_*, amount_token, tx_timestamp`.
@@ -183,57 +179,55 @@ Server-side cadence; do not override.
 cclaw heartbeat ping --agent research --check <check_type>
 ```
 ```bash
-node scripts/db-query.js add-research-log --json '{check_type, tokens_scanned?, tokens_analyzed?, trades_proposed?, alerts_processed?, watchlist_hits?, summary, status:"ok"|"error"}'
+cclaw logs research append --json '{check_type, tokens_scanned?, tokens_analyzed?, trades_proposed?, alerts_processed?, watchlist_hits?, summary, status:"ok"|"error"}'
 ```
-(add-research-log is legacy hold-back — `cclaw agent-logs create` pending P5b)
 ```bash
-node scripts/db-query.js get-research-log [--limit N]
+cclaw logs research list [--limit N]
 ```
-(legacy hold-back)
 ```bash
-node scripts/db-query.js get-trade-stats [--chain <CHAIN>]
+cclaw system trade-stats [--chain <CHAIN>]
 ```
-Returns `{total_trades, wins, losses, avg_win/loss_percent, total_pnl_usd, best/worst_trade_pnl, win_rate, current_value, initial_balance, total_return_percent}`. (legacy hold-back)
+Returns `{total_trades, wins, losses, avg_win/loss_percent, total_pnl_usd, best/worst_trade_pnl, win_rate, current_value, initial_balance, total_return_percent}`.
 
-### Portfolio sync (legacy hold-back)
+### Portfolio sync
 ```bash
-node scripts/db-query.js sync-portfolio --chain <CHAIN> [--trigger periodic|post_trade]
+cclaw system sync-portfolio --chain <CHAIN> [--trigger periodic|post_trade]
 ```
-Returns `{ok: false, message: 'Portfolio sync skipped...'}` when on-chain sync is disabled; proceed without action.
+Returns 202 immediately (fire-and-forget enqueue). Check result next cycle via `cclaw system sync-status`.
 ```bash
-node scripts/db-query.js get-sync-status [--chain <CHAIN>]
+cclaw system sync-status [--chain <CHAIN>]
 ```
 ```bash
-node scripts/db-query.js set-onchain-balance --id <position_id> --balance <N>
+cclaw positions set-onchain-balance --id <position_id> --balance <N>
 ```
 
-### Analysis cache / token dedup (legacy hold-back)
+### Analysis cache / token dedup
 ```bash
-node scripts/db-query.js check-token-status --address <ADDR> --chain <CHAIN>
+cclaw analysis check --address <ADDR> --chain <CHAIN>
 ```
 Returns `{action:"skip"|"analyze", reason}`. Checks open positions, pending orders, watchlist, cached analysis. Run before any analyst/risk skill invocation.
 ```bash
-node scripts/db-query.js cache-analysis --json '{address, chain, symbol?, analysis_score?, risk_score?, verdict:"avoid"|"risk_rejected", reasoning, ttl_hours?}'
+cclaw analysis cache --json '{address, chain, symbol?, analysis_score?, risk_score?, verdict:"avoid"|"risk_rejected", reasoning, ttl_hours?}'
 ```
 Default TTL 24 h.
 ```bash
-node scripts/db-query.js get-analysis-cache
+cclaw analysis list
 ```
 ```bash
-node scripts/db-query.js clear-expired-cache
+cclaw analysis clear-expired
 ```
 
 ## Data Sources (P5 — NestJS-backed)
 
-As of P5, the standalone data-fetching scripts were deleted. Market data is now provided by NestJS worker processors or read from the database via db-query.js hold-backs. [cclaw expansion pending P5b for full cclaw market commands]
+As of P5, the standalone data-fetching scripts were deleted. Market data is now provided by NestJS worker processors or read from the database via the cclaw CLI.
 
-### Token data (pending P5b cclaw expansion)
+### Token data
 - Token scanning: `cclaw positions list --status pending_analysis` (auto-discovered tokens from on-chain sync)
-- Contract snapshots: `node scripts/db-query.js get-contract-snapshots --address <ADDR> --chain <CHAIN>` (legacy hold-back — cached GoPlus data)
-- Liquidity snapshots: `node scripts/db-query.js get-liquidity --address <ADDR> --chain <CHAIN>` (legacy hold-back)
+- Contract snapshots: `cclaw contracts list --address <ADDR> --chain <CHAIN>` (cached GoPlus data)
+- Liquidity snapshots: `cclaw liquidity list --address <ADDR> --chain <CHAIN>`
 
 ### Market regime
-- Read current regime: `node scripts/db-query.js get-meta --key market_regime` (legacy hold-back — set by MarketRegimeProcessor NestJS worker)
+- Read current regime: `cclaw system meta get --key market_regime` (set by MarketRegimeProcessor NestJS worker)
 
 ### Heartbeat pre-check
 - `heartbeat-check.js --agent <executor|sentinel>` → `{agent, skip, reason|open_positions}` (retained script).
@@ -251,7 +245,7 @@ Per AGENTS.md § Error Self-Reporting, fire `model_failure` whenever any pipelin
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ACTIVE_CHAINS` | env | Comma-separated active chains. Run `node scripts/db-query.js get-chains` (legacy hold-back) for the live list. |
+| `ACTIVE_CHAINS` | env | Comma-separated active chains. Run `cclaw system chains` for the live list. |
 
 ## Important Notes
 - NEVER pass wallet private keys to any script — scripts only READ external data.
