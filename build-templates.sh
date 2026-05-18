@@ -9,17 +9,19 @@
 #   /home/openclaw/workspace-templates/   — shared workspace files
 #   /home/openclaw/agent-templates/       — per-agent workspace files + scripts
 #
-# P5c note: retained script set is (db.js, db-query.js, chains.js,
-# order-approval.js, log.js, redact.js, promote-pattern.js,
-# emergency-executor.js, emergency-sentinel.js, heartbeat-check.js,
-# agent-idleness.js). send-alert.js was deleted in P5c — Telegram alerts
-# now flow through cclaw alerts send (POST /v1/alerts/send, ADR-0028).
+# Retained-set deletion follow-up note: db.js, db-query.js, chains.js,
+# order-approval.js, and agent-idleness.js were deleted after porting
+# heartbeat-check.js, promote-pattern.js, emergency-sentinel.js, and
+# emergency-executor.js off db.js to use cclaw subprocess calls.
+# Retained script set is now ~10 files:
+#   log.js, redact.js, promote-pattern.js, emergency-executor.js,
+#   emergency-sentinel.js, heartbeat-check.js, pre-commit-check.js,
+#   memory-backup.sh, codex-login.sh, ci/*.mjs
+# send-alert.js was deleted in P5c — Telegram alerts now flow through
+# cclaw alerts send (POST /v1/alerts/send, ADR-0028).
 # log.js and redact.js are retained because heartbeat-check.js,
 # emergency-sentinel.js, emergency-executor.js, and promote-pattern.js
-# import them directly (not send-alert.js).
-# chains.js and order-approval.js are load-time imports of the retained
-# db-query.js and must stay until P6 when db-query.js is replaced by
-# the NestJS migration runner.
+# import them directly.
 # ============================================================
 
 set -euo pipefail
@@ -59,10 +61,11 @@ cp "$SRC/agents/sentinel/HEARTBEAT.md"  "$AGENT_TPL/sentinel/HEARTBEAT.md"
 cp "$SRC/agents/sentinel/TOOLS.md"      "$AGENT_TPL/sentinel/TOOLS.md"
 cp "$SRC/agents/sentinel/skills/sentinel/SKILL.md" "$AGENT_TPL/sentinel/skills/sentinel/SKILL.md"
 
-# Sentinel scripts: db access + emergency (retained set only, P5c).
+# Sentinel scripts: emergency + logging (retained set only, post-retained-deletion).
+# db.js, db-query.js, chains.js, order-approval.js, agent-idleness.js deleted —
+# ported scripts now use cclaw subprocess calls instead.
 # send-alert.js deleted in P5c — Telegram alerts now via cclaw alerts send.
-# chains.js and order-approval.js are load-time imports of db-query.js (P6-fragment).
-for script in db.js db-query.js chains.js order-approval.js agent-idleness.js emergency-sentinel.js redact.js log.js promote-pattern.js heartbeat-check.js; do
+for script in emergency-sentinel.js redact.js log.js promote-pattern.js heartbeat-check.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/sentinel/scripts/"
 done
 cp "$SCRIPTS_DIR/package.json" "$AGENT_TPL/sentinel/scripts/"
@@ -75,12 +78,13 @@ cp "$SRC/agents/executor/HEARTBEAT.md"  "$AGENT_TPL/executor/HEARTBEAT.md"
 cp "$SRC/agents/executor/TOOLS.md"      "$AGENT_TPL/executor/TOOLS.md"
 cp "$SRC/agents/executor/skills/executor/SKILL.md" "$AGENT_TPL/executor/skills/executor/SKILL.md"
 
-# Executor scripts: db access + emergency (retained set only, P5c).
-# Execution is now fully handled by ExecuteOrderProcessor (NestJS worker) via
+# Executor scripts: emergency + logging (retained set only, post-retained-deletion).
+# db.js, db-query.js, chains.js, order-approval.js, agent-idleness.js deleted —
+# ported scripts now use cclaw subprocess calls instead.
+# Execution is fully handled by ExecuteOrderProcessor (NestJS worker) via
 # cclaw orders execute --id X. The legacy execute-trade-*.js scripts are deleted.
 # send-alert.js deleted in P5c — Telegram alerts now via cclaw alerts send.
-# chains.js and order-approval.js are load-time imports of db-query.js (P6-fragment).
-for script in db.js db-query.js chains.js order-approval.js agent-idleness.js emergency-executor.js redact.js log.js promote-pattern.js heartbeat-check.js; do
+for script in emergency-executor.js redact.js log.js promote-pattern.js heartbeat-check.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/executor/scripts/"
 done
 cp "$SCRIPTS_DIR/package.json" "$AGENT_TPL/executor/scripts/"
@@ -94,11 +98,11 @@ cp "$SRC/agents/observer/TOOLS.md"      "$AGENT_TPL/observer/TOOLS.md"
 cp "$SRC/agents/observer/skills/triage/SKILL.md" "$AGENT_TPL/observer/skills/triage/SKILL.md"
 cp "$SRC/agents/observer/skills/create-gh-issue/SKILL.md" "$AGENT_TPL/observer/skills/create-gh-issue/SKILL.md"
 
-# Observer scripts: db access + logging (GitHub via gh CLI, not custom scripts).
+# Observer scripts: logging + MEMORY.md write-protection (post-retained-deletion).
+# db.js, db-query.js, chains.js, order-approval.js, agent-idleness.js deleted.
 # P5: check-signer-balances.js deleted; Observer reads signer state via cclaw or logs.
 # P5c: send-alert.js deleted; Observer alerts now via cclaw alerts send.
-# chains.js and order-approval.js are load-time imports of db-query.js (P6-fragment).
-for script in db.js db-query.js chains.js order-approval.js agent-idleness.js redact.js log.js promote-pattern.js; do
+for script in redact.js log.js promote-pattern.js; do
   cp "$SCRIPTS_DIR/$script" "$AGENT_TPL/observer/scripts/"
 done
 cp "$SCRIPTS_DIR/package.json" "$AGENT_TPL/observer/scripts/"

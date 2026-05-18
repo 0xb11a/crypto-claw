@@ -43,4 +43,6 @@ export default defineWorkspace([
   'apps/executor/vitest.config.ts',
   // integration tests
   'tests/integration/vitest.config.ts',
+  // scripts unit tests
+  'tests/unit/vitest.config.ts',
 ]);

@@ -750,7 +750,8 @@ run_memory_backup_loop() {
   sleep 60  # wait for initial startup
   while true; do
     if [ -x "$RESEARCH_WS/scripts/memory-backup.sh" ]; then
-      bash "$RESEARCH_WS/scripts/memory-backup.sh" "$RESEARCH_WS" 2>&1 | \
+      CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+        bash "$RESEARCH_WS/scripts/memory-backup.sh" "$RESEARCH_WS" 2>&1 | \
         sed 's/^/[memory-backup-bg] /'
     fi
     sleep 900  # 15 minutes
@@ -840,7 +841,8 @@ run_executor_loop() {
         if [ $failures -ge "$EMERGENCY_AFTER" ]; then
           echo "[executor-loop] EMERGENCY MODE — all models failed ($failures consecutive)"
           echo "[$(date -u +%FT%TZ)] [critical] [executor-loop] Emergency mode activated after $failures consecutive failures" >> /tmp/openclaw/system.log
-          SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+          CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+            SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
             node "$RESEARCH_WS/scripts/emergency-executor.js" 2>&1 | sed 's/^/[emergency-executor] /'
           CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
             cclaw alerts send --type emergency_mode --agent executor \
@@ -911,7 +913,8 @@ run_sentinel_loop() {
         if [ $exit_code -ne 0 ]; then
           echo "[sentinel-loop] EMERGENCY MODE — all models failed"
           echo "[$(date -u +%FT%TZ)] [critical] [sentinel-loop] Emergency mode activated — all models failed" >> /tmp/openclaw/system.log
-          SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
+          CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+            SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
             node "$RESEARCH_WS/scripts/emergency-sentinel.js" 2>&1 | sed 's/^/[emergency-sentinel] /'
           CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
             cclaw alerts send --type emergency_mode --agent sentinel \

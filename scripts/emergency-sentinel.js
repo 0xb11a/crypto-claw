@@ -3,37 +3,90 @@
  * emergency-sentinel.js — Script-only position monitor (no LLM required)
  *
  * Runs when all model providers fail. Pure deterministic logic:
- *   1. Load open positions from DB (respects PAPER_MODE)
+ *   1. Load open positions via cclaw positions list
  *   2. Fetch current prices from DEXScreener
  *   3. Write sell orders for: stop-loss hit, take-profit hit, severe loss (>30%),
  *      liquidity drain (>50% drop), low liquidity (<$5k)
- *   4. Log to sentinel_log table
+ *      Order write is a 2-call pattern: cclaw orders propose → cclaw orders approve
+ *      (stricter than legacy direct INSERT — produces audit trail for both writes)
+ *   4. Log to sentinel_log via cclaw logs sentinel append
  *   5. Output JSON summary to stdout
  *
  * Usage:
  *   node scripts/emergency-sentinel.js
  *
- * Env vars: SAFE_ID, DB_PATH, PAPER_MODE
+ * Env vars: SAFE_ID, PAPER_MODE, CCLAW_API_TOKEN, CCLAW_API_BASE
+ *
+ * [OPEN-1] AppendSentinelLogDto constrains status to IsIn(['ok','warn','error']).
+ * Emergency cycles use status='warn' + check_type='emergency' (no DTO change needed).
+ *
+ * Ported from direct DB access to cclaw subprocess calls.
  */
 
-import 'dotenv/config';
-import { getDb, close } from './db.js';
+import { execSync } from 'child_process';
 import { log } from './log.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
+const CCLAW_TIMEOUT_MS = 10_000;
 
-function loadPositions(db) {
-  const isPaper = process.env.PAPER_MODE === 'true';
-  const table = isPaper ? 'paper_positions' : 'positions';
-  return db.prepare(`SELECT * FROM ${table} WHERE status IN ('open', 'partial_exit') ORDER BY created_at DESC`).all();
+/**
+ * Run a cclaw command and return parsed JSON output, or null on failure.
+ * @param {string} cmd
+ * @returns {unknown|null}
+ */
+function runCclaw(cmd) {
+  try {
+    const raw = execSync(cmd, {
+      encoding: 'utf-8',
+      timeout: CCLAW_TIMEOUT_MS,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return JSON.parse(raw);
+  } catch (err) {
+    // Surface failures to system.log so plumbing regressions (auth missing,
+    // cclaw not in PATH, API down) don't silently convert emergency-mode
+    // into a no-op while the wrapper reports {status:'ok'}. See P5b deletion
+    // security-auditor finding #1+#2.
+    const stderr = err?.stderr?.toString?.() ?? '';
+    const status = err?.status ?? 'unknown';
+    log('error', 'emergency-sentinel', `runCclaw failed: cmd="${cmd}" status=${status} stderr=${stderr.slice(0, 200)}`);
+    return null;
+  }
 }
 
-function getPreviousLiquiditySnapshot(db, address, chain) {
-  return (
-    db
-      .prepare('SELECT * FROM liquidity_snapshots WHERE address = ? AND chain = ? ORDER BY checked_at DESC LIMIT 1')
-      .get(address, chain) || null
-  );
+/**
+ * Load open + partial_exit positions via cclaw.
+ * @returns {unknown[]}
+ */
+function loadPositions() {
+  const isPaper = process.env.PAPER_MODE === 'true';
+  const mode = isPaper ? 'paper' : 'real';
+  const openResult = runCclaw(`cclaw positions list --status open --mode ${mode} --limit 50`);
+  const partialResult = runCclaw(`cclaw positions list --status partial_exit --mode ${mode} --limit 50`);
+
+  const openRows = Array.isArray(openResult?.data) ? openResult.data : [];
+  const partialRows = Array.isArray(partialResult?.data) ? partialResult.data : [];
+
+  // Sort by created_at DESC (mirrors legacy ORDER BY created_at DESC)
+  const all = [...openRows, ...partialRows];
+  all.sort((a, b) => {
+    const ta = a.created_at ?? '';
+    const tb = b.created_at ?? '';
+    return tb < ta ? -1 : tb > ta ? 1 : 0;
+  });
+  return all;
+}
+
+/**
+ * Get the most recent liquidity snapshot for a token.
+ * @param {string} address
+ * @param {string} chain
+ * @returns {unknown|null}
+ */
+function getPreviousLiquiditySnapshot(address, chain) {
+  const result = runCclaw(`cclaw liquidity list --address ${address} --chain ${chain} --limit 1`);
+  const rows = Array.isArray(result?.data) ? result.data : [];
+  return rows.length > 0 ? rows[0] : null;
 }
 
 async function fetchTokenData(address) {
@@ -54,16 +107,55 @@ async function fetchTokenData(address) {
   }
 }
 
-function generateOrderId(prefix) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
+/**
+ * Write a sell order via cclaw 2-call pattern:
+ *   1. cclaw orders propose → get new order ID
+ *   2. cclaw orders approve --by emergency_sentinel
+ *
+ * This is STRICTER than the legacy direct INSERT — produces an audit
+ * trail for both the propose and the approve writes, matching the normal
+ * order pipeline audit behavior.
+ *
+ * @param {unknown} position
+ * @param {string} reason
+ * @param {string} urgency
+ * @returns {string|null} orderId or null on failure
+ */
+function writeSellOrder(position, reason, urgency) {
+  const body = JSON.stringify({
+    action: 'sell',
+    symbol: position.symbol,
+    address: position.address,
+    chain: position.chain,
+    amount: 'all',
+    reason,
+    urgency: urgency || 'immediate',
+  });
 
-function writeSellOrder(db, position, reason, urgency) {
-  const orderId = generateOrderId('emg-sell');
-  db.prepare(
-    `INSERT INTO orders (id, action, symbol, address, chain, amount, reason, urgency, status, approved_at, approved_by, status_changed_at, status_changed_by, created_at)
-     VALUES (?, 'sell', ?, ?, ?, 'all', ?, ?, 'approved', datetime('now'), 'emergency_sentinel', datetime('now'), 'emergency_sentinel', datetime('now'))`,
-  ).run(orderId, position.symbol, position.address, position.chain, reason, urgency || 'immediate');
+  // Escape single quotes in body for shell safety
+  const escapedBody = body.replace(/'/g, "'\\''");
+  const proposeResult = runCclaw(`cclaw orders propose --json '${escapedBody}'`);
+
+  if (!proposeResult) {
+    log('error', 'emergency-sentinel', `Failed to propose sell order for ${position.symbol}`);
+    return null;
+  }
+
+  // cclaw orders propose returns the created order object (or { data: order })
+  const orderId = proposeResult.id ?? proposeResult.data?.id;
+  if (!orderId) {
+    log('error', 'emergency-sentinel', `No order ID returned from propose for ${position.symbol}`);
+    return null;
+  }
+
+  const approveResult = runCclaw(`cclaw orders approve --id ${orderId} --by emergency_sentinel`);
+  if (!approveResult) {
+    log('error', 'emergency-sentinel', `Failed to approve sell order ${orderId} for ${position.symbol}`);
+    // Order was proposed but not approved — not ideal, but leave it pending
+    // so a human operator can see it. Do not block the rest of the cycle.
+    return orderId;
+  }
+
   return orderId;
 }
 
@@ -77,18 +169,32 @@ function getMaxTakeProfit(pos) {
   }
 }
 
-function logToSentinel(db, summary) {
-  db.prepare(
-    `INSERT INTO sentinel_log (check_type, positions_checked, alerts_generated, sells_executed, status)
-     VALUES ('emergency', ?, ?, 0, 'emergency')`,
-  ).run(summary.positionsChecked, summary.ordersWritten);
+/**
+ * Log summary to sentinel_log via cclaw.
+ * Uses status='warn' + check_type='emergency' per [OPEN-1]:
+ * AppendSentinelLogDto only allows status in ['ok','warn','error'].
+ */
+function logToSentinel(summary) {
+  const body = JSON.stringify({
+    check_type: 'emergency',
+    positions_checked: summary.positionsChecked,
+    alerts_generated: summary.ordersWritten,
+    sells_executed: 0,
+    status: 'warn',
+    summary: `emergency cycle: ${summary.positionsChecked} checked, ${summary.ordersWritten} sells written`,
+  });
+
+  const escapedBody = body.replace(/'/g, "'\\''");
+  const result = runCclaw(`cclaw logs sentinel append --json '${escapedBody}'`);
+  if (!result) {
+    log('warn', 'emergency-sentinel', 'Failed to append sentinel log row via cclaw');
+  }
 }
 
 async function main() {
-  const db = getDb();
-  const positions = loadPositions(db);
-
   log('critical', 'emergency-sentinel', 'Emergency sentinel activated — monitoring positions');
+
+  const positions = loadPositions();
 
   const result = {
     status: 'ok',
@@ -103,9 +209,8 @@ async function main() {
 
   if (positions.length === 0) {
     result.message = 'No open positions — nothing to protect';
-    logToSentinel(db, result);
+    logToSentinel(result);
     console.log(JSON.stringify(result, null, 2));
-    close();
     return;
   }
 
@@ -125,7 +230,7 @@ async function main() {
 
       // Check stop-loss
       if (pos.stop_loss && currentPrice <= pos.stop_loss) {
-        const orderId = writeSellOrder(db, pos, 'stop_loss', 'immediate');
+        const orderId = writeSellOrder(pos, 'stop_loss', 'immediate');
         log(
           'info',
           'emergency-sentinel',
@@ -147,7 +252,7 @@ async function main() {
       // Check take-profit (parse from take_profit_levels JSON)
       const maxTp = getMaxTakeProfit(pos);
       if (maxTp && currentPrice >= maxTp) {
-        const orderId = writeSellOrder(db, pos, 'take_profit', 'normal');
+        const orderId = writeSellOrder(pos, 'take_profit', 'normal');
         log(
           'info',
           'emergency-sentinel',
@@ -168,7 +273,7 @@ async function main() {
 
       // Check severe loss (>30%)
       if (pnlPercent < -30) {
-        const orderId = writeSellOrder(db, pos, 'emergency_severe_loss', 'immediate');
+        const orderId = writeSellOrder(pos, 'emergency_severe_loss', 'immediate');
         log(
           'info',
           'emergency-sentinel',
@@ -188,13 +293,13 @@ async function main() {
       }
 
       // Check liquidity
-      const prevSnapshot = getPreviousLiquiditySnapshot(db, pos.address, pos.chain);
+      const prevSnapshot = getPreviousLiquiditySnapshot(pos.address, pos.chain);
       const liquidityDropPercent = prevSnapshot
         ? ((liquidity - prevSnapshot.liquidity_usd) / prevSnapshot.liquidity_usd) * 100
         : 0;
 
       if (prevSnapshot && liquidityDropPercent < -50) {
-        const orderId = writeSellOrder(db, pos, 'emergency_liquidity_drain', 'immediate');
+        const orderId = writeSellOrder(pos, 'emergency_liquidity_drain', 'immediate');
         log(
           'info',
           'emergency-sentinel',
@@ -214,7 +319,7 @@ async function main() {
       }
 
       if (liquidity < 5000) {
-        const orderId = writeSellOrder(db, pos, 'emergency_low_liquidity', 'immediate');
+        const orderId = writeSellOrder(pos, 'emergency_low_liquidity', 'immediate');
         log(
           'info',
           'emergency-sentinel',
@@ -243,9 +348,8 @@ async function main() {
     'emergency-sentinel',
     `Emergency cycle complete: ${result.positionsChecked} checked, ${result.ordersWritten} sell orders written, ${result.errors.length} errors`,
   );
-  logToSentinel(db, result);
+  logToSentinel(result);
   console.log(JSON.stringify(result, null, 2));
-  close();
 }
 
 main();

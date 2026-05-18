@@ -33,8 +33,8 @@ Patterns, lessons, scoring calibration — knowledge that applies across all fun
 Positions, trades, orders, alerts, receipts — everything tied to a specific Safe wallet. One database per fund, identified by `SAFE_ID`.
 
 - Database path: `data/<SAFE_ID>.db`
-- Primary access via `cclaw <resource> <action>` (canonical post-P5b). `node scripts/db-query.js` is imported internally by 5 retained scripts (`heartbeat-check.js` — used by entrypoint.sh executor/sentinel loops as a pre-check; `promote-pattern.js`; `emergency-sentinel.js`; `emergency-executor.js`; plus db-query.js itself). Agents never invoke db-query.js directly.
-- Schema managed by two parallel migration systems: (1) `scripts/db.js` auto-migrates on first `getDb()` call (legacy layer, retained until P5b/P6 expansion completes); (2) `prisma/migrations/` Prisma migrations applied automatically by `apps/api` on startup via `runPrismaMigrateDeploy()` in `apps/api/src/main.ts` (P6-fragment)
+- Primary access via `cclaw <resource> <action>` (canonical post-P5b). Agents never invoke db-query.js — it was deleted in the retained-set deletion follow-up.
+- Schema managed by `prisma/migrations/` — Prisma migrations applied automatically by `apps/api` on startup via `runPrismaMigrateDeploy()` in `apps/api/src/main.ts` (P6-fragment). `scripts/db.js` was deleted in the retained-set deletion follow-up.
 - 21 tables: positions, trades, orders, receipts, sentinel_alerts, watchlist, liquidity_snapshots, tracked_wallets, heartbeat_state, sentinel_log, executor_log, portfolio_meta, paper_positions, paper_receipts, analysis_cache, portfolio_sync, contract_snapshots, research_log, observer_log, smart_money_signals, _migrations
 
 ### Why Two Layers?
@@ -54,7 +54,7 @@ Research → orders (auto-approved)          → Executor → paper_receipts + p
 Sentinel → orders                          → Executor → paper_receipts + paper_positions
 ```
 
-All agent-to-agent communication goes through the database, accessed via `cclaw` CLI or legacy `db-query.js` hold-backs.
+All agent-to-agent communication goes through the database, accessed via `cclaw` CLI.
 
 ## Wallet Pipeline (smart-money signal flow)
 
@@ -100,12 +100,12 @@ Smart-money tracking is a four-role pipeline. Each role has a bounded contract; 
 **Role 4 — Signal consumption** (cheap, agent-owned)
 - **Research** heartbeat (`smart_money_signals` check, every 30 min):
   ```
-  node scripts/db-query.js get-smart-money-signals --since 35m --action buy --group-by token --min-wallets 2
+  cclaw wallets signals --since 35m --action buy --group-by token --min-wallets 2
   ```
   Returns tokens where ≥2 distinct `smart_money` wallets bought in last 35 min. Pipes into discovery → analysis → risk → trade proposal.
 - **Sentinel** heartbeat (`smart_money_exits` check, every 15 min):
   ```
-  node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
+  cclaw wallets signals --since 30m --action sell --tokens-in-positions --group-by token
   ```
   Returns held tokens that `smart_money` wallets are dumping. **Informational only** (no auto-sell) — alerts the operator.
 - 35 min sliding window absorbs 5 min of heartbeat-jitter overlap; same signal may be returned by 2 consecutive heartbeat cycles. Consumers tolerate this (Research dedups via `check-token-status` cache).
@@ -135,17 +135,14 @@ workspace/                # Shared workspace (copied to all agents by build-temp
   IDENTITY.md             # Agent identity
   TOOLS.md                # Full tool reference (not deployed — per-agent versions in agents/{name}/TOOLS.md)
   BOOT.md                 # First-run setup
-scripts/                  # Node.js scripts (retained set post-P5; all others deleted)
-  db.js                   # SQLite data access layer (schema, migrations) — retained until P6
-  db-query.js             # Legacy CLI (retained for 4 importers: heartbeat-check.js, promote-pattern.js, emergency-*.js; not invoked from agent markdown post-P5b) — retained until port-off
-  package.json            # Dependencies (better-sqlite3, dotenv) — retained until P6
-  heartbeat-check.js      # Pre-check for sentinel/executor background loops
-  agent-idleness.js       # Shared executor/sentinel idleness predicates
-  emergency-sentinel.js   # Emergency sentinel activation on repeated model failures
-  emergency-executor.js   # Emergency executor activation on repeated model failures
-  redact.js               # Sensitive data redaction (shared module) — retained (importers: log.js, promote-pattern.js)
-  log.js                  # Structured logging helper (writes to system.log + stderr) — retained (importers: heartbeat-check.js, emergency-sentinel.js, emergency-executor.js, promote-pattern.js)
-  promote-pattern.js      # MEMORY.md write-protection (provenance trail enforcement)
+scripts/                  # Node.js scripts (~10 retained files post-retained-deletion)
+  package.json            # Dependencies (dotenv) — no longer needs better-sqlite3
+  heartbeat-check.js      # Pre-check for sentinel/executor background loops (uses cclaw)
+  emergency-sentinel.js   # Emergency sentinel activation on repeated model failures (uses cclaw)
+  emergency-executor.js   # Emergency executor activation on repeated model failures (uses cclaw)
+  redact.js               # Sensitive data redaction (shared module — imported by log.js, promote-pattern.js)
+  log.js                  # Structured logging helper (writes to system.log + stderr)
+  promote-pattern.js      # MEMORY.md write-protection (provenance trail enforcement, uses cclaw)
   pre-commit-check.js     # Secret scanner + MEMORY.md trail gate + npm-audit gate
   memory-backup.sh        # Git auto-commit for agent memory
   codex-login.sh          # One-time Codex OAuth login (ChatGPT subscription)
@@ -164,15 +161,14 @@ build-templates.sh        # Docker build-time template assembly
 | `agents/research/AGENTS.md` | Core operating contract — pipeline, safety rules, memory protocol, approval logic |
 | `agents/sentinel/AGENTS.md` | Monitoring rules, sell order logic, alert format |
 | `agents/executor/AGENTS.md` | Transaction rules, validation logic, receipt format, Safe integration |
-| `scripts/db.js` | SQLite schema, migrations, connection management (retained until P6) |
-| `scripts/db-query.js` | Legacy CLI for agents to read/write DB — retained for agent log writes until P6 |
-| `libs/chain/src/portfolio-rules.ts` | Portfolio rule constants — canonical post-P5 (previously `scripts/chains.js`, which is retained on disk as a load-time import of `db-query.js` until P6) |
+| `libs/chain/src/portfolio-rules.ts` | Portfolio rule constants — canonical post-P5 |
+| `libs/modules/heartbeat/src/cadences.ts` | Heartbeat cadences per agent/check (canonical; mirrors former scripts/db-query.js HEARTBEAT_CADENCES) |
 | `agents/{name}/TOOLS.md` | Per-agent CLI usage guide — each agent gets only the commands/scripts it uses |
-| `scripts/redact.js` | Sensitive data redaction — used by log.js (2-layer defense; retained until P5c) |
-| `scripts/log.js` | Structured logging — writes redacted entries to /tmp/openclaw/system.log + stderr (retained until P5c) |
+| `scripts/redact.js` | Sensitive data redaction — used by log.js (2-layer defense) |
+| `scripts/log.js` | Structured logging — writes redacted entries to /tmp/openclaw/system.log + stderr |
 | `workspace/TOOLS.md` | Full tool reference (not deployed) — check this for the complete picture |
 | `entrypoint.sh` | Docker runtime init — per-agent config, background loops, workspace seeding |
-| `build-templates.sh` | Build-time deployment — which scripts/skills/markdown each agent gets (P5: retained set only) |
+| `build-templates.sh` | Build-time deployment — which scripts/skills/markdown each agent gets (~10 retained scripts) |
 
 ## Commands
 
@@ -189,13 +185,13 @@ pnpm test:unit
 # Run integration tests (requires prior pnpm build)
 pnpm build && pnpm test:integration
 
-# Database queries (from project root)
-SAFE_ID=my-fund node scripts/db-query.js get-portfolio
-SAFE_ID=my-fund node scripts/db-query.js get-positions --status open
+# Database queries (via cclaw CLI — requires CCLAW_API_TOKEN + running API)
+cclaw system portfolio
+cclaw positions list --status open
 
 # Paper mode queries
-SAFE_ID=my-fund node scripts/db-query.js get-paper-portfolio
-SAFE_ID=my-fund node scripts/db-query.js get-paper-stats
+cclaw positions list --status open --mode paper
+cclaw system portfolio --mode paper
 
 # Docker
 docker compose up -d            # Start
@@ -210,8 +206,8 @@ PAPER_MODE=true PAPER_STARTING_BALANCE=5000 docker compose up -d
 ## Tech Stack
 
 - **Runtime:** Node.js 22+ (ESM modules, `"type": "module"`)
-- **Database:** SQLite via better-sqlite3 (WAL mode, auto-migration)
-- **Dependencies:** better-sqlite3, dotenv
+- **Database:** SQLite via Prisma (WAL mode, migrations managed by `prisma/migrations/`)
+- **Dependencies (legacy scripts):** dotenv
 - **APIs used by scripts:** DEXScreener (free), GoPlus Security (free tier), CoinGecko (free), Etherscan (free tier), Birdeye (optional), Solscan (optional)
 - **Execution:** Safe wallet SDK (EVM) and Squads Protocol V4 (Solana) for transaction building/signing, DEX aggregators (1inch for EVM, Jupiter for Solana) for swaps
 - **No framework.** Scripts are standalone CLI tools that output JSON to stdout.
@@ -219,7 +215,7 @@ PAPER_MODE=true PAPER_STARTING_BALANCE=5000 docker compose up -d
 ## Conventions
 
 - **Agent instructions** live in Markdown files (AGENTS.md, SOUL.md, HEARTBEAT.md, skills/*/SKILL.md). These are natural language, not code.
-- **Wallet data** for agents is accessed exclusively via the `cclaw` CLI (canonical post-P5b). All 172 former `node scripts/db-query.js` hold-backs in agent markdown were replaced in P5b. Agents never import db.js directly.
+- **Wallet data** for agents is accessed exclusively via the `cclaw` CLI (canonical post-P5b). All `node scripts/db-query.js` hold-backs in agent markdown were replaced in P5b. `db-query.js` and `db.js` were deleted in the retained-set deletion follow-up — the 4 retained scripts that imported them were ported to cclaw subprocess calls.
 - **Agent memory** (MEMORY.md, daily logs) is in markdown, versioned in a separate private git repo.
 - **Retained legacy scripts** take CLI flags, output JSON to stdout, errors to stderr. Always exit 0 on success, 1 on failure.
 - **Tests** use vitest (unit + integration). Legacy `tests/test-*.js` suites were deleted in P5.
@@ -233,7 +229,7 @@ PAPER_MODE=true PAPER_STARTING_BALANCE=5000 docker compose up -d
 
 ## Safety Rules (Do Not Weaken)
 
-These limits are intentionally strict and must not be relaxed. Canonical source of truth: `libs/chain/src/portfolio-rules.ts` (TypeScript, compiler-enforced). `scripts/chains.js` is retained on disk as a load-time import of `db-query.js` but `portfolio-rules.ts` is the canonical authority for limit values.
+These limits are intentionally strict and must not be relaxed. Canonical source of truth: `libs/chain/src/portfolio-rules.ts` (TypeScript, compiler-enforced).
 
 - Max moonshot position: 5% of chain portfolio (Solana: 7% — see `libs/chain/src/portfolio-rules.ts`)
 - Max conviction position: 10%
@@ -267,10 +263,9 @@ When `AUTO_APPROVE_BUY=true` (default: `false`), BUY orders in real mode skip hu
 - `paper_receipts` — what would have been executed (buy/sell records with P&L)
 - `paper_positions` — simulated portfolio positions
 
-### Paper-Specific Commands
-- `get-paper-portfolio`, `get-paper-positions`, `get-paper-receipts`, `get-paper-stats`
-- `add-paper-position`, `update-paper-position`, `close-paper-position`, `add-paper-receipt`
-- `get-paper-cash`, `set-paper-cash`
+### Paper-Specific Commands (via cclaw)
+- `cclaw system portfolio --mode paper`, `cclaw positions list --mode paper`, `cclaw receipts list --mode paper`
+- `cclaw system cash get`, `cclaw system cash set --chain X --amount Y`
 
 ## Telegram Integration
 
@@ -301,9 +296,9 @@ Configure `PORTFOLIO_REPORT_HOUR` (0-23, default: 0) to receive automated daily 
 ## When Modifying
 
 - **Adding a new script:** Add it to `scripts/` (if it's in the retained set), document it in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md` (per-agent reference), add it to the appropriate agent's copy list in `build-templates.sh`, and add it to the agent's shell allowlist in `entrypoint.sh` (see per-agent `agents.list[N]` overrides). New data-fetching scripts are no longer the preferred pattern — prefer NestJS processors in `apps/worker/src/processors/`.
-- **Adding a new DB table:** Add a Prisma migration in `prisma/migrations/` and a corresponding NestJS repository with cclaw subcommands in `sdk/cclaw/src/index.ts`. Also add a migration in `scripts/db.js` (increment migration number) for backward-compat with the 4 retained scripts that read tables it created (heartbeat-check.js, promote-pattern.js, emergency-*.js). Document new cclaw commands in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md`.
+- **Adding a new DB table:** Add a Prisma migration in `prisma/migrations/` and a corresponding NestJS repository with cclaw subcommands in `sdk/cclaw/src/index.ts`. Document new cclaw commands in `workspace/TOOLS.md` (full reference) AND the relevant agent's `agents/{name}/TOOLS.md`.
 - **Changing safety rules:** Update `agents/research/AGENTS.md` AND `agents/executor/AGENTS.md` (if execution-related) AND `libs/chain/src/portfolio-rules.ts` — the TypeScript source is the canonical enforcement point.
-- **Adding a new agent:** Follow the pattern in `agents/observer/` (the most recently added agent) — create a directory with AGENTS.md, SOUL.md, HEARTBEAT.md, and skills/. Add per-agent config overrides on `agents.list[N]` in `entrypoint.sh` (tools, permissions, memory, compaction — follow least privilege). Add directory creation, file copy, and symlink logic to `build-templates.sh`. Add heartbeat_state seeds in the db.js migration. Add the agent name to `HEARTBEAT_CADENCES` and `AGENT_HEARTBEAT_INTERVALS` in `scripts/db-query.js`. Update `docker-compose.yml` if it needs different resources.
+- **Adding a new agent:** Follow the pattern in `agents/observer/` (the most recently added agent) — create a directory with AGENTS.md, SOUL.md, HEARTBEAT.md, and skills/. Add per-agent config overrides on `agents.list[N]` in `entrypoint.sh` (tools, permissions, memory, compaction — follow least privilege). Add directory creation, file copy, and symlink logic to `build-templates.sh`. Add the agent name to `HEARTBEAT_CADENCES` and `AGENT_HEARTBEAT_INTERVALS` in `libs/modules/heartbeat/src/cadences.ts`. Update `docker-compose.yml` if it needs different resources.
 - **Changing agent tool/permission config:** OpenClaw global config applies to all agents — per-agent tool restriction is enforced by **script deployment** (which .js files each agent gets in its workspace) and **skills directories** (each agent only sees its own skills). Edit `entrypoint.sh` for global settings, `build-templates.sh` for per-agent script deployment.
 - **Modifying the pipeline:** Update the corresponding NestJS processor in `apps/worker/src/processors/` and its vitest integration spec.
 - **Changing Safe wallet config:** Update `.env.example`, `docker-compose.yml`, and `agents/executor/AGENTS.md`. Never put keys in files.
@@ -330,7 +325,7 @@ To make a depth pass possible by default, run reviews from a local Claude Code s
 
 - **No command chaining in agent instructions.** OpenClaw's exec preflight rejects compound commands (`&&`, `||`, `;`, `2>/dev/null`). Every bash code block in agent markdown files (AGENTS.md, HEARTBEAT.md, SKILL.md, TOOLS.md) must contain exactly one command. If you need to show multiple commands, use separate code fences. Each agent's TOOLS.md has the rule "Run one command per exec call" — never remove it.
 - Retained scripts use ESM (`import`), not CommonJS (`require`). The `scripts/package.json` has `"type": "module"`.
-- Sentinel only gets monitoring scripts (retained set: db access + emergency + alerting). Executor only gets db access + emergency scripts. Execution is now via `cclaw orders execute`. Don't assume an agent has access to deleted scripts.
+- Sentinel only gets monitoring scripts (retained set: emergency-sentinel.js + log.js + redact.js + promote-pattern.js + heartbeat-check.js). Executor only gets emergency-executor.js + same set. Execution is via `cclaw orders execute`. Don't assume an agent has access to deleted scripts.
 - Agent memory (markdown) is symlinked between all three agents. Daily logs written by any agent are visible to all.
 - The database is also shared via symlinked `data/` directory — all agents read/write the same SQLite file.
 - `entrypoint.sh` skips existing MEMORY.md to preserve learned patterns. If you need to reset, delete it first.
