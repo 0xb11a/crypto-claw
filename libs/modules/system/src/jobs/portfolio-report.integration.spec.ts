@@ -214,7 +214,8 @@ beforeEach(async () => {
 
   const systemRepo = new SystemRepository(prisma);
   const cfg = makeConfigService();
-  systemSvc = new SystemService(systemRepo, cfg as unknown as import('@nestjs/config').ConfigService);
+  const mockQueue = { add: vi.fn().mockResolvedValue({ id: 'mock-job-id' }) } as unknown as import('bullmq').Queue;
+  systemSvc = new SystemService(systemRepo, cfg as unknown as import('@nestjs/config').ConfigService, mockQueue);
 });
 
 // ---------------------------------------------------------------------------

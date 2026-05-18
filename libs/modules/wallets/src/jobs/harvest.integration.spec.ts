@@ -23,7 +23,7 @@
  * DoD §E — BullMQ processor: run twice, assert DB shape unchanged after second run.
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import type { TopGainerEntry } from '@cclaw/adapters-birdeye';
 import { BirdeyeApiKeyMissingError } from '@cclaw/adapters-birdeye';
@@ -169,7 +169,8 @@ beforeEach(async () => {
   walletsRepo = new WalletsRepository(prisma);
   const systemRepo = new SystemRepository(prisma);
   const cfg = makeConfigService();
-  systemSvc = new SystemService(systemRepo, cfg as unknown as import('@nestjs/config').ConfigService);
+  const mockQueue = { add: vi.fn().mockResolvedValue({ id: 'mock-job-id' }) } as unknown as import('bullmq').Queue;
+  systemSvc = new SystemService(systemRepo, cfg as unknown as import('@nestjs/config').ConfigService, mockQueue);
 });
 
 // ---------------------------------------------------------------------------

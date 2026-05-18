@@ -576,6 +576,68 @@ systemCmd
     output(data);
   });
 
+// --- system portfolio ---
+systemCmd
+  .command('portfolio')
+  .description('Get portfolio snapshot (all chains or a specific chain)')
+  .option('--chain <chain>', 'Filter to a single chain (e.g. base, solana)')
+  .option('--mode <mode>', 'Portfolio mode override (real|paper)')
+  .action(async (opts: { chain?: string; mode?: string }) => {
+    const params = new URLSearchParams();
+    if (opts.chain) params.set('chain', opts.chain);
+    if (opts.mode) params.set('mode', opts.mode);
+    const query = params.toString();
+    const data = await apiCall<unknown>('GET', `/system/portfolio${query ? '?' + query : ''}`);
+    output(data);
+  });
+
+// --- system trade-stats ---
+systemCmd
+  .command('trade-stats')
+  .description('Get aggregated trade statistics')
+  .option('--chain <chain>', 'Filter stats to a single chain')
+  .option('--mode <mode>', 'Portfolio mode override (real|paper)')
+  .action(async (opts: { chain?: string; mode?: string }) => {
+    const params = new URLSearchParams();
+    if (opts.chain) params.set('chain', opts.chain);
+    if (opts.mode) params.set('mode', opts.mode);
+    const query = params.toString();
+    const data = await apiCall<unknown>('GET', `/system/trade-stats${query ? '?' + query : ''}`);
+    output(data);
+  });
+
+// --- system chains ---
+systemCmd
+  .command('chains')
+  .description('List active and all known chains')
+  .action(async () => {
+    const data = await apiCall<unknown>('GET', '/system/chains');
+    output(data);
+  });
+
+// --- system chain-config ---
+systemCmd
+  .command('chain-config')
+  .description('Get configuration for a specific chain')
+  .requiredOption('--chain <chain>', 'Chain identifier (e.g. base, solana, ethereum)')
+  .action(async (opts: { chain: string }) => {
+    const data = await apiCall<unknown>('GET', `/system/chains/${encodeURIComponent(opts.chain)}`);
+    output(data);
+  });
+
+// --- system sync-portfolio ---
+systemCmd
+  .command('sync-portfolio')
+  .description('Enqueue a portfolio reconcile job for a chain (fire-and-forget, 202)')
+  .requiredOption('--chain <chain>', 'Chain to reconcile (e.g. base, solana, ethereum)')
+  .option('--trigger <trigger>', 'Trigger reason (periodic|post_trade|manual)', 'manual')
+  .action(async (opts: { chain: string; trigger?: string }) => {
+    const body: Record<string, string> = { chain: opts.chain };
+    if (opts.trigger) body['trigger'] = opts.trigger;
+    const data = await apiCall<unknown>('POST', '/system/sync-portfolio', body);
+    output(data);
+  });
+
 // -------------------------------------------------------------------------
 // watchlist list / get / add / update / remove
 // -------------------------------------------------------------------------
