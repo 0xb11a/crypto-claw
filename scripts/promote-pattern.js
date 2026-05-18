@@ -11,7 +11,7 @@
  *   1. Sanitizes every text field (sanitizeUntrusted)
  *   2. Requires --seen >= 3 (the existing convention)
  *   3. Requires --attestation-source from a known skill set
- *   4. Requires --derived-from IDs that EXIST in trusted DB tables
+ *   4. Requires --derived-from IDs that EXIST in trusted tables (via cclaw)
  *      (receipts, positions, sentinel_alerts, etc) — IDs that are
  *      ground-truth records, NOT free-text fields an agent could
  *      have hallucinated or that traced back to attacker-controlled
@@ -31,24 +31,32 @@
  *
  * Exits 0 on success (prints id of inserted block to stdout JSON),
  * exits 1 on any validation failure with a structured JSON error.
+ *
+ * Ported from direct DB access to cclaw subprocess calls.
+ * FAIL-CLOSED: any cclaw error (network/transient) is treated as
+ * derived_from_id_not_found — we never assume an ID is valid when
+ * we cannot confirm it. This is a security-critical invariant.
  */
 
 import 'dotenv/config';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'node:url';
 import { existsSync, appendFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { getDb, close } from './db.js';
 import { sanitizeUntrusted } from './redact.js';
 import { log } from './log.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+const CCLAW_TIMEOUT_MS = 10_000;
+
 // ============================================================
 // Trusted-source schema
 //
 // Each key is the prefix the agent uses in --derived-from
-// (e.g. `receipt:abc-123`). The value is the SQL fragment used to
-// verify that ID exists. These are tables of GROUND-TRUTH records:
+// (e.g. `receipt:abc-123`). The value is the cclaw command
+// pattern used to verify that ID exists. These are tables of
+// GROUND-TRUTH records:
 //   - receipts/paper_receipts: an actual swap was executed
 //   - positions/paper_positions: a position was held
 //   - sentinel_alerts: Sentinel detected a real event
@@ -60,17 +68,25 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // step removed from attacker injection — refuse it.
 // ============================================================
 
-const TRUSTED_SOURCES = {
-  receipt: { table: 'receipts', column: 'id' },
-  paper_receipt: { table: 'paper_receipts', column: 'id' },
-  position: { table: 'positions', column: 'id' },
-  paper_position: { table: 'paper_positions', column: 'id' },
-  alert: { table: 'sentinel_alerts', column: 'id' },
-  sentinel_log: { table: 'sentinel_log', column: 'id' },
-  executor_log: { table: 'executor_log', column: 'id' },
-  research_log: { table: 'research_log', column: 'id' },
-  observer_log: { table: 'observer_log', column: 'id' },
+/**
+ * Maps derived-from prefix → cclaw command to verify existence.
+ * Command must exit 0 if found, non-zero if not found.
+ * @type {Record<string, (id: string) => string>}
+ */
+const TRUSTED_SOURCE_COMMANDS = {
+  receipt: (id) => `cclaw receipts get --id ${id}`,
+  paper_receipt: (id) => `cclaw receipts get --id ${id} --mode paper`,
+  position: (id) => `cclaw positions get --id ${id}`,
+  paper_position: (id) => `cclaw positions get --id ${id} --mode paper`,
+  alert: (id) => `cclaw alerts get --id ${id}`,
+  sentinel_log: (id) => `cclaw logs sentinel get --id ${id}`,
+  executor_log: (id) => `cclaw logs executor get --id ${id}`,
+  research_log: (id) => `cclaw logs research get --id ${id}`,
+  observer_log: (id) => `cclaw logs observer get --id ${id}`,
 };
+
+// Also keep the set of trusted source keys for shape validation (no DB lookup needed there).
+const TRUSTED_SOURCES = Object.fromEntries(Object.keys(TRUSTED_SOURCE_COMMANDS).map((k) => [k, true]));
 
 const ALLOWED_ATTESTATION_SOURCES = new Set([
   'risk',
@@ -109,7 +125,7 @@ function fail(msg, extra = {}) {
 
 /**
  * Parse --derived-from "receipt:abc,alert:def" into structured rows.
- * @returns {{type: string, id: string}[]}
+ * @returns {{type: string, id: string, raw: string}[]}
  */
 export function parseDerivedFrom(raw) {
   if (!raw || typeof raw !== 'string') return [];
@@ -126,7 +142,7 @@ export function parseDerivedFrom(raw) {
 
 /**
  * Validate the structural shape of --derived-from entries: each must
- * have a known type prefix and a non-empty id. Does NOT touch the DB
+ * have a known type prefix and a non-empty id. Does NOT touch cclaw
  * (that's the second pass in the live script — kept separate for
  * offline testing).
  */
@@ -141,7 +157,7 @@ export function validateDerivedFromShape(parsed) {
     if (!TRUSTED_SOURCES[row.type]) {
       return {
         valid: false,
-        reason: `derived_from_untrusted_source: '${row.type}' not in [${Object.keys(TRUSTED_SOURCES).join(', ')}]`,
+        reason: `derived_from_untrusted_source: '${row.type}' not in [${Object.keys(TRUSTED_SOURCE_COMMANDS).join(', ')}]`,
       };
     }
     if (!row.id || row.id.length < 3 || row.id.length > 100) {
@@ -179,22 +195,41 @@ export function validateAttestation(source) {
 }
 
 // ============================================================
-// DB-backed validation
+// cclaw-backed existence validation (fail-closed)
+//
+// Security invariant: on ANY execSync error (network timeout, API
+// 5xx, process crash), we REJECT — never assume the ID is valid.
+// Fail-closed prevents an attacker from poisoning MEMORY.md by
+// causing a transient cclaw failure at promotion time.
 // ============================================================
 
-function verifyDerivedFromIdsExist(db, parsed) {
+/**
+ * Verify that each derived-from ID exists by calling cclaw.
+ * Fail-closed: any error → derived_from_id_not_found.
+ *
+ * @param {{type: string, id: string, raw: string}[]} parsed
+ * @returns {{valid: boolean, reason?: string}}
+ */
+export function verifyDerivedFromIdsExistViaCclaw(parsed) {
   for (const row of parsed) {
-    const src = TRUSTED_SOURCES[row.type];
-    if (!src) return { valid: false, reason: `unknown_source: '${row.type}'` };
-    const stmt = db.prepare(`SELECT 1 AS ok FROM ${src.table} WHERE ${src.column} = ? LIMIT 1`);
-    let result;
-    try {
-      result = stmt.get(row.id);
-    } catch (err) {
-      return { valid: false, reason: `db_lookup_failed for ${row.raw}: ${err.message}` };
+    const cmdBuilder = TRUSTED_SOURCE_COMMANDS[row.type];
+    if (!cmdBuilder) {
+      return { valid: false, reason: `unknown_source: '${row.type}'` };
     }
-    if (!result) {
-      return { valid: false, reason: `derived_from_id_not_found: ${row.raw} (no row in ${src.table})` };
+    const cmd = cmdBuilder(row.id);
+    try {
+      execSync(cmd, {
+        encoding: 'utf-8',
+        timeout: CCLAW_TIMEOUT_MS,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      // exit code 0 = record found (cclaw exits non-zero on 404)
+    } catch {
+      // FAIL-CLOSED: any error (timeout, 404, network) = not found / not verifiable.
+      return {
+        valid: false,
+        reason: `derived_from_id_not_found: ${row.raw} (cclaw returned non-zero or timed out)`,
+      };
     }
   }
   return { valid: true };
@@ -272,13 +307,9 @@ function main() {
   const shapeCheck = validateDerivedFromShape(parsed);
   if (!shapeCheck.valid) fail(shapeCheck.reason);
 
-  const db = getDb();
-  try {
-    const dbCheck = verifyDerivedFromIdsExist(db, parsed);
-    if (!dbCheck.valid) fail(dbCheck.reason);
-  } finally {
-    close();
-  }
+  // cclaw-backed existence check (fail-closed)
+  const existsCheck = verifyDerivedFromIdsExistViaCclaw(parsed);
+  if (!existsCheck.valid) fail(existsCheck.reason);
 
   const memoryPath = findMemoryFile();
   if (!memoryPath) fail('MEMORY.md not found in any candidate path');
