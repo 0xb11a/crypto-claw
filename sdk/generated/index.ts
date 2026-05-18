@@ -35,6 +35,7 @@ export type { RetryOrderDto } from './models/RetryOrderDto';
 export type { SendAlertDto } from './models/SendAlertDto';
 export type { SetCashDto } from './models/SetCashDto';
 export type { SetMetaDto } from './models/SetMetaDto';
+export type { SyncPortfolioDto } from './models/SyncPortfolioDto';
 export type { UpdatePositionDto } from './models/UpdatePositionDto';
 export type { UpdateWalletScoreDto } from './models/UpdateWalletScoreDto';
 export type { UpdateWatchlistDto } from './models/UpdateWatchlistDto';

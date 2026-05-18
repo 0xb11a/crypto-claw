@@ -3,6 +3,8 @@ import { PrismaService } from '@cclaw/prisma';
 // Type-only import from @prisma/client — allowed only in repository files.
 // eslint-disable-next-line no-restricted-imports
 import type { PortfolioMeta, PortfolioSync } from '@prisma/client';
+import { Prisma } from '@prisma/client'; // eslint-disable-line no-restricted-imports
+import { getAllChains } from '@cclaw/chain';
 import type { SetMetaDto } from './dto/set-meta.dto.js';
 import type { MetaResponseDto } from './dto/meta-response.dto.js';
 import type { SetCashDto } from './dto/set-cash.dto.js';
@@ -11,6 +13,8 @@ import type { CashBreakdownDto } from './dto/cash-breakdown.dto.js';
 import type { GasResponseDto } from './dto/gas-query.dto.js';
 import type { SyncStatusQueryDto } from './dto/sync-status-query.dto.js';
 import type { PortfolioSyncResponseDto } from './dto/portfolio-sync-response.dto.js';
+import type { PortfolioResponseDto, PortfolioSingleChainResponseDto } from './dto/portfolio-response.dto.js';
+import type { TradeStatsResponseDto } from './dto/trade-stats-response.dto.js';
 
 /**
  * System repository — Prisma queries for portfolio_meta and portfolio_sync.
@@ -179,6 +183,296 @@ export class SystemRepository {
       take: limit,
     });
     return rows.map((r) => this.mapSync(r));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Portfolio
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build a portfolio snapshot for a single chain.
+   *
+   * Mirrors the legacy db-query.js `get-portfolio --chain X` branch
+   * (lines 457-478). Discriminates on `mode` to select positions vs
+   * paper_positions. Returns open/partial_exit positions only.
+   */
+  async getPortfolioForChain(
+    chain: string,
+    mode: 'real' | 'paper',
+  ): Promise<Omit<PortfolioSingleChainResponseDto, '_mode'>> {
+    const safeIdRow = await this.prisma.portfolioMeta.findUnique({ where: { key: 'safe_id' } });
+    const safeId = safeIdRow?.value ?? null;
+
+    const cashKey = `cash_${chain}`;
+    const cashRow = await this.prisma.portfolioMeta.findUnique({ where: { key: cashKey } });
+    const cash = parseFloat(cashRow?.value ?? '0');
+
+    const depositKey = `total_deposited_${chain}`;
+    const depositRow = await this.prisma.portfolioMeta.findUnique({ where: { key: depositKey } });
+    const totalDeposited = parseFloat(depositRow?.value ?? '0');
+
+    let positions: unknown[];
+    if (mode === 'paper') {
+      const rows = await this.prisma.paperPosition.findMany({
+        where: { chain, status: { in: ['open', 'partial_exit'] } },
+        orderBy: { createdAt: 'desc' },
+      });
+      positions = rows.map((p) => ({
+        ...p,
+        take_profit_levels: (() => {
+          try {
+            return JSON.parse(p.takeProfitLevels) as unknown;
+          } catch {
+            return [];
+          }
+        })(),
+      }));
+    } else {
+      const rows = await this.prisma.position.findMany({
+        where: { chain, status: { in: ['open', 'partial_exit'] } },
+        orderBy: { createdAt: 'desc' },
+      });
+      positions = rows.map((p) => ({
+        ...p,
+        take_profit_levels: (() => {
+          try {
+            return JSON.parse(p.takeProfitLevels) as unknown;
+          } catch {
+            return [];
+          }
+        })(),
+      }));
+    }
+
+    const positionValue = (
+      positions as Array<{ currentPrice?: number | null; entryPrice?: number; quantity?: number }>
+    ).reduce((sum, p) => sum + (p.currentPrice ?? p.entryPrice ?? 0) * (p.quantity ?? 0), 0);
+
+    return {
+      safe_id: safeId,
+      chain,
+      cash,
+      total_deposited: totalDeposited,
+      positions,
+      total_value: Math.round((cash + positionValue) * 100) / 100,
+    };
+  }
+
+  /**
+   * Build a portfolio snapshot across all known chains.
+   *
+   * Mirrors the legacy db-query.js `get-portfolio` (no chain arg) branch
+   * (lines 479-497). Iterates `getAllChains()` — NOT just ACTIVE_CHAINS —
+   * to match legacy parity (SPEC §P5b plan, risk §6).
+   */
+  async getPortfolioAllChains(mode: 'real' | 'paper'): Promise<Omit<PortfolioResponseDto, '_mode'>> {
+    const safeIdRow = await this.prisma.portfolioMeta.findUnique({ where: { key: 'safe_id' } });
+    const safeId = safeIdRow?.value ?? null;
+
+    // Load all open/partial_exit positions (both tables in one query each).
+    let allPositions: Array<{
+      chain: string;
+      currentPrice?: number | null;
+      entryPrice: number;
+      quantity: number;
+      takeProfitLevels: string;
+      [key: string]: unknown;
+    }>;
+    if (mode === 'paper') {
+      allPositions = await this.prisma.paperPosition.findMany({
+        where: { status: { in: ['open', 'partial_exit'] } },
+        orderBy: { createdAt: 'desc' },
+      });
+    } else {
+      allPositions = await this.prisma.position.findMany({
+        where: { status: { in: ['open', 'partial_exit'] } },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    // Load all cash_ meta keys in one query.
+    const cashRows = await this.prisma.portfolioMeta.findMany({
+      where: { key: { startsWith: 'cash_' } },
+    });
+    const cashByChain: Record<string, number> = {};
+    for (const row of cashRows) {
+      const c = row.key.slice('cash_'.length);
+      if (c) cashByChain[c] = parseFloat(row.value ?? '0');
+    }
+
+    const chains: Record<string, { cash: number; positions: unknown[]; total_value: number }> = {};
+    for (const c of getAllChains()) {
+      const cPositions = allPositions
+        .filter((p) => p.chain === c)
+        .map((p) => ({
+          ...p,
+          take_profit_levels: (() => {
+            try {
+              return JSON.parse(p.takeProfitLevels) as unknown;
+            } catch {
+              return [];
+            }
+          })(),
+        }));
+      const cCash = cashByChain[c] ?? 0;
+      const positionValue = cPositions.reduce(
+        (sum, p) =>
+          sum +
+          ((p as { currentPrice?: number | null }).currentPrice ?? (p as { entryPrice: number }).entryPrice) *
+            (p as { quantity: number }).quantity,
+        0,
+      );
+      chains[c] = {
+        cash: cCash,
+        positions: cPositions,
+        total_value: Math.round((cCash + positionValue) * 100) / 100,
+      };
+    }
+
+    const totalValue = Object.values(chains).reduce((sum, c) => sum + c.total_value, 0);
+    return { safe_id: safeId, chains, total_value: Math.round(totalValue * 100) / 100 };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Trade stats
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Aggregate trade statistics.
+   *
+   * Mirrors legacy db-query.js `get-trade-stats` (lines 1447-1498).
+   * Uses $queryRaw with Prisma.sql tagged template so the raw result
+   * columns are typed explicitly — avoids the silent snake→camelCase
+   * null bug (recurring failure pattern, SPEC P5b plan risk §3).
+   *
+   * The `mode` parameter selects the correct receipts table (paper_receipts
+   * for stats when PAPER_MODE — mirrors PAPER_VARIANT routing in legacy).
+   *
+   * NOTE: SQLite returns bigint for COUNT(*) via $queryRaw. Number() cast is
+   * applied explicitly on every numeric field.
+   */
+  async getTradeStats(
+    chain: string | undefined,
+    mode: 'real' | 'paper',
+  ): Promise<Omit<TradeStatsResponseDto, '_mode'>> {
+    // Select the correct table based on mode.
+    // Paper mode: receipts table is paper_receipts (matches legacy PAPER_VARIANT routing).
+    // Real mode: trades table.
+    const table = mode === 'paper' ? 'paper_receipts' : 'trades';
+
+    // Raw aggregate — explicit snake_case column aliases match the result row interface.
+    interface AggRow {
+      total_trades: bigint | number;
+      wins: bigint | number;
+      losses: bigint | number;
+      avg_win_percent: number | null;
+      avg_loss_percent: number | null;
+      total_pnl_usd: number | null;
+      best_trade_pnl: number | null;
+      worst_trade_pnl: number | null;
+    }
+
+    let aggRows: AggRow[];
+    if (chain) {
+      aggRows = await this.prisma.$queryRaw<AggRow[]>(Prisma.sql`
+        SELECT
+          COUNT(*) as total_trades,
+          SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
+          SUM(CASE WHEN pnl_usd <= 0 THEN 1 ELSE 0 END) as losses,
+          ROUND(AVG(CASE WHEN pnl_usd > 0 THEN pnl_percent END), 2) as avg_win_percent,
+          ROUND(AVG(CASE WHEN pnl_usd <= 0 THEN pnl_percent END), 2) as avg_loss_percent,
+          ROUND(SUM(pnl_usd), 2) as total_pnl_usd,
+          MAX(pnl_usd) as best_trade_pnl,
+          MIN(pnl_usd) as worst_trade_pnl
+        FROM ${Prisma.raw(table)} WHERE pnl_usd IS NOT NULL AND chain = ${chain}
+      `);
+    } else {
+      aggRows = await this.prisma.$queryRaw<AggRow[]>(Prisma.sql`
+        SELECT
+          COUNT(*) as total_trades,
+          SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
+          SUM(CASE WHEN pnl_usd <= 0 THEN 1 ELSE 0 END) as losses,
+          ROUND(AVG(CASE WHEN pnl_usd > 0 THEN pnl_percent END), 2) as avg_win_percent,
+          ROUND(AVG(CASE WHEN pnl_usd <= 0 THEN pnl_percent END), 2) as avg_loss_percent,
+          ROUND(SUM(pnl_usd), 2) as total_pnl_usd,
+          MAX(pnl_usd) as best_trade_pnl,
+          MIN(pnl_usd) as worst_trade_pnl
+        FROM ${Prisma.raw(table)} WHERE pnl_usd IS NOT NULL
+      `);
+    }
+
+    // Explicit per-field extraction — never trust implicit snake→camelCase mapping.
+    const agg = aggRows[0] ?? {};
+    const totalTrades = Number(agg.total_trades ?? 0);
+    const wins = Number(agg.wins ?? 0);
+    const losses = Number(agg.losses ?? 0);
+    const avgWinPercent = agg.avg_win_percent != null ? Number(agg.avg_win_percent) : null;
+    const avgLossPercent = agg.avg_loss_percent != null ? Number(agg.avg_loss_percent) : null;
+    const totalPnlUsd = agg.total_pnl_usd != null ? Number(agg.total_pnl_usd) : null;
+    const bestTradePnl = agg.best_trade_pnl != null ? Number(agg.best_trade_pnl) : null;
+    const worstTradePnl = agg.worst_trade_pnl != null ? Number(agg.worst_trade_pnl) : null;
+
+    // Cash and initial balance — same queries as legacy (lines 1470-1481).
+    let cash: number;
+    let initialBalance: number;
+    if (chain) {
+      const cashRow = await this.prisma.portfolioMeta.findUnique({ where: { key: `cash_${chain}` } });
+      cash = parseFloat(cashRow?.value ?? '0');
+      const depositRow = await this.prisma.portfolioMeta.findUnique({ where: { key: `total_deposited_${chain}` } });
+      initialBalance = parseFloat(depositRow?.value ?? '0');
+    } else {
+      const cashRows2 = await this.prisma.portfolioMeta.findMany({ where: { key: { startsWith: 'cash_' } } });
+      cash = cashRows2.reduce((sum, r) => sum + parseFloat(r.value ?? '0'), 0);
+      const depositRows = await this.prisma.portfolioMeta.findMany({
+        where: { key: { startsWith: 'total_deposited_' } },
+      });
+      initialBalance = depositRows.reduce((sum, r) => sum + parseFloat(r.value ?? '0'), 0);
+    }
+
+    // Open position value — same table selection as legacy (lines 1483-1488).
+    let openPositions: Array<{
+      valueUsd?: number | null;
+      currentPrice?: number | null;
+      entryPrice: number;
+      quantity: number;
+    }>;
+    if (mode === 'paper') {
+      const rows = chain
+        ? await this.prisma.paperPosition.findMany({ where: { status: { in: ['open', 'partial_exit'] }, chain } })
+        : await this.prisma.paperPosition.findMany({ where: { status: { in: ['open', 'partial_exit'] } } });
+      openPositions = rows;
+    } else {
+      const rows = chain
+        ? await this.prisma.position.findMany({ where: { status: { in: ['open', 'partial_exit'] }, chain } })
+        : await this.prisma.position.findMany({ where: { status: { in: ['open', 'partial_exit'] } } });
+      openPositions = rows;
+    }
+
+    const positionValue = openPositions.reduce(
+      (sum, p) => sum + (p.valueUsd ?? (p.currentPrice ?? p.entryPrice) * p.quantity),
+      0,
+    );
+    const totalValue = cash + positionValue;
+
+    const winRate = totalTrades > 0 ? Math.round((wins / totalTrades) * 100) : 0;
+    const totalReturnPercent =
+      initialBalance > 0 ? Math.round(((totalValue - initialBalance) / initialBalance) * 10000) / 100 : 0;
+
+    return {
+      total_trades: totalTrades,
+      wins,
+      losses,
+      avg_win_percent: avgWinPercent,
+      avg_loss_percent: avgLossPercent,
+      total_pnl_usd: totalPnlUsd,
+      best_trade_pnl: bestTradePnl,
+      worst_trade_pnl: worstTradePnl,
+      win_rate: winRate,
+      total_return_percent: totalReturnPercent,
+      current_value: Math.round(totalValue * 100) / 100,
+      initial_balance: initialBalance,
+      ...(chain ? { chain } : {}),
+    };
   }
 }
 

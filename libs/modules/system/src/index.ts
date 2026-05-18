@@ -1,9 +1,13 @@
 export { SystemModule } from './system.module.js';
-export { SystemService } from './system.service.js';
+export { SystemService, SYNC_POSITION_RECONCILE_QUEUE } from './system.service.js';
 export { SystemRepository } from './system.repository.js';
 export { MetaController } from './controllers/meta.controller.js';
 export { CashController } from './controllers/cash.controller.js';
 export { PortfolioSyncController } from './controllers/portfolio-sync.controller.js';
+export { PortfolioController } from './controllers/portfolio.controller.js';
+export { TradeStatsController } from './controllers/trade-stats.controller.js';
+export { ChainsController } from './controllers/chains.controller.js';
+export { SyncPortfolioController } from './controllers/sync-portfolio.controller.js';
 export * from './dto/meta-query.dto.js';
 export * from './dto/set-meta.dto.js';
 export * from './dto/meta-response.dto.js';
@@ -13,6 +17,14 @@ export * from './dto/cash-breakdown.dto.js';
 export * from './dto/gas-query.dto.js';
 export * from './dto/sync-status-query.dto.js';
 export * from './dto/portfolio-sync-response.dto.js';
+// P5b-PR2: new DTO exports
+export * from './dto/portfolio-query.dto.js';
+export * from './dto/portfolio-response.dto.js';
+export * from './dto/trade-stats-query.dto.js';
+export * from './dto/trade-stats-response.dto.js';
+export * from './dto/chains-response.dto.js';
+export * from './dto/chain-config-response.dto.js';
+export * from './dto/sync-portfolio.dto.js';
 // P3g2 PR-E: portfolio-report queue constants
 export { PORTFOLIO_REPORT_QUEUE, PORTFOLIO_REPORT_JOB_OPTIONS } from './jobs/queue-names.js';
 export { PortfolioReportProcessor } from './jobs/portfolio-report.processor.js';

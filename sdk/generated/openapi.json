@@ -816,6 +816,22 @@
         "required": ["key", "value"],
         "type": "object"
       },
+      "SyncPortfolioDto": {
+        "properties": {
+          "chain": {
+            "description": "Chain to reconcile (e.g. base, solana, ethereum)",
+            "type": "string"
+          },
+          "trigger": {
+            "default": "manual",
+            "description": "Trigger reason for this sync. Defaults to \"manual\".",
+            "enum": ["periodic", "post_trade", "manual"],
+            "type": "string"
+          }
+        },
+        "required": ["chain"],
+        "type": "object"
+      },
       "UpdatePositionDto": {
         "properties": {
           "current_price": {
@@ -3165,6 +3181,55 @@
         "tags": ["system"]
       }
     },
+    "/v1/system/chains": {
+      "get": {
+        "operationId": "ChainsController_getChains",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "{ active: string[], all: string[] }"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List active and all known chains",
+        "tags": ["system"]
+      }
+    },
+    "/v1/system/chains/{chain}": {
+      "get": {
+        "operationId": "ChainsController_getChainConfig",
+        "parameters": [
+          {
+            "description": "Chain identifier (e.g. base, solana, ethereum)",
+            "in": "path",
+            "name": "chain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full chain configuration including portfolio rules"
+          },
+          "404": {
+            "description": "Unknown chain"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get configuration for a specific chain",
+        "tags": ["system"]
+      }
+    },
     "/v1/system/gas": {
       "get": {
         "operationId": "CashController_getGas",
@@ -3256,6 +3321,81 @@
         "tags": ["system"]
       }
     },
+    "/v1/system/portfolio": {
+      "get": {
+        "operationId": "PortfolioController_getPortfolio",
+        "parameters": [
+          {
+            "description": "Filter to a single chain (e.g. base, solana)",
+            "in": "query",
+            "name": "chain",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Portfolio mode override — defaults to PAPER_MODE config value",
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "enum": ["real", "paper"],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portfolio snapshot with positions and cash balances"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get portfolio snapshot (all chains or a specific chain)",
+        "tags": ["system"]
+      }
+    },
+    "/v1/system/sync-portfolio": {
+      "post": {
+        "operationId": "SyncPortfolioController_syncPortfolio",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncPortfolioDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Job enqueued (real mode) or skipped (paper mode)"
+          },
+          "400": {
+            "description": "Validation error — missing chain or invalid trigger"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden — dashboard role cannot enqueue jobs"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Enqueue a portfolio reconcile job (fire-and-forget)",
+        "tags": ["system"]
+      }
+    },
     "/v1/system/sync-status": {
       "get": {
         "operationId": "PortfolioSyncController_getSyncStatus",
@@ -3291,6 +3431,44 @@
           }
         ],
         "summary": "List portfolio sync history",
+        "tags": ["system"]
+      }
+    },
+    "/v1/system/trade-stats": {
+      "get": {
+        "operationId": "TradeStatsController_getTradeStats",
+        "parameters": [
+          {
+            "description": "Filter stats to a single chain (e.g. base, solana)",
+            "in": "query",
+            "name": "chain",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Portfolio mode override — defaults to PAPER_MODE config value",
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "enum": ["real", "paper"],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trade statistics: wins/losses/PnL/win-rate/returns"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get aggregated trade statistics",
         "tags": ["system"]
       }
     },

@@ -12,13 +12,22 @@ const mockRepo = {
   setCash: vi.fn(),
   getGas: vi.fn(),
   getSyncStatus: vi.fn(),
+  getPortfolioForChain: vi.fn(),
+  getPortfolioAllChains: vi.fn(),
+  getTradeStats: vi.fn(),
 } as unknown as SystemRepository;
+
+// Minimal Queue mock for @InjectQueue('position-reconcile')
+const mockQueue = {
+  add: vi.fn().mockResolvedValue({ id: 'mock-job-id' }),
+} as unknown as import('bullmq').Queue;
 
 function makeConfig(paperMode = false): ConfigService {
   return {
     get: (key: string) => {
       if (key === 'PAPER_MODE') return paperMode ? 'true' : 'false';
       if (key === 'SAFE_ID') return 'ci-test';
+      if (key === 'ACTIVE_CHAINS') return 'base';
       return undefined;
     },
   } as unknown as ConfigService;
@@ -29,7 +38,7 @@ describe('SystemService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    svc = new SystemService(mockRepo, makeConfig());
+    svc = new SystemService(mockRepo, makeConfig(), mockQueue);
   });
 
   it('getMeta delegates to repo and appends _mode=real', async () => {
@@ -41,7 +50,7 @@ describe('SystemService', () => {
   });
 
   it('getMeta appends _mode=paper when PAPER_MODE=true', async () => {
-    svc = new SystemService(mockRepo, makeConfig(true));
+    svc = new SystemService(mockRepo, makeConfig(true), mockQueue);
     (mockRepo.getMeta as ReturnType<typeof vi.fn>).mockResolvedValue({ key: 'k', value: 'v' });
     const result = await svc.getMeta('k');
     expect(result._mode).toBe('paper');

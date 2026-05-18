@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { SetCashDto } from '../models/SetCashDto';
 import type { SetMetaDto } from '../models/SetMetaDto';
+import type { SyncPortfolioDto } from '../models/SyncPortfolioDto';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import type { BaseHttpRequest } from '../core/BaseHttpRequest';
 export class SystemService {
@@ -114,6 +115,35 @@ export class SystemService {
     });
   }
   /**
+   * List active and all known chains
+   * @returns any { active: string[], all: string[] }
+   * @throws ApiError
+   */
+  public chainsControllerGetChains(): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'GET',
+      url: '/v1/system/chains',
+    });
+  }
+  /**
+   * Get configuration for a specific chain
+   * @param chain Chain identifier (e.g. base, solana, ethereum)
+   * @returns any Full chain configuration including portfolio rules
+   * @throws ApiError
+   */
+  public chainsControllerGetChainConfig(chain: string): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'GET',
+      url: '/v1/system/chains/{chain}',
+      path: {
+        chain: chain,
+      },
+      errors: {
+        404: `Unknown chain`,
+      },
+    });
+  }
+  /**
    * Get gas token balance for a chain
    * @param chain Chain identifier
    * @returns any Gas info: { chain, symbol, balance, price, value_usd }
@@ -167,6 +197,42 @@ export class SystemService {
     });
   }
   /**
+   * Get portfolio snapshot (all chains or a specific chain)
+   * @param chain Filter to a single chain (e.g. base, solana)
+   * @param mode Portfolio mode override — defaults to PAPER_MODE config value
+   * @returns any Portfolio snapshot with positions and cash balances
+   * @throws ApiError
+   */
+  public portfolioControllerGetPortfolio(chain?: string, mode?: 'real' | 'paper'): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'GET',
+      url: '/v1/system/portfolio',
+      query: {
+        chain: chain,
+        mode: mode,
+      },
+    });
+  }
+  /**
+   * Enqueue a portfolio reconcile job (fire-and-forget)
+   * @param requestBody
+   * @returns any Job enqueued (real mode) or skipped (paper mode)
+   * @throws ApiError
+   */
+  public syncPortfolioControllerSyncPortfolio(requestBody: SyncPortfolioDto): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'POST',
+      url: '/v1/system/sync-portfolio',
+      body: requestBody,
+      mediaType: 'application/json',
+      errors: {
+        400: `Validation error — missing chain or invalid trigger`,
+        401: `Unauthorized`,
+        403: `Forbidden — dashboard role cannot enqueue jobs`,
+      },
+    });
+  }
+  /**
    * List portfolio sync history
    * @param chain Filter by chain
    * @param limit Maximum number of rows to return
@@ -180,6 +246,23 @@ export class SystemService {
       query: {
         chain: chain,
         limit: limit,
+      },
+    });
+  }
+  /**
+   * Get aggregated trade statistics
+   * @param chain Filter stats to a single chain (e.g. base, solana)
+   * @param mode Portfolio mode override — defaults to PAPER_MODE config value
+   * @returns any Trade statistics: wins/losses/PnL/win-rate/returns
+   * @throws ApiError
+   */
+  public tradeStatsControllerGetTradeStats(chain?: string, mode?: 'real' | 'paper'): CancelablePromise<any> {
+    return this.httpRequest.request({
+      method: 'GET',
+      url: '/v1/system/trade-stats',
+      query: {
+        chain: chain,
+        mode: mode,
       },
     });
   }
