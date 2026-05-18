@@ -51,7 +51,14 @@ function runCclaw(cmd) {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     return JSON.parse(raw);
-  } catch {
+  } catch (err) {
+    // Surface failures to system.log so plumbing regressions (auth missing,
+    // cclaw not in PATH, API down) don't silently convert emergency-mode
+    // into a no-op while the wrapper reports {status:'ok'}. See P5b deletion
+    // security-auditor finding #1+#2.
+    const stderr = err?.stderr?.toString?.() ?? '';
+    const status = err?.status ?? 'unknown';
+    log('error', 'emergency-executor', `runCclaw failed: cmd="${cmd}" status=${status} stderr=${stderr.slice(0, 200)}`);
     return null;
   }
 }
