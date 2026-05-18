@@ -15,33 +15,33 @@
 
 A silent failure looks like a quiet cycle — that is the single worst Executor path. When in doubt, log at `error` or `critical`, never `warn`.
 
-## Chain Discovery (legacy hold-back)
+## Chain Discovery
 ```bash
-node scripts/db-query.js get-chains
+cclaw system chains
 ```
 ```bash
-node scripts/db-query.js get-chain-config --chain <CHAIN>
+cclaw system chain-config --chain <CHAIN>
 ```
 
-## API CLI (`cclaw`) and legacy CLI (`db-query.js`)
+## API CLI (`cclaw`)
 
-Prefer `cclaw` where listed; use legacy `node scripts/db-query.js` for hold-backs (pending P5b/P6 expansion). Commands without a `cclaw` equivalent are annotated `(legacy hold-back)`.
+All wallet data is accessed via `cclaw <resource> <action>`. Run one command per exec call.
 
-### Portfolio & Cash (legacy hold-back)
+### Portfolio & Cash
 ```bash
-node scripts/db-query.js get-portfolio
+cclaw system portfolio
 ```
 ```bash
-node scripts/db-query.js get-portfolio --chain <CHAIN>
+cclaw system portfolio --chain <CHAIN>
 ```
 ```bash
-node scripts/db-query.js get-cash
+cclaw system cash get
 ```
 ```bash
-node scripts/db-query.js get-cash --chain <CHAIN>
+cclaw system cash get --chain <CHAIN>
 ```
 ```bash
-node scripts/db-query.js get-meta --key my_key
+cclaw system meta get --key my_key
 ```
 
 ### Positions (Human Interaction Only)
@@ -81,9 +81,8 @@ cclaw orders list --status approved --action sell
 cclaw orders get --id trade-001
 ```
 ```bash
-node scripts/db-query.js get-order-history --limit 20
+cclaw orders history --limit 20
 ```
-(legacy hold-back)
 
 ### Receipts
 ```bash
@@ -101,27 +100,26 @@ cclaw heartbeat get --agent executor
 cclaw heartbeat ping --agent executor --check process_orders
 ```
 ```bash
-node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":1,"buy_orders_processed":0,"success_count":1,"status":"ok"}'
+cclaw logs executor append --json '{"sell_orders_processed":1,"buy_orders_processed":0,"success_count":1,"status":"ok"}'
 ```
-(legacy hold-back — `cclaw agent-logs create` pending P5b)
 
-### Portfolio Sync (On-Chain — legacy hold-back)
+### Portfolio Sync (On-Chain)
 ```bash
-node scripts/db-query.js sync-portfolio --chain <CHAIN>
+cclaw system sync-portfolio --chain <CHAIN>
 ```
 ```bash
-node scripts/db-query.js sync-portfolio --chain <CHAIN> --trigger post_trade
+cclaw system sync-portfolio --chain <CHAIN> --trigger post_trade
 ```
 ```bash
-node scripts/db-query.js get-sync-status
+cclaw system sync-status
 ```
 ```bash
-node scripts/db-query.js get-sync-status --chain <CHAIN>
+cclaw system sync-status --chain <CHAIN>
 ```
 ```bash
-node scripts/db-query.js set-onchain-balance --id <position_id> --balance 1000.5
+cclaw positions set-onchain-balance --id <position_id> --balance 1000.5
 ```
-`sync-portfolio` returns `{ok: false, message: 'Portfolio sync skipped...'}` when on-chain sync is disabled — proceed without action.
+`cclaw system sync-portfolio` returns 202 immediately (fire-and-forget enqueue). Check result next cycle via `cclaw system sync-status`.
 
 ## Trade Execution
 
@@ -153,9 +151,8 @@ On-chain portfolio sync is handled by the PortfolioSyncProcessor (NestJS worker)
 
 Read sync status:
 ```bash
-node scripts/db-query.js get-sync-status
+cclaw system sync-status
 ```
-(legacy hold-back)
 
 ## Emergency & Alerts
 
@@ -190,7 +187,7 @@ Alerts route to the correct Telegram supergroup topic automatically. `cclaw aler
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ACTIVE_CHAINS` | Per `get-chains` | Comma-separated list of active chains. Run `node scripts/db-query.js get-chains` to see available chains. |
+| `ACTIVE_CHAINS` | Per `cclaw system chains` | Comma-separated list of active chains. Run `cclaw system chains` to see available chains. |
 
 ## Important Notes
 

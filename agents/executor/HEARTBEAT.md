@@ -16,9 +16,8 @@ If both empty → reply HEARTBEAT_OK.
 
 **If either call itself fails (API unreachable, exits non-zero, returns malformed JSON): do NOT reply HEARTBEAT_OK.** A silent failure looks identical to a quiet cycle — Observer cannot distinguish them unless you shout. Required on failure:
 ```bash
-node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":0,"buy_orders_processed":0,"success_count":0,"fail_count":0,"status":"error"}'
+cclaw logs executor append --json '{"sell_orders_processed":0,"buy_orders_processed":0,"success_count":0,"fail_count":0,"status":"error"}'
 ```
-(legacy hold-back)
 ```bash
 cclaw alerts send --type trade_failed --agent executor --message "order fetch failed: <reason>"
 ```
@@ -52,9 +51,8 @@ Status will progress to `executed` / `failed` / `rejected`. Sentinel may see pos
 
 **If `cclaw orders execute` returns 4xx/5xx or no response:**
 ```bash
-node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":0,"buy_orders_processed":0,"success_count":0,"fail_count":1,"status":"error"}'
+cclaw logs executor append --json '{"sell_orders_processed":0,"buy_orders_processed":0,"success_count":0,"fail_count":1,"status":"error"}'
 ```
-(legacy hold-back)
 ```bash
 cclaw alerts send --type trade_failed --agent executor --message "execute enqueue failed for order <ID>: <reason>"
 ```
@@ -63,14 +61,13 @@ cclaw alerts send --type trade_failed --agent executor --message "execute enqueu
 
 ### Step 3: Log + done
 ```bash
-node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":N,"buy_orders_processed":N,"success_count":N,"status":"ok"}'
+cclaw logs executor append --json '{"sell_orders_processed":N,"buy_orders_processed":N,"success_count":N,"status":"ok"}'
 ```
-(legacy hold-back)
 ```bash
 cclaw heartbeat ping --agent executor --check process_orders
 ```
 
-**If `add-executor-log` or `cclaw heartbeat ping` fails:** this is a critical condition — a stuck heartbeat masquerades as a healthy cycle and Observer's dead-agent detection relies on these timestamps. Fire `cclaw alerts send --type system_health --agent executor --message "log/heartbeat write failed: <reason>"`. Observer's audit log provides the correlation signal.
+**If `cclaw logs executor append` or `cclaw heartbeat ping` fails:** this is a critical condition — a stuck heartbeat masquerades as a healthy cycle and Observer's dead-agent detection relies on these timestamps. Fire `cclaw alerts send --type system_health --agent executor --message "log/heartbeat write failed: <reason>"`. Observer's audit log provides the correlation signal.
 
 Report results: list each order enqueued, their current status (from Step 1 poll or next-cycle check), and any errors.
 

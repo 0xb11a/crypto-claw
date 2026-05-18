@@ -40,17 +40,14 @@ cclaw receipts list --status reverted --limit 10
 cclaw orders list --status failed --limit 20
 ```
 ```bash
-node scripts/db-query.js get-executor-log --limit 30
+cclaw logs executor list --limit 30
 ```
-(legacy hold-back)
 ```bash
-node scripts/db-query.js get-sentinel-log --limit 30
+cclaw logs sentinel list --limit 30
 ```
-(legacy hold-back)
 ```bash
-node scripts/db-query.js get-research-log --limit 30
+cclaw logs research list --limit 30
 ```
-(legacy hold-back)
 ```bash
 cclaw alerts list
 ```
@@ -67,26 +64,23 @@ cclaw orders list --status queued_in_safe --limit 20
 cclaw orders list --status queued_in_squads --limit 20
 ```
 ```bash
-node scripts/db-query.js get-meta --key last_activity_wallets_bg_at
+cclaw system meta get --key last_activity_wallets_bg_at
 ```
-(legacy hold-back)
 ```bash
-node scripts/db-query.js get-meta --key last_score_wallets_bg_at
+cclaw system meta get --key last_score_wallets_bg_at
 ```
-(legacy hold-back)
 ```bash
-node scripts/db-query.js get-smart-money-signals --since 2h --limit 1
+cclaw wallets signals --since 2h --limit 1
 ```
-(legacy hold-back)
 
 ### Step 2: Check Signer Balances
 
-[cclaw expansion pending P5b — `cclaw executor check-signer-balances` not yet implemented; `scripts/check-signer-balances.js` was deleted in P5. Check signer balance status from executor_log errors and system.log instead.]
+[cclaw expansion pending — `cclaw executor check-signer-balances` not yet implemented; `scripts/check-signer-balances.js` was deleted in P5. Check signer balance status from executor_log errors and system.log instead.]
 
 ```bash
-node scripts/db-query.js get-executor-log --limit 5
+cclaw logs executor list --limit 5
 ```
-(legacy hold-back — look for `no_signer_key` errors or `signer_low_balance` entries)
+(look for `no_signer_key` errors or `signer_low_balance` entries)
 
 If any `no_signer_key` or low-balance error appears in executor_log or system.log, send an alert for each affected chain:
 
@@ -102,7 +96,7 @@ For each error or failure found, run through the full signal catalogue below and
 
 **A. Code bugs (→ GitHub issue via create-gh-issue skill)**
 1. Execution failures: `tx_failed`, `validation_failed`, `reverted` receipts with a reproducible cause (not just transient 429).
-2. Silent crashes: an agent's log table has `status: "error"` but no matching `POST /v1/alerts/send` audit entry near that timestamp. Compute `SINCE=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ)` then `cclaw system audit --path /v1/alerts/send --since "$SINCE"` (the `--since` flag requires ISO format). The agent tried to record a failure but the alerting path itself broke.
+2. Silent crashes: an agent's log table has `status: "error"` but no matching `POST /v1/alerts/send` audit entry near that timestamp. The `--since` flag requires an ISO timestamp — compute SINCE manually (5 min before the log row's `created_at`) and run `cclaw system audit --path /v1/alerts/send --since "<ISO timestamp in YYYY-MM-DDTHH:MM:SSZ format>"`. The agent tried to record a failure but the alerting path itself broke.
 3. Orphan approved trades: Research `research_log` row shows `trades_proposed: N` but fewer than N matching `orders` rows created in the following 10 min — the handoff dropped trades.
 4. Stuck-token loops: the same token has >3 `validation_failed` receipts in the last 2 h — discovery/dedup is stuck re-proposing a bad token.
 5. Warn pattern: the same warn shape (same source + same message pattern) fired >5 times in a 30-min window — "self-healing" is masking a real bug.
@@ -114,7 +108,7 @@ For each error or failure found, run through the full signal catalogue below and
 3. Memory-backup loop stopped: `system/memory-backup` heartbeat stale > 30 min — use `system_health`.
 4. Alert storms: `cclaw alerts list` has >3 identical `symbol + alert_type` entries in 10 min — use `system_health`.
 5. Background-loop stale: `last_activity_wallets_bg_at` missing or older than 90 min (3× 30-min cadence) → signal feed stalled; `last_score_wallets_bg_at` missing or older than 30 min (3× 10-min cadence) → proposed-wallet queue not draining. Use `system_health`.
-6. Silent signal regression: `get-smart-money-signals --since 2h` returns `[]` AND `last_activity_wallets_bg_at` is fresh (loop running but producing zero swaps — possible upstream API regression). Skip if Step B.5 already fired on `last_activity_wallets_bg_at`. Use `system_health`.
+6. Silent signal regression: `cclaw wallets signals --since 2h --limit 1` returns `[]` AND `last_activity_wallets_bg_at` is fresh (loop running but producing zero swaps — possible upstream API regression). Skip if Step B.5 already fired on `last_activity_wallets_bg_at`. Use `system_health`.
 7. Model failure / emergency mode activation.
 8. Configuration drift (env var missing, wrong model, OpenClaw version regression).
 9. Signer balance below threshold (Step 2 already handles this).
@@ -149,9 +143,8 @@ cclaw alerts send --type system_health --agent observer --message "<concise desc
 ### Step 6: Log the Cycle
 
 ```bash
-node scripts/db-query.js add-observer-log --json '{"errors_analyzed": <N>, "issues_created": <N>, "alerts_sent": <N>, "summary": "<one line>", "status": "ok"}'
+cclaw logs observer append --json '{"errors_analyzed": <N>, "issues_created": <N>, "alerts_sent": <N>, "summary": "<one line>", "status": "ok"}'
 ```
-(legacy hold-back)
 
 ```bash
 cclaw heartbeat ping --agent observer --check triage

@@ -15,7 +15,7 @@
 |-------|---------|---------|-------------------|
 | `info` | Routine step completed. Never actionable. | `scan complete: 30 tokens` | Ignored |
 | `warn` | **Degraded but self-healing.** One retry succeeded, cache miss, fallback source used. | `birdeye 429 — fell back to dexscreener` | Sampled for patterns (>5 same warn / 30 min = GitHub issue) |
-| `error` | **An operation did not complete.** A DB write failed, a pipeline aborted, an order was not created. | `add-order failed: SQLITE_LOCKED` | Each instance is actionable — Observer correlates and files a GitHub issue |
+| `error` | **An operation did not complete.** A DB write failed, a pipeline aborted, an order was not created. | `cclaw orders propose failed: SQLITE_LOCKED` | Each instance is actionable — Observer correlates and files a GitHub issue |
 | `critical` | **Safety/integrity violation.** Possible key leak, emergency-mode trigger, signer drained, data corruption, stuck heartbeat. | `SAFE_SIGNER_KEY missing; refusing execution` | Immediate Telegram alert on next Observer cycle |
 
 **Rule of thumb for agents and script authors:**
@@ -25,80 +25,67 @@
 
 Never log an unhandled exception at `warn` — Observer will not treat it as actionable per-instance, and the failure will go invisible.
 
-## Database CLI (db-query.js)
+## Database CLI (`cclaw`)
 
-All wallet data (positions, trades, orders, alerts, receipts) lives in a SQLite database. Interact with it through `db-query.js` — never access the DB file directly.
+All wallet data (positions, trades, orders, alerts, receipts) lives in a SQLite database. Access it through `cclaw <resource> <action>` (canonical post-P5b) — never access the DB file directly. The legacy `scripts/db-query.js` remains on disk for importers (`heartbeat-check.js`, `promote-pattern.js`, `emergency-*.js`) but is no longer invoked from agent markdown or developer workflows.
 
 ### Chain Discovery
 ```bash
 # List all active chains
-node scripts/db-query.js get-chains
+cclaw system chains
 # → ["base","ethereum","solana"]
 
 # Get config for a specific chain (RPC, explorer, cash token, Safe/Squads addresses)
-node scripts/db-query.js get-chain-config --chain <CHAIN>
+cclaw system chain-config --chain <CHAIN>
 ```
 
 ### Portfolio & Cash
 ```bash
 # Get full portfolio summary (all chains)
-node scripts/db-query.js get-portfolio
+cclaw system portfolio
 
 # Get per-chain portfolio (chain-specific cash + positions + value)
-node scripts/db-query.js get-portfolio --chain <CHAIN>
+cclaw system portfolio --chain <CHAIN>
 
 # Get cash balance (all chains breakdown)
-node scripts/db-query.js get-cash
+cclaw system cash get
 # Get per-chain cash
-node scripts/db-query.js get-cash --chain <CHAIN>
+cclaw system cash get --chain <CHAIN>
 
 # Set cash balance (requires --chain)
-node scripts/db-query.js set-cash --chain <CHAIN> --amount 5000
+cclaw system cash set --chain <CHAIN> --amount 5000
 
 # Get native gas balance (ETH/SOL — gas only, not a position)
-node scripts/db-query.js get-gas
-node scripts/db-query.js get-gas --chain <CHAIN>
+cclaw system gas --chain <CHAIN>
 
 # Get/set arbitrary metadata
-node scripts/db-query.js get-meta --key my_key
-node scripts/db-query.js set-meta --key my_key --value my_value
+cclaw system meta get --key my_key
+cclaw system meta set --key my_key --value my_value
 ```
 
 ### Positions
 ```bash
 # List positions (optionally filter by status and/or symbol)
-node scripts/db-query.js get-positions
-node scripts/db-query.js get-positions --status open
-node scripts/db-query.js get-positions --symbol TOKEN
+cclaw positions list
+cclaw positions list --status open
+cclaw positions list --symbol TOKEN
 
-# Add a new position
-node scripts/db-query.js add-position --json '{
-  "id": "pos-001",
-  "symbol": "TOKEN",
-  "address": "0x...",
-  "chain": "<CHAIN>",
-  "tier": "moonshot",
-  "entry_price": 0.001,
-  "quantity": 10000,
-  "stop_loss": 0.0005,
-  "take_profit_levels": [{"level":1,"price":0.002,"sellPercent":50}]
-}'
+# Get a single position
+cclaw positions get --id pos-001
 
-# Update position fields
-node scripts/db-query.js update-position --id pos-001 --json '{"current_price": 0.0015}'
+# Update a position's on-chain balance
+cclaw positions set-onchain-balance --id pos-001 --balance 10000
 
-# Close position — full exit (auto-calculates P&L)
-node scripts/db-query.js close-position --id pos-001 --json '{"exit_price": 0.002, "exit_reason": "stop_loss"}'
-
-# Close position — partial exit (reduces quantity, tracks cumulative P&L)
-node scripts/db-query.js close-position --id pos-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "take_profit_partial"}'
+# (Position create/close/update lifecycle is owned by ExecuteOrderProcessor — use cclaw orders propose/execute)
 ```
 
 ### Order Execution (Executor)
 ```bash
-# Process a single order atomically (validate → execute → receipt → position → cash → mark done → alert)
-node scripts/process-order.js --order-id trade-001
-# Output: JSON with { ok, order_id, action, status, receipt_id, position_id, executed_price, ... }
+# Enqueue a single order for processing by ExecuteOrderProcessor (returns 202)
+cclaw orders execute --id trade-001
+
+# Check execution result (status progresses to executed/failed/rejected)
+cclaw orders get --id trade-001
 ```
 
 ### Orders (Research/Sentinel → Executor)
@@ -107,24 +94,24 @@ Orders use a status state machine: `pending → approved → executed` (or `reje
 
 ```bash
 # Get all orders (newest first)
-node scripts/db-query.js get-orders
+cclaw orders list
 
-# Get pending orders — not yet executed (oldest first)
-node scripts/db-query.js get-orders --pending
+# Get pending orders
+cclaw orders list --pending
 
 # Get approved orders ready for execution
-node scripts/db-query.js get-orders --status approved --action buy
-node scripts/db-query.js get-orders --status approved --action sell
+cclaw orders list --status approved --action buy
+cclaw orders list --status approved --action sell
 
 # Get single order detail
-node scripts/db-query.js get-order --id trade-001
+cclaw orders get --id trade-001
 
 # Order history (all statuses, newest first)
-node scripts/db-query.js get-order-history --limit 20
-node scripts/db-query.js get-order-history --status rejected
+cclaw orders history --limit 20
+cclaw orders history --status rejected
 
 # Write a buy order (status auto-set: pending in real mode, approved if PAPER_MODE=true or AUTO_APPROVE_BUY=true)
-node scripts/db-query.js add-order --json '{
+cclaw orders propose --json '{
   "id": "trade-001",
   "action": "buy",
   "symbol": "TOKEN",
@@ -139,7 +126,7 @@ node scripts/db-query.js add-order --json '{
 }'
 
 # Write a sell order (auto-approved by sentinel)
-node scripts/db-query.js add-order --json '{
+cclaw orders propose --json '{
   "id": "sell-001",
   "action": "sell",
   "symbol": "TOKEN",
@@ -150,53 +137,38 @@ node scripts/db-query.js add-order --json '{
   "urgency": "immediate"
 }'
 
-# Approve a pending order (human via chat or CLI)
-node scripts/db-query.js approve-order --id trade-001 --by human
+# Approve a pending order
+cclaw orders approve --id trade-001 --by human
 
-# Reject a pending order (never approved — bad idea)
-node scripts/db-query.js reject-order --id trade-001 --reason "low liquidity" --by human
+# Reject a pending order
+cclaw orders reject --id trade-001 --reason "low liquidity"
 
 # Cancel an approved or failed order (changed mind)
-node scripts/db-query.js cancel-order --id trade-001 --reason "market changed" --by human
+cclaw orders cancel --id trade-001 --reason "market changed" --by human
 
 # Retry a failed sell order (re-queue for execution; buys cannot be retried)
-node scripts/db-query.js retry-order --id sell-001 --by human
-
-# Mark order as executed (Executor use)
-node scripts/db-query.js mark-order-executed --id trade-001
-
-# Mark order as failed (Executor use — human can retry sells or cancel)
-node scripts/db-query.js mark-order-executed --id trade-001 --status failed --reason "tx_failed"
+cclaw orders retry --id sell-001 --by human
 ```
 
 ### Receipts (Executor → All)
 ```bash
 # Get recent receipts
-node scripts/db-query.js get-receipts --limit 10
+cclaw receipts list --limit 10
 
-# Write a receipt after execution
-node scripts/db-query.js add-receipt --json '{
-  "id": "rcpt-001",
-  "order_id": "trade-001",
-  "action": "buy",
-  "symbol": "TOKEN",
-  "address": "0x...",
-  "chain": "<CHAIN>",
-  "status": "executed",
-  "safe_tx_hash": "0x...",
-  "onchain_tx_hash": "0x...",
-  "executed_price": 0.00098,
-  "slippage": 0.02
-}'
+# Get receipts by status
+cclaw receipts list --status tx_failed --limit 20
+cclaw receipts list --status executed --limit 10
+
+# (Receipts are written atomically by ExecuteOrderProcessor — not written manually)
 ```
 
 ### Sentinel Alerts (Sentinel → Research)
 ```bash
 # Get unprocessed alerts
-node scripts/db-query.js get-alerts --unprocessed
+cclaw alerts list --unprocessed
 
 # Write an alert
-node scripts/db-query.js add-alert --json '{
+cclaw alerts create --json '{
   "id": "alert-001",
   "symbol": "TOKEN",
   "chain": "<CHAIN>",
@@ -206,77 +178,80 @@ node scripts/db-query.js add-alert --json '{
 }'
 
 # Mark alert as processed
-node scripts/db-query.js mark-alert-processed --id alert-001
+cclaw alerts ack --id alert-001
 ```
 
 ### Watchlist
 ```bash
 # Get current watchlist
-node scripts/db-query.js get-watchlist
+cclaw watchlist list
+
+# Get active watchlist entries
+cclaw watchlist list --status active
 
 # Add token to watchlist
-node scripts/db-query.js add-to-watchlist --json '{
+cclaw watchlist add --json '{
   "symbol": "TOKEN",
   "address": "0x...",
   "chain": "<CHAIN>",
   "reason": "Smart money accumulation",
   "target_entry": 0.001
 }'
+
+# Update a watchlist entry
+cclaw watchlist update --id <ID> --json '{"target_entry": 0.0009}'
+
+# Remove from watchlist
+cclaw watchlist remove --id <ID>
 ```
 
 ### Liquidity Snapshots
 ```bash
 # Get latest liquidity for an address
-node scripts/db-query.js get-liquidity --address 0x... --chain <CHAIN>
+cclaw liquidity list --address 0x... --chain <CHAIN>
 
 # Save new snapshot
-node scripts/db-query.js add-liquidity-snapshot --address 0x... --chain <CHAIN> --liquidity 50000
+cclaw liquidity add --address 0x... --chain <CHAIN> --liquidity 50000
 ```
 
 ### Contract Snapshots
 ```bash
 # Get latest contract safety snapshots for an address
-node scripts/db-query.js get-contract-snapshots --address 0x... --chain <CHAIN>
-node scripts/db-query.js get-contract-snapshots --address 0x... --chain <CHAIN> --limit 10
+cclaw contracts list --address 0x... --chain <CHAIN>
+cclaw contracts list --address 0x... --chain <CHAIN> --limit 10
 
 # Save new contract safety snapshot
-node scripts/db-query.js add-contract-snapshot --address 0x... --chain <CHAIN> --json '<safety_data_json>'
+cclaw contracts add --address 0x... --chain <CHAIN> --json '<safety_data_json>'
 ```
 
 ### Wallet Tracking
 ```bash
 # Get tracked wallets (all)
-node scripts/db-query.js get-tracked-wallets
+cclaw wallets list
 
 # Get tracked wallets by status (proposed, scoring, scored, failed)
-node scripts/db-query.js get-tracked-wallets --status scored
+cclaw wallets list --status scored
+
+# Get tracked wallets by type
+cclaw wallets list --type smart_money
 
 # Add a wallet (type: smart_money, dev, whale, deployer, trader, retail)
 # If type is set, defaults to status='scored'; if null, status='proposed'
-node scripts/db-query.js add-tracked-wallet --json '{
+cclaw wallets add --json '{
   "address": "0x...",
   "chain": "<CHAIN>",
   "label": "Smart Money #3",
   "type": "smart_money"
 }'
 
-# Add a deployer wallet (link to token via notes)
-node scripts/db-query.js add-tracked-wallet --json '{
-  "address": "0x...",
-  "chain": "<CHAIN>",
-  "label": "TOKEN deployer",
-  "type": "deployer",
-  "notes": "Deployer for TOKEN (0xTokenAddress)"
-}'
-
 # Remove a tracked wallet
-node scripts/db-query.js remove-tracked-wallet --address 0x... --chain <CHAIN>
+cclaw wallets remove --address 0x... --chain <CHAIN>
 ```
 
 ### Wallet Scoring Pipeline
 ```bash
 # Propose a wallet for background scoring (fast, no API calls)
-node scripts/db-query.js propose-wallet --json '{
+cclaw wallets propose --json '{
   "address": "0x...",
   "chain": "<CHAIN>",
   "label": "Top holder #3 of TOKEN",
@@ -284,131 +259,79 @@ node scripts/db-query.js propose-wallet --json '{
 }'
 
 # Get wallets waiting to be scored (proposed + failed with retry < 3)
-node scripts/db-query.js get-unscored-wallets
-node scripts/db-query.js get-unscored-wallets --limit 10
+cclaw wallets unscored
+cclaw wallets unscored --limit 10
 
 # Update a wallet's score (used by background scorer)
-node scripts/db-query.js update-wallet-score --address 0x... --chain <CHAIN> --json '{
+cclaw wallets update-score --address 0x... --chain <CHAIN> --json '{
   "score": 78,
   "type": "smart_money",
   "score_breakdown": {"profitability":85,"reputation":70,"volume":80,"activity":75,"consistency":60},
   "status": "scored"
 }'
 ```
-The background scorer (`score-wallets-bg.js`) runs every 10 minutes. Self-seeds by fetching Birdeye top 100 gainers for every active chain every 60 min (~300 wallets/harvest), then scores up to 10 wallets from the queue per cycle (3s between wallets). Each scoring call also harvests token top traders (snowball effect). Wallets that fail scoring are retried up to 3 times.
+The background scorer (WalletScoringProcessor NestJS worker) runs every 10 minutes. Self-seeds by fetching Birdeye top 100 gainers for every active chain every 60 min (~300 wallets/harvest), then scores up to 10 wallets from the queue per cycle. Each scoring call also harvests token top traders (snowball effect). Wallets that fail scoring are retried up to 3 times.
 
-The `source` column tracks how a wallet was discovered: `agent` (manually proposed), `leaderboard` (Birdeye top gainers), `token_traders` (Birdeye token top traders), `holder_extraction` (from holder-distribution.js `--propose`).
+The `source` column tracks how a wallet was discovered: `agent` (manually proposed), `leaderboard` (Birdeye top gainers), `token_traders` (Birdeye token top traders), `holder_extraction`.
 
 ### Heartbeat & Logs
 ```bash
 # Check when agents last ran
-node scripts/db-query.js get-heartbeat --agent <agent_name>
+cclaw heartbeat get --agent <agent_name>
 
 # Get overdue checks (cadence enforced server-side — returns only checks that are due)
-node scripts/db-query.js get-overdue-checks --agent <agent_name>
+cclaw heartbeat overdue --agent <agent_name>
 
 # Update heartbeat timestamp
-node scripts/db-query.js update-heartbeat --agent research --check token_scan
+cclaw heartbeat ping --agent research --check token_scan
 
 # Write agent logs
-node scripts/db-query.js add-sentinel-log --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"status":"ok"}'
-node scripts/db-query.js add-executor-log --json '{"sell_orders_processed":1,"buy_orders_processed":0,"success_count":1,"status":"ok"}'
-node scripts/db-query.js add-research-log --json '{"check_type":"token_scan","tokens_scanned":30,"tokens_analyzed":2,"trades_proposed":1,"summary":"Scanned 30 trending, proposed 1 BUY","status":"ok"}'
-node scripts/db-query.js get-research-log --limit 10
+cclaw logs sentinel append --json '{"check_type":"all","positions_checked":5,"alerts_generated":0,"status":"ok"}'
+cclaw logs executor append --json '{"sell_orders_processed":1,"buy_orders_processed":0,"success_count":1,"status":"ok"}'
+cclaw logs research append --json '{"check_type":"token_scan","tokens_scanned":30,"tokens_analyzed":2,"trades_proposed":1,"summary":"Scanned 30 trending, proposed 1 BUY","status":"ok"}'
+cclaw logs research list --limit 10
 
 # Trade statistics
-node scripts/db-query.js get-trade-stats
+cclaw system trade-stats
 ```
 
 ### Paper Mode (Simulated Trading)
+
+Paper mode (`PAPER_MODE=true`) runs through the same pipeline as real mode. Orders auto-approve, Executor writes to `paper_receipts` and `paper_positions`. Starting cash set via `PAPER_STARTING_BALANCE` env var (default 10000). Paper lifecycle commands (add-paper-position, close-paper-position, set-paper-cash, etc.) are managed internally by ExecuteOrderProcessor — not invoked by agents directly.
+
 ```bash
-# Get paper portfolio (cash, P&L, open positions, closed history, recent trades)
-node scripts/db-query.js get-paper-portfolio
-
-# Get paper cash balance (all chains breakdown)
-node scripts/db-query.js get-paper-cash
-# Get per-chain paper cash
-node scripts/db-query.js get-paper-cash --chain <CHAIN>
-
-# Set paper cash balance (requires --chain)
-node scripts/db-query.js set-paper-cash --chain <CHAIN> --amount 10000
-
-# Paper positions
-node scripts/db-query.js get-paper-positions
-node scripts/db-query.js get-paper-positions --status open
-node scripts/db-query.js get-paper-positions --status closed
-node scripts/db-query.js get-paper-positions --symbol TOKEN
-
-# Add a paper position (auto-deducts value_usd from paper_cash, auto-calculates quantity)
-node scripts/db-query.js add-paper-position --json '{
-  "id": "pp-001",
-  "symbol": "TOKEN",
-  "address": "0x...",
-  "chain": "<CHAIN>",
-  "tier": "moonshot",
-  "entry_price": 0.001,
-  "value_usd": 10,
-  "stop_loss": 0.0005,
-  "take_profit_levels": [{"level":1,"price":0.002,"sellPercent":50}]
-}'
-
-# Update paper position
-node scripts/db-query.js update-paper-position --id pp-001 --json '{"current_price": 0.0015, "value_usd": 15}'
-
-# Close paper position — full exit (auto-calculates P&L, auto-adds sale proceeds to paper_cash)
-node scripts/db-query.js close-paper-position --id pp-001 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
-
-# Close paper position — partial exit (sells portion, adjusts cash for partial proceeds only, accumulates P&L)
-node scripts/db-query.js close-paper-position --id pp-001 --quantity 5000 --json '{"exit_price": 0.002, "exit_reason": "tp1_hit"}'
-
-# Record a paper receipt
-node scripts/db-query.js add-paper-receipt --json '{
-  "id": "pt-001",
-  "order_id": "trade-001",
-  "action": "buy",
-  "symbol": "TOKEN",
-  "address": "0x...",
-  "chain": "<CHAIN>",
-  "tier": "moonshot",
-  "proposed_price": 0.001,
-  "quantity": 10000,
-  "amount": 500
-}'
-
-# Get paper receipts
-node scripts/db-query.js get-paper-receipts
-node scripts/db-query.js get-paper-receipts --limit 10
-
-# Get paper trading statistics (win rate, P&L, return)
-node scripts/db-query.js get-paper-stats
+# Paper mode queries via db-query.js (developer use only — not exposed via cclaw CLI)
+# These are retained in db-query.js for backward compatibility but not part of the cclaw surface:
+#   get-paper-portfolio, get-paper-positions, get-paper-receipts, get-paper-stats
+#   get-paper-cash, set-paper-cash, add-paper-position, update-paper-position, etc.
 ```
 
 ### Portfolio Sync (On-Chain — Real Mode Only)
 ```bash
-# Trigger on-chain portfolio sync for a chain (routes to correct loader based on chain type)
-node scripts/db-query.js sync-portfolio --chain <CHAIN>
-node scripts/db-query.js sync-portfolio --chain <CHAIN> --trigger post_trade
+# Trigger on-chain portfolio sync for a chain (fire-and-forget; returns 202)
+cclaw system sync-portfolio --chain <CHAIN>
+cclaw system sync-portfolio --chain <CHAIN> --trigger post_trade
 
 # Get last sync status (per chain)
-node scripts/db-query.js get-sync-status
-node scripts/db-query.js get-sync-status --chain <CHAIN>
+cclaw system sync-status
+cclaw system sync-status --chain <CHAIN>
 
-# Update a position's on-chain balance (used by sync scripts)
-node scripts/db-query.js set-onchain-balance --id <position_id> --balance 1000.5
+# Update a position's on-chain balance
+cclaw positions set-onchain-balance --id <position_id> --balance 1000.5
 ```
-In paper mode, `sync-portfolio` returns a message explaining sync is skipped (DB is sole source of truth).
+In paper mode, `cclaw system sync-portfolio` short-circuits (DB is sole source of truth).
 
 ### Analysis Cache (Token Dedup)
 ```bash
 # Check if a token needs analysis (dedup before running analyst/risk skills)
 # Returns action: "skip" or "analyze" with reason
-node scripts/db-query.js check-token-status --address 0x... --chain <CHAIN>
+cclaw analysis check --address 0x... --chain <CHAIN>
 # → {"address":"0x...","chain":"<CHAIN>","action":"skip","reason":"open_position","details":{...}}
 # → {"address":"0x...","chain":"<CHAIN>","action":"analyze","reason":"none"}
 # Checks in order: open positions, pending buys, pending sells, watchlist, cached analysis
 
 # Cache an avoid/reject verdict (prevents re-analysis for 24h by default)
-node scripts/db-query.js cache-analysis --json '{
+cclaw analysis cache --json '{
   "address": "0x...",
   "chain": "<CHAIN>",
   "symbol": "TOKEN",
@@ -418,7 +341,7 @@ node scripts/db-query.js cache-analysis --json '{
 }'
 
 # Cache with custom TTL (e.g., 12 hours)
-node scripts/db-query.js cache-analysis --json '{
+cclaw analysis cache --json '{
   "address": "0x...",
   "chain": "<CHAIN>",
   "verdict": "risk_rejected",
@@ -428,10 +351,10 @@ node scripts/db-query.js cache-analysis --json '{
 }'
 
 # List all unexpired cache entries (debugging)
-node scripts/db-query.js get-analysis-cache
+cclaw analysis list
 
 # Delete expired cache entries (run during daily summary)
-node scripts/db-query.js clear-expired-cache
+cclaw analysis clear-expired
 # → {"ok":true,"deleted":5}
 ```
 
@@ -487,7 +410,7 @@ node scripts/portfolio-load-solana.js --chain solana --trigger post_trade
 ```
 
 ### Wallet Tracking (Ad-Hoc)
-`check-wallets.js` is the ad-hoc wallet inspector. Sentinel uses `--positions` in its heartbeat for dev/deployer activity around held positions; the broader smart_money activity feed is now produced by the `activity-wallets-bg` background loop and consumed via `get-smart-money-signals` (see Smart-Money Signals below). Each `fetch` has a 10 s `AbortSignal.timeout` so this script can't hang.
+`check-wallets.js` was the ad-hoc wallet inspector (deleted in P5). The broader smart-money activity feed is now produced by the `activity-wallets-bg` background loop (WalletActivityProcessor NestJS worker) and consumed via `cclaw wallets signals` (see Smart-Money Signals below). Each `fetch` had a 10 s `AbortSignal.timeout` to prevent hanging — now enforced in the NestJS processor.
 ```bash
 # Check all tracked wallets for recent activity (reads from SQLite)
 node scripts/check-wallets.js
@@ -535,9 +458,9 @@ The full signal pipeline:
    - Prunes signals older than 24 h at the start of each cycle.
    - Writes `portfolio_meta.last_activity_wallets_bg_at` after each successful cycle (Observer monitors this for staleness).
 
-2. **Consumers** — read via `db-query.js get-smart-money-signals`:
-   - **Research** (heartbeat, every 30 min): `--since 35m --action buy --group-by token --min-wallets 2` → conviction BUY signals
-   - **Sentinel** (heartbeat, every 15 min): `--since 30m --action sell --tokens-in-positions --group-by token` → SELL signals on held tokens (informational, no auto-sell)
+2. **Consumers** — read via `cclaw wallets signals`:
+   - **Research** (heartbeat, every 30 min): `cclaw wallets signals --since 35m --action buy --group-by token --min-wallets 2` → conviction BUY signals
+   - **Sentinel** (heartbeat, every 15 min): `cclaw wallets signals --since 30m --action sell --tokens-in-positions --group-by token` → SELL signals on held tokens (informational, no auto-sell)
 
 Known limitations (accepted):
 - Wallets that route trades through multisigs or intent solvers may be miscounted (the swap appears under the router/safe address, not the smart_money wallet).
@@ -555,7 +478,7 @@ node scripts/market-regime.js
 # Regime values: bullish, neutral, bearish, crisis
 # Anti-whipsaw: regime only changes after 2 consecutive consistent readings
 # Auto-updates portfolio_meta (key: market_regime) and heartbeat timestamp
-# Read stored regime: node scripts/db-query.js get-meta --key market_regime
+# Read stored regime: cclaw system meta get --key market_regime
 
 # Check narrative momentum (26 narratives — AI, DeFi, RWA, L2, ZK, memecoins, etc.)
 node scripts/narrative-check.js                         # All 26 narratives
@@ -719,19 +642,13 @@ cclaw alerts send --type portfolio_daily --agent system --message "Daily P&L rep
 ```
 
 ### Telegram Approval Buttons
-```bash
-# Send interactive Approve/Reject buttons for a pending buy order via the approval bot
-# Requires TELEGRAM_APPROVAL_BOT_TOKEN (separate bot from main OpenClaw bot)
-# Gracefully skips if not configured
-node scripts/send-approval.js --order-id trade-001
-# → {"status":"sent","order_id":"trade-001","message_id":12345}
-```
+[`send-approval.js` deleted in P5. Approval buttons are now sent automatically by `ApprovalBotService` (NestJS worker, ADR-0027) when an order is set to `pending` status — no agent action required. Human approves or rejects via Telegram buttons or chat (orders skill).]
 
 ## Configuration
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ACTIVE_CHAINS` | (env var) | Comma-separated list of active chains. Controls which chains are scanned and synced. Run `get-chains` for current list. |
+| `ACTIVE_CHAINS` | (env var) | Comma-separated list of active chains. Controls which chains are scanned and synced. Run `cclaw system chains` for current list. |
 | `PAPER_MODE` | `false` | Enable simulated trading (no real transactions, no on-chain sync) |
 | `AUTO_APPROVE_BUY` | `false` | Auto-approve BUY orders without human confirmation (real mode only, `approved_by: 'auto'`) |
 

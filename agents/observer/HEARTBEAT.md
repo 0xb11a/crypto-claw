@@ -25,30 +25,27 @@ If `system.log` does not exist or is empty, that means no scripts have logged si
 cclaw receipts list --status tx_failed --limit 20
 ```
 ```bash
-cclaw receipts list --status validation_failed --limit 10
+cclaw receipts list --status validation_failed --limit 30
 ```
 ```bash
 cclaw receipts list --status reverted --limit 10
 ```
 ```bash
-node scripts/db-query.js get-executor-log --limit 30
+cclaw logs executor list --limit 30
 ```
-(legacy hold-back)
 ```bash
-node scripts/db-query.js get-sentinel-log --limit 30
+cclaw logs sentinel list --limit 30
 ```
-(legacy hold-back)
 ```bash
-node scripts/db-query.js get-research-log --limit 30
+cclaw logs research list --limit 30
 ```
-(legacy hold-back)
 
 ### 3. Check Signer Balances
-[cclaw expansion pending P5b — `cclaw executor check-signer-balances` not yet implemented; `scripts/check-signer-balances.js` was deleted in P5. Read signer balance state from system logs and the executor_log table instead.]
+[cclaw expansion pending — `cclaw executor check-signer-balances` not yet implemented; `scripts/check-signer-balances.js` was deleted in P5. Read signer balance state from system logs and the executor_log table instead.]
 ```bash
-node scripts/db-query.js get-executor-log --limit 5
+cclaw logs executor list --limit 5
 ```
-(legacy hold-back — look for `status:"error"` rows mentioning `no_signer_key` or low-balance errors)
+(look for `status:"error"` rows mentioning `no_signer_key` or low-balance errors)
 If any signer balance is indicated as below threshold in executor_log errors or system.log, alert immediately:
 ```bash
 cclaw alerts send --type signer_low_balance --agent observer --message "Signer on <chain> has <balance> <symbol> — below threshold. Refill needed."
@@ -56,12 +53,11 @@ cclaw alerts send --type signer_low_balance --agent observer --message "Signer o
 This prevents silent executor failures from drained gas accounts.
 
 ### 4. Silent-Crash Scan
-From the three `get-*-log` outputs above, filter rows where `status = "error"`. For each one, check whether an alert was fired near the same timestamp (±5 min). The `--since` flag requires an ISO timestamp, so compute it first:
+From the three `get-*-log` outputs above, filter rows where `status = "error"`. For each one, check whether an alert was fired near the same timestamp (±5 min). The `--since` flag requires an ISO timestamp.
+
+Compute SINCE manually: run `date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ` in your head or from context, then paste the result into the command below.
 ```bash
-SINCE=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
-```
-```bash
-cclaw system audit --path /v1/alerts/send --since "$SINCE"
+cclaw system audit --path /v1/alerts/send --since "<ISO timestamp: 5 min ago in YYYY-MM-DDTHH:MM:SSZ format>"
 ```
 
 - **Log row with matching audit entry** → the agent reported itself; no action needed.
@@ -102,16 +98,16 @@ For each row, compare `seconds_since` against `expected_cadence_seconds`:
 - `idle_ok: true` → **skip the alert.** Executor and Sentinel are demand-driven: their wrapper loops invoke the agent only when there is work (executor: ≥1 `approved` order; sentinel: ≥1 `open`/`partial_exit` position). When there is nothing to do, the heartbeat row stops refreshing on purpose — that is healthy idleness, not a stall. Do not file a GitHub issue and do not send an emergency alert in this case.
 - Also check the `system/memory-backup` heartbeat — if stale > 30 min, the backup loop stopped and memory is no longer being persisted. Alert via `system_health`. (`memory-backup` is a real cron and never carries `idle_ok: true`.)
 
-Background-loop bg health — checked via `portfolio_meta` (legacy hold-backs):
+Background-loop bg health — checked via `portfolio_meta`:
 ```bash
-node scripts/db-query.js get-meta --key last_activity_wallets_bg_at
+cclaw system meta get --key last_activity_wallets_bg_at
 ```
 - This timestamp is written by WalletActivityProcessor (NestJS worker) after each successful cycle (cadence 30 min).
 - If the row is missing OR the timestamp is older than 90 min (3× cadence), the smart-money signal feed has stalled. Both Research's `smart_money_signals` heartbeat check and Sentinel's `smart_money_exits` will silently return empty signal sets, masking the problem.
 - Alert via `cclaw alerts send --type system_health --agent observer --message "activity-wallets-bg stale: last cycle N min ago, cadence 30 min — Research and Sentinel signal queries returning empty"`.
 
 ```bash
-node scripts/db-query.js get-meta --key last_score_wallets_bg_at
+cclaw system meta get --key last_score_wallets_bg_at
 ```
 - This timestamp is written by WalletScoringProcessor (NestJS worker) after each successful cycle (cadence 10 min).
 - If missing OR older than 30 min (3× cadence), the wallet scoring loop has stalled. New `proposed` wallets stop getting classified, the queue grows unbounded, and downstream activity polling sees no new `smart_money` entries.
@@ -120,9 +116,8 @@ node scripts/db-query.js get-meta --key last_score_wallets_bg_at
 ### 8. Smart-Money Signal Volume (silent-API-regression scan)
 The WalletActivityProcessor can stay healthy (timestamp fresh, no warns) while silently producing zero swap signals — e.g., if the upstream API starts returning 200 OK with empty results, or every fetched wallet went inactive. Loop liveness alone misses this.
 ```bash
-node scripts/db-query.js get-smart-money-signals --since 2h --limit 1
+cclaw wallets signals --since 2h --limit 1
 ```
-(legacy hold-back)
 - If response is `[]` (zero signals in the last 2 h) AND `last_activity_wallets_bg_at` is fresh (Step 7 passed), the loop is running but producing nothing useful. At BATCH_SIZE=10 wallets × 4 cycles in 2 h = 40 wallet-checks expected to yield ≥ a handful of swaps; a clean zero is suspicious.
 - Alert via `cclaw alerts send --type system_health --agent observer --message "smart_money_signals empty for 2h+ while activity-wallets-bg is healthy — possible silent API regression (Etherscan/Helius returning empty results, or schema drift)"`.
 - Skip this check if `last_activity_wallets_bg_at` is already stale (Step 7 handled it).
@@ -145,9 +140,8 @@ Group by `symbol`. If the same symbol has more than 3 `validation_failed` receip
 
 ### 12. Log Your Run
 ```bash
-node scripts/db-query.js add-observer-log --json '{"errors_analyzed": N, "issues_created": N, "alerts_sent": N, "summary": "...", "status": "ok"}'
+cclaw logs observer append --json '{"errors_analyzed": N, "issues_created": N, "alerts_sent": N, "summary": "...", "status": "ok"}'
 ```
-(legacy hold-back)
 
 Update your heartbeat:
 ```bash

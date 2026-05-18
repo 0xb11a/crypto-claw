@@ -24,7 +24,7 @@ Find new, high-potential crypto tokens before the crowd. You are the system's ey
 ## Process
 
 ### Step 1: Check Market Regime
-Read the current regime before scanning: `node scripts/db-query.js get-meta --key market_regime` (legacy hold-back)
+Read the current regime before scanning: `cclaw system meta get --key market_regime`
 
 - **Crisis regime:** Skip moonshot scanning entirely (no new moonshot positions allowed). Run the conviction scan (Step 3) only when `narrative-check.js` shows at least one `hot` or `warming` narrative with `strong_conviction` or `lean_conviction` affinity — otherwise skip Step 3 this cycle.
 - **Bearish regime:** Reduce scan limits (use `--limit 20` instead of 50), raise minimum liquidity filter (`--min-liquidity 20000` instead of 10000).
@@ -69,9 +69,8 @@ Merge these results with trending/newest scan results. If a token appears in BOT
 ### Step 5: Check Token Status (Dedup)
 For each token in scan results, check if it needs analysis:
 ```bash
-node scripts/db-query.js check-token-status --address <TOKEN_ADDRESS> --chain <CHAIN>
+cclaw analysis check --address <TOKEN_ADDRESS> --chain <CHAIN>
 ```
-(legacy hold-back — `cclaw analysis check-token` pending P5)
 - `action: "skip"` → remove from batch, no further processing (already has position, pending order, watchlist entry, or recent cached analysis)
 - `action: "analyze"` → keep for Step 6 filtering
 
@@ -89,8 +88,8 @@ From the raw results, apply these filters:
 
 **Strong Positive Signals:**
 - Buy:sell ratio > 1.5
-- Smart-money wallets entering — broader pre-trade scan (`node scripts/db-query.js get-smart-money-signals --since 6h --action buy --chain <CHAIN> --group-by token --min-wallets 2`) (legacy hold-back). Heartbeat consumption uses a 35-min window (jitter tolerance on a 30-min cadence); discovery uses 6 h for pre-trade context. Both windows are intentional — do not collapse them.
-  - **If the query times out / returns empty / errors:** the WalletActivityProcessor may be stalled or the upstream RPC is congested. Treat this as a *recovered failure*: log `node scripts/db-query.js add-research-log --json '{"check_type":"smart_money","status":"warning","summary":"smart-money signals unavailable this cycle"}'` (legacy hold-back) and continue discovery without the signal. Do NOT `send-alert` (a data gap is not a crash; Observer's bg-loop staleness check on `last_activity_wallets_bg_at` covers actual liveness). See AGENTS.md § Error Self-Reporting for the full classification table.
+- Smart-money wallets entering — broader pre-trade scan (`cclaw wallets signals --since 6h --action buy --chain <CHAIN> --group-by token --min-wallets 2`). Heartbeat consumption uses a 35-min window (jitter tolerance on a 30-min cadence); discovery uses 6 h for pre-trade context. Both windows are intentional — do not collapse them.
+  - **If the query times out / returns empty / errors:** the WalletActivityProcessor may be stalled or the upstream RPC is congested. Treat this as a *recovered failure*: log `cclaw logs research append --json '{"check_type":"smart_money","status":"warning","summary":"smart-money signals unavailable this cycle"}'` and continue discovery without the signal. Do NOT `send-alert` (a data gap is not a crash; Observer's bg-loop staleness check on `last_activity_wallets_bg_at` covers actual liveness). See AGENTS.md § Error Self-Reporting for the full classification table.
 - Fits an active narrative (26 tracked — AI infra, AI agents, DeFi, restaking, LST, RWA, L2, ZK, modular, DePIN, memecoins, gaming, etc.)
 - Dev wallet < 10% of supply
 - Liquidity locked or burned
@@ -110,9 +109,8 @@ The background scorer (WalletScoringProcessor, NestJS worker) self-seeds every 6
 
 **For deployer wallets**, propose for background scoring:
 ```bash
-node scripts/db-query.js propose-wallet --json '{"address":"<DEPLOYER_ADDRESS>","chain":"<CHAIN>","label":"Deployer of TOKEN","source_token":"<TOKEN_ADDRESS>"}'
+cclaw wallets propose --json '{"address":"<DEPLOYER_ADDRESS>","chain":"<CHAIN>","label":"Deployer of TOKEN","source_token":"<TOKEN_ADDRESS>"}'
 ```
-(legacy hold-back — `cclaw wallets propose` pending P5b)
 
 The background scoring pipeline (WalletScoringProcessor, NestJS worker, every 10 min) self-seeds from Birdeye leaderboards and picks up proposed wallets autonomously. No need to wait — discovery can continue immediately.
 
@@ -165,4 +163,4 @@ For each passing token, create a discovery entry:
 If a discovery pattern (e.g., a narrative, source, or signal that consistently surfaces strong tokens — or a recurring false-positive trap) recurs 3+ times across daily logs, promote it to `MEMORY.md` using the template in `AGENTS.md § MEMORY.md Updates`.
 
 ## Error Handling
-Per AGENTS.md § Error Self-Reporting: if any scan or dedup step fails (scan-tokens.js crash, `check-token-status` error, narrative-deep-scan timeout, holder-distribution error) — log `add-research-log` with `status: "error"` and fire `cclaw alerts send --type model_failure --agent research --message "discovery failed: <reason>"`. Do not silently drop the affected tokens; a scan that returned no candidates is different from a scan that crashed.
+Per AGENTS.md § Error Self-Reporting: if any scan or dedup step fails (`cclaw analysis check` error, narrative-deep-scan timeout, or any discovery data error) — log `cclaw logs research append --json '{"check_type":"discovery","status":"error","summary":"discovery failed: <reason>"}'` and fire `cclaw alerts send --type model_failure --agent research --message "discovery failed: <reason>"`. Do not silently drop the affected tokens; a scan that returned no candidates is different from a scan that crashed.

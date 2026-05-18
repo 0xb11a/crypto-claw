@@ -16,14 +16,10 @@ triggers:
 Guardian of the portfolio. Watch every open position for danger. React faster than any human.
 
 ### Step 0: Load Configuration (MANDATORY — run at the start of every cycle)
+Check if `ACTIVE_CHAINS` is set in your environment context. If it is empty or unset, run:
 ```bash
-echo "ACTIVE_CHAINS=${ACTIVE_CHAINS}"
+cclaw system chains
 ```
-If `ACTIVE_CHAINS` is empty or unset, run:
-```bash
-node scripts/db-query.js get-chains
-```
-(legacy hold-back)
 
 ## When to Use
 - During heartbeat checks (highest priority)
@@ -58,11 +54,10 @@ cclaw positions list --status open
 **Trailing stop check**: On every price check, if trailing active and `currentPrice < maxPrice * (1 - trailPct)` → write sell_all order.
 
 ### Liquidity Monitoring
-[cclaw expansion pending P5b — `check-liquidity.js` deleted in P5; use db-query.js hold-back to read liquidity snapshots]
+[cclaw expansion pending — `cclaw positions check-liquidity` not yet implemented; use cclaw to read liquidity snapshots]
 ```bash
-node scripts/db-query.js get-liquidity --address <ADDR> --chain <CHAIN> --limit 2
+cclaw liquidity list --address <ADDR> --chain <CHAIN> --limit 2
 ```
-(legacy hold-back)
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
@@ -72,11 +67,10 @@ node scripts/db-query.js get-liquidity --address <ADDR> --chain <CHAIN> --limit 
 | LP provider count dropping | MEDIUM | Watch closely |
 
 ### Wallet Activity (via smart-money signals)
-[cclaw expansion pending P5b — `check-wallets.js` deleted in P5; use smart-money signals as proxy for dev/whale activity]
+[cclaw expansion pending — `check-wallets.js` deleted in P5; use smart-money signals as proxy for dev/whale activity]
 ```bash
-node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
+cclaw wallets signals --since 30m --action sell --tokens-in-positions --group-by token
 ```
-(legacy hold-back)
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
@@ -87,9 +81,8 @@ node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tok
 
 ### Smart-Money Exit Signals (consume bg signal table)
 ```bash
-node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tokens-in-positions --group-by token
+cclaw wallets signals --since 30m --action sell --tokens-in-positions --group-by token
 ```
-(legacy hold-back)
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
@@ -100,13 +93,12 @@ node scripts/db-query.js get-smart-money-signals --since 30m --action sell --tok
 Why no auto-sell: smart-money "sells" can be wallet-to-wallet rotations or bridges misclassified as swaps. Dev/whale direct polling above writes sell orders because dev selling is unambiguous; smart-money exit clusters are a heads-up for Research/operator to act on.
 
 ### Contract Monitoring
-[cclaw expansion pending P5b — `check-contract.js` deleted in P5; use contract snapshot diff via db-query hold-back]
+[cclaw expansion pending — `check-contract.js` deleted in P5; use contract snapshot diff via cclaw]
 
 Compare latest vs previous contract snapshot for safety field changes:
 ```bash
-node scripts/db-query.js get-contract-snapshots --address <TOKEN_ADDRESS> --chain <CHAIN> --limit 2
+cclaw contracts list --address <TOKEN_ADDRESS> --chain <CHAIN> --limit 2
 ```
-(legacy hold-back)
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
@@ -172,7 +164,7 @@ The Executor agent polls for approved orders every heartbeat and executes them t
 - Quiet cycle = no sells, no notable events → zero Telegram messages
 
 ## Error Handling
-Per AGENTS.md § Error Self-Reporting: every tool crash must produce both a sentinel_log row (`status: "error"`) and a Telegram alert via `cclaw alerts send` — the "quiet heartbeat" exception never applies to failed checks. If `add-alert` or `add-order` itself fails, escalate with the strongest alert (`sell_triggered` for failed sell-writes, `rug_warning` for failed monitoring) — capital is unprotected until the operator intervenes.
+Per AGENTS.md § Error Self-Reporting: every tool crash must produce both a sentinel_log row (`status: "error"`) and a Telegram alert via `cclaw alerts send` — the "quiet heartbeat" exception never applies to failed checks. If `cclaw alerts create` or `cclaw orders propose` itself fails, escalate with the strongest alert (`sell_triggered` for failed sell-writes, `rug_warning` for failed monitoring) — capital is unprotected until the operator intervenes.
 
 ## Promotion
 If an exit pattern (e.g., a recurring rug signature, LP-drain precursor, or false-alarm condition) recurs 3+ times across daily logs, promote via `scripts/promote-pattern.js`. **Never edit `MEMORY.md` directly** — manual edits are rejected by pre-commit (PR 3.1). The script validates the pattern's provenance against trusted DB tables and emits the marker pre-commit requires.
