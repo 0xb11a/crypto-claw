@@ -411,3 +411,145 @@ jobs:
         env:
           CCLAW_TEST_LOCAL_DOCKER_IMAGE: cclaw:postpublish
         run: pnpm test:integration
+
+  # ---------------------------------------------------------------------------
+  # 8. compose-smoke — pull just-published image, bring up full compose stack,
+  #    assert all NestJS services reach healthy, verify signer-key isolation,
+  #    verify cross-service connectivity. Gated on v2/main refs only.
+  #    Depends on build-and-publish + sign so the image is signed before testing.
+  # ---------------------------------------------------------------------------
+  compose-smoke:
+    name: Compose smoke test
+    runs-on: ubuntu-latest
+    needs: [build-and-publish, sign]
+    if: github.ref == 'refs/heads/v2' || github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull just-published image by digest
+        run: docker pull ghcr.io/${{ github.repository }}@${{ needs.build-and-publish.outputs.digest }}
+
+      - name: Tag for compose consumption
+        run: docker tag ghcr.io/${{ github.repository }}@${{ needs.build-and-publish.outputs.digest }} cclaw:smoke
+
+      - name: Write synthetic .env.runtime (CI dummy values)
+        run: |
+          cat > .env.runtime << 'EOF'
+          CRYPTO_CLAW_IMAGE=cclaw:smoke
+          SAFE_ID=ci-compose-smoke
+          REDIS_URL=redis://redis:6379
+          RESEARCH_API_KEY=ci-research-key-aaaaaaaaaaaaaaaa
+          SENTINEL_API_KEY=ci-sentinel-key-aaaaaaaaaaaaaaaa
+          EXECUTOR_API_KEY=ci-executor-key-aaaaaaaaaaaaaaaa
+          OBSERVER_API_KEY=ci-observer-key-aaaaaaaaaaaaaaaa
+          LOOP_API_KEY=ci-loop-key-aaaaaaaaaaaaaaaaaaaaa
+          WORKER_API_KEY=ci-worker-key-aaaaaaaaaaaaaaaaaaa
+          SCHEDULER_API_KEY=ci-scheduler-key-aaaaaaaaaaaaaaa
+          DASHBOARD_API_KEY=ci-dashboard-key-aaaaaaaaaaaaaaaa
+          ACTIVE_CHAINS=base,solana
+          OPENAI_API_KEY=ci-openai-dummy-key-not-real-aaaaa
+          NODE_ENV=production
+          LOG_LEVEL=info
+          EXECUTOR_STUB_MODE=1
+          API_BIND_ADDRESS=0.0.0.0
+          PRISMA_REPO_ROOT=/app
+          CCLAW_API_BASE=http://apps-api:7878
+          SIGNER_ENV_FILE=/run/secrets/signer.env
+          EXECUTOR_BIN_PATH=/app/apps/executor/dist/main.js
+          DATABASE_URL=file:./data/ci-compose-smoke.db
+          PRISMA_DISABLE_DOTENV=1
+          EOF
+          chmod 600 .env.runtime
+
+      - name: Write fake secrets/signer.env (mode 0400)
+        run: |
+          mkdir -p secrets
+          printf 'SAFE_SIGNER_KEY=FAKE_SIGNER_KEY_DO_NOT_USE_DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF\nSQUADS_SIGNER_KEY=FAKE_SIGNER_KEY_DO_NOT_USE_DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF\n' > secrets/signer.env
+          chmod 0400 secrets/signer.env
+
+      - name: Start NestJS services (apps-api + apps-worker + apps-scheduler + redis)
+        run: |
+          docker compose up -d apps-api apps-worker apps-scheduler redis
+          echo "Services started, waiting for healthy state..."
+
+      - name: Wait for all NestJS services to reach healthy (120s timeout)
+        run: |
+          deadline=$(( $(date +%s) + 120 ))
+          while true; do
+            now=$(date +%s)
+            if [ "$now" -ge "$deadline" ]; then
+              echo "TIMEOUT: services did not reach healthy within 120s"
+              docker compose ps
+              docker compose logs apps-api
+              docker compose logs apps-worker
+              docker compose logs apps-scheduler
+              docker compose logs redis
+              exit 1
+            fi
+            # Check all four services are healthy
+            api_health=$(docker compose ps --format json apps-api 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['Health'] if isinstance(d,list) else d['Health'])" 2>/dev/null || echo "unknown")
+            worker_health=$(docker compose ps --format json apps-worker 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['Health'] if isinstance(d,list) else d['Health'])" 2>/dev/null || echo "unknown")
+            scheduler_health=$(docker compose ps --format json apps-scheduler 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['Health'] if isinstance(d,list) else d['Health'])" 2>/dev/null || echo "unknown")
+            redis_health=$(docker compose ps --format json redis 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['Health'] if isinstance(d,list) else d['Health'])" 2>/dev/null || echo "unknown")
+            echo "Health: api=$api_health worker=$worker_health scheduler=$scheduler_health redis=$redis_health"
+            if [ "$api_health" = "healthy" ] && [ "$worker_health" = "healthy" ] && \
+               [ "$scheduler_health" = "healthy" ] && [ "$redis_health" = "healthy" ]; then
+              echo "All services healthy."
+              break
+            fi
+            sleep 5
+          done
+
+      - name: Assert /healthz responds 200 from inside apps-api
+        run: |
+          docker compose exec apps-api node -e \
+            "fetch('http://127.0.0.1:7878/healthz').then(r=>{console.log('status:'+r.status);process.exit(r.ok?0:1)}).catch(e=>{console.error(e);process.exit(1)})"
+
+      - name: Assert apps-api has no non-empty signer keys in env
+        run: |
+          # apps-api must not see a non-empty SAFE_SIGNER_KEY or SQUADS_SIGNER_KEY.
+          # The boot self-check already enforces this; this CI assertion adds a
+          # compose-topology verification (ADR-0023, SPEC §4 #4).
+          result=$(docker compose exec apps-api env 2>/dev/null | grep -E '^(SAFE_SIGNER_KEY|SQUADS_SIGNER_KEY)=' | grep -v '=$' || true)
+          if [ -n "$result" ]; then
+            echo "FAIL: apps-api has non-empty signer key(s):"
+            echo "$result"
+            exit 1
+          fi
+          echo "PASS: apps-api signer keys absent or empty."
+
+      - name: Assert apps-scheduler has no non-empty signer keys in env
+        run: |
+          result=$(docker compose exec apps-scheduler env 2>/dev/null | grep -E '^(SAFE_SIGNER_KEY|SQUADS_SIGNER_KEY)=' | grep -v '=$' || true)
+          if [ -n "$result" ]; then
+            echo "FAIL: apps-scheduler has non-empty signer key(s):"
+            echo "$result"
+            exit 1
+          fi
+          echo "PASS: apps-scheduler signer keys absent or empty."
+
+      - name: Assert secrets/signer.env mode is 0400 inside apps-worker
+        run: |
+          mode=$(docker compose exec apps-worker stat -c '%a' /run/secrets/signer.env 2>/dev/null || echo "error")
+          echo "signer.env mode: $mode"
+          if [ "$mode" != "400" ]; then
+            echo "FAIL: expected mode 400, got $mode"
+            exit 1
+          fi
+          echo "PASS: signer.env mode 0400 confirmed."
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

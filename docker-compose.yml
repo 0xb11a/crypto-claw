@@ -1,4 +1,183 @@
 services:
+  # ==========================================================================
+  # NestJS services (P6 — three long-running processes from docker/Dockerfile)
+  # Image: ${CRYPTO_CLAW_IMAGE} from .env.runtime
+  # (e.g. ghcr.io/0xb11a/crypto-claw:sha-abc1234)
+  # ==========================================================================
+
+  apps-api:
+    # Production NestJS API server (Fastify adapter, HTTP on port 7878).
+    # Binds 0.0.0.0 inside the container for cross-service traffic on the
+    # compose network. No host port is published — ADR-0006 compose addendum
+    # documents that host exposure remains zero (Caddy is the only host-facing
+    # service).
+    image: ${CRYPTO_CLAW_IMAGE:?Set CRYPTO_CLAW_IMAGE in .env.runtime (e.g. ghcr.io/0xb11a/crypto-claw:sha-abc1234)}
+    container_name: cclaw-apps-api
+    command: ['node', 'apps/api/dist/main.js']
+    restart: unless-stopped
+    env_file: .env.runtime
+    environment:
+      # Bind 0.0.0.0 so other compose services reach apps-api over the internal
+      # bridge. The compose network isolates this from the host (no ports: stanza
+      # means the API is unreachable from outside Docker — ADR-0006 compose addendum).
+      API_BIND_ADDRESS: '0.0.0.0'
+      # [OPEN-P6-1] resolution: tell prisma-migrate.bootstrap.ts where to find
+      # the Prisma CLI binary and migrations tree in the prod image layout.
+      PRISMA_REPO_ROOT: '/app'
+      # Signer-key absence: explicit empty assignment guards against host-shell
+      # leakage (SPEC §4 #4, ADR-0023). Boot self-check enforces this; compose
+      # blanking adds a defense-in-depth layer.
+      SAFE_SIGNER_KEY: ''
+      SQUADS_SIGNER_KEY: ''
+    volumes:
+      # Shared wallet data volume (SQLite DB, one per SAFE_ID)
+      - crypto-claw-data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:7878/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - crypto-claw-net
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  apps-worker:
+    # NestJS BullMQ worker — processes background jobs (wallet scoring, activity
+    # polling, governance drift, position reconcile, multisig tracking, approval bot).
+    # Mounts secrets/signer.env read-only (mode 0400) per ADR-0023; the worker
+    # reads signer keys from the file at executor spawn time, never via env.
+    image: ${CRYPTO_CLAW_IMAGE:?Set CRYPTO_CLAW_IMAGE in .env.runtime (e.g. ghcr.io/0xb11a/crypto-claw:sha-abc1234)}
+    container_name: cclaw-apps-worker
+    command: ['node', 'apps/worker/dist/main.js']
+    restart: unless-stopped
+    env_file: .env.runtime
+    environment:
+      # Signer keys come from the bind-mounted file, NOT env (ADR-0023).
+      # Explicit empty assignment: defense against host-shell leakage (SPEC §4 #4).
+      SAFE_SIGNER_KEY: ''
+      SQUADS_SIGNER_KEY: ''
+      # Tell the signer-env loader where to find the key file inside the container.
+      SIGNER_ENV_FILE: '/run/secrets/signer.env'
+      # Executor binary path inside the prod image layout.
+      EXECUTOR_BIN_PATH: '/app/apps/executor/dist/main.js'
+    volumes:
+      # Shared wallet data volume
+      - crypto-claw-data:/app/data
+      # ADR-0023: signer key file, mode 0400, worker-only bind-mount.
+      # Before first start:
+      #   cp secrets/signer.env.example secrets/signer.env
+      #   chmod 0400 secrets/signer.env
+      #   fill in SAFE_SIGNER_KEY and/or SQUADS_SIGNER_KEY
+      - ./secrets:/run/secrets:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pgrep -f apps/worker/dist/main.js > /dev/null || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+    depends_on:
+      apps-api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crypto-claw-net
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.2'
+          memory: 256M
+
+  apps-scheduler:
+    # NestJS cron scheduler — enqueues BullMQ jobs at configured cadences.
+    # No signer-key mount: the scheduler only enqueues jobs; it never spawns
+    # the executor subprocess directly.
+    image: ${CRYPTO_CLAW_IMAGE:?Set CRYPTO_CLAW_IMAGE in .env.runtime (e.g. ghcr.io/0xb11a/crypto-claw:sha-abc1234)}
+    container_name: cclaw-apps-scheduler
+    command: ['node', 'apps/scheduler/dist/main.js']
+    restart: unless-stopped
+    env_file: .env.runtime
+    environment:
+      # Signer-key absence: explicit empty assignment (defense-in-depth, SPEC §4 #4).
+      SAFE_SIGNER_KEY: ''
+      SQUADS_SIGNER_KEY: ''
+    volumes:
+      # Shared wallet data volume (read access for scheduler health checks)
+      - crypto-claw-data:/app/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pgrep -f apps/scheduler/dist/main.js > /dev/null || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+    depends_on:
+      apps-api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crypto-claw-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.05'
+          memory: 64M
+
+  # ==========================================================================
+  # Redis (BullMQ message broker)
+  # Internal-only: no host port published (ADR-0004).
+  # AOF persistence everysec: survives restarts without losing queued jobs.
+  # ==========================================================================
+
+  redis:
+    image: redis:7-alpine
+    container_name: cclaw-redis
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec']
+    restart: unless-stopped
+    volumes:
+      - crypto-claw-redis:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - crypto-claw-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
+
+  # ==========================================================================
+  # OpenClaw gateway + LLM agents (legacy runtime — entrypoint.sh driven)
+  # ==========================================================================
+
   crypto-claw:
     build:
       context: .
@@ -16,11 +195,11 @@ services:
       - no-new-privileges:true
 
     # Writable directories:
-    #   tmpfs  — ephemeral (repopulated by entrypoint.sh each start)
-    #   volumes — persistent (survive restarts and redeploys)
+    #   tmpfs  -- ephemeral (repopulated by entrypoint.sh each start)
+    #   volumes -- persistent (survive restarts and redeploys)
     tmpfs:
       # /tmp must be exec-allowed: npm/npx extracts package tarballs here
-      # (NPM_CONFIG_CACHE=/tmp/npm-cache) and runs binary scripts from them —
+      # (NPM_CONFIG_CACHE=/tmp/npm-cache) and runs binary scripts from them --
       # OpenClaw 2026.4.24+ spawns `npx @zed-industries/codex-acp` whose entry
       # is a #!/usr/bin/env node script under /tmp/npm-cache/_npx/<hash>/.
       # 100M is too small for codex-acp's transitive deps; 500M leaves margin.
@@ -42,11 +221,12 @@ services:
     volumes:
       # Persistent: research workspace (MEMORY.md, daily logs, skills, scripts, git)
       - crypto-claw-memory:/home/openclaw/.openclaw/agents/research/workspace
-      # Persistent: wallet data (SQLite databases, one per SAFE_ID)
+      # Persistent: wallet data (SQLite databases, one per SAFE_ID).
+      # Shared with apps-api and apps-worker via the crypto-claw-data named volume.
       - crypto-claw-data:/home/openclaw/.openclaw/agents/research/data
       # Persistent: OpenClaw state (gateway config, agent registrations, cron, pairing, sessions)
       - crypto-claw-state:/home/openclaw/.openclaw/.openclaw
-      # Persistent: research agent state (auth, sessions)
+      # Persistent: research agent state (auth, profiles)
       - crypto-claw-research-agent:/home/openclaw/.openclaw/agents/research/agent
 
     # Gateway accessible via Caddy HTTPS reverse proxy (no direct port exposure)
@@ -57,16 +237,16 @@ services:
       # Required: Anthropic API key
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 
-      # Ollama Cloud (direct API — no sidecar)
+      # Ollama Cloud (direct API -- no sidecar)
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
 
-      # OpenAI (fallback — per-token billing if Codex OAuth not configured)
+      # OpenAI (fallback -- per-token billing if Codex OAuth not configured)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
 
-      # Fund identity — determines which SQLite database to use
+      # Fund identity -- determines which SQLite database to use
       - SAFE_ID=${SAFE_ID:-default}
 
-      # Paper mode — simulate trades without real execution
+      # Paper mode -- simulate trades without real execution
       - PAPER_MODE=${PAPER_MODE:-false}
       - PAPER_STARTING_BALANCE=${PAPER_STARTING_BALANCE:-10000}
       - PAPER_STARTING_BALANCE_BASE=${PAPER_STARTING_BALANCE_BASE:-}
@@ -85,15 +265,15 @@ services:
       - SOLSCAN_API_KEY=${SOLSCAN_API_KEY:-}
       - HELIUS_API_KEY=${HELIUS_API_KEY:-}
 
-      # Channels (Telegram — opt-in for human chat with agents)
+      # Channels (Telegram -- opt-in for human chat with agents)
       - ENABLE_CHANNELS=${ENABLE_CHANNELS:-false}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
 
-      # Telegram security — restrict who can interact with agents
+      # Telegram security -- restrict who can interact with agents
       - TELEGRAM_OWNER_ID=${TELEGRAM_OWNER_ID:-}
 
-      # Telegram supergroup forum topics (optional — enables per-topic agent routing)
+      # Telegram supergroup forum topics (optional -- enables per-topic agent routing)
       - TG_TOPIC_RESEARCH=${TG_TOPIC_RESEARCH:-}
       - TG_TOPIC_SENTINEL=${TG_TOPIC_SENTINEL:-}
       - TG_TOPIC_EXECUTOR=${TG_TOPIC_EXECUTOR:-}
@@ -104,30 +284,36 @@ services:
       - TG_TOPIC_APPROVALS=${TG_TOPIC_APPROVALS:-}
       - PORTFOLIO_REPORT_HOUR=${PORTFOLIO_REPORT_HOUR:-0}
 
-      # Telegram approval bot — inline Approve/Reject buttons for buy orders
+      # Telegram approval bot -- inline Approve/Reject buttons for buy orders
       # Create a separate bot via @BotFather, add it to your supergroup
       - TELEGRAM_APPROVAL_BOT_TOKEN=${TELEGRAM_APPROVAL_BOT_TOKEN:-}
 
-      # 1inch Swap API (Executor Agent — EVM swaps)
+      # 1inch Swap API (Executor Agent -- EVM swaps)
       - ONEINCH_API_KEY=${ONEINCH_API_KEY:-}
 
-      # Safe wallet (Executor Agent — EVM)
+      # Safe wallet (Executor Agent -- EVM)
       - SAFE_ADDRESS_ETH=${SAFE_ADDRESS_ETH:-}
       - SAFE_ADDRESS_BASE=${SAFE_ADDRESS_BASE:-}
+      # NOTE: signer keys remain in the gateway container (legacy path -- LLM agents
+      # may invoke cclaw which routes through apps-api to apps-worker which spawns
+      # apps-executor). The NestJS apps-api and apps-scheduler services do NOT
+      # receive these. Only apps-worker mounts secrets/signer.env (ADR-0023).
+      # These entries will be removed when the gateway fully delegates execution
+      # to apps-worker post-P6.
       - SAFE_SIGNER_KEY=${SAFE_SIGNER_KEY:-}
       - RPC_ETH=${RPC_ETH:-}
       - RPC_BASE=${RPC_BASE:-}
       - RPC_SOL=${RPC_SOL:-}
 
-      # Squads multisig (Executor Agent — Solana)
+      # Squads multisig (Executor Agent -- Solana)
       - SQUADS_VAULT_ADDRESS=${SQUADS_VAULT_ADDRESS:-}
       - SQUADS_MULTISIG_ADDRESS=${SQUADS_MULTISIG_ADDRESS:-}
       - SQUADS_SIGNER_KEY=${SQUADS_SIGNER_KEY:-}
 
-      # Agent memory backup (optional — git remote for pushing memory)
+      # Agent memory backup (optional -- git remote for pushing memory)
       - MEMORY_GIT_REMOTE=${MEMORY_GIT_REMOTE:-}
 
-      # Observer agent — GitHub integration (private repo for issue tracking)
+      # Observer agent -- GitHub integration (private repo for issue tracking)
       - GH_TOKEN=${GH_TOKEN:-}
       - OBSERVER_ISSUES_REPO=${OBSERVER_ISSUES_REPO:-}
 
@@ -152,18 +338,22 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - OPENCLAW_LOG_STYLE=${OPENCLAW_LOG_STYLE:-pretty}
 
-      # OpenClaw 2026.4.24+ spawns `npx @zed-industries/codex-acp@^0.11.1` for
-      # its embedded ACP runtime probe. With read_only:true, the default npm
-      # cache (/home/node/.npm) is unwritable → EROFS. Redirect npm cache to
-      # /tmp (writable tmpfs, 100MB — declared above).
+      # NPM cache redirect (read_only container + OpenClaw ACP runtime)
       - NPM_CONFIG_CACHE=/tmp/npm-cache
 
-      # Disable mDNS/Bonjour gateway advertisement. The Docker bridge network
-      # doesn't support full mDNS, so probing hangs ~25s, the advertiser
-      # cancels, and CIAO emits an unhandled "PROBING CANCELLED" rejection
-      # that crashes the gateway. CryptoClaw uses a fixed Caddy reverse proxy
-      # at $SERVER_IP — no service discovery needed.
+      # Disable mDNS/Bonjour gateway advertisement (Docker bridge incompatibility)
       - OPENCLAW_DISABLE_BONJOUR=1
+
+      # P6: NestJS API base URL for cclaw CLI and entrypoint.sh background loops.
+      # apps-api is a separate container; loopback (127.0.0.1) won't resolve here.
+      # The compose service name resolves over the internal bridge network.
+      - CCLAW_API_BASE=http://apps-api:7878
+      # LOOP_API_KEY sourced from the same env file as all other bearer tokens.
+      - CCLAW_API_TOKEN=${LOOP_API_KEY:-}
+
+    depends_on:
+      apps-api:
+        condition: service_healthy
 
     networks:
       - crypto-claw-net
@@ -202,7 +392,8 @@ volumes:
   # Research workspace: MEMORY.md, daily logs, skills, scripts (back up with git)
   crypto-claw-memory:
     driver: local
-  # Wallet data: SQLite databases (back up with sqlite3 .backup or file copy)
+  # Wallet data: SQLite databases (back up with sqlite3 .backup or file copy).
+  # Shared across apps-api, apps-worker, and the crypto-claw gateway container.
   crypto-claw-data:
     driver: local
   # OpenClaw state: gateway config, agent registrations, cron jobs, pairing, sessions
@@ -213,6 +404,9 @@ volumes:
     driver: local
   # Caddy TLS certificates (self-signed, persistent across restarts)
   caddy-certs:
+    driver: local
+  # Redis AOF persistence (BullMQ queue data -- survives container restarts)
+  crypto-claw-redis:
     driver: local
 
 networks:

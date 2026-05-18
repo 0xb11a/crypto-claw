@@ -1379,3 +1379,218 @@ The executor now **reports "enqueued N orders"** per cycle instead of "executed 
 ### §14.4 Rollback
 
 `git revert <P5-PR-merge-sha>` snaps back cleanly. Commit 3 (the big deletion) is the single atomic commit for file removal; surrounding commits are additive/comment-only and are harmless to leave reverted partially.
+
+---
+
+## §15 Production deployment (P6, 2026-05-18)
+
+### §15.1 Architecture overview
+
+P6 adds three long-running NestJS services to the production compose stack, plus Redis:
+
+```
+Host
+  ├── Caddy (443) → crypto-claw gateway (entrypoint.sh)
+  │                         ↓ CCLAW_API_BASE=http://apps-api:7878
+  │
+  └── compose network (internal bridge, no host ports except Caddy)
+        ├── redis:6379          -- BullMQ message broker (AOF everysec)
+        ├── apps-api:7878       -- NestJS HTTP server (binds 0.0.0.0 internally)
+        ├── apps-worker         -- NestJS BullMQ consumer + approval bot
+        └── apps-scheduler      -- NestJS cron registry (enqueues jobs)
+```
+
+Image: all four NestJS apps (api/worker/scheduler/executor) are compiled into a single `docker/Dockerfile` prod image. Each compose service overrides `CMD` to pick the correct entrypoint. `apps-executor` is NOT a long-running service; it is spawned as an ephemeral child process by `apps-worker` per order (SPEC §2, SPEC §4 #5).
+
+Signer-key scoping (ADR-0023, SPEC §4 #4):
+- `apps-api` and `apps-scheduler`: explicit `SAFE_SIGNER_KEY: ''` and `SQUADS_SIGNER_KEY: ''` in compose env (defense against host-shell leakage). Boot self-check enforces absence.
+- `apps-worker`: explicit empty env vars + bind-mount `./secrets:/run/secrets:ro` (mode 0400). The worker reads `SIGNER_ENV_FILE=/run/secrets/signer.env` at executor spawn time only.
+
+### §15.2 First-time setup
+
+1. **Build or pull the image:**
+
+```bash
+# Option A: pull published image by digest (recommended)
+docker pull ghcr.io/0xb11a/crypto-claw:sha-<7chars>
+
+# Option B: build locally
+docker buildx build --target prod -f docker/Dockerfile -t cclaw:local .
+```
+
+2. **Create runtime env file:**
+
+```bash
+cp .env.runtime.example .env.runtime
+chmod 0600 .env.runtime
+# Edit .env.runtime — fill in all required vars (CRYPTO_CLAW_IMAGE, SAFE_ID,
+# Redis URL, bearer tokens, API keys, Telegram, RPC URLs, etc.)
+```
+
+3. **Create signer key file:**
+
+```bash
+cp secrets/signer.env.example secrets/signer.env
+chmod 0400 secrets/signer.env
+# Edit secrets/signer.env — fill in SAFE_SIGNER_KEY and/or SQUADS_SIGNER_KEY
+```
+
+4. **Create data directory** (if not already present from the legacy stack):
+
+```bash
+mkdir -p data
+```
+
+5. **Start the stack:**
+
+```bash
+docker compose up -d
+```
+
+6. **Watch startup logs:**
+
+```bash
+docker compose logs -f apps-api apps-worker apps-scheduler redis
+```
+
+Expected: within 30s `apps-api` logs `[boot] api ready on 0.0.0.0:7878 — config OK; signer keys absent`. Within 60s all services show `healthy` in `docker compose ps`.
+
+### §15.3 Starting and stopping
+
+```bash
+# Start all services
+docker compose up -d
+
+# Stop all services (volumes kept)
+docker compose down
+
+# Stop and remove volumes (destructive — wipes Redis queue data and DB)
+docker compose down -v
+
+# Restart a single service (e.g. after rotating tokens)
+docker compose up -d --no-deps --force-recreate apps-api apps-worker apps-scheduler
+
+# View logs for NestJS services only
+docker compose logs -f apps-api apps-worker apps-scheduler
+```
+
+### §15.4 Health checks
+
+```bash
+# Check all service states
+docker compose ps
+
+# Liveness probe from within apps-api
+docker compose exec apps-api node -e \
+  "fetch('http://127.0.0.1:7878/healthz').then(r=>console.log('status:'+r.status))"
+
+# Readiness probe
+docker compose exec apps-api node -e \
+  "fetch('http://127.0.0.1:7878/readyz').then(r=>console.log('status:'+r.status))"
+
+# Cross-service connectivity from crypto-claw gateway
+docker compose exec crypto-claw curl -fsS http://apps-api:7878/healthz
+
+# Redis health
+docker compose exec redis redis-cli ping
+```
+
+If any service shows `unhealthy`, check logs:
+
+```bash
+docker compose logs --tail=50 apps-api
+```
+
+### §15.5 Rotating bearer tokens
+
+1. Edit `.env.runtime` and replace the stale token with a new 32-char random:
+
+```bash
+openssl rand -base64 32 | tr -d '/+=' | head -c 32
+```
+
+2. Restart only the NestJS services (gateway restart is not needed):
+
+```bash
+docker compose up -d --no-deps --force-recreate apps-api apps-worker apps-scheduler
+```
+
+3. Update any agents or dashboards using the old token. The old token is rejected immediately after restart (no grace period).
+
+### §15.6 Rotating signer keys
+
+1. Edit `secrets/signer.env` with the new key:
+
+```bash
+# Ensure mode 0400 is preserved
+chmod 0400 secrets/signer.env
+```
+
+2. Restart `apps-worker` only (the scheduler and api don't hold signer keys):
+
+```bash
+docker compose up -d --no-deps --force-recreate apps-worker
+```
+
+Note: any in-flight executor child processes started before the restart will complete with the old key. Verify via `cclaw receipts list --limit 10`.
+
+### §15.7 Backups
+
+**SQLite database:**
+
+```bash
+# Stop the writer briefly (optional; WAL mode allows hot backup)
+sqlite3 data/<SAFE_ID>.db ".backup backup-$(date +%Y%m%d).db"
+```
+
+Or copy the named volume contents:
+
+```bash
+docker run --rm -v crypto-claw-data:/data -v $(pwd)/backup:/backup alpine \
+  sh -c 'cp -a /data /backup/data-$(date +%Y%m%d)'
+```
+
+**Redis (BullMQ):**
+
+Redis uses AOF persistence (everysec) in the `crypto-claw-redis` volume. For a manual snapshot:
+
+```bash
+docker compose exec redis redis-cli BGSAVE
+# Wait for "Background saving finished"
+docker run --rm -v crypto-claw-redis:/data alpine \
+  tar cz /data > redis-backup-$(date +%Y%m%d).tar.gz
+```
+
+**Agent memory (MEMORY.md):**
+
+The memory-backup loop auto-commits to the git repo every 15 minutes. If `MEMORY_GIT_REMOTE` is set it pushes to the remote. Manual push:
+
+```bash
+docker compose exec crypto-claw bash -c 'cd $RESEARCH_WS && git push origin'
+```
+
+### §15.8 Multi-fund deployment
+
+Each fund runs an isolated compose stack with its own `SAFE_ID` and data volume. Use separate `.env.runtime` files and named compose projects:
+
+```bash
+# Fund A
+COMPOSE_PROJECT_NAME=cclaw-fund-a \
+  SAFE_ID=fund-a \
+  docker compose --env-file .env.runtime.fund-a up -d
+
+# Fund B
+COMPOSE_PROJECT_NAME=cclaw-fund-b \
+  SAFE_ID=fund-b \
+  docker compose --env-file .env.runtime.fund-b up -d
+```
+
+Agent memory (MEMORY.md) is shared across all deployments if they use the same image/workspace config. SQLite data is per-fund (volume name is project-scoped by Compose).
+
+### §15.9 Known limitations (P6)
+
+- **No horizontal scaling.** SQLite allows only one writer per file; running multiple `apps-api` replicas against the same DB would serialize all writes through SQLite's WAL lock. Future: Postgres migration (SPEC §2 non-goal).
+- **apps-executor is not a long-running service.** It is spawned per order by `apps-worker`. This is by design (blast-radius isolation, SPEC §2). Do not add an `apps-executor` stanza to `docker-compose.yml`.
+- **Signer key rotation requires apps-worker restart.** No hot-reload. An in-flight executor child completes with the old key. See §15.6.
+- **Redis queue persistence.** AOF `everysec` means at most 1 second of BullMQ job loss on unclean shutdown. Accepted at current ops scale.
+- **§13.5 parity capture deferred to PR-B.** The 90-min paper-mode comparison (legacy vs P6) runs after this PR lands. See PR-B (`chore/p6-prb-parity-capture`).
