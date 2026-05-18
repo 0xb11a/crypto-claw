@@ -18,7 +18,7 @@ Run all passes in order and produce a single structured report. The guiding ques
 
 Before any audit pass, read two files end-to-end:
 
-1. **`CLAUDE.md` at repo root.** The project's single-page orientation: four agents, two-layer memory, data flow, wallet pipeline, safety rules, conventions. You need this context to distinguish intentional repetition (e.g. safety rules stated in both Research and Executor by design) from drift (the same rule stated with different numbers). As of P6-fragment, the legacy `scripts/` inventory in CLAUDE.md lists only the retained set (db.js, db-query.js, chains.js, order-approval.js, log.js, redact.js, promote-pattern.js, emergency-executor.js, emergency-sentinel.js, heartbeat-check.js, agent-idleness.js, pre-commit-check.js, memory-backup.sh, codex-login.sh) — other scripts have been deleted. `send-alert.js` was deleted in P5c (superseded by `cclaw alerts send`). chains.js and order-approval.js are load-time imports of the retained db-query.js; their deletion is gated on P5b cclaw expansion AND porting retained scripts off db.js (tracked in runbook §14.3).
+1. **`CLAUDE.md` at repo root.** The project's single-page orientation: four agents, two-layer memory, data flow, wallet pipeline, safety rules, conventions. You need this context to distinguish intentional repetition (e.g. safety rules stated in both Research and Executor by design) from drift (the same rule stated with different numbers). Post-retained-deletion, the legacy `scripts/` inventory in CLAUDE.md lists only ~10 retained files (log.js, redact.js, promote-pattern.js, emergency-executor.js, emergency-sentinel.js, heartbeat-check.js, pre-commit-check.js, memory-backup.sh, codex-login.sh, ci/*.mjs) — db.js, db-query.js, chains.js, order-approval.js, and agent-idleness.js were deleted after porting heartbeat-check.js / promote-pattern.js / emergency-*.js off db.js to use cclaw. `send-alert.js` was deleted in P5c (superseded by `cclaw alerts send`).
 2. **`entrypoint.sh`.** This is where OpenClaw is configured — the project has **no standalone `openclaw.json` file**. All runtime settings (`reserveTokensFloor`, `memoryFlush.softThresholdTokens`, `HEARTBEAT_CADENCES` gates, per-agent tool allowlists, cron `--every` intervals, `agents.list[N]` overrides) are applied via `openclaw config set` CLI calls in this file. Passes 3b, 3c, 10, and 12 all read from it. Do not look for `openclaw.json`; do not warn operators to create one.
 
 No findings are emitted from Pass 0. It just primes you.
@@ -27,10 +27,10 @@ No findings are emitted from Pass 0. It just primes you.
 
 These are the code files the markdown must stay in sync with. The code wins in every discrepancy — the agent will execute what the code enforces regardless of what the markdown says.
 
-- `scripts/db-query.js` — extract the `HEARTBEAT_CADENCES` object (minutes per check per agent) AND the valid legacy command names (for Pass 1.5 validation only — not a canonical command surface post-P5).
-- `libs/chain/src/portfolio-rules.ts` — portfolio rule constants (position limits, cash reserves, slippage) — **canonical post-P5**. `scripts/chains.js` is retained in P5 as a load-time import of `db-query.js` (deletes in P6); `portfolio-rules.ts` is the canonical source for portfolio limit values.
-- `scripts/db.js` — SQLite schema (tables, columns) from the migrations (retained until P6).
-- `scripts/` directory listing — the retained script filenames (post-P5 set only).
+- `libs/modules/heartbeat/src/cadences.ts` — `HEARTBEAT_CADENCES` object (minutes per check per agent) AND `AGENT_HEARTBEAT_INTERVALS` (outer loop cadences per agent). This is the canonical post-retained-deletion source; `scripts/db-query.js` was deleted.
+- `libs/chain/src/portfolio-rules.ts` — portfolio rule constants (position limits, cash reserves, slippage) — **canonical post-P5**. `scripts/chains.js` was deleted in the retained-set deletion follow-up.
+- `prisma/schema.prisma` — SQLite schema (tables, columns). `scripts/db.js` was deleted in the retained-set deletion follow-up.
+- `scripts/` directory listing — the retained script filenames (~10 files post-retained-deletion).
 - `sdk/cclaw/src/index.ts` — canonical cclaw command surface.
 - `build-templates.sh` — which scripts get deployed to which agent.
 - `entrypoint.sh` — sole OpenClaw config surface. Read for:
@@ -81,27 +81,23 @@ Each pass describes what it checks, why it matters, and the severity it assigns.
 
 ### Pass 1.5 — Retained legacy whitelist (mechanical)
 
-**Why:** After P5b, `cclaw` is the sole agent-markdown CLI surface. The 4 retained scripts (`db.js`, `db-query.js`, `chains.js`, `order-approval.js`) stay on disk for other importers but are NOT invoked from agent markdown. Any `node scripts/db-query.js` reference in agent markdown is **CRITICAL**.
+**Why:** After P5b, `cclaw` is the sole agent-markdown CLI surface. `db.js`, `db-query.js`, `chains.js`, `order-approval.js`, and `agent-idleness.js` were deleted in the retained-set deletion follow-up (post-P5b). Any `node scripts/db-query.js` reference in agent markdown is **CRITICAL**.
 
 **Agent markdown rule (post-P5b):** `grep -r "node scripts/db-query.js" agents/` MUST return zero matches. Any match is CRITICAL — the P5b markdown sweep eliminated all 172 hold-back references.
 
 **Retained scripts whitelist** (scripts that still exist on disk — the file-level whitelist below is for Pass 2 validation of `node scripts/<file>` non-db-query references in instruction text):
-- `scripts/db-query.js` — retained on disk (5 importers: heartbeat-check.js, promote-pattern.js, emergency-sentinel.js, emergency-executor.js, db-query.js itself). **Not invoked from agent markdown post-P5b.**
-- `scripts/chains.js` — retained (load-time import of db-query.js; deletes with db-query.js). Not invoked by agents.
-- `scripts/order-approval.js` — retained (load-time import of db-query.js; deletes with db-query.js). Not invoked by agents.
 - `scripts/log.js` — retained (required by heartbeat-check.js, emergency-sentinel.js, emergency-executor.js, promote-pattern.js)
 - `scripts/redact.js` — retained (required by log.js and promote-pattern.js)
-- `scripts/promote-pattern.js` — retained (MEMORY.md write-protection)
-- `scripts/emergency-executor.js` — retained (entrypoint.sh loop)
-- `scripts/emergency-sentinel.js` — retained (entrypoint.sh loop)
-- `scripts/heartbeat-check.js` — retained (entrypoint.sh SKIP predicate)
-- `scripts/agent-idleness.js` — retained (required by heartbeat-check.js)
+- `scripts/promote-pattern.js` — retained (MEMORY.md write-protection; uses cclaw for derived-from verification)
+- `scripts/emergency-executor.js` — retained (entrypoint.sh loop; uses cclaw orders execute)
+- `scripts/emergency-sentinel.js` — retained (entrypoint.sh loop; uses cclaw orders propose + approve)
+- `scripts/heartbeat-check.js` — retained (entrypoint.sh SKIP predicate; uses cclaw positions/orders list)
 - `scripts/pre-commit-check.js` — retained (CI infrastructure)
 - `scripts/memory-backup.sh` — retained (SPEC §8)
 - `scripts/codex-login.sh` — retained (operator OAuth setup)
 - `scripts/ci/*.mjs` — retained (CI guards)
 
-**Flag as CRITICAL** any `node scripts/<file>` reference in agent instructions where `<file>` is NOT in the whitelist above (e.g. `node scripts/process-order.js`, `node scripts/send-alert.js`). Also flag as CRITICAL any `node scripts/db-query.js` reference in agent markdown — all hold-backs were eliminated in P5b.
+**Flag as CRITICAL** any `node scripts/<file>` reference in agent instructions where `<file>` is NOT in the whitelist above (e.g. `node scripts/process-order.js`, `node scripts/send-alert.js`, `node scripts/db-query.js`). Also flag as CRITICAL any `node scripts/db-query.js` reference in agent markdown — all hold-backs were eliminated in P5b.
 
 ### Pass 1b — Compound-command preflight (mechanical)
 
@@ -150,7 +146,7 @@ cmd-b
 **Why:** Three sources must agree on heartbeat timing. If they disagree, `get-overdue-checks` either silently ignores a check (perpetually skipped) or perpetually marks it overdue (cadence gate meaningless).
 
 The three sources:
-- `HEARTBEAT_CADENCES` object in `scripts/db-query.js` (minutes per check per agent, used by `get-overdue-checks`)
+- `HEARTBEAT_CADENCES` object in `libs/modules/heartbeat/src/cadences.ts` (minutes per check per agent, used by the NestJS heartbeat service). `scripts/db-query.js` was deleted; cadences.ts is the canonical post-retained-deletion source.
 - Cron `--every <interval>` values in `entrypoint.sh` (when the agent is actually invoked)
 - Stated interval in each `agents/<agent>/HEARTBEAT.md` (what the LLM reads)
 
@@ -165,7 +161,7 @@ The three sources:
 
 1. Agent count and cadences — CLAUDE.md mentions four agents with specific heartbeat intervals. Verify each agent is represented in `entrypoint.sh` with the stated interval.
 2. Script list — CLAUDE.md contains a "Project Structure" section listing scripts under `scripts/`. Verify every script listed exists; **flag as INFO** any script in `scripts/` that is not listed (CLAUDE.md doesn't have to be exhaustive, but conspicuous omissions are worth noting).
-3. DB table count — CLAUDE.md names tables explicitly ("21 tables: positions, trades, …"). Cross-check against the CREATE TABLE statements in `scripts/db.js` migrations. **Flag as WARNING** on count or name mismatch.
+3. DB table count — CLAUDE.md names tables explicitly ("21 tables: positions, trades, …"). Cross-check against the model definitions in `prisma/schema.prisma` (canonical post-retained-deletion; `scripts/db.js` was deleted). **Flag as WARNING** on count or name mismatch.
 4. Safety rule constants — CLAUDE.md duplicates the portfolio limits under "Safety Rules". Cross-check against `libs/chain/src/portfolio-rules.ts` (canonical post-P5) the same way as Pass 3. **Flag as CRITICAL** on mismatch.
 5. Command lists in CLAUDE.md (e.g. database query examples) — validate the same way as Pass 1.
 

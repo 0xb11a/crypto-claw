@@ -38,11 +38,8 @@ cd "$WORKSPACE_DIR"
 # Runs at the start of every invocation — a stale `system/memory-backup`
 # heartbeat means this script is no longer being called (container issue,
 # cron stopped, etc.). Guarded to not fail the backup if SAFE_ID is unset.
-if [ -n "${SAFE_ID:-}" ]; then
-  SCRIPTS_DIR="${SCRIPTS_DIR:-$(cd "$(dirname "$0")" && pwd)}"
-  if [ -f "$SCRIPTS_DIR/db-query.js" ]; then
-    node "$SCRIPTS_DIR/db-query.js" update-heartbeat --agent system --check memory-backup >/dev/null 2>&1 || true
-  fi
+if [ -n "${SAFE_ID:-}" ] && command -v cclaw >/dev/null 2>&1; then
+  cclaw heartbeat ping --agent system --check memory-backup >/dev/null 2>&1 || true
 fi
 
 # Repair repos initialized without .gitignore (entrypoint.sh bug pre-v1.1)

@@ -1150,26 +1150,21 @@ The table below maps every `node scripts/db-query.js <command>` referenced in ag
 - `cclaw heartbeat list`, `cclaw heartbeat get`, `cclaw heartbeat overdue`, `cclaw heartbeat ping`
 - `cclaw system audit`
 
-### §13.3 P5c deletion record — retained scripts (post-P5c residue)
+### §13.3 Retained scripts — post-retained-deletion residue (~10 files)
 
-The P5 legacy-deletion PR deleted ~38 scripts. P5c deleted `scripts/send-alert.js` (superseded by `cclaw alerts send` / POST /v1/alerts/send per ADR-0028). P5b completed the cclaw CLI expansion and swept all 172 agent markdown hold-back references to `node scripts/db-query.js` — agent markdown now has ZERO `db-query.js` references. The following **14** files are explicitly retained on disk.
+The P5 legacy-deletion PR deleted ~38 scripts. P5c deleted `scripts/send-alert.js`. The retained-set deletion follow-up (2026-05-18) deleted `db.js`, `db-query.js`, `chains.js`, `order-approval.js`, and `agent-idleness.js` after porting their 4 importers off db.js to cclaw subprocess calls. P5b completed the cclaw CLI expansion and swept all 172 agent markdown hold-back references to `node scripts/db-query.js` — agent markdown has ZERO `db-query.js` references.
 
-**Retained-set count: 14** (was 15 before P5c).
+**Retained-set count: ~10** (was 14 before retained-deletion follow-up).
 
 | Script | Retained by | Closing PR |
 |---|---|---|
-| `scripts/db.js` | Auto-migrates on first `getDb()` call (P6-fragment shipped the NestJS migration runner). Retained until port-off allows `db-query.js` deletion. | Follow-up: port off db.js (5 importers remain: heartbeat-check.js, promote-pattern.js, emergency-sentinel.js, emergency-executor.js, db-query.js itself) |
-| `scripts/db-query.js` | 5 importers remain (see db.js row); no longer invoked from agent markdown (P5b sweep eliminated all 172 hold-back references) | Follow-up: port off db.js (same 5 importers) |
-| `scripts/chains.js` | Required by retained `db-query.js` (imported at line 120; provides `getAllChains`, `getActiveChains`, `getChain`, `isSolana`, `getPortfolioRules`). Deletes with `db-query.js`. | Follow-up: with db-query.js |
-| `scripts/order-approval.js` | Required by retained `db-query.js` (imported at line 122; provides `determineOrderApproval` used at line 657). Deletes with `db-query.js`. | Follow-up: with db-query.js |
-| `scripts/log.js` | Required by `heartbeat-check.js`, `emergency-sentinel.js`, `emergency-executor.js`, and `promote-pattern.js` (NOT send-alert.js — deleted). | TBD |
-| `scripts/redact.js` | Required by `log.js` and `promote-pattern.js`. | TBD |
-| `scripts/promote-pattern.js` | MEMORY.md write-protection (PR 3.1 provenance trail); no cclaw equivalent | TBD |
-| `scripts/emergency-executor.js` | `entrypoint.sh:run_executor_loop` invokes on 3 consecutive model failures | TBD |
-| `scripts/emergency-sentinel.js` | `entrypoint.sh:run_sentinel_loop` invokes on first model failure | TBD |
-| `scripts/heartbeat-check.js` | `entrypoint.sh` SKIP predicate for executor/sentinel demand-driven loops | TBD |
-| `scripts/agent-idleness.js` | Required by `heartbeat-check.js` | TBD |
-| `scripts/pre-commit-check.js` | Secret scanner + MEMORY.md trail gate + npm-audit gate; permanent infrastructure | n/a |
+| `scripts/log.js` | Required by `heartbeat-check.js`, `emergency-sentinel.js`, `emergency-executor.js`, and `promote-pattern.js`. | Permanent (no DB dependency) |
+| `scripts/redact.js` | Required by `log.js` and `promote-pattern.js`. | Permanent |
+| `scripts/promote-pattern.js` | MEMORY.md write-protection (provenance trail enforcement); uses cclaw for derived-from verification (fail-closed) | Permanent |
+| `scripts/emergency-executor.js` | `entrypoint.sh:run_executor_loop` invokes on 3 consecutive model failures; uses `cclaw orders execute` | Permanent |
+| `scripts/emergency-sentinel.js` | `entrypoint.sh:run_sentinel_loop` invokes on first model failure; uses `cclaw orders propose` + `cclaw orders approve` | Permanent |
+| `scripts/heartbeat-check.js` | `entrypoint.sh` SKIP predicate for executor/sentinel demand-driven loops; uses `cclaw positions/orders list` | Permanent |
+| `scripts/pre-commit-check.js` | Secret scanner + MEMORY.md trail gate + npm-audit gate; permanent CI infrastructure | n/a |
 | `scripts/memory-backup.sh` | `entrypoint.sh:run_memory_backup_loop` — git workspace backup every 15 min; SPEC §8 | n/a |
 | `scripts/codex-login.sh` | One-time Codex OAuth setup helper for operators; permanent operator tool | n/a |
 | `scripts/ci/*.mjs` | CI guards (vitest-workspace, dockerfile-modules checks); permanent | n/a |
@@ -1372,6 +1367,7 @@ The executor now **reports "enqueued N orders"** per cycle instead of "executed 
 ### §14.3 Follow-up issues
 
 - **P5b** ✓ DONE (2026-05-18) — cclaw CLI expansion + agent markdown sweep. Three PRs: PR-1 (41 cclaw subcommands for existing routes), PR-2 (4 new HTTP routes + 5 cclaw subcommands: system chains, system chain-config, system portfolio, system trade-stats, system sync-portfolio), PR-3 (agent markdown sweep — 172 hold-back references in 20 markdown files replaced with cclaw forms; `grep -r "node scripts/db-query.js" agents/` returns zero). The 4 retained scripts (db.js, db-query.js, chains.js, order-approval.js) remain on disk pending port-off; deletion gated on porting heartbeat-check.js / promote-pattern.js / emergency-*.js off db.js.
+- **Retained-set deletion follow-up** ✓ DONE (2026-05-18) — ported heartbeat-check.js / promote-pattern.js / emergency-sentinel.js / emergency-executor.js off db.js (now use cclaw subprocesses); deleted db.js, db-query.js, chains.js, order-approval.js, agent-idleness.js (5 files); scripts/ shrunk from 14 → ~10 files. MEMORY.md write-protection now verifies derived-from IDs via cclaw HTTP (fail-closed: any execSync error = reject). Emergency executor now enqueues via `cclaw orders execute` (matches ADR-0027 async semantics) instead of the broken `execSync('node execute-trade-*.js')` path. Emergency sentinel sell writes now use 2-call `cclaw orders propose` + `cclaw orders approve --by emergency_sentinel` (produces audit trail for both writes — stricter than legacy direct INSERT). memory-backup.sh heartbeat now uses `cclaw heartbeat ping` (db-query.js dead). build-templates.sh copy lists trimmed. audit-instructions/SKILL.md whitelist and source-of-truth pointers updated. Security-auditor pre-pass mandatory before merge (DoD §F).
 - **P5c** ✓ DONE — Notifications: `POST /v1/alerts/send` + `cclaw alerts send` wired to `NotificationsService.sendCriticalAlert`. ADR-0025 superseded by ADR-0028. `scripts/send-alert.js` deleted; `scripts/log.js` + `scripts/redact.js` retained (4 other importers — not send-alert.js as the P5 runbook incorrectly stated).
 - **P6-fragment** ✓ DONE (2026-05-17) — NestJS startup migration runner shipped. Scope delivered:
   - `apps/api/src/prisma-migrate.bootstrap.ts` — `runPrismaMigrateDeploy()` inserted in main.ts boot sequence (assertNoSignerKeysInEnv → assertConfigValid → runPrismaMigrateDeploy → NestFactory.create).
