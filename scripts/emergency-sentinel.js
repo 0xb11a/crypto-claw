@@ -23,7 +23,6 @@
  * Ported from direct DB access to cclaw subprocess calls.
  */
 
-import 'dotenv/config';
 import { execSync } from 'child_process';
 import { log } from './log.js';
 

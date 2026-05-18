@@ -23,6 +23,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { startApi } from '../_spawn-api.js';
 import type { StartApiResult } from '../_spawn-api.js';
 
@@ -67,8 +69,28 @@ let api: StartApiResult;
 // Lifecycle
 // ---------------------------------------------------------------------------
 
+/**
+ * cclaw wrapper directory: contains a shell `cclaw` script that delegates
+ * to the real compiled binary. Prepended to PATH so emergency-executor.js's
+ * execSync('cclaw ...') calls route to the real API.
+ */
+let cclawWrapperDir: string;
+let setupDir: string;
+
 beforeAll(async () => {
   if (!ENABLED) return;
+
+  // Create cclaw wrapper
+  setupDir = mkdtempSync(resolve(tmpdir(), 'emergency-executor-setup-'));
+  cclawWrapperDir = resolve(setupDir, 'bin');
+  mkdirSync(cclawWrapperDir, { recursive: true });
+  const cclawBin = resolve(REPO_ROOT, 'sdk/cclaw/dist/index.js');
+  writeFileSync(
+    resolve(cclawWrapperDir, 'cclaw'),
+    `#!/bin/sh\nexec node "${cclawBin}" "$@"\n`,
+    { mode: 0o755 },
+  );
+
   api = await startApi({
     dbPath: '',
     env: BASE_ENV,
@@ -76,11 +98,14 @@ beforeAll(async () => {
     readyTimeoutMs: 20_000,
     tmpPrefix: 'cclaw-emergency-executor',
   });
-}, 30_000);
+}, 35_000);
 
 afterAll(async () => {
   if (!ENABLED) return;
   await api.kill();
+  if (setupDir) {
+    rmSync(setupDir, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -159,7 +184,8 @@ function runEmergencyExecutor(): { exitCode: number; stdout: string; stderr: str
         PAPER_MODE: 'false',
         SAFE_ID: 'ci-emergency-executor-test',
         NODE_PATH: process.env['NODE_PATH'] ?? '',
-        PATH: process.env['PATH'] ?? '',
+        // Prepend cclaw wrapper dir so execSync('cclaw ...') resolves to our wrapper
+        PATH: `${cclawWrapperDir}:${process.env['PATH'] ?? ''}`,
       },
     });
     return { exitCode: 0, stdout, stderr: '' };

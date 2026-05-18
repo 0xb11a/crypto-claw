@@ -38,7 +38,6 @@
  * we cannot confirm it. This is a security-critical invariant.
  */
 
-import 'dotenv/config';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'node:url';
 import { existsSync, appendFileSync } from 'node:fs';
