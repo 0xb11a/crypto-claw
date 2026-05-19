@@ -107,6 +107,13 @@ jobs:
       - name: Identity coverage gate
         run: node scripts/ci/check-identities-coverage.mjs
 
+      # Step 7d — P7 PR-C1: worker/scheduler HTTP import guard (DoD §F, ADR-0029)
+      # Asserts apps/worker and apps/scheduler do not import HTTP client libraries.
+      # WORKER and SCHEDULER have empty scope sets; their tokens 403 on every route
+      # in enforce mode (defense-in-depth). Auditor suggestion #8.
+      - name: Worker/scheduler HTTP import guard
+        run: node scripts/ci/check-worker-scheduler-no-http.mjs
+
       # Step 7b — Unit tests with coverage
       - name: Unit tests
         run: pnpm test:unit --coverage

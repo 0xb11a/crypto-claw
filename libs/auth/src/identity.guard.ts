@@ -1,7 +1,8 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { IDENTITIES_KEY, type IdentitySpec } from './identities.decorator.js';
 import type { AuthenticatedUser, IdentityName } from './identity-registry.js';
+import { IdentityForbiddenException } from './identity-forbidden.exception.js';
 
 /** Minimal Fastify request shape used for identity extraction. */
 type FastifyRequest = {
@@ -94,7 +95,7 @@ export class IdentityGuard implements CanActivate {
       const role = user?.role ?? 'unknown';
       this.logShadowEvent('identity_decorator_missing', identity as IdentityName | 'unknown', role, method, path, []);
       if (!this.shadowMode) {
-        throw new ForbiddenException('Route is missing @Identities(…) decorator — default-deny');
+        throw new IdentityForbiddenException('Route is missing @Identities(…) decorator — default-deny');
       }
       return true;
     }
@@ -106,7 +107,7 @@ export class IdentityGuard implements CanActivate {
       // BearerAuthGuard runs first and would have thrown 401; reaching here means
       // something unexpected. Treat as a blocked request.
       if (!this.shadowMode) {
-        throw new ForbiddenException('No authenticated user on request');
+        throw new IdentityForbiddenException('No authenticated user on request');
       }
       return true;
     }
@@ -137,7 +138,7 @@ export class IdentityGuard implements CanActivate {
     }
 
     this.logShadowEvent('identity_blocked_enforce', user.identity, user.role, method, path, allowed as string[]);
-    throw new ForbiddenException(`Identity '${user.identity}' is not authorised for this route`);
+    throw new IdentityForbiddenException(`Identity '${user.identity}' is not authorised for this route`);
   }
 
   /**

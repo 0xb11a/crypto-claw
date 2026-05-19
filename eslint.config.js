@@ -267,6 +267,10 @@ export default [
       ...tsPlugin.configs['recommended'].rules,
       'cclaw/require-roles-on-handlers': 'error',
       'cclaw/require-audited-on-mutating-handlers': 'error',
+      // Enabled in PR-C1 (was disabled in PR-A/PR-B pending per-agent token plumbing).
+      // All 23 controllers were swept in PR-A; this gate ensures no new handler is added
+      // without @Identities(...) (SPEC §9.2, ADR-0029, P7 PR-C1).
+      'cclaw/require-identities-on-handlers': 'error',
       'no-restricted-imports': [
         'error',
         {

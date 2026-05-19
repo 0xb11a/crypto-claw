@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { ForbiddenException } from '@nestjs/common';
 import { IdentityGuard } from './identity.guard.js';
+import { IdentityForbiddenException } from './identity-forbidden.exception.js';
 import { IDENTITIES_KEY } from './identities.decorator.js';
 import type { IdentitySpec } from './identities.decorator.js';
 import type { IdentityName, RoleName } from './identity-registry.js';
@@ -243,42 +244,45 @@ describe('IdentityGuard — enforce mode (AUTHZ_SHADOW_MODE=0)', () => {
     expect(enforceGuard.canActivate(ctx)).toBe(true);
   });
 
-  it('throws ForbiddenException when identity not in allowlist', () => {
+  it('throws IdentityForbiddenException (a ForbiddenException subclass) when identity not in allowlist', () => {
     const ctx = makeContext({ identities: ['EXECUTOR'], identity: 'RESEARCH' });
+    // IdentityForbiddenException extends ForbiddenException — both assertions must pass
     expect(() => enforceGuard.canActivate(ctx)).toThrow(ForbiddenException);
+    expect(() => enforceGuard.canActivate(ctx)).toThrow(IdentityForbiddenException);
   });
 
-  it('throws ForbiddenException with message containing identity name', () => {
+  it('thrown exception message contains the identity name', () => {
     const ctx = makeContext({ identities: ['EXECUTOR'], identity: 'SENTINEL' });
-    let thrown: ForbiddenException | undefined;
+    let thrown: IdentityForbiddenException | undefined;
     try {
       enforceGuard.canActivate(ctx);
     } catch (err) {
-      thrown = err as ForbiddenException;
+      thrown = err as IdentityForbiddenException;
     }
-    expect(thrown).toBeInstanceOf(ForbiddenException);
+    expect(thrown).toBeInstanceOf(IdentityForbiddenException);
+    expect(thrown).toBeInstanceOf(ForbiddenException); // subclass check
     expect(thrown?.message).toContain('SENTINEL');
   });
 
-  it('throws ForbiddenException when @Identities is absent', () => {
+  it('throws IdentityForbiddenException when @Identities is absent', () => {
     const ctx = makeContext({ identities: null, identity: 'RESEARCH' });
     const handler = ctx.getHandler() as object;
     Reflect.deleteMetadata(IDENTITIES_KEY, handler);
-    expect(() => enforceGuard.canActivate(ctx)).toThrow(ForbiddenException);
+    expect(() => enforceGuard.canActivate(ctx)).toThrow(IdentityForbiddenException);
   });
 
-  it('throws ForbiddenException when req.user is missing', () => {
+  it('throws IdentityForbiddenException when req.user is missing', () => {
     const ctx = makeContext({ identities: ['EXECUTOR'] }); // no user
-    expect(() => enforceGuard.canActivate(ctx)).toThrow(ForbiddenException);
+    expect(() => enforceGuard.canActivate(ctx)).toThrow(IdentityForbiddenException);
   });
 
-  it('WORKER identity throws 403 on any non-wildcard route', () => {
+  it('WORKER identity throws IdentityForbiddenException on any non-wildcard route', () => {
     const ctx = makeContext({ identities: ['RESEARCH', 'SENTINEL'], identity: 'WORKER' });
-    expect(() => enforceGuard.canActivate(ctx)).toThrow(ForbiddenException);
+    expect(() => enforceGuard.canActivate(ctx)).toThrow(IdentityForbiddenException);
   });
 
-  it('SCHEDULER identity throws 403 on any non-wildcard route', () => {
+  it('SCHEDULER identity throws IdentityForbiddenException on any non-wildcard route', () => {
     const ctx = makeContext({ identities: ['RESEARCH'], identity: 'SCHEDULER' });
-    expect(() => enforceGuard.canActivate(ctx)).toThrow(ForbiddenException);
+    expect(() => enforceGuard.canActivate(ctx)).toThrow(IdentityForbiddenException);
   });
 });

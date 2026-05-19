@@ -2274,6 +2274,9 @@
           },
           "400": {
             "description": "Validation error"
+          },
+          "403": {
+            "description": "Identity-action mismatch (SENTINEL can only sell; RESEARCH can only buy)"
           }
         },
         "security": [
@@ -3142,6 +3145,9 @@
           },
           "400": {
             "description": "Validation error"
+          },
+          "403": {
+            "description": "Forbidden — EXECUTOR or LOOP identity required"
           }
         },
         "security": [
@@ -3149,7 +3155,7 @@
             "bearer": []
           }
         ],
-        "summary": "Set cash balance for a chain",
+        "summary": "Set cash balance for a chain (executor receipt path only)",
         "tags": ["system"]
       }
     },

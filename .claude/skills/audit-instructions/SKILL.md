@@ -99,6 +99,27 @@ Each pass describes what it checks, why it matters, and the severity it assigns.
 
 **Flag as CRITICAL** any `node scripts/<file>` reference in agent instructions where `<file>` is NOT in the whitelist above (e.g. `node scripts/process-order.js`, `node scripts/send-alert.js`, `node scripts/db-query.js`). Also flag as CRITICAL any `node scripts/db-query.js` reference in agent markdown — all hold-backs were eliminated in P5b.
 
+### Pass 1c — Agent markdown vs `@Identities(...)` cross-check (P7 PR-C1, plan Decision 15)
+
+**Why:** Agent markdown files reference `cclaw <resource> <action>` commands. Each command maps to an HTTP route. Each route has an `@Identities(...)` decorator that restricts which identities may call it. If a markdown file documents a command for an agent whose identity is excluded from that route's `@Identities(...)` allowlist, the agent gets a 403 when enforce mode flips (`AUTHZ_SHADOW_MODE=0`, PR-C2).
+
+**LLM-agent gap (runbook §16.5):** Today all LLM-agent cclaw calls identify as LOOP (the gateway wires `CCLAW_API_TOKEN=${LOOP_API_KEY}`). So the cross-check logic is:
+
+- **Flag CRITICAL** if the route's `@Identities(...)` excludes **LOOP** — any LLM agent calling this command today will get a 403 even in shadow mode (BearerAuthGuard passes, RolesGuard passes, IdentityGuard blocks in enforce).
+- **Do NOT flag** if the route excludes the specific named identity (RESEARCH/SENTINEL/etc.) but includes LOOP — this is expected today. The per-agent token plumbing (PR-B) is what would make the named-identity check load-bearing.
+
+**Procedure:**
+
+1. For each agent, extract every `cclaw <resource> <action>` command from `agents/{name}/{HEARTBEAT,TOOLS}.md` and `agents/{name}/skills/*/SKILL.md`.
+2. For each command, map it to the underlying HTTP route using `sdk/cclaw/src/index.ts` (the `.command(...)` calls define the mapping from CLI command to HTTP verb + path).
+3. For each route, find the `@Identities(...)` decorator by grepping `libs/modules/**/*.controller.ts` and `libs/audit/src/audit.controller.ts` for the matching path segment.
+4. Apply the LLM-agent gap rule:
+   - `@Identities('*')` or `@Identities(..., 'LOOP', ...)` → pass (LOOP is allowed, today's agents can call this).
+   - `@Identities(...)` WITHOUT 'LOOP' and WITHOUT '*' → **CRITICAL**: the agent's cclaw call will 403 in enforce mode.
+5. Separately, for informational completeness, flag **INFO** any route where `@Identities(...)` includes the named agent identity but excludes LOOP (forward-compat: after PR-B this agent can use its per-agent token and the route will work, but today it calls as LOOP and may get 403 in enforce mode if LOOP is absent).
+
+**Note on DASHBOARD:** `cclaw alerts ack` is documented for Research. The underlying route `POST /v1/alerts/:id/acknowledge` has `@Identities('*')` — this is a sanctioned exception (ADR-0029 "Sanctioned `@Identities('*')` exceptions"). Do not flag it.
+
 ### Pass 1b — Compound-command preflight (mechanical)
 
 **Why:** OpenClaw's exec preflight rejects compound commands. A bash fence containing `cmd-a && cmd-b` is not a slower-path — it's a **silent rule deletion at runtime**: the agent reads the step, tries to execute, preflight blocks it, and the agent either invents a workaround (hallucination) or stalls. CLAUDE.md's "Common Pitfalls" lists this as the project's #1 instruction-authoring trap; every per-agent TOOLS.md carries the "one command per exec call" rule for the same reason. The audit must enforce it mechanically.

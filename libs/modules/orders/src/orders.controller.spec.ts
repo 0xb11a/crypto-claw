@@ -14,6 +14,7 @@ import { NotFoundException, ConflictException } from '@nestjs/common';
 import { OrdersController } from './orders.controller.js';
 import type { OrdersService } from './orders.service.js';
 import type { OrderResponseDto, OrderListResponseDto } from './dto/order-response.dto.js';
+import type { AuthenticatedUser } from '@cclaw/auth';
 
 const pendingOrder: OrderResponseDto = {
   id: 'order-1',
@@ -105,9 +106,26 @@ describe('OrdersController', () => {
         chain: 'base',
         amount: '100',
       };
-      const result = await ctrl.propose(dto);
-      expect(svc.propose).toHaveBeenCalledWith(dto);
+      // Controller's propose() accepts a req object with optional user.
+      // Pass a minimal fake req to simulate the @Req() injection (P7 PR-C1).
+      const user: AuthenticatedUser = { identity: 'LOOP', role: 'agent' };
+      const fakeReq = { user };
+      const result = await ctrl.propose(dto, fakeReq);
+      expect(svc.propose).toHaveBeenCalledWith(dto, 'LOOP');
       expect(result).toBe(pendingOrder);
+    });
+
+    it('passes undefined identity when req.user is absent', async () => {
+      const dto = {
+        action: 'buy' as const,
+        symbol: 'ETH',
+        address: '0xabc',
+        chain: 'base',
+        amount: '100',
+      };
+      const fakeReq: { user?: AuthenticatedUser } = {}; // no user
+      await ctrl.propose(dto, fakeReq);
+      expect(svc.propose).toHaveBeenCalledWith(dto, undefined);
     });
   });
 

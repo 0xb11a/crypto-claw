@@ -83,7 +83,7 @@ export class SystemService {
     });
   }
   /**
-   * Set cash balance for a chain
+   * Set cash balance for a chain (executor receipt path only)
    * @param requestBody
    * @returns any Cash updated
    * @throws ApiError
@@ -96,6 +96,7 @@ export class SystemService {
       mediaType: 'application/json',
       errors: {
         400: `Validation error`,
+        403: `Forbidden — EXECUTOR or LOOP identity required`,
       },
     });
   }

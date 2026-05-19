@@ -93,6 +93,9 @@ export const IDENTITY_SCOPES: Readonly<Record<IdentityName, ReadonlyArray<string
     'GET /v1/system/sync-status',
     'GET /v1/system/audit',
     'GET /v1/system/audit/:id',
+    // NOTE: PATCH /v1/system/cash is intentionally absent from RESEARCH scope.
+    // Cash derives from executor receipts, not direct agent writes (auditor suggestion #3,
+    // P7 PR-C1). RESEARCH can read cash; only EXECUTOR and LOOP can write it.
   ],
 
   SENTINEL: [
