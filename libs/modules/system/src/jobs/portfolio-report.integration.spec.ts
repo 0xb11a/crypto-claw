@@ -39,7 +39,12 @@ import type { PortfolioReportJobData } from './portfolio-report.processor.js';
 let prisma: PrismaService;
 
 beforeAll(async () => {
-  process.env['DATABASE_URL'] = 'file::memory:?connection_limit=1';
+  // Named in-memory DB per spec — anonymous file::memory: shares a
+  // better-sqlite3 handle across spec files landing in the same vitest
+  // worker thread (V8 isolation doesn't invalidate native module state),
+  // causing cross-spec contamination. Activity-wallets + score-wallets
+  // already use per-spec-named in-memory URLs for the same reason.
+  process.env['DATABASE_URL'] = 'file::portfolio_report_test?mode=memory&cache=shared&connection_limit=1';
   process.env['PRISMA_DISABLE_DOTENV'] = '1';
 
   prisma = new PrismaService();

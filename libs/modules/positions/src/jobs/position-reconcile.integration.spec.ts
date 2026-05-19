@@ -42,8 +42,12 @@ import type { PositionReconcileJobData } from './position-reconcile.processor.js
 let prisma: PrismaService;
 
 beforeAll(async () => {
-  // Isolated in-memory SQLite per suite (must not share with other suites).
-  process.env['DATABASE_URL'] = 'file::memory:?connection_limit=1';
+  // Named in-memory SQLite per suite — anonymous file::memory: shares a
+  // better-sqlite3 handle across spec files landing in the same vitest
+  // worker thread (V8 isolation doesn't invalidate native module state),
+  // contaminating sibling specs (e.g. portfolio-report). The named
+  // file:<name>?mode=memory&cache=shared URL gives each spec its own DB.
+  process.env['DATABASE_URL'] = 'file::position_reconcile_test?mode=memory&cache=shared&connection_limit=1';
   process.env['PRISMA_DISABLE_DOTENV'] = '1';
 
   prisma = new PrismaService();
