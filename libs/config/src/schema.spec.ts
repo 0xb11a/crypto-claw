@@ -285,3 +285,64 @@ describe('assertNoSignerKeysInEnv — adversarial: both keys set simultaneously'
     ).toThrow('[boot] signer keys must not be present in this process env (got: SAFE_SIGNER_KEY)');
   });
 });
+
+// ---------------------------------------------------------------------------
+// API_BIND_ADDRESS (P6 — compose multi-service topology, ADR-0006 addendum)
+// ---------------------------------------------------------------------------
+
+describe('parseEnv — API_BIND_ADDRESS', () => {
+  it('defaults API_BIND_ADDRESS to "127.0.0.1" when not set (ADR-0006 localhost-only)', () => {
+    const config = parseEnv(VALID_ENV);
+    expect(config.API_BIND_ADDRESS).toBe('127.0.0.1');
+  });
+
+  it('accepts a valid IPv4 override (0.0.0.0 for compose multi-service)', () => {
+    const config = parseEnv({ ...VALID_ENV, API_BIND_ADDRESS: '0.0.0.0' });
+    expect(config.API_BIND_ADDRESS).toBe('0.0.0.0');
+  });
+
+  it('accepts a specific IPv4 address override', () => {
+    const config = parseEnv({ ...VALID_ENV, API_BIND_ADDRESS: '192.168.1.100' });
+    expect(config.API_BIND_ADDRESS).toBe('192.168.1.100');
+  });
+
+  it('rejects a non-IPv4 value (hostname)', () => {
+    expect(() => parseEnv({ ...VALID_ENV, API_BIND_ADDRESS: 'localhost' })).toThrow(
+      /^\[config\] invalid env: API_BIND_ADDRESS/,
+    );
+  });
+
+  it('rejects an IPv6 address', () => {
+    expect(() => parseEnv({ ...VALID_ENV, API_BIND_ADDRESS: '::1' })).toThrow(
+      /^\[config\] invalid env: API_BIND_ADDRESS/,
+    );
+  });
+
+  it('produces the SPEC-prescribed error message for invalid API_BIND_ADDRESS', () => {
+    expect(() => parseEnv({ ...VALID_ENV, API_BIND_ADDRESS: 'not-an-ip' })).toThrow(
+      '[config] invalid env: API_BIND_ADDRESS — must be a valid IPv4 address',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CCLAW_API_BASE (P6 — documented in schema for drift visibility)
+// ---------------------------------------------------------------------------
+
+describe('parseEnv — CCLAW_API_BASE', () => {
+  it('is undefined when not set', () => {
+    const config = parseEnv(VALID_ENV);
+    expect(config.CCLAW_API_BASE).toBeUndefined();
+  });
+
+  it('accepts a valid http URL (compose internal)', () => {
+    const config = parseEnv({ ...VALID_ENV, CCLAW_API_BASE: 'http://apps-api:7878' });
+    expect(config.CCLAW_API_BASE).toBe('http://apps-api:7878');
+  });
+
+  it('rejects a non-URL value', () => {
+    expect(() => parseEnv({ ...VALID_ENV, CCLAW_API_BASE: 'not-a-url' })).toThrow(
+      /^\[config\] invalid env: CCLAW_API_BASE/,
+    );
+  });
+});

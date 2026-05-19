@@ -200,6 +200,7 @@ export default [
     files: [
       'libs/config/src/**/*.ts',
       'apps/*/src/main.ts',
+      'apps/*/src/prisma-migrate.bootstrap.ts',
       'apps/*/src/app.module.ts',
       'libs/auth/src/auth.module.ts',
       'libs/prisma/src/prisma.module.ts',

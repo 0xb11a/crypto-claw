@@ -408,6 +408,46 @@ export const envSchema = z.object({
    * Used by libs/logger to select pino-pretty transport in non-production mode.
    */
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+
+  // --------------------------------------------------------------------------
+  // Network binding (P6 — compose multi-service topology)
+  // --------------------------------------------------------------------------
+
+  /**
+   * IPv4 address for apps/api to bind to.
+   *
+   * Default: `127.0.0.1` (ADR-0006 — localhost-only outside Docker).
+   * In production compose, set to `0.0.0.0` so other services on the internal
+   * bridge network can reach apps-api (apps-worker, crypto-claw gateway).
+   * No host port is published; the binding is internal to the compose network
+   * only (ADR-0006 compose addendum: host exposure remains zero).
+   */
+  API_BIND_ADDRESS: z
+    .string()
+    .regex(/^(\d{1,3}\.){3}\d{1,3}$/, 'must be a valid IPv4 address')
+    .default('127.0.0.1'),
+
+  /**
+   * Base URL of the CryptoClaw API as seen from the calling container.
+   *
+   * Consumed by `cclaw` CLI and the gateway's entrypoint.sh loops.
+   * In production compose: `http://apps-api:7878` (set by compose env stanza).
+   * In local dev: not set — cclaw defaults to `http://127.0.0.1:7878`.
+   * Documenting it here prevents config drift; the actual value is injected
+   * by the compose service stanza, not by apps/api itself.
+   */
+  CCLAW_API_BASE: z.string().url('must be a valid URL (e.g. http://apps-api:7878)').optional(),
+
+  /**
+   * Absolute path to the monorepo root for Prisma migrations.
+   *
+   * [OPEN-P6-1] resolution: the prod Docker image copies the prisma/ tree and
+   * node_modules/.bin/prisma to /app (WORKDIR) so that prisma-migrate.bootstrap.ts
+   * can find them. In CI and local dev this env var is not needed — REPO_ROOT is
+   * resolved automatically from __dirname.
+   * In production compose, set to `/app` for the apps-api service.
+   */
+  PRISMA_REPO_ROOT: z.string().optional(),
 });
 
 /** Typed AppConfig shape derived from the Zod schema. */

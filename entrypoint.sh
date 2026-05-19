@@ -263,11 +263,16 @@ seed_paper_cash_bg() {
   fi
 
   # Poll apps/api /healthz until ready or timeout.
-  # Default API port is 7878; override via CCLAW_API_PORT if non-standard.
-  _api_port="${CCLAW_API_PORT:-7878}"
+  # CCLAW_API_BASE is injected by compose (http://apps-api:7878 in prod;
+  # http://127.0.0.1:7878 in dev). If unset, fail fast with a clear message.
+  if [ -z "${CCLAW_API_BASE:-}" ]; then
+    echo "[paper-seed] FATAL: CCLAW_API_BASE is not set. Set it in compose env or .env.runtime." >&2
+    return 1
+  fi
+
   _api_ready=false
   for _i in $(seq 1 60); do
-    if curl -sf "http://127.0.0.1:${_api_port}/healthz" > /dev/null 2>&1; then
+    if curl -sf "${CCLAW_API_BASE}/healthz" > /dev/null 2>&1; then
       echo "[paper-seed] apps/api ready after ${_i}s"
       _api_ready=true
       break
@@ -276,7 +281,7 @@ seed_paper_cash_bg() {
   done
 
   if [ "$_api_ready" != "true" ]; then
-    echo "[paper-seed] WARNING: apps/api not ready after 60s — skipping paper-cash seed" >&2
+    echo "[paper-seed] WARNING: apps/api not ready after 60s -- skipping paper-cash seed" >&2
     echo "[paper-seed] To seed manually: cclaw system meta set --key paper_cash_<chain> --value <amount>"
     return 0
   fi
@@ -286,9 +291,9 @@ seed_paper_cash_bg() {
     _chain=$(echo "$_chain" | xargs)
     _override_var="PAPER_STARTING_BALANCE_$(echo "$_chain" | tr '[:lower:]' '[:upper:]')"
     _balance="${!_override_var:-$PAPER_STARTING_BALANCE}"
-    CCLAW_API_BASE="http://127.0.0.1:${_api_port}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+    CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
       cclaw system meta set --key "paper_cash_${_chain}" --value "$_balance" > /dev/null
-    CCLAW_API_BASE="http://127.0.0.1:${_api_port}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+    CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
       cclaw system meta set --key "paper_initial_balance_${_chain}" --value "$_balance" > /dev/null
     echo "[paper-seed] Paper mode balance seeded: ${_chain} = \$${_balance}"
   done
@@ -750,7 +755,7 @@ run_memory_backup_loop() {
   sleep 60  # wait for initial startup
   while true; do
     if [ -x "$RESEARCH_WS/scripts/memory-backup.sh" ]; then
-      CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+      CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
         bash "$RESEARCH_WS/scripts/memory-backup.sh" "$RESEARCH_WS" 2>&1 | \
         sed 's/^/[memory-backup-bg] /'
     fi
@@ -818,7 +823,7 @@ run_executor_loop() {
         failures=$((failures + 1))
         echo "[executor-loop] Agent failed (consecutive failures: $failures)"
         echo "[$(date -u +%FT%TZ)] [error] [executor-loop] Agent failed (consecutive failures: $failures)" >> /tmp/openclaw/system.log
-        CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+        CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
           cclaw alerts send --type model_failure --agent executor \
           --message "Executor agent failed (attempt $failures)" 2>/dev/null || true
 
@@ -841,17 +846,17 @@ run_executor_loop() {
         if [ $failures -ge "$EMERGENCY_AFTER" ]; then
           echo "[executor-loop] EMERGENCY MODE — all models failed ($failures consecutive)"
           echo "[$(date -u +%FT%TZ)] [critical] [executor-loop] Emergency mode activated after $failures consecutive failures" >> /tmp/openclaw/system.log
-          CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
             SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
             node "$RESEARCH_WS/scripts/emergency-executor.js" 2>&1 | sed 's/^/[emergency-executor] /'
-          CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
             cclaw alerts send --type emergency_mode --agent executor \
             --message "Executor in emergency mode. Script-only sell execution active." 2>/dev/null || true
         fi
       else
         if [ $failures -gt 0 ]; then
           echo "[executor-loop] Recovered after $failures failures"
-          CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
             cclaw alerts send --type recovered --agent executor \
             --message "Executor recovered after $failures consecutive failures" 2>/dev/null || true
         fi
@@ -890,7 +895,7 @@ run_sentinel_loop() {
         failures=$((failures + 1))
         echo "[sentinel-loop] Agent failed (consecutive failures: $failures)"
         echo "[$(date -u +%FT%TZ)] [error] [sentinel-loop] Agent failed (consecutive failures: $failures)" >> /tmp/openclaw/system.log
-        CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+        CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
           cclaw alerts send --type model_failure --agent sentinel \
           --message "Sentinel agent failed (attempt $failures)" 2>/dev/null || true
 
@@ -913,17 +918,17 @@ run_sentinel_loop() {
         if [ $exit_code -ne 0 ]; then
           echo "[sentinel-loop] EMERGENCY MODE — all models failed"
           echo "[$(date -u +%FT%TZ)] [critical] [sentinel-loop] Emergency mode activated — all models failed" >> /tmp/openclaw/system.log
-          CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
             SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
             node "$RESEARCH_WS/scripts/emergency-sentinel.js" 2>&1 | sed 's/^/[emergency-sentinel] /'
-          CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
             cclaw alerts send --type emergency_mode --agent sentinel \
             --message "Sentinel in emergency mode. Script-only position protection active." 2>/dev/null || true
         fi
       else
         if [ $failures -gt 0 ]; then
           echo "[sentinel-loop] Recovered after $failures failures"
-          CCLAW_API_BASE="${CCLAW_API_BASE:-http://127.0.0.1:7878}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
             cclaw alerts send --type recovered --agent sentinel \
             --message "Sentinel recovered after $failures consecutive failures" 2>/dev/null || true
         fi

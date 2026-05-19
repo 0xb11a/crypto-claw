@@ -148,15 +148,30 @@ COPY --chown=node:node --from=builder /deploy/worker /app/apps/worker
 COPY --chown=node:node --from=builder /deploy/scheduler /app/apps/scheduler
 COPY --chown=node:node --from=builder /deploy/executor /app/apps/executor
 
+# [OPEN-P6-1] resolution: copy Prisma migration artefacts to /app (monorepo root).
+#
+# prisma-migrate.bootstrap.ts resolves REPO_ROOT = resolve(__dirname, '../../..')
+# from /app/apps/api/dist/ → /app. The pnpm deploy trees above are self-contained
+# per-app directories; they do NOT include the workspace-root prisma/ tree or the
+# workspace-root node_modules/.bin/prisma binary because those live at the monorepo
+# root (not under any individual app). Without this block, runPrismaMigrateDeploy()
+# fails at PRISMA_BIN resolution and apps-api enters a restart loop.
+#
+# Four COPY statements are required because `pnpm deploy --prod` resolves Prisma
+# peer deps into the per-app node_modules, but the Prisma CLI binary and migration
+# engine are only present at the workspace root — they are not duplicated per-app.
+COPY --chown=node:node --from=builder /build/prisma /app/prisma
+COPY --chown=node:node --from=builder /build/node_modules/.bin/prisma /app/node_modules/.bin/prisma
+COPY --chown=node:node --from=builder /build/node_modules/prisma /app/node_modules/prisma
+COPY --chown=node:node --from=builder /build/node_modules/@prisma /app/node_modules/@prisma
+
 USER node
 
-# HEALTHCHECK placeholder — P1 will replace with a real readiness probe against
-# /readyz once @nestjs/terminus is wired up and the API boots with a real DB.
-# The trivial `node -e "process.exit(0)"` ensures the container reports healthy
-# during P0b so orchestrators don't mark it unhealthy.
-# TODO(P1): replace with: CMD ["node", "apps/api/dist/healthcheck.js"]
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD node -e "process.exit(0)"
+# Healthcheck for the API service (P6 — real /healthz probe).
+# Worker and scheduler containers override this in docker-compose.yml via
+# the compose healthcheck stanza (pgrep-based, because they expose no HTTP).
+HEALTHCHECK --interval=10s --timeout=5s --retries=6 --start-period=30s \
+    CMD node -e "fetch('http://127.0.0.1:7878/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 # dumb-init as PID 1 — forwards signals to the Node child and reaps orphan
 # processes. CMD is passed as arguments to dumb-init.

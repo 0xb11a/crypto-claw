@@ -30,7 +30,16 @@ async function bootstrap(): Promise<void> {
   assertNoSignerKeysInEnv(process.env);
 
   // Step 2 — config validation (SPEC §4 #6)
-  assertConfigValid(process.env);
+  const config = assertConfigValid(process.env);
+
+  // Step 2.5 — derive DATABASE_URL from validated DB_PATH BEFORE runPrismaMigrateDeploy
+  // spawns the prisma child process. PrismaModule.register() also sets this at Nest
+  // bootstrap (libs/prisma/src/prisma.module.ts:43), but that runs AFTER step 3 — too
+  // late for migrate-deploy. Mirroring the same connection-limit=1 shape so the URL
+  // is identical across the lifetime of the process.
+  if (!(process.env as NodeJS.ProcessEnv)['DATABASE_URL']) {
+    (process.env as NodeJS.ProcessEnv)['DATABASE_URL'] = `file:${config.DB_PATH}?connection_limit=1`;
+  }
 
   // Step 3 — apply pending Prisma migrations (ADR-0002, ADR-0026).
   // Runs before NestFactory.create so the schema is guaranteed present before any
@@ -64,7 +73,7 @@ async function bootstrap(): Promise<void> {
     res.send(document);
   });
 
-  // Step 7 — global prefix + binding (ADR-0006: localhost-only)
+  // Step 7 — global prefix + binding (ADR-0006: localhost-only; compose addendum: 0.0.0.0 internal)
   app.setGlobalPrefix('v1', {
     // Exclude health routes from /v1 prefix (they're top-level)
     exclude: ['healthz', 'readyz'],
@@ -76,16 +85,24 @@ async function bootstrap(): Promise<void> {
     process.exit(0);
   });
 
-  // Step 8 — listen on 127.0.0.1 only (ADR-0006)
+  // Step 8 — listen on API_BIND_ADDRESS (ADR-0006 + compose addendum).
+  //
+  // ADR-0006: in standalone / dev mode this defaults to `127.0.0.1` (no public exposure).
+  // P6 compose addendum: production compose sets API_BIND_ADDRESS=0.0.0.0 so other
+  // services (crypto-claw gateway, apps-worker healthcheck) can reach apps-api over
+  // the internal Docker bridge. No host port is published — the network boundary is
+  // preserved; only same-compose-network services can reach the API.
+  //
   // PORT env var is accepted for test scenarios (e.g. parallel integration-test
   // instances via tests/integration/_spawn-api.ts).  Production deploys should
   // leave PORT unset so the default (7878) applies.
   // process.env access is allowed in apps/*/src/main.ts (bootstrap exception block).
   const port = parseInt(process.env['PORT'] ?? '7878', 10);
-  await app.listen(port, '127.0.0.1');
+  const bindAddress = process.env['API_BIND_ADDRESS'] ?? '127.0.0.1';
+  await app.listen(port, bindAddress);
 
   // Log readiness — literal string checked by _spawn-api.ts readiness detection
-  process.stdout.write(`[boot] api ready on 127.0.0.1:${port} — config OK; signer keys absent\n`);
+  process.stdout.write(`[boot] api ready on ${bindAddress}:${port} — config OK; signer keys absent\n`);
 }
 
 bootstrap().catch((err: unknown) => {
