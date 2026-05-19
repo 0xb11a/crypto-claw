@@ -245,7 +245,7 @@ describe('Enforce-mode positive controls (non-orders routes)', () => {
     async () => {
       const { status } = await req('POST', '/v1/logs/executor', {
         token: EXECUTOR_TOKEN,
-        body: { check_type: 'e2e_positive_control', summary: 'enforce-mode e2e test' },
+        body: { status: 'ok', summary: 'enforce-mode e2e positive control' },
       });
       // EXECUTOR is in @Identities allowlist for POST /v1/logs/executor
       expect(status).toBe(201);
@@ -257,7 +257,7 @@ describe('Enforce-mode positive controls (non-orders routes)', () => {
     async () => {
       const { status } = await req('POST', '/v1/logs/executor', {
         token: RESEARCH_TOKEN,
-        body: { check_type: 'e2e_negative_control' },
+        body: { status: 'ok', summary: 'enforce-mode e2e negative control' },
       });
       // RESEARCH is not in @Identities allowlist for POST /v1/logs/executor
       expect(status).toBe(403);
@@ -269,7 +269,7 @@ describe('Enforce-mode positive controls (non-orders routes)', () => {
     async () => {
       const { status } = await req('POST', '/v1/logs/executor', {
         token: SENTINEL_TOKEN,
-        body: { check_type: 'e2e_sentinel_negative' },
+        body: { status: 'ok', summary: 'enforce-mode e2e sentinel negative' },
       });
       // SENTINEL is not in @Identities allowlist for POST /v1/logs/executor
       expect(status).toBe(403);
