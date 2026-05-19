@@ -42,9 +42,11 @@ const PRISMA_BIN = resolve(REPO_ROOT, 'node_modules/.bin/prisma');
  * block in main.ts writes the error to stderr and calls process.exit(1).
  * Migration errors are NOT exit-78 (that code is reserved for config errors).
  *
- * Idempotent: Prisma's _prisma_migrations advisory lock ensures only one
- * concurrent migrate-deploy proceeds; subsequent calls with an up-to-date
- * schema are instant no-ops.
+ * Idempotent: Prisma's _prisma_migrations table check ensures already-applied
+ * migrations are skipped. For SQLite, concurrent invocations are serialized by
+ * WAL file-locking — advisory locks are a Postgres-only feature and do not apply
+ * here. In the current single-writer topology only apps-api ever calls
+ * migrate-deploy, so concurrent invocations cannot occur in practice.
  *
  * @param env - Environment variables to pass to the Prisma child process.
  *              Must include DATABASE_URL. Callers in apps bootstrap files may

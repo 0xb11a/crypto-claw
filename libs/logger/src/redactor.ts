@@ -66,6 +66,9 @@ export const REDACT_PATHS: string[] = [
   'DASHBOARD_API_KEY',
   // P3g2 PR-D: Telegram bot token (digit:alpha format in URL paths)
   'TELEGRAM_BOT_TOKEN',
+  // GitHub personal access token / fine-grained token used by Observer agent
+  // (written to ~/.config/gh/hosts.yml by entrypoint.sh; may leak into log context)
+  'GH_TOKEN',
 ];
 
 // ---------------------------------------------------------------------------
@@ -126,6 +129,29 @@ const RE_QUERY_APIKEY = /[?&]api[_-]?key=[^\s&"']*/gi;
 const RE_BASE58_PRIVATE_KEY = /\b[1-9A-HJ-NP-Za-km-z]{87,88}\b/g;
 
 /**
+ * GitHub tokens (classic PAT, fine-grained PAT, OAuth app, server-to-server,
+ * user-to-server, and refresh token formats).
+ *
+ * Prefix patterns (source: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github#githubs-token-formats):
+ *   ghp_  — classic personal access token
+ *   gho_  — OAuth app token
+ *   ghu_  — user-to-server token
+ *   ghs_  — server-to-server token (GitHub App installation)
+ *   ghr_  — refresh token
+ *
+ * All are followed by at least 36 alphanumeric chars (underscore allowed).
+ * The `gh[pousr]_` prefix is GitHub-token-specific and will not match
+ * legitimate identifiers in CryptoClaw log fields (order IDs, wallet
+ * addresses, Solana pubkeys) which use different character-set patterns.
+ *
+ * Used by Observer agent: GH_TOKEN is written to ~/.config/gh/hosts.yml by
+ * entrypoint.sh at container startup. If entrypoint.sh or gh CLI output
+ * leaks into structured log context, this pattern ensures the token is
+ * redacted before the log line is emitted.
+ */
+const RE_GITHUB_TOKEN = /gh[pousr]_[A-Za-z0-9_]{36,}/g;
+
+/**
  * Telegram bot tokens in URL paths (P3g2 PR-D — TelegramAdapter).
  *
  * Telegram bot tokens have the format: `<digits>:<alphanumeric>` where the
@@ -164,6 +190,7 @@ export function redactString(text: string): string {
   let result = text;
 
   result = result.replace(RE_XPRV, '[REDACTED]');
+  result = result.replace(RE_GITHUB_TOKEN, '[REDACTED_GH_TOKEN]');
   result = result.replace(RE_ETH_PRIVATE_KEY, '[REDACTED]');
   result = result.replace(RE_BASE58_PRIVATE_KEY, '[REDACTED]'); // Solana/Squads signer keys (base58 ≥87 chars)
   result = result.replace(RE_TELEGRAM_BOT_TOKEN, '[REDACTED_BOT_TOKEN]'); // Telegram bot tokens
