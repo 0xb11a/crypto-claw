@@ -1,6 +1,6 @@
 import { Controller, Get, Patch, Query, Param, Body } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { SystemService } from '../system.service.js';
 import { SetCashDto } from '../dto/set-cash.dto.js';
@@ -30,6 +30,7 @@ export class CashController {
 
   @Get('cash')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get cash balances for all chains' })
   @ApiResponse({ status: 200, description: 'Flat cash breakdown: { [chain]: amount, total }' })
   getAllCash(): Promise<CashBreakdownDto> {
@@ -38,6 +39,7 @@ export class CashController {
 
   @Get('cash/:chain')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiParam({ name: 'chain', description: 'Chain identifier' })
   @ApiOperation({ summary: 'Get cash balance for a specific chain' })
   @ApiResponse({ status: 200, description: 'Chain cash: { chain, cash }' })
@@ -47,6 +49,7 @@ export class CashController {
 
   @Patch('cash')
   @Roles('agent')
+  @Identities('EXECUTOR', 'RESEARCH', 'LOOP')
   @Audited()
   @ApiOperation({ summary: 'Set cash balance for a chain' })
   @ApiResponse({ status: 200, description: 'Cash updated' })
@@ -57,6 +60,7 @@ export class CashController {
 
   @Get('gas')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get gas token balance for a chain' })
   @ApiResponse({ status: 200, description: 'Gas info: { chain, symbol, balance, price, value_usd }' })
   @ApiResponse({ status: 400, description: 'Missing chain param' })

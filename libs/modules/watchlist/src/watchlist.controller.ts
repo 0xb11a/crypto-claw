@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { WatchlistService } from './watchlist.service.js';
 import { AddWatchlistDto } from './dto/add-watchlist.dto.js';
@@ -28,6 +28,7 @@ export class WatchlistController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List watchlist entries' })
   @ApiResponse({ status: 200, description: 'List of watchlist entries' })
   list(@Query() query: WatchlistQueryDto): Promise<WatchlistResponseDto[]> {
@@ -36,6 +37,7 @@ export class WatchlistController {
 
   @Get(':id')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get a watchlist entry by ID' })
   @ApiParam({ name: 'id', description: 'Watchlist entry ID' })
   @ApiResponse({ status: 200, description: 'Watchlist entry' })
@@ -46,6 +48,7 @@ export class WatchlistController {
 
   @Post()
   @Roles('agent')
+  @Identities('RESEARCH', 'SENTINEL', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Add a token to the watchlist' })
@@ -57,6 +60,7 @@ export class WatchlistController {
 
   @Patch(':id')
   @Roles('agent')
+  @Identities('RESEARCH', 'SENTINEL', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update a watchlist entry' })
@@ -69,6 +73,7 @@ export class WatchlistController {
 
   @Delete(':id')
   @Roles('agent')
+  @Identities('RESEARCH', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Soft-delete a watchlist entry (sets status=removed)' })

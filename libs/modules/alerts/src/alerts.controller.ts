@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { AlertsService } from './alerts.service.js';
 import { CreateAlertDto } from './dto/create-alert.dto.js';
@@ -44,6 +44,7 @@ export class AlertsController {
    */
   @Post('send')
   @Roles('agent')
+  @Identities('RESEARCH', 'SENTINEL', 'EXECUTOR', 'OBSERVER', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({ summary: 'Send a Telegram notification (fire-and-forget, 202)' })
@@ -56,6 +57,7 @@ export class AlertsController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List sentinel alerts' })
   @ApiResponse({ status: 200, description: 'List of alerts' })
   list(@Query() query: AlertListQueryDto): Promise<AlertListResponseDto> {
@@ -64,6 +66,7 @@ export class AlertsController {
 
   @Get(':id')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get a sentinel alert by ID' })
   @ApiParam({ name: 'id', description: 'Alert ID' })
   @ApiResponse({ status: 200, description: 'Alert found' })
@@ -74,6 +77,7 @@ export class AlertsController {
 
   @Post()
   @Roles('agent')
+  @Identities('SENTINEL', 'RESEARCH', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a sentinel alert' })
@@ -85,6 +89,7 @@ export class AlertsController {
 
   @Post(':id/acknowledge')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @Audited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Acknowledge a sentinel alert (idempotent)' })

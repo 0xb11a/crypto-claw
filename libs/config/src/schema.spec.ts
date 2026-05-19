@@ -326,6 +326,46 @@ describe('parseEnv — API_BIND_ADDRESS', () => {
 });
 
 // ---------------------------------------------------------------------------
+// AUTHZ_SHADOW_MODE (P7 — per-identity authz shadow mode, ADR-0029)
+// ---------------------------------------------------------------------------
+
+describe('parseEnv — AUTHZ_SHADOW_MODE', () => {
+  it('defaults AUTHZ_SHADOW_MODE to 1 (shadow mode) when not set', () => {
+    const config = parseEnv(VALID_ENV);
+    expect(config.AUTHZ_SHADOW_MODE).toBe(1);
+  });
+
+  it('accepts AUTHZ_SHADOW_MODE=0 (enforce mode)', () => {
+    const config = parseEnv({ ...VALID_ENV, AUTHZ_SHADOW_MODE: '0' });
+    expect(config.AUTHZ_SHADOW_MODE).toBe(0);
+  });
+
+  it('accepts AUTHZ_SHADOW_MODE=1 explicitly', () => {
+    const config = parseEnv({ ...VALID_ENV, AUTHZ_SHADOW_MODE: '1' });
+    expect(config.AUTHZ_SHADOW_MODE).toBe(1);
+  });
+
+  it('rejects AUTHZ_SHADOW_MODE=2 (out of range)', () => {
+    expect(() => parseEnv({ ...VALID_ENV, AUTHZ_SHADOW_MODE: '2' })).toThrow(
+      /^\[config\] invalid env: AUTHZ_SHADOW_MODE/,
+    );
+  });
+
+  it('rejects AUTHZ_SHADOW_MODE=-1 (negative)', () => {
+    expect(() => parseEnv({ ...VALID_ENV, AUTHZ_SHADOW_MODE: '-1' })).toThrow(
+      /^\[config\] invalid env: AUTHZ_SHADOW_MODE/,
+    );
+  });
+
+  it('rejects AUTHZ_SHADOW_MODE=on (non-numeric)', () => {
+    // z.coerce.number() on a non-numeric string produces NaN; int() check rejects NaN
+    expect(() => parseEnv({ ...VALID_ENV, AUTHZ_SHADOW_MODE: 'on' })).toThrow(
+      /^\[config\] invalid env: AUTHZ_SHADOW_MODE/,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // CCLAW_API_BASE (P6 — documented in schema for drift visibility)
 // ---------------------------------------------------------------------------
 

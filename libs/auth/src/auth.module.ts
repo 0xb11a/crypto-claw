@@ -9,14 +9,19 @@ import { RouteWalkerService } from './route-walker.service.js';
 import { parseEnv, type AppConfig } from '@cclaw/config';
 
 /**
- * Global authentication and authorization module (SPEC §9.1–§9.3, ADR-0009).
+ * Global authentication and authorization module (SPEC §9.1–§9.3, ADR-0009, ADR-0029).
  *
  * Provides:
- * - IdentityRegistry (built from AppConfig)
- * - BearerAuthGuard (APP_GUARD — runs on every request)
- * - RolesGuard (APP_GUARD — runs on every request after BearerAuthGuard)
- * - IdentityGuard (APP_GUARD — no-op shim until P7)
- * - RouteWalkerService (boot-time default-deny enforcement)
+ * - IdentityRegistry (built from AppConfig; includes per-identity scope sets from P7)
+ * - BearerAuthGuard (APP_GUARD — runs on every request; sets req.user = {identity, role})
+ * - RolesGuard (APP_GUARD — runs after BearerAuthGuard; enforces @Roles(...))
+ * - IdentityGuard (APP_GUARD — runs after RolesGuard; active in shadow mode since P7)
+ *     Shadow mode (AUTHZ_SHADOW_MODE=1, default): logs unauthorized access, passes.
+ *     Enforce mode (AUTHZ_SHADOW_MODE=0, PR-C): rejects with 403 on deny.
+ * - RouteWalkerService (boot-time default-deny enforcement; warns on missing @Identities in P7)
+ *
+ * Guard chain: BearerAuthGuard → RolesGuard → IdentityGuard
+ * Each guard must pass for a request to proceed.
  *
  * Import once in AppModule. Do not import in feature modules.
  */

@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { ReceiptsService } from './receipts.service.js';
 import { CreateReceiptDto } from './dto/create-receipt.dto.js';
@@ -26,6 +26,7 @@ export class ReceiptsController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List receipts' })
   @ApiResponse({ status: 200, description: 'List of receipts' })
   list(@Query() query: ReceiptListQueryDto): Promise<ReceiptListResponseDto> {
@@ -34,6 +35,7 @@ export class ReceiptsController {
 
   @Get(':id')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get a receipt by ID' })
   @ApiParam({ name: 'id', description: 'Receipt ID' })
   @ApiResponse({ status: 200, description: 'Receipt found' })
@@ -44,6 +46,7 @@ export class ReceiptsController {
 
   @Post()
   @Roles('agent')
+  @Identities('EXECUTOR', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a receipt (executor writes execution records)' })

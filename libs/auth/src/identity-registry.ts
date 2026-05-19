@@ -1,5 +1,6 @@
 import { timingSafeEqual, createHash } from 'node:crypto';
 import type { AppConfig } from '@cclaw/config';
+import { IDENTITY_SCOPES } from './identity-scopes.js';
 
 /** All supported identity names (SPEC §9.1). */
 export type IdentityName =
@@ -27,28 +28,81 @@ interface RegistryEntry {
   role: RoleName;
   /** Raw Buffer of the token — used for constant-time comparison. */
   tokenBuf: Buffer;
+  /**
+   * Route scope set for this identity (P7, ADR-0009 addendum).
+   *
+   * Each element is a `'METHOD /path-pattern'` string or the `'*'` wildcard.
+   * Populated from IDENTITY_SCOPES at construction time.
+   * Exposed for observability; runtime enforcement is in IdentityGuard via
+   * `@Identities(...)` metadata.
+   */
+  scopes: ReadonlyArray<string>;
 }
 
 /**
  * Identity registry built once from AppConfig at module init.
  *
- * Maps each of the 8 *_API_KEY fields to a { identity, role } pair.
+ * Maps each of the 8 *_API_KEY fields to a { identity, role, scopes } triple.
  * Token lookup uses `crypto.timingSafeEqual` so comparison doesn't leak
  * timing information (SPEC §9.1).
+ *
+ * P7 addendum: each entry now carries a `scopes` array populated from
+ * `IDENTITY_SCOPES` (libs/auth/src/identity-scopes.ts). WORKER and SCHEDULER
+ * have empty scope sets; LOOP and DASHBOARD have the `'*'` wildcard.
  */
 export class IdentityRegistry {
   private readonly entries: RegistryEntry[];
 
   constructor(config: AppConfig) {
     this.entries = [
-      { identity: 'RESEARCH', role: 'agent', tokenBuf: Buffer.from(config.RESEARCH_API_KEY, 'utf8') },
-      { identity: 'SENTINEL', role: 'agent', tokenBuf: Buffer.from(config.SENTINEL_API_KEY, 'utf8') },
-      { identity: 'EXECUTOR', role: 'agent', tokenBuf: Buffer.from(config.EXECUTOR_API_KEY, 'utf8') },
-      { identity: 'OBSERVER', role: 'agent', tokenBuf: Buffer.from(config.OBSERVER_API_KEY, 'utf8') },
-      { identity: 'LOOP', role: 'agent', tokenBuf: Buffer.from(config.LOOP_API_KEY, 'utf8') },
-      { identity: 'WORKER', role: 'agent', tokenBuf: Buffer.from(config.WORKER_API_KEY, 'utf8') },
-      { identity: 'SCHEDULER', role: 'agent', tokenBuf: Buffer.from(config.SCHEDULER_API_KEY, 'utf8') },
-      { identity: 'DASHBOARD', role: 'dashboard', tokenBuf: Buffer.from(config.DASHBOARD_API_KEY, 'utf8') },
+      {
+        identity: 'RESEARCH',
+        role: 'agent',
+        tokenBuf: Buffer.from(config.RESEARCH_API_KEY, 'utf8'),
+        scopes: IDENTITY_SCOPES.RESEARCH,
+      },
+      {
+        identity: 'SENTINEL',
+        role: 'agent',
+        tokenBuf: Buffer.from(config.SENTINEL_API_KEY, 'utf8'),
+        scopes: IDENTITY_SCOPES.SENTINEL,
+      },
+      {
+        identity: 'EXECUTOR',
+        role: 'agent',
+        tokenBuf: Buffer.from(config.EXECUTOR_API_KEY, 'utf8'),
+        scopes: IDENTITY_SCOPES.EXECUTOR,
+      },
+      {
+        identity: 'OBSERVER',
+        role: 'agent',
+        tokenBuf: Buffer.from(config.OBSERVER_API_KEY, 'utf8'),
+        scopes: IDENTITY_SCOPES.OBSERVER,
+      },
+      {
+        identity: 'LOOP',
+        role: 'agent',
+        tokenBuf: Buffer.from(config.LOOP_API_KEY, 'utf8'),
+        scopes: IDENTITY_SCOPES.LOOP,
+      },
+      {
+        identity: 'WORKER',
+        role: 'agent',
+        tokenBuf: Buffer.from(config.WORKER_API_KEY, 'utf8'),
+        scopes: IDENTITY_SCOPES.WORKER,
+      },
+      {
+        identity: 'SCHEDULER',
+        role: 'agent',
+        tokenBuf: Buffer.from(config.SCHEDULER_API_KEY, 'utf8'),
+        scopes: IDENTITY_SCOPES.SCHEDULER,
+      },
+      {
+        identity: 'DASHBOARD',
+        role: 'dashboard',
+        tokenBuf: Buffer.from(config.DASHBOARD_API_KEY, 'utf8'),
+        scopes: IDENTITY_SCOPES.DASHBOARD,
+      },
     ];
   }
 
@@ -72,5 +126,18 @@ export class IdentityRegistry {
       }
     }
     return null;
+  }
+
+  /**
+   * Return the scope set for a given identity name.
+   *
+   * Used by IdentityGuard for observability and future cross-referencing (PR-C).
+   * Returns an empty array for unknown identities.
+   *
+   * @param identity - The identity name to look up
+   */
+  getScopesForIdentity(identity: IdentityName): ReadonlyArray<string> {
+    const entry = this.entries.find((e) => e.identity === identity);
+    return entry?.scopes ?? [];
   }
 }

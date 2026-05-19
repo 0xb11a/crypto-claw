@@ -448,6 +448,24 @@ export const envSchema = z.object({
    * In production compose, set to `/app` for the apps-api service.
    */
   PRISMA_REPO_ROOT: z.string().optional(),
+
+  // --------------------------------------------------------------------------
+  // Per-identity authz shadow mode (P7 — ADR-0029)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Per-identity authz enforcement mode (P7, ADR-0029).
+   *
+   *   1 (default, PR-A) — shadow mode: IdentityGuard logs unauthorized access
+   *     as `identity_blocked_shadow` warn events but passes the request.
+   *     Safe to deploy before per-agent token plumbing (PR-B).
+   *   0 (PR-C cutover) — enforce mode: IdentityGuard rejects with 403 when
+   *     req.user.identity is not in the route's @Identities(...) allowlist.
+   *
+   * Runtime kill-switch: set AUTHZ_SHADOW_MODE=1 + restart apps-api to
+   * fall back to shadow mode without a code deploy. See docs/runbook.md §16.
+   */
+  AUTHZ_SHADOW_MODE: z.coerce.number().int().min(0).max(1).default(1),
 });
 
 /** Typed AppConfig shape derived from the Zod schema. */

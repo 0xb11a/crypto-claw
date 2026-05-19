@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { PositionsService } from './positions.service.js';
 import { CreatePositionDto } from './dto/create-position.dto.js';
@@ -31,6 +31,7 @@ export class PositionsController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List positions' })
   @ApiResponse({ status: 200, description: 'List of positions' })
   list(@Query() query: PositionListQueryDto): Promise<PositionListResponseDto> {
@@ -39,6 +40,7 @@ export class PositionsController {
 
   @Get(':id')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get a position by ID' })
   @ApiParam({ name: 'id', description: 'Position ID' })
   @ApiResponse({ status: 200, description: 'Position found' })
@@ -49,6 +51,7 @@ export class PositionsController {
 
   @Post()
   @Roles('agent')
+  @Identities('RESEARCH', 'EXECUTOR', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new position' })
@@ -60,6 +63,7 @@ export class PositionsController {
 
   @Patch(':id')
   @Roles('agent')
+  @Identities('RESEARCH', 'EXECUTOR', 'LOOP')
   @Audited()
   @ApiOperation({ summary: 'Update a position' })
   @ApiParam({ name: 'id', description: 'Position ID' })
@@ -75,6 +79,7 @@ export class PositionsController {
 
   @Post(':id/close')
   @Roles('agent')
+  @Identities('RESEARCH', 'EXECUTOR', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Close a position' })
@@ -91,6 +96,7 @@ export class PositionsController {
 
   @Delete(':id')
   @Roles('agent')
+  @Identities('RESEARCH', 'EXECUTOR', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a position' })

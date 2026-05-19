@@ -227,6 +227,29 @@ PAPER_MODE=true PAPER_STARTING_BALANCE=5000 docker compose up -d
 - **Observer agent** requires `GH_TOKEN` and `OBSERVER_ISSUES_REPO` (private repo, e.g., `owner/crypto-claw-issues`) to create GitHub issues. Without these, the observer cron job is not created. `GH_TOKEN` is written to `~/.config/gh/hosts.yml` at container startup (writable tmpfs mount). Agents use `gh` CLI directly — no token env var needed at runtime (OpenClaw's gateway strips env vars whose values match GitHub token patterns).
 - **OpenAI auth** supports two methods (priority order): (1) OpenAI Codex OAuth via ChatGPT subscription (flat fee, `openai-codex/` prefix) — setup: `docker compose exec crypto-claw openclaw models auth login --provider openai-codex`, (2) `OPENAI_API_KEY` static API key (per-token billing, `openai/` prefix).
 
+### Per-identity authz (P7, ADR-0009 addendum, ADR-0029)
+
+Per-identity authorization is layered on top of role-based access control:
+- **@Roles('agent' | 'dashboard')** — coarse filter enforced by `RolesGuard` (existing, PR-A unchanged).
+- **@Identities(...)** — fine filter enforced by `IdentityGuard` (activated in P7 in shadow mode by default).
+
+Every HTTP handler in every controller must carry both `@Roles` AND `@Identities`. The route walker warns (shadow) or exits 78 (enforce) if either is missing.
+
+Shadow mode (`AUTHZ_SHADOW_MODE=1`, default): the guard logs `identity_blocked_shadow` events but passes all requests. Use this to observe traffic before flipping enforce mode.
+
+Enforce mode (`AUTHZ_SHADOW_MODE=0`, PR-C): the guard rejects with 403 on any identity not in the `@Identities(...)` allowlist.
+
+Key identities and their intent:
+- **LOOP** — wildcard scope; covers all 4 LLM agents until PR-B plumbs per-agent tokens.
+- **WORKER/SCHEDULER** — empty scope (no inbound HTTP; 403 everywhere in enforce mode).
+- **DASHBOARD** — wildcard scope but role boundary (GET-only routes) enforced by `RolesGuard`.
+
+The `@Identities('*')` wildcard is used on read-only GETs accessible to DASHBOARD. It means "any authenticated identity" — the role boundary is still enforced.
+
+Runtime kill-switch: set `AUTHZ_SHADOW_MODE=1` in `.env.runtime` and restart apps-api to fall back from enforce to shadow mode without a code deploy.
+
+See `docs/runbook.md §16` for the full per-identity scope table and enforce-flip checklist.
+
 ## Safety Rules (Do Not Weaken)
 
 These limits are intentionally strict and must not be relaxed. Canonical source of truth: `libs/chain/src/portfolio-rules.ts` (TypeScript, compiler-enforced).

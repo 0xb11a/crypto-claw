@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus, ValidationPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { AgentLogsService } from '../agent-logs.service.js';
 import { AppendObserverLogDto } from '../dto/append-observer-log.dto.js';
@@ -26,6 +26,7 @@ export class ObserverLogController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List recent observer log rows' })
   @ApiResponse({ status: 200, description: 'Observer log list' })
   list(@Query() query: AgentLogQueryDto): Promise<ObserverLogResponseDto[]> {
@@ -34,6 +35,7 @@ export class ObserverLogController {
 
   @Get(':id')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get an observer log row by ID' })
   @ApiParam({ name: 'id', description: 'Row integer ID' })
   @ApiResponse({ status: 200, description: 'Observer log row' })
@@ -50,6 +52,7 @@ export class ObserverLogController {
 
   @Post()
   @Roles('agent')
+  @Identities('OBSERVER', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Append an observer log row' })

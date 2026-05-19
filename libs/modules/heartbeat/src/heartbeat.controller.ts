@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { HeartbeatService } from './heartbeat.service.js';
 import { PingHeartbeatDto } from './dto/ping-heartbeat.dto.js';
@@ -26,6 +26,7 @@ export class HeartbeatController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List all heartbeat rows' })
   @ApiResponse({ status: 200, description: 'List of heartbeat rows' })
   list(@Query() query: HeartbeatListQueryDto): Promise<HeartbeatResponseDto[]> {
@@ -34,6 +35,7 @@ export class HeartbeatController {
 
   @Get(':agent/overdue')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get overdue checks for an agent' })
   @ApiParam({ name: 'agent', description: 'Agent name' })
   @ApiResponse({ status: 200, description: 'Overdue check status' })
@@ -43,6 +45,7 @@ export class HeartbeatController {
 
   @Get(':agent')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get heartbeat rows for a specific agent' })
   @ApiParam({ name: 'agent', description: 'Agent name' })
   @ApiResponse({ status: 200, description: 'Agent heartbeat rows' })
@@ -53,6 +56,7 @@ export class HeartbeatController {
 
   @Post(':agent/:checkType/ping')
   @Roles('agent')
+  @Identities('RESEARCH', 'SENTINEL', 'EXECUTOR', 'OBSERVER', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Ping (update) a heartbeat check' })

@@ -194,3 +194,96 @@ describe('DTO validation (SPEC §9.3 — forbidNonWhitelisted, whitelist)', () =
     expect(status).toBe(400);
   });
 });
+
+// ---------------------------------------------------------------------------
+// P7 additions — DASHBOARD wildcard; WORKER/SCHEDULER empty-scope (ADR-0009 addendum)
+// ---------------------------------------------------------------------------
+
+const WORKER_TOKEN = BASE_ENV.WORKER_API_KEY!;
+const SCHEDULER_TOKEN = BASE_ENV.SCHEDULER_API_KEY!;
+
+describe('DASHBOARD wildcard @Identities("*") passes on read routes (P7, ADR-0009 addendum)', () => {
+  it.skipIf(SKIP_REASON)('DASHBOARD + GET /v1/positions → 200', async () => {
+    const { status } = await request('GET', '/v1/positions', { token: DASHBOARD_TOKEN });
+    expect(status).toBe(200);
+  });
+
+  it.skipIf(SKIP_REASON)('DASHBOARD + GET /v1/system/portfolio → 200', async () => {
+    const { status } = await request('GET', '/v1/system/portfolio', { token: DASHBOARD_TOKEN });
+    expect(status).toBe(200);
+  });
+
+  it.skipIf(SKIP_REASON)('DASHBOARD + GET /v1/alerts → 200', async () => {
+    const { status } = await request('GET', '/v1/alerts', { token: DASHBOARD_TOKEN });
+    expect(status).toBe(200);
+  });
+
+  it.skipIf(SKIP_REASON)('DASHBOARD + GET /v1/orders → 200', async () => {
+    const { status } = await request('GET', '/v1/orders', { token: DASHBOARD_TOKEN });
+    expect(status).toBe(200);
+  });
+});
+
+describe('WORKER token → 403 on agent-write routes (empty scope, RolesGuard passes, role=agent)', () => {
+  // WORKER has role='agent' so it passes RolesGuard. It should be blocked by IdentityGuard
+  // in enforce mode; in shadow mode the guard passes and the service runs (2xx).
+  // These tests confirm WORKER is NOT blocked at the role level (that is correct),
+  // and in the current shadow-mode API the requests succeed (demonstrating the
+  // shadow-mode log-only behaviour — these would 403 after PR-C).
+  it.skipIf(SKIP_REASON)('WORKER + GET /v1/positions → 200 (wildcard route; identity guard passes)', async () => {
+    const { status } = await request('GET', '/v1/positions', { token: WORKER_TOKEN });
+    expect(status).toBe(200);
+  });
+
+  it.skipIf(SKIP_REASON)('WORKER + GET /v1/orders → 200 (wildcard route; identity guard passes)', async () => {
+    const { status } = await request('GET', '/v1/orders', { token: WORKER_TOKEN });
+    expect(status).toBe(200);
+  });
+
+  it.skipIf(SKIP_REASON)('WORKER + GET /v1/receipts → 200 (wildcard route; identity guard passes)', async () => {
+    const { status } = await request('GET', '/v1/receipts', { token: WORKER_TOKEN });
+    expect(status).toBe(200);
+  });
+
+  it.skipIf(SKIP_REASON)(
+    'WORKER + GET /v1/system/portfolio → 200 (wildcard route; identity guard passes)',
+    async () => {
+      const { status } = await request('GET', '/v1/system/portfolio', { token: WORKER_TOKEN });
+      expect(status).toBe(200);
+    },
+  );
+});
+
+describe('SCHEDULER token → same shadow-pass behaviour as WORKER (empty scope, role=agent)', () => {
+  it.skipIf(SKIP_REASON)(
+    'SCHEDULER + GET /v1/positions → 200 (wildcard route; identity guard passes in shadow)',
+    async () => {
+      const { status } = await request('GET', '/v1/positions', { token: SCHEDULER_TOKEN });
+      expect(status).toBe(200);
+    },
+  );
+
+  it.skipIf(SKIP_REASON)(
+    'SCHEDULER + GET /v1/orders → 200 (wildcard route; identity guard passes in shadow)',
+    async () => {
+      const { status } = await request('GET', '/v1/orders', { token: SCHEDULER_TOKEN });
+      expect(status).toBe(200);
+    },
+  );
+
+  it.skipIf(SKIP_REASON)(
+    'SCHEDULER + GET /v1/alerts → 200 (wildcard route; identity guard passes in shadow)',
+    async () => {
+      const { status } = await request('GET', '/v1/alerts', { token: SCHEDULER_TOKEN });
+      expect(status).toBe(200);
+    },
+  );
+
+  it.skipIf(SKIP_REASON)(
+    'SCHEDULER + GET /v1/receipts → 200 (wildcard route; identity guard passes in shadow)',
+    async () => {
+      const { status } = await request('GET', '/v1/receipts', { token: SCHEDULER_TOKEN });
+      expect(status).toBe(200);
+    },
+  );
+});

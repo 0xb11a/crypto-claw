@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { SystemService } from '../system.service.js';
 import { PortfolioQueryDto } from '../dto/portfolio-query.dto.js';
 import type { PortfolioResponseDto, PortfolioSingleChainResponseDto } from '../dto/portfolio-response.dto.js';
@@ -25,6 +25,7 @@ export class PortfolioController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get portfolio snapshot (all chains or a specific chain)' })
   @ApiResponse({ status: 200, description: 'Portfolio snapshot with positions and cash balances' })
   getPortfolio(@Query() query: PortfolioQueryDto): Promise<PortfolioResponseDto | PortfolioSingleChainResponseDto> {

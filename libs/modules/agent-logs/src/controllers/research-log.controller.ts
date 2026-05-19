@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus, ValidationPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { AgentLogsService } from '../agent-logs.service.js';
 import { AppendResearchLogDto } from '../dto/append-research-log.dto.js';
@@ -26,6 +26,7 @@ export class ResearchLogController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List recent research log rows' })
   @ApiResponse({ status: 200, description: 'Research log list' })
   list(@Query() query: AgentLogQueryDto): Promise<ResearchLogResponseDto[]> {
@@ -34,6 +35,7 @@ export class ResearchLogController {
 
   @Get(':id')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get a research log row by ID' })
   @ApiParam({ name: 'id', description: 'Row integer ID' })
   @ApiResponse({ status: 200, description: 'Research log row' })
@@ -50,6 +52,7 @@ export class ResearchLogController {
 
   @Post()
   @Roles('agent')
+  @Identities('RESEARCH', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Append a research log row' })
