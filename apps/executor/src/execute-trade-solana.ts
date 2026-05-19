@@ -508,8 +508,8 @@ async function resolveLookupTables(
   const resolved = results.filter(
     // AddressLookupTableAccount is a class from @solana/web3.js dynamic import;
     // instanceof check requires the any cast because the dynamic module type is any.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (r): r is import('@solana/web3.js').AddressLookupTableAccount =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       r !== null && r instanceof (web3 as any).AddressLookupTableAccount,
   );
 
