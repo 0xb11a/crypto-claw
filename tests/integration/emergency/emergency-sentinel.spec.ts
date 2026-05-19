@@ -42,7 +42,14 @@ const SCRIPT = resolve(REPO_ROOT, 'scripts/emergency-sentinel.js');
 const PORT = 7913;
 const BASE = `http://127.0.0.1:${PORT}`;
 
-const AGENT_TOKEN = 'ci-research-key-aaaaaaaaaaaaaaaa';
+// Use LOOP token for test orchestration — P7 PR-C1 added an action-vs-identity
+// assertion in OrdersService.propose() (RESEARCH=BUY-only, SENTINEL=SELL-only).
+// The emergency-sentinel script writes SELL orders, so a RESEARCH-token test
+// would 403. LOOP has the superset background-loop scope per ADR-0029 + no
+// action restriction; matches the production semantics where the script is
+// invoked with SENTINEL_API_KEY via entrypoint.sh (PR-B) but the test fixture
+// just needs an unrestricted orchestration token.
+const AGENT_TOKEN = 'ci-loop-key-aaaaaaaaaaaaaaaaaaaaa';
 
 const BASE_ENV: NodeJS.ProcessEnv = {
   SAFE_ID: 'ci-emergency-sentinel-test',

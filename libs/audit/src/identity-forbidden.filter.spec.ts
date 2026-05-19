@@ -42,7 +42,23 @@ function makeArgumentsHost(
     ...(opts.identity !== undefined ? { user: { identity: opts.identity, role: opts.role ?? 'agent' } } : {}),
   };
 
-  const res = { statusCode: 200 };
+  // Mock Fastify reply with chainable status().send() API
+  const sendCalls: unknown[] = [];
+  const statusCalls: number[] = [];
+  const res = {
+    statusCode: 200,
+    status(code: number) {
+      statusCalls.push(code);
+      this.statusCode = code;
+      return this;
+    },
+    send(payload: unknown) {
+      sendCalls.push(payload);
+      return this;
+    },
+    _statusCalls: statusCalls,
+    _sendCalls: sendCalls,
+  };
 
   return {
     switchToHttp: () => ({
@@ -72,9 +88,9 @@ describe('IdentityForbiddenFilter', () => {
   beforeEach(() => {
     auditService = makeAuditService();
     filter = new IdentityForbiddenFilter(auditService);
-    // Stub out the parent class's catch method to avoid it actually calling
-    // NestJS HTTP adapter internals in a unit test.
-    vi.spyOn(Object.getPrototypeOf(IdentityForbiddenFilter.prototype), 'catch').mockImplementation(() => {});
+    // No BaseExceptionFilter prototype stub needed — the filter implements
+    // ExceptionFilter directly and writes the Fastify reply via the mocked
+    // chainable .status().send() on the host's response.
   });
 
   it('calls auditService.write() on IdentityForbiddenException', () => {

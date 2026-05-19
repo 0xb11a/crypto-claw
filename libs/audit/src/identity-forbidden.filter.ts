@@ -1,5 +1,4 @@
-import { Catch, type ArgumentsHost, Injectable } from '@nestjs/common';
-import { BaseExceptionFilter } from '@nestjs/core';
+import { Catch, type ArgumentsHost, type ExceptionFilter, Injectable } from '@nestjs/common';
 import { IdentityForbiddenException } from '@cclaw/auth';
 import { AuditService } from './audit.service.js';
 import type { AuthenticatedUser } from '@cclaw/auth';
@@ -10,6 +9,12 @@ type FilterRequest = {
   url?: string;
   routeOptions?: { url?: string };
   user?: AuthenticatedUser;
+};
+
+/** Minimal Fastify reply shape for the filter — avoids depending on the fastify types here. */
+type FilterReply = {
+  status: (code: number) => FilterReply;
+  send: (payload: unknown) => unknown;
 };
 
 /**
@@ -39,16 +44,13 @@ type FilterRequest = {
  */
 @Injectable()
 @Catch(IdentityForbiddenException)
-export class IdentityForbiddenFilter extends BaseExceptionFilter {
-  constructor(private readonly auditService: AuditService) {
-    super();
-  }
+export class IdentityForbiddenFilter implements ExceptionFilter {
+  constructor(private readonly auditService: AuditService) {}
 
   catch(exception: IdentityForbiddenException, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const req = ctx.getRequest<FilterRequest>();
-    // Note: we do not read the response here — the base class handles status/body serialisation.
-    // The FilterReply type is kept for documentation but not instantiated to avoid a lint warning.
+    const reply = ctx.getResponse<FilterReply>();
 
     const method = (req.method ?? 'UNKNOWN').toUpperCase();
     // Prefer the matched route pattern (Fastify routeOptions.url); fall back to raw URL.
@@ -77,9 +79,16 @@ export class IdentityForbiddenFilter extends BaseExceptionFilter {
         // a 403 response regardless of whether the audit row was written.
       });
 
-    // Delegate to the base filter to produce the standard NestJS 403 response.
-    // This preserves the Fastify error-serialisation pipeline (exception shape,
-    // content-type, status code) and avoids us having to re-implement it.
-    super.catch(exception, host);
+    // Send the 403 response directly. We do not extend BaseExceptionFilter
+    // because that requires HttpAdapterHost injected via DI; we instantiate
+    // this filter manually in apps/api/src/main.ts after AuditService is
+    // resolved, so the simpler approach is to write the Fastify reply here.
+    // Shape matches Nest's default ForbiddenException response body.
+    const body = exception.getResponse() as Record<string, unknown> | string;
+    const payload =
+      typeof body === 'string'
+        ? { statusCode: 403, message: body, error: 'Forbidden' }
+        : { statusCode: 403, error: 'Forbidden', ...body };
+    reply.status(403).send(payload);
   }
 }
