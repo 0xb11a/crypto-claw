@@ -1636,7 +1636,55 @@ Before flipping `AUTHZ_SHADOW_MODE=0`:
 4. Security-auditor APPROVE on PR-C.
 5. `pnpm typecheck && pnpm lint && pnpm test:unit && pnpm test:integration` green locally.
 
-### §16.4 Emergency rollback
+### §16.4 72-hour shadow observation (PR-B — current)
+
+After PR-B deploys, each `entrypoint.sh` dispatch site (executor loop, sentinel loop alert calls, emergency scripts) uses the matching per-agent token. The LLM agents themselves (spawned by `openclaw agent`) still inherit the container-level `CCLAW_API_TOKEN=$LOOP_API_KEY` (architectural constraint — OpenClaw cron/agent launcher shares one gateway env; see §16.5 for the gap). The shadow window reveals which routes each identity hits via cclaw from the explicit entrypoint.sh calls.
+
+Observe the per-identity shadow log matrix:
+
+```bash
+docker compose logs -f apps-api 2>&1 | grep identity_blocked_shadow | awk -F'"' '{print $4, $8, $12}' | sort -u
+```
+
+This prints `<identity> <method> <path>` for every blocked-but-shadowed request. Expected after PR-B:
+
+- `EXECUTOR` on `POST /v1/alerts/*` — executor loop alert calls
+- `SENTINEL` on `POST /v1/alerts/*` — sentinel loop alert calls
+- LOOP will still appear for: paper-seed, memory-backup, and any LLM-agent-internal cclaw calls (see §16.5)
+
+If `identity_blocked_shadow` lines appear for an identity on a route that is NOT in its scope table (§16.2), investigate before flipping enforce mode. Either the `@Identities(...)` mapping needs correction, or the call site needs to use the correct token.
+
+### §16.5 Per-identity token rotation
+
+All five gateway tokens (`RESEARCH/SENTINEL/EXECUTOR/OBSERVER/LOOP_API_KEY`) are independent bearer tokens validated from `.env.runtime`. To rotate a single identity's token without disrupting others:
+
+1. Generate a new token (minimum 32 printable characters):
+
+```bash
+openssl rand -hex 32
+```
+
+2. Update `.env.runtime` for the single identity (e.g., `EXECUTOR_API_KEY=<new-value>`).
+
+3. Update the matching key in the cclaw token registry (apps-api reads token→identity from the registry at startup). The registry is validated at boot; no hot-reload.
+
+4. Restart only `apps-api` to pick up the new token:
+
+```bash
+docker compose up -d --no-deps --force-recreate apps-api
+```
+
+5. Restart `crypto-claw` (the OpenClaw gateway) so `entrypoint.sh` reads the updated key from the container env:
+
+```bash
+docker compose up -d --no-deps --force-recreate crypto-claw
+```
+
+Order matters: restart `apps-api` first (so the new token is accepted before the gateway starts using it). Agents reading the old token will get 401 in the brief window between the two restarts; the retry loop in `entrypoint.sh` handles this gracefully.
+
+**Architectural note (PR-B gap):** LLM agents spawned by the OpenClaw gateway via `openclaw cron` (research-cycle, observer-cycle) and `openclaw agent` (executor/sentinel loops) inherit `CCLAW_API_TOKEN=$LOOP_API_KEY` from the container env. The `IdentityGuard` therefore sees `identity=LOOP` for all cclaw calls made from inside the LLM agent's skill execution. Only the explicit cclaw calls in `entrypoint.sh` background loops (alert sends, emergency scripts) carry the per-agent identity. PR-C's enforce flip must account for this: LOOP must remain in the `@Identities(...)` allowlist for any route that LLM agents call directly from their skills. Narrowing LOOP out of any such route requires either extending `openclaw cron/agent` to accept per-agent env injection, or moving those calls into explicit `entrypoint.sh` dispatch sites with the per-agent token prefix.
+
+### §16.6 Emergency rollback
 
 If enforce mode causes unexpected 403s in production:
 

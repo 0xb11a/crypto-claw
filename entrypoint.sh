@@ -823,7 +823,9 @@ run_executor_loop() {
         failures=$((failures + 1))
         echo "[executor-loop] Agent failed (consecutive failures: $failures)"
         echo "[$(date -u +%FT%TZ)] [error] [executor-loop] Agent failed (consecutive failures: $failures)" >> /tmp/openclaw/system.log
-        CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+        # P7 PR-B: cclaw calls in run_executor_loop use EXECUTOR_API_KEY so the IdentityGuard
+        # sees identity=EXECUTOR (not LOOP). Fallback to LOOP_API_KEY if key absent (defensive).
+        CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="${EXECUTOR_API_KEY:-$LOOP_API_KEY}" \
           cclaw alerts send --type model_failure --agent executor \
           --message "Executor agent failed (attempt $failures)" 2>/dev/null || true
 
@@ -846,17 +848,17 @@ run_executor_loop() {
         if [ $failures -ge "$EMERGENCY_AFTER" ]; then
           echo "[executor-loop] EMERGENCY MODE — all models failed ($failures consecutive)"
           echo "[$(date -u +%FT%TZ)] [critical] [executor-loop] Emergency mode activated after $failures consecutive failures" >> /tmp/openclaw/system.log
-          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="${EXECUTOR_API_KEY:-$LOOP_API_KEY}" \
             SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
             node "$RESEARCH_WS/scripts/emergency-executor.js" 2>&1 | sed 's/^/[emergency-executor] /'
-          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="${EXECUTOR_API_KEY:-$LOOP_API_KEY}" \
             cclaw alerts send --type emergency_mode --agent executor \
             --message "Executor in emergency mode. Script-only sell execution active." 2>/dev/null || true
         fi
       else
         if [ $failures -gt 0 ]; then
           echo "[executor-loop] Recovered after $failures failures"
-          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="${EXECUTOR_API_KEY:-$LOOP_API_KEY}" \
             cclaw alerts send --type recovered --agent executor \
             --message "Executor recovered after $failures consecutive failures" 2>/dev/null || true
         fi
@@ -895,7 +897,9 @@ run_sentinel_loop() {
         failures=$((failures + 1))
         echo "[sentinel-loop] Agent failed (consecutive failures: $failures)"
         echo "[$(date -u +%FT%TZ)] [error] [sentinel-loop] Agent failed (consecutive failures: $failures)" >> /tmp/openclaw/system.log
-        CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+        # P7 PR-B: cclaw calls in run_sentinel_loop use SENTINEL_API_KEY so the IdentityGuard
+        # sees identity=SENTINEL (not LOOP). Fallback to LOOP_API_KEY if key absent (defensive).
+        CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="${SENTINEL_API_KEY:-$LOOP_API_KEY}" \
           cclaw alerts send --type model_failure --agent sentinel \
           --message "Sentinel agent failed (attempt $failures)" 2>/dev/null || true
 
@@ -918,17 +922,17 @@ run_sentinel_loop() {
         if [ $exit_code -ne 0 ]; then
           echo "[sentinel-loop] EMERGENCY MODE — all models failed"
           echo "[$(date -u +%FT%TZ)] [critical] [sentinel-loop] Emergency mode activated — all models failed" >> /tmp/openclaw/system.log
-          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="${SENTINEL_API_KEY:-$LOOP_API_KEY}" \
             SAFE_ID="$SAFE_ID" PAPER_MODE="$PAPER_MODE" DB_PATH="$DB_PATH" \
             node "$RESEARCH_WS/scripts/emergency-sentinel.js" 2>&1 | sed 's/^/[emergency-sentinel] /'
-          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="${SENTINEL_API_KEY:-$LOOP_API_KEY}" \
             cclaw alerts send --type emergency_mode --agent sentinel \
             --message "Sentinel in emergency mode. Script-only position protection active." 2>/dev/null || true
         fi
       else
         if [ $failures -gt 0 ]; then
           echo "[sentinel-loop] Recovered after $failures failures"
-          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="$LOOP_API_KEY" \
+          CCLAW_API_BASE="${CCLAW_API_BASE}" CCLAW_API_TOKEN="${SENTINEL_API_KEY:-$LOOP_API_KEY}" \
             cclaw alerts send --type recovered --agent sentinel \
             --message "Sentinel recovered after $failures consecutive failures" 2>/dev/null || true
         fi

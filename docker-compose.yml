@@ -348,8 +348,16 @@ services:
       # apps-api is a separate container; loopback (127.0.0.1) won't resolve here.
       # The compose service name resolves over the internal bridge network.
       - CCLAW_API_BASE=http://apps-api:7878
-      # LOOP_API_KEY sourced from the same env file as all other bearer tokens.
+      # LOOP_API_KEY is the default CCLAW_API_TOKEN — used by paper-seed and memory-backup
+      # background loops (LOOP identity class). entrypoint.sh dispatch sites for executor/
+      # sentinel/observer/research loops override CCLAW_API_TOKEN inline with the matching
+      # per-agent key (P7 PR-B, ADR-0029). All five keys are passed into the gateway env so
+      # entrypoint.sh can read them at runtime.
       - CCLAW_API_TOKEN=${LOOP_API_KEY:-}
+      - RESEARCH_API_KEY=${RESEARCH_API_KEY:-}
+      - SENTINEL_API_KEY=${SENTINEL_API_KEY:-}
+      - EXECUTOR_API_KEY=${EXECUTOR_API_KEY:-}
+      - OBSERVER_API_KEY=${OBSERVER_API_KEY:-}
 
     depends_on:
       apps-api:
