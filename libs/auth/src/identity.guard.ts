@@ -149,7 +149,7 @@ export class IdentityGuard implements CanActivate {
    *
    * Rate limit: one line per (identity, method, path) per 60 s.
    *
-   * @param event - Event name for Pino grep (`identity_blocked_shadow` | `identity_decorator_missing`)
+   * @param event - Event name for Pino grep (`identity_blocked_shadow` | `identity_blocked_enforce` | `identity_decorator_missing`)
    * @param identity - Requesting identity
    * @param role - Requesting role
    * @param method - HTTP method
@@ -157,7 +157,7 @@ export class IdentityGuard implements CanActivate {
    * @param allowed - Allowed identities for this route
    */
   private logShadowEvent(
-    event: 'identity_blocked_shadow' | 'identity_decorator_missing',
+    event: 'identity_blocked_shadow' | 'identity_blocked_enforce' | 'identity_decorator_missing',
     identity: IdentityName | 'unknown',
     role: string,
     method: string,
