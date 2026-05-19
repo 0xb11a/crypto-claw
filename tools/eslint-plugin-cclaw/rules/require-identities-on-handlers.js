@@ -8,8 +8,8 @@
  *
  * This rule mirrors `cclaw/require-roles-on-handlers` for identity-level authz.
  *
- * Status (PR-A): DISABLED in eslint.config.js. Enabled in PR-C once per-agent
- * tokens are plumbed (PR-B) and enforce mode is flipped (PR-C).
+ * Status: ENABLED in PR-C1 (eslint.config.js). Was disabled in PR-A + PR-B pending
+ * per-agent token plumbing (PR-B) and enforce-mode flip (PR-C2).
  *
  * Detects: class methods decorated with @Get/@Post/@Put/@Patch/@Delete/@All
  * that do NOT have a sibling @Identities(...) decorator.

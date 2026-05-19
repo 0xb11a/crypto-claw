@@ -5,6 +5,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { assertNoSignerKeysInEnv, assertConfigValid } from '@cclaw/config';
 import { IdentityRegistry } from '@cclaw/auth';
+import { AuditService, IdentityForbiddenFilter } from '@cclaw/audit';
 import { AppModule } from './app.module.js';
 import { registerSwaggerGuard } from './swagger-guard.js';
 import { runPrismaMigrateDeploy } from './prisma-migrate.bootstrap.js';
@@ -50,6 +51,14 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
     bufferLogs: true,
   });
+
+  // Step 4.5 — Register IdentityForbiddenFilter globally (P7 PR-C1, auditor suggestion #5).
+  // IdentityGuard.canActivate() runs BEFORE AuditInterceptor.tap(), so guard-thrown 403s
+  // produce no audit row. IdentityForbiddenFilter catches IdentityForbiddenException and
+  // writes an audit row before delegating to the standard NestJS 403 response path.
+  // Must resolve AuditService from DI AFTER NestFactory.create() completes.
+  const auditService = app.get(AuditService);
+  app.useGlobalFilters(new IdentityForbiddenFilter(auditService));
 
   // Step 5 — Swagger UI auth hook (SPEC §11, ADR-0022).
   // Must run BEFORE SwaggerModule.setup() so the hook intercepts Swagger routes.

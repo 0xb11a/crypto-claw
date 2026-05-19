@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { OrdersService } from './orders.service.js';
+import type { AuthenticatedUser } from '@cclaw/auth';
 import { ProposeOrderDto } from './dto/propose-order.dto.js';
 import { ApproveOrderDto, RejectOrderDto, CancelOrderDto, RetryOrderDto } from './dto/order-state-change.dto.js';
 import { ExecuteOrderDto } from './dto/execute-order.dto.js';
@@ -59,8 +60,12 @@ export class OrdersController {
   @ApiOperation({ summary: 'Propose a new order' })
   @ApiResponse({ status: 201, description: 'Order proposed' })
   @ApiResponse({ status: 400, description: 'Validation error' })
-  propose(@Body() dto: ProposeOrderDto): Promise<OrderResponseDto> {
-    return this.svc.propose(dto);
+  @ApiResponse({ status: 403, description: 'Identity-action mismatch (SENTINEL can only sell; RESEARCH can only buy)' })
+  propose(@Body() dto: ProposeOrderDto, @Req() req: { user?: AuthenticatedUser }): Promise<OrderResponseDto> {
+    // Pass identity to service for action-vs-identity assertion (plan Decision 8, P7 PR-C1).
+    // The assertion is a forward-compat safety net: today all LLM-agent calls identify as LOOP
+    // (§16.5 LLM-agent gap), so the RESEARCH/SENTINEL branches fire only after PR-B lands.
+    return this.svc.propose(dto, req.user?.identity);
   }
 
   @Post(':id/approve')

@@ -2,6 +2,7 @@ export { AuthModule } from './auth.module.js';
 export { BearerAuthGuard } from './bearer-auth.guard.js';
 export { RolesGuard } from './roles.guard.js';
 export { IdentityGuard } from './identity.guard.js';
+export { IdentityForbiddenException } from './identity-forbidden.exception.js';
 export { Roles, ROLES_KEY } from './roles.decorator.js';
 export { Identities, IDENTITIES_KEY, type IdentitySpec } from './identities.decorator.js';
 export { IdentityRegistry, type AuthenticatedUser, type IdentityName, type RoleName } from './identity-registry.js';

@@ -1,4 +1,4 @@
-import { Injectable, ConflictException } from '@nestjs/common';
+import { Injectable, ConflictException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OrdersRepository } from './orders.repository.js';
 import { PaperExecutor } from './paper-executor.js';
@@ -9,6 +9,7 @@ import type { OrderListQueryDto } from './dto/order-list-query.dto.js';
 import type { OrderResponseDto, OrderListResponseDto } from './dto/order-response.dto.js';
 import type { ExecuteOrderAcceptedDto } from './dto/execute-order-response.dto.js';
 import { ReceiptsService } from '@cclaw/receipts';
+import type { IdentityName } from '@cclaw/auth';
 
 /** Valid state transitions (migration 014 state machine). */
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -70,7 +71,36 @@ export class OrdersService {
     return this.repo.findById(id);
   }
 
-  async propose(dto: ProposeOrderDto): Promise<OrderResponseDto> {
+  /**
+   * Propose a new order.
+   *
+   * Performs an action-vs-identity assertion before inserting the row (plan Decision 8,
+   * auditor suggestion #7, P7 PR-C1):
+   *
+   *   SENTINEL identity  → only `action=sell` is permitted.
+   *   RESEARCH identity  → only `action=buy` is permitted.
+   *   LOOP / others      → no action restriction (LOOP is the shared gateway token;
+   *                        per-agent enforcement is forward-compatible and lands fully
+   *                        once PR-B plumbs per-agent tokens to the gateway).
+   *
+   * NOTE: Today all LLM-agent cclaw calls identify as LOOP (§16.5 LLM-agent gap —
+   * gateway wires `CCLAW_API_TOKEN=${LOOP_API_KEY}`). The RESEARCH/SENTINEL branches
+   * therefore never fire from real agent calls until PR-B lands per-agent tokens.
+   * The assertion is a forward-compat safety net, not an active enforcement today.
+   *
+   * @param dto      - Validated propose-order DTO from the controller.
+   * @param identity - Requesting identity, passed from the controller's @Req() extraction.
+   *                   Undefined when the service is called without identity context (tests).
+   */
+  async propose(dto: ProposeOrderDto, identity?: IdentityName): Promise<OrderResponseDto> {
+    // Action-vs-identity assertion (forward-compat, per plan Decision 8)
+    if (identity === 'SENTINEL' && dto.action !== 'sell') {
+      throw new ForbiddenException('SENTINEL identity can only propose sell orders');
+    }
+    if (identity === 'RESEARCH' && dto.action !== 'buy') {
+      throw new ForbiddenException('RESEARCH identity can only propose buy orders');
+    }
+
     const order = await this.repo.create(dto);
 
     // Auto-approve BUY orders when flag is set (real mode only — paper mode

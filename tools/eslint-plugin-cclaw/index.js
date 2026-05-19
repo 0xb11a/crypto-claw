@@ -6,14 +6,13 @@
  * Rules:
  * - cclaw/require-roles-on-handlers — every HTTP handler must have @Roles(...)
  * - cclaw/require-audited-on-mutating-handlers — every non-GET handler needs @Audited()
- * - cclaw/require-identities-on-handlers — every HTTP handler must have @Identities(...) (P7, disabled until PR-C)
+ * - cclaw/require-identities-on-handlers — every HTTP handler must have @Identities(...) (P7, enabled in PR-C1)
  *
  * The first two rules enforce the default-deny invariant (SPEC §4 #3, ADR-0019)
  * and the audit policy (SPEC §9.5, ADR-0018).
  *
  * The third rule enforces per-identity authz (SPEC §9.2, ADR-0009 addendum, P7).
- * It is registered here but DISABLED in eslint.config.js for PR-A + PR-B.
- * PR-C enables it as an error-level rule.
+ * It was disabled in PR-A + PR-B; ENABLED in PR-C1 as an error-level rule.
  */
 module.exports = {
   rules: {

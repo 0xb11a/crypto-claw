@@ -49,11 +49,12 @@ export class CashController {
 
   @Patch('cash')
   @Roles('agent')
-  @Identities('EXECUTOR', 'RESEARCH', 'LOOP')
+  @Identities('EXECUTOR', 'LOOP')
   @Audited()
-  @ApiOperation({ summary: 'Set cash balance for a chain' })
+  @ApiOperation({ summary: 'Set cash balance for a chain (executor receipt path only)' })
   @ApiResponse({ status: 200, description: 'Cash updated' })
   @ApiResponse({ status: 400, description: 'Validation error' })
+  @ApiResponse({ status: 403, description: 'Forbidden — EXECUTOR or LOOP identity required' })
   setCash(@Body() dto: SetCashDto): Promise<{ ok: boolean; chain: string; cash: number }> {
     return this.svc.setCash(dto);
   }

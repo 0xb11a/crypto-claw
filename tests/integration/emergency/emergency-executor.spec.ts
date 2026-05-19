@@ -36,7 +36,13 @@ const SCRIPT = resolve(REPO_ROOT, 'scripts/emergency-executor.js');
 const PORT = 7914;
 const BASE = `http://127.0.0.1:${PORT}`;
 
-const AGENT_TOKEN = 'ci-research-key-aaaaaaaaaaaaaaaa';
+// Use LOOP token for test orchestration — P7 PR-C1 added an action-vs-identity
+// assertion in OrdersService.propose() (RESEARCH=BUY-only, SENTINEL=SELL-only).
+// This test creates SELL orders directly via the API, so RESEARCH would 403.
+// LOOP has the superset background-loop scope per ADR-0029 + no action
+// restriction; matches the production semantics where the script is invoked
+// with EXECUTOR_API_KEY via entrypoint.sh (PR-B).
+const AGENT_TOKEN = 'ci-loop-key-aaaaaaaaaaaaaaaaaaaaa';
 
 const BASE_ENV: NodeJS.ProcessEnv = {
   SAFE_ID: 'ci-emergency-executor-test',

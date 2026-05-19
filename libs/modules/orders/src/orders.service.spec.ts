@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NotFoundException, ConflictException } from '@nestjs/common';
+import { NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { OrdersService } from './orders.service.js';
 import type { OrdersRepository } from './orders.repository.js';
 import type { OrderResponseDto } from './dto/order-response.dto.js';
@@ -116,6 +116,80 @@ describe('OrdersService', () => {
       svc = buildSvc(makeConfig({ AUTO_APPROVE_BUY: true }));
       await svc.propose({ action: 'sell', symbol: 'ETH', address: '0xabc', chain: 'base', amount: '100' });
       expect(repo.transitionStatus).not.toHaveBeenCalled();
+    });
+
+    // -----------------------------------------------------------------------
+    // Action-vs-identity assertions (plan Decision 8, P7 PR-C1)
+    // Forward-compat safety net: fires once per-agent tokens are plumbed (PR-B).
+    // Today all LLM-agent calls identify as LOOP so RESEARCH/SENTINEL branches
+    // never fire from real agent calls — see §16.5 LLM-agent gap.
+    // -----------------------------------------------------------------------
+
+    it('throws ForbiddenException when SENTINEL identity proposes a buy order', async () => {
+      await expect(
+        svc.propose({ action: 'buy', symbol: 'ETH', address: '0xabc', chain: 'base', amount: '100' }, 'SENTINEL'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws ForbiddenException when RESEARCH identity proposes a sell order', async () => {
+      await expect(
+        svc.propose({ action: 'sell', symbol: 'ETH', address: '0xabc', chain: 'base', amount: '100' }, 'RESEARCH'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('SENTINEL identity + sell order passes assertion and creates order', async () => {
+      const result = await svc.propose(
+        { action: 'sell', symbol: 'ETH', address: '0xabc', chain: 'base', amount: '100' },
+        'SENTINEL',
+      );
+      expect(result.status).toBe('pending');
+      expect(repo.create).toHaveBeenCalled();
+    });
+
+    it('RESEARCH identity + buy order passes assertion and creates order', async () => {
+      const result = await svc.propose(
+        { action: 'buy', symbol: 'ETH', address: '0xabc', chain: 'base', amount: '100' },
+        'RESEARCH',
+      );
+      expect(result.status).toBe('pending');
+      expect(repo.create).toHaveBeenCalled();
+    });
+
+    it('LOOP identity + buy order passes assertion (no action restriction on LOOP)', async () => {
+      const result = await svc.propose(
+        { action: 'buy', symbol: 'ETH', address: '0xabc', chain: 'base', amount: '100' },
+        'LOOP',
+      );
+      expect(result.status).toBe('pending');
+    });
+
+    it('LOOP identity + sell order passes assertion (no action restriction on LOOP)', async () => {
+      const result = await svc.propose(
+        { action: 'sell', symbol: 'ETH', address: '0xabc', chain: 'base', amount: '100' },
+        'LOOP',
+      );
+      expect(result.status).toBe('pending');
+    });
+
+    it('undefined identity + any order passes assertion (no identity context — backward compat)', async () => {
+      const result = await svc.propose({
+        action: 'buy',
+        symbol: 'ETH',
+        address: '0xabc',
+        chain: 'base',
+        amount: '100',
+      });
+      expect(result.status).toBe('pending');
+    });
+
+    it('EXECUTOR identity + buy order passes assertion (no action restriction on EXECUTOR)', async () => {
+      // EXECUTOR cannot propose orders via @Identities, but if it somehow gets through, no action
+      // restriction should block it at the service layer (the controller's @Identities is the gate).
+      const result = await svc.propose(
+        { action: 'buy', symbol: 'ETH', address: '0xabc', chain: 'base', amount: '100' },
+        'EXECUTOR',
+      );
+      expect(result.status).toBe('pending');
     });
   });
 

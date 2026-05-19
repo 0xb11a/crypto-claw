@@ -5,3 +5,4 @@ export { AuditInterceptor } from './audit.interceptor.js';
 export { AuditController } from './audit.controller.js';
 export { Audited } from './audited.decorator.js';
 export { canonicalJson } from './canonical-json.js';
+export { IdentityForbiddenFilter } from './identity-forbidden.filter.js';

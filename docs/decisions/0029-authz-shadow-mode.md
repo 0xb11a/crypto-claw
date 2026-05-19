@@ -29,3 +29,19 @@ Candidates evaluated: (A) big-bang enforce flip in one PR; (B) shadow-first acti
 - Locked: per-identity authz activation must go through shadow → enforce; a future PR cannot ship a new identity, a new controller, or a flag-default change without producing the equivalent shadow-window evidence. Bypassing the shadow window requires a superseding ADR.
 
 Cross-links: SPEC §9.2 (per-identity authz), ADR-0009 (per-identity bearer tokens — the registry this guard reads), ADR-0019 (default-deny route walker — extended by this PR to assert `@Identities` presence), ADR-0018 (audit-log shape — the `identity` field this PR exercises), `libs/auth/src/identity.guard.ts`, `libs/auth/src/identity-scopes.ts`, `libs/config/src/schema.ts` (`AUTHZ_SHADOW_MODE`), `docs/runbook.md` §16 (operator playbook for the shadow→enforce cutover).
+
+## Sanctioned `@Identities('*')` exceptions (P7 PR-C1)
+
+The ESLint rule `cclaw/require-identities-on-handlers` (enabled in PR-C1) errors when
+`@Identities('*')` co-occurs with a non-GET HTTP-method decorator UNLESS the route is
+listed here as a sanctioned exception. Any future write route with `@Identities('*')`
+must be added to this table before the PR is merged.
+
+| Route | HTTP Method | Justification |
+|-------|-------------|---------------|
+| `POST /v1/alerts/:id/acknowledge` | POST (write) | Human-operator UX: any authenticated actor (agent, dashboard) can acknowledge an alert. The write is low-risk (idempotent, no state machine transition). `@Roles('agent','dashboard')` still enforces the role boundary; `@Identities('*')` prevents the wildcard from including unauthenticated requests. Research agent also calls `cclaw alerts ack` from its heartbeat (via LOOP token today; per-agent token after PR-B), so any narrower allowlist risks a 403 when enforce mode flips. |
+
+Audit procedure (maintained by `security-auditor`): before every PR-C2 (or any future
+enforce-mode-sensitive PR), grep all controller files for `@Identities\('\\*'\)` paired
+with a non-GET HTTP decorator and verify every match is listed in the table above. Any
+unlisted match is a BLOCK-level finding.

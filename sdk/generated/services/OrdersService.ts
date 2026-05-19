@@ -55,6 +55,7 @@ export class OrdersService {
       mediaType: 'application/json',
       errors: {
         400: `Validation error`,
+        403: `Identity-action mismatch (SENTINEL can only sell; RESEARCH can only buy)`,
       },
     });
   }

@@ -235,7 +235,7 @@ describe('A. Shadow-mode pass-through (AUTHZ_SHADOW_MODE=1)', () => {
   );
 
   it.skipIf(SKIP)(
-    'OBSERVER → PATCH /v1/system/cash (allowed: RESEARCH, EXECUTOR, LOOP) → passes (shadow) + emits block log',
+    'OBSERVER → PATCH /v1/system/cash (allowed: EXECUTOR, LOOP — P7 PR-C1 narrowed from RESEARCH,EXECUTOR,LOOP) → passes (shadow) + emits block log',
     async () => {
       const beforeCount = countShadowEventsFor(
         shadowApi,
@@ -255,6 +255,34 @@ describe('A. Shadow-mode pass-through (AUTHZ_SHADOW_MODE=1)', () => {
         'OBSERVER',
         '/v1/system/cash',
       );
+      expect(afterCount - beforeCount).toBe(1);
+    },
+  );
+
+  it.skipIf(SKIP)(
+    'RESEARCH → PATCH /v1/system/cash (allowed: EXECUTOR, LOOP — RESEARCH narrowed out in P7 PR-C1) → passes (shadow) + emits block log',
+    async () => {
+      // auditor suggestion #3: cash should derive from executor receipts, not direct RESEARCH writes.
+      // RESEARCH was removed from PATCH /v1/system/cash allowlist.
+      const beforeCount = countShadowEventsFor(
+        shadowApi,
+        'identity_blocked_shadow',
+        'RESEARCH',
+        '/v1/system/cash',
+      );
+      const { status } = await req(shadowApi, 'PATCH', '/v1/system/cash', {
+        token: RESEARCH_TOKEN,
+        body: { chain: 'base', amount: 100 },
+      });
+      // Shadow mode: guard logs the block but passes → 200
+      expect(status).toBe(200);
+      const afterCount = countShadowEventsFor(
+        shadowApi,
+        'identity_blocked_shadow',
+        'RESEARCH',
+        '/v1/system/cash',
+      );
+      // RESEARCH is now blocked (shadow-logged) for this route
       expect(afterCount - beforeCount).toBe(1);
     },
   );
@@ -657,33 +685,59 @@ describe('D. Enforce mode (AUTHZ_SHADOW_MODE=0) — 403 gate', () => {
   );
 
   it.skipIf(SKIP)(
-    'audit row written for 403 (enforce mode) — GET /v1/system/audit returns entry for the forbidden request',
+    'RESEARCH token → PATCH /v1/system/cash → 403 in enforce mode (RESEARCH narrowed out in P7 PR-C1)',
     async () => {
+      // Cash writes restricted to EXECUTOR and LOOP only (auditor suggestion #3).
+      const { status } = await req(enforceApi, 'PATCH', '/v1/system/cash', {
+        token: RESEARCH_TOKEN,
+        body: { chain: 'base', amount: 75 },
+      });
+      expect(status).toBe(403);
+    },
+  );
+
+  it.skipIf(SKIP)(
+    'audit row IS written for 403 (enforce mode) — IdentityForbiddenFilter captures guard-thrown 403s (P7 PR-C1)',
+    async () => {
+      // P7 PR-C1 landed IdentityForbiddenFilter. The filter catches IdentityForbiddenException
+      // (thrown by IdentityGuard in enforce mode), writes an audit row via AuditService, then
+      // delegates to the base exception filter for the 403 response. This test asserts the
+      // positive behavior: audit row IS present for the forbidden request.
+      //
+      // This flips the "documents the gap" assertion from PR-A that noted plan §Risks #6.
+      // The gap is now closed by IdentityForbiddenFilter.
+
       // Make a forbidden request with EXECUTOR → POST /v1/logs/sentinel
       const forbidden = await req(enforceApi, 'POST', '/v1/logs/sentinel', {
         token: EXECUTOR_TOKEN,
-        body: { check_type: 'audit_row_test' },
+        body: { check_type: 'audit_row_test_prc1' },
       });
       expect(forbidden.status).toBe(403);
 
-      // Note: AuditInterceptor writes before the guard chain for 403 responses if it runs
-      // in the response path. If the guard throws before the interceptor's response hook,
-      // the audit row may not be written for 403s. This test documents actual behavior.
-      // Risk item flagged per plan §Risks #6: "Audit-log integration ordering".
-      //
-      // We use the RESEARCH token (allowed on GET /v1/system/audit with @Identities('*'))
-      // to query recent audit entries and check for the forbidden request.
-      const auditResp = await req(enforceApi, 'GET', '/v1/system/audit?limit=20', {
+      // Small pause to allow the fire-and-forget audit write to complete.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Query recent audit entries using RESEARCH token (allowed on GET /v1/system/audit via @Identities('*'))
+      const auditResp = await req(enforceApi, 'GET', '/v1/system/audit?limit=30', {
         token: RESEARCH_TOKEN,
       });
-      // Audit endpoint itself must return 200
       expect(auditResp.status).toBe(200);
       const auditBody = auditResp.body as { data: Array<Record<string, unknown>> };
-      // We don't assert audit row presence here because plan §Risks #6 explicitly notes
-      // this may not be written for pre-interceptor guard throws. The reviewer/security-
-      // auditor must decide whether to add a NestJS exception filter for this gap.
-      // Instead we assert the audit endpoint is accessible post-403.
       expect(Array.isArray(auditBody.data)).toBe(true);
+
+      // Find audit row for the 403 — IdentityForbiddenFilter writes with errorKind='IdentityForbiddenException'
+      const forbiddenRow = auditBody.data.find(
+        (r) =>
+          r['status'] === 403 &&
+          r['identity'] === 'EXECUTOR' &&
+          (r['path'] === '/v1/logs/sentinel' || (r['path'] as string)?.includes('logs/sentinel')),
+      );
+      // Assert the audit row exists (positive assertion, not "documents gap")
+      expect(forbiddenRow).toBeDefined();
+      if (forbiddenRow) {
+        expect(forbiddenRow['identity']).toBe('EXECUTOR');
+        expect(forbiddenRow['status']).toBe(403);
+      }
     },
   );
 
