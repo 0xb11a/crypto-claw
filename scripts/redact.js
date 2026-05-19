@@ -23,6 +23,13 @@ const XPRV_KEY = /xprv[a-zA-Z0-9]{107,108}/g;
 const API_KEY_SK = /\bsk-[a-zA-Z0-9_-]{20,}/g; // OpenAI, Anthropic
 const API_KEY_BEARER = /Bearer\s+[a-zA-Z0-9_.-]{20,}/gi;
 
+// GitHub tokens (classic PAT ghp_, OAuth gho_, user-to-server ghu_,
+// server-to-server ghs_, refresh ghr_).
+// Observer agent writes GH_TOKEN to ~/.config/gh/hosts.yml; this pattern
+// guards against tokens leaking into log strings or error messages.
+// Synced from libs/logger/src/redactor.ts (SP-1).
+const GITHUB_TOKEN = /gh[pousr]_[A-Za-z0-9_]{36,}/g;
+
 // Generic hex secrets: standalone 64-char hex (likely private keys or hashes)
 const HEX_SECRET = /\b[a-fA-F0-9]{64}\b/g;
 
@@ -55,6 +62,9 @@ export function redact(text) {
 
   // 1. Extended private keys (most specific, longest)
   result = result.replace(XPRV_KEY, '[REDACTED_XPRV]');
+
+  // 1a. GitHub tokens (prefix-specific — apply before generic hex/base58 patterns)
+  result = result.replace(GITHUB_TOKEN, '[REDACTED_GH_TOKEN]');
 
   // 2. ETH private keys (64 hex with 0x prefix — before addresses)
   result = result.replace(ETH_PRIVATE_KEY, '[REDACTED_KEY]');

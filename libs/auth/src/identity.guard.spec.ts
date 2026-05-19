@@ -57,7 +57,16 @@ function makeContext(opts: {
   };
 }
 
-/** Build an IdentityGuard with a controlled shadowMode. */
+/**
+ * Build an IdentityGuard with a controlled shadowMode.
+ *
+ * Env-mutation safety: this helper temporarily writes to `process.env['AUTHZ_SHADOW_MODE']`
+ * and restores the original value before returning. This is safe across spec files
+ * because vitest workers are process-isolated by default (each spec file runs in its
+ * own worker). If a future maintainer adds `--no-isolate` to the vitest config, this
+ * helper must be refactored to use `beforeEach`/`afterEach` env-restore wrappers
+ * (e.g. via `vi.stubEnv`) to avoid cross-test contamination.
+ */
 function makeGuard(shadowMode: boolean): IdentityGuard {
   // Override process.env before construction
   const originalEnv = process.env['AUTHZ_SHADOW_MODE'];

@@ -79,11 +79,14 @@ services:
       # Shared wallet data volume
       - crypto-claw-data:/app/data
       # ADR-0023: signer key file, mode 0400, worker-only bind-mount.
+      # Bind to the specific file rather than the whole secrets/ directory so that
+      # future files added under secrets/ (e.g. signer.env.example) are not
+      # exposed inside the container. Matches ADR-0023 "single file, bind-mounted".
       # Before first start:
       #   cp secrets/signer.env.example secrets/signer.env
       #   chmod 0400 secrets/signer.env
       #   fill in SAFE_SIGNER_KEY and/or SQUADS_SIGNER_KEY
-      - ./secrets:/run/secrets:ro
+      - ./secrets/signer.env:/run/secrets/signer.env:ro
     healthcheck:
       test: ['CMD-SHELL', 'pgrep -f apps/worker/dist/main.js > /dev/null || exit 1']
       interval: 15s
@@ -151,6 +154,14 @@ services:
   # ==========================================================================
 
   redis:
+    # TODO(S38-1): pin this to a digest for reproducible builds.
+    # Resolve the current digest with:
+    #   docker buildx imagetools inspect redis:7-alpine --format '{{json .Manifest}}' | jq -r '.digest'
+    # Then replace with: image: redis:7-alpine@sha256:<digest>
+    # Re-pin on every upstream security update (check https://hub.docker.com/_/redis/tags).
+    # Not a blocker: Redis port is not published; in-network exploitation requires an
+    # authenticated channel that does not exist in this topology (ADR-0004, security-auditor
+    # APPROVE_WITH_NITS on PR #38). Runbook §15.10 documents the pin procedure.
     image: redis:7-alpine
     container_name: cclaw-redis
     command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec']

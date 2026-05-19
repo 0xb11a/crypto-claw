@@ -62,6 +62,14 @@ export class IdentityGuard implements CanActivate {
    *
    * Only one warn line is emitted per 60 seconds per key, preventing log
    * flood during sustained traffic from an out-of-scope identity.
+   *
+   * Boundedness note: key cardinality is structurally capped by the three-part
+   * key shape: ~8 identities × ~8 HTTP verbs × ~70 routes ≈ 4480 entries max.
+   * At 8 bytes per timestamp value the worst-case footprint is ≈ 36 KB over the
+   * process lifetime. No eviction is needed at current cardinality.
+   * IMPORTANT: do NOT expand the key to include user-id or request-id without
+   * adding an eviction strategy (LRU cap or TTL sweep) — that would make the Map
+   * unbounded and leak memory under sustained traffic.
    */
   private readonly shadowRateLimit = new Map<string, number>();
 

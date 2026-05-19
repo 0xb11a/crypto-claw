@@ -1594,6 +1594,44 @@ Agent memory (MEMORY.md) is shared across all deployments if they use the same i
 - **Signer key rotation requires apps-worker restart.** No hot-reload. An in-flight executor child completes with the old key. See §15.6.
 - **Redis queue persistence.** AOF `everysec` means at most 1 second of BullMQ job loss on unclean shutdown. Accepted at current ops scale.
 - **§13.5 parity capture deferred to PR-B.** The 90-min paper-mode comparison (legacy vs P6) runs after this PR lands. See PR-B (`chore/p6-prb-parity-capture`).
+- **NFS / network-attached storage is not supported for data volumes.** The `crypto-claw-data` volume must use `driver: local` (or a local bind-mount path). SQLite WAL mode requires byte-range locking, which is unavailable on most NFS v3/v4 mounts and many CIFS/SMB implementations — using a network-attached path will result in `SQLITE_IOERR_LOCK` errors or, worse, silent data corruption. Always use a local disk path or a storage driver that emulates POSIX byte-range locking.
+
+### §15.10 Gateway service residual signer scope
+
+The `crypto-claw` (OpenClaw gateway) container still receives `SAFE_SIGNER_KEY` and
+`SQUADS_SIGNER_KEY` via `docker-compose.yml` environment entries. This is a **known
+partial boundary**: the signer-key isolation ADR-0023 moved the primary execution path
+into `apps-worker → apps-executor`, but the LLM-agent path (OpenClaw `openclaw agent`
+spawning the executor skill directly from `entrypoint.sh`) still runs inside the gateway
+container and requires the keys to be present in its environment.
+
+**Current state (P6):**
+- `apps-api`, `apps-scheduler`: signer keys explicitly blanked (`SAFE_SIGNER_KEY: ''`). Boot self-check enforces absence.
+- `apps-worker`: signer keys blanked in compose env; read exclusively from `./secrets/signer.env` at executor spawn time (ADR-0023).
+- `crypto-claw` (gateway): signer keys present — required for the legacy LLM-agent execution path.
+
+**Why this is accepted:** The gateway container already has `read_only: true`, `cap_drop: ALL`, `no-new-privileges`, and the signer keys are never written to disk or logged (SPEC §4 #4, scripts/redact.js, libs/logger redactor). The blast-radius of a gateway compromise is scoped to the keys already accessible to the LLM agent.
+
+**Future state:** When the legacy LLM-agent execution path is fully replaced by the NestJS `apps-worker` path (post-P6), the gateway's signer-key env entries will be removed. Track in the P6-PR-B / P7 cutover checklist.
+
+**Operator note:** If you see `SAFE_SIGNER_KEY` or `SQUADS_SIGNER_KEY` referenced in `crypto-claw` container logs, that is NOT a redaction failure — it is the expected gateway path. A redaction failure would be a log line whose value is the raw key material, not the env-var name.
+
+### §15.11 Redis image pinning
+
+The `redis:7-alpine` image in `docker-compose.yml` is currently unpinned (floating tag).
+To pin it by digest for reproducible deployments:
+
+```bash
+# Resolve current digest
+docker buildx imagetools inspect redis:7-alpine --format '{{json .Manifest}}' | jq -r '.digest'
+```
+
+Replace the `image:` line with:
+```yaml
+image: redis:7-alpine@sha256:<digest>
+```
+
+Re-pin on each upstream Redis security update. Redis port is not published to the host (ADR-0004); in-network exploitation requires an authenticated channel that does not exist in this topology, so the unpinned tag is low-risk. Pin before any hardened-production deployment.
 
 ## §16 Per-identity authz (P7)
 

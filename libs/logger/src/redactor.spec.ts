@@ -54,6 +54,44 @@ describe('redactString — API tokens', () => {
   });
 });
 
+describe('redactString — GitHub tokens (SP-1)', () => {
+  it('redacts a classic PAT (ghp_ prefix)', () => {
+    // pre-commit-allow: synthetic token for test — not a real credential
+    const token = 'ghp_' + 'A'.repeat(36);
+    const input = `GH_TOKEN=${token}`;
+    const output = redactString(input);
+    expect(output).not.toContain(token);
+    expect(output).toContain('[REDACTED_GH_TOKEN]');
+  });
+
+  it('redacts an OAuth app token (gho_ prefix)', () => {
+    // pre-commit-allow
+    const token = 'gho_' + 'b'.repeat(40);
+    const input = `authorization: ${token}`;
+    const output = redactString(input);
+    expect(output).not.toContain(token);
+    expect(output).toContain('[REDACTED_GH_TOKEN]');
+  });
+
+  it('redacts a GitHub token embedded in a log line', () => {
+    // pre-commit-allow: Observer entrypoint.sh writes GH_TOKEN to gh config
+    const token = 'ghp_' + '1234567890abcdefghijklmnopqrstuvwxyz';
+    const logLine = `gh_auth: writing token=${token} to hosts.yml`;
+    const output = redactString(logLine);
+    expect(output).not.toContain(token);
+    expect(output).toContain('[REDACTED_GH_TOKEN]');
+    // Non-sensitive parts survive
+    expect(output).toContain('gh_auth');
+    expect(output).toContain('hosts.yml');
+  });
+
+  it('does NOT redact a short gh_ prefixed string (below 36-char threshold)', () => {
+    // A short string that starts with 'ghp_' but is too short to be a real token
+    const short = 'ghp_short123';
+    expect(redactString(short)).toBe(short);
+  });
+});
+
 describe('redactString — JWT-shaped strings', () => {
   it('redacts a JWT (three base64 segments separated by dots)', () => {
     const jwt = // pre-commit-allow
@@ -383,5 +421,9 @@ describe('REDACT_PATHS', () => {
 
   it('includes TELEGRAM_BOT_TOKEN', () => {
     expect(REDACT_PATHS).toContain('TELEGRAM_BOT_TOKEN');
+  });
+
+  it('includes GH_TOKEN (Observer agent GitHub integration)', () => {
+    expect(REDACT_PATHS).toContain('GH_TOKEN');
   });
 });
