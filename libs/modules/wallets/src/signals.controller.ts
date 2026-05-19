@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { SignalsService } from './signals.service.js';
 import { SignalsQueryDto } from './dto/signals-query.dto.js';
 import type {
@@ -27,6 +27,7 @@ export class SignalsController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({
     summary:
       'Get smart-money signals (supports --since, --action, --chain, --group_by=token, --min_wallets, --tokens_in_positions)',

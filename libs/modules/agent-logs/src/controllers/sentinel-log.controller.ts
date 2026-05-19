@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus, ValidationPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { AgentLogsService } from '../agent-logs.service.js';
 import { AppendSentinelLogDto } from '../dto/append-sentinel-log.dto.js';
@@ -26,6 +26,7 @@ export class SentinelLogController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List recent sentinel log rows' })
   @ApiResponse({ status: 200, description: 'Sentinel log list' })
   list(@Query() query: AgentLogQueryDto): Promise<SentinelLogResponseDto[]> {
@@ -34,6 +35,7 @@ export class SentinelLogController {
 
   @Get(':id')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get a sentinel log row by ID' })
   @ApiParam({ name: 'id', description: 'Row integer ID' })
   @ApiResponse({ status: 200, description: 'Sentinel log row' })
@@ -50,6 +52,7 @@ export class SentinelLogController {
 
   @Post()
   @Roles('agent')
+  @Identities('SENTINEL', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Append a sentinel log row' })

@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { SystemService } from '../system.service.js';
 import { SyncStatusQueryDto } from '../dto/sync-status-query.dto.js';
 import type { PortfolioSyncResponseDto } from '../dto/portfolio-sync-response.dto.js';
@@ -23,6 +23,7 @@ export class PortfolioSyncController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List portfolio sync history' })
   @ApiResponse({ status: 200, description: 'Portfolio sync history rows' })
   getSyncStatus(@Query() query: SyncStatusQueryDto): Promise<PortfolioSyncResponseDto[]> {

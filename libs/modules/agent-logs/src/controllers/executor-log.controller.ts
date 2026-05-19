@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus, ValidationPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { AgentLogsService } from '../agent-logs.service.js';
 import { AppendExecutorLogDto } from '../dto/append-executor-log.dto.js';
@@ -26,6 +26,7 @@ export class ExecutorLogController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List recent executor log rows' })
   @ApiResponse({ status: 200, description: 'Executor log list' })
   list(@Query() query: AgentLogQueryDto): Promise<ExecutorLogResponseDto[]> {
@@ -34,6 +35,7 @@ export class ExecutorLogController {
 
   @Get(':id')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get an executor log row by ID' })
   @ApiParam({ name: 'id', description: 'Row integer ID' })
   @ApiResponse({ status: 200, description: 'Executor log row' })
@@ -50,6 +52,7 @@ export class ExecutorLogController {
 
   @Post()
   @Roles('agent')
+  @Identities('EXECUTOR', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Append an executor log row' })

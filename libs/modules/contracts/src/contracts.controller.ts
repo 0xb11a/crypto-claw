@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { ContractsService } from './contracts.service.js';
 import { AddContractSnapshotDto } from './dto/add-contract-snapshot.dto.js';
@@ -24,6 +24,7 @@ export class ContractsController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List recent contract safety snapshots' })
   @ApiResponse({ status: 200, description: 'Contract snapshot list' })
   @ApiResponse({ status: 400, description: 'Missing or invalid query params' })
@@ -33,6 +34,7 @@ export class ContractsController {
 
   @Post()
   @Roles('agent')
+  @Identities('RESEARCH', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Add a contract safety snapshot' })

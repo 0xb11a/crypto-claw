@@ -84,7 +84,7 @@ These are non-negotiable. PRs that violate any of them are rejected at review. C
 
 1. **No DB access outside `libs/prisma` + repositories.** Every entity has a Repository class; services call repositories; controllers call services. `apps/*` never instantiate `PrismaClient`. ESLint rule: `no-restricted-imports` blocks `@prisma/client` outside `libs/prisma`.
 2. **OpenAPI is the contract.** Controllers + DTOs (with `class-validator` decorators) generate the spec; the SDK + `cclaw` CLI are generated from the spec; CI fails if the regenerated SDK differs from the committed copy. Drift is a build error.
-3. **Default-deny on every route.** Every controller method has explicit `@Roles(...)` and a typed body/query DTO. NestJS lifecycle hook `onApplicationBootstrap` walks every registered route and throws if any handler lacks both. CORS off in this scope.
+3. **Default-deny on every route.** Every controller method has explicit `@Roles(...)`, `@Identities(...)` (or `@Identities('*')` wildcard sentinel), and a typed body/query DTO. NestJS lifecycle hook `onApplicationBootstrap` walks every registered route and throws if any handler lacks `@Roles`/`@Identities`/DTO (the `@Identities` enforcement is shadow-warn in PR-A, throw in PR-C — ADR-0019 addendum, ADR-0029). CORS off in this scope.
 4. **Signer keys live only in `apps/executor` subprocess env.** `apps/api`, `apps/worker`, `apps/scheduler` boot with a self-check that reads `process.env` and exits non-zero if `SAFE_SIGNER_KEY` or `SQUADS_SIGNER_KEY` is set. The executor reads them from a sealed file (mode 0400) at spawn time only.
 5. **The LLM-agent loops stay in `entrypoint.sh`.** `run_executor_loop` and `run_sentinel_loop` invoke the OpenClaw `openclaw` CLI which spawns an LLM agent. Those cannot move into the worker. The eight other (deterministic) loops do.
 6. **Config validated at boot.** `libs/config` parses `process.env` through a Zod schema. The service exits with `[config] invalid env: <field> — <reason>` if any required var is missing or malformed.
@@ -224,8 +224,8 @@ Job definitions live in `libs/modules/<entity>/jobs/*.processor.ts` (BullMQ proc
 ### 9.2 AuthZ — guards, decorators, default-deny
 - `BearerAuthGuard` → sets `req.user = {identity, role}` or 401.
 - `RolesGuard` → reads `@Roles('agent' | 'dashboard')` metadata. Missing decorator → guard rejects.
-- `IdentityGuard` (P7) → reads `@Identities('EXECUTOR')` for write routes locked to a specific token. No-op shim until P7.
-- Boot check: walks all controllers; throws if any handler lacks `@Roles(...)` or a body/query DTO.
+- `IdentityGuard` (P7) → reads `@Identities('EXECUTOR' | '*')` metadata. Layered with `@Roles(...)` — both must pass. `'*'` sentinel allows any authenticated identity (used on DASHBOARD-readable GETs). Activated in shadow-first rollout per ADR-0029: `AUTHZ_SHADOW_MODE=1` (PR-A default) logs `identity_blocked_shadow` events with per-(identity, path) 60s rate-limit and passes; `=0` (PR-C default) throws `ForbiddenException`. WORKER + SCHEDULER scope sets are empty (defense-in-depth — neither makes inbound HTTP today).
+- Boot check: walks all controllers; throws if any handler lacks `@Roles(...)`, `@Identities(...)`, or a body/query DTO (the `@Identities` enforcement is shadow-warn in PR-A, throw in PR-C — see ADR-0019 addendum).
 
 ### 9.3 Input validation — class-validator
 - Global `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })`. Unknown fields → 400.
@@ -268,6 +268,10 @@ Job definitions live in `libs/modules/<entity>/jobs/*.processor.ts` (BullMQ proc
 - `PAPER_MODE` (default false)
 - `PAPER_STARTING_BALANCE` (default 10000)
 - `AUTO_APPROVE_BUY` (default false)
+- `AUTHZ_SHADOW_MODE` (default 1 in PR-A; flipped to 0 in PR-C per ADR-0029 — log-only IdentityGuard for safe rollout; runtime kill-switch)
+- `API_BIND_ADDRESS` (default `127.0.0.1`; compose sets `0.0.0.0` per ADR-0006 addendum)
+- `PRISMA_REPO_ROOT` (production override; defaults to monorepo root resolved from `apps/api/dist/`)
+- `CCLAW_API_BASE` (consumed by `entrypoint.sh` to reach apps-api across docker network)
 - `APPROVAL_MARGIN_PCT`, `RPC_VALIDATION_MODE`, `SKIP_*` flags, `CHECK_WALLETS_*` tuning
 
 **Forbidden in `apps/api|worker|scheduler` env (boot self-check):**

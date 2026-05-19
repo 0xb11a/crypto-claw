@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { OrdersService } from './orders.service.js';
 import { ProposeOrderDto } from './dto/propose-order.dto.js';
@@ -33,6 +33,7 @@ export class OrdersController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List orders' })
   @ApiResponse({ status: 200, description: 'List of orders' })
   list(@Query() query: OrderListQueryDto): Promise<OrderListResponseDto> {
@@ -41,6 +42,7 @@ export class OrdersController {
 
   @Get(':id')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get an order by ID' })
   @ApiParam({ name: 'id', description: 'Order ID' })
   @ApiResponse({ status: 200, description: 'Order found' })
@@ -51,6 +53,7 @@ export class OrdersController {
 
   @Post()
   @Roles('agent')
+  @Identities('RESEARCH', 'SENTINEL', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Propose a new order' })
@@ -62,6 +65,7 @@ export class OrdersController {
 
   @Post(':id/approve')
   @Roles('agent')
+  @Identities('RESEARCH', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Approve an order' })
@@ -75,6 +79,7 @@ export class OrdersController {
 
   @Post(':id/reject')
   @Roles('agent')
+  @Identities('RESEARCH', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reject an order' })
@@ -88,6 +93,7 @@ export class OrdersController {
 
   @Post(':id/cancel')
   @Roles('agent')
+  @Identities('RESEARCH', 'SENTINEL', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel an order' })
@@ -101,6 +107,7 @@ export class OrdersController {
 
   @Post(':id/retry')
   @Roles('agent')
+  @Identities('RESEARCH', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Retry a failed order' })
@@ -114,6 +121,7 @@ export class OrdersController {
 
   @Post(':id/execute')
   @Roles('agent')
+  @Identities('EXECUTOR', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({

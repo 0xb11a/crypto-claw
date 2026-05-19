@@ -102,6 +102,11 @@ jobs:
           pnpm check:vitest-workspace
           pnpm check:dockerfile-modules
 
+      # Step 7c — P7 @Identities coverage gate (DoD §F, ADR-0029)
+      # Asserts every controller handler with an HTTP decorator has a paired @Identities(...)
+      - name: Identity coverage gate
+        run: node scripts/ci/check-identities-coverage.mjs
+
       # Step 7b — Unit tests with coverage
       - name: Unit tests
         run: pnpm test:unit --coverage

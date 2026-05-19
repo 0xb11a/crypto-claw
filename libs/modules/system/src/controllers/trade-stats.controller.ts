@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { SystemService } from '../system.service.js';
 import { TradeStatsQueryDto } from '../dto/trade-stats-query.dto.js';
 import type { TradeStatsResponseDto } from '../dto/trade-stats-response.dto.js';
@@ -25,6 +25,7 @@ export class TradeStatsController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get aggregated trade statistics' })
   @ApiResponse({ status: 200, description: 'Trade statistics: wins/losses/PnL/win-rate/returns' })
   getTradeStats(@Query() query: TradeStatsQueryDto): Promise<TradeStatsResponseDto> {

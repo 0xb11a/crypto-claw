@@ -1,6 +1,6 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { AuditRepository } from './audit.repository.js';
 import { AuditQueryDto } from './dto/audit-query.dto.js';
 import type { AuditListResponseDto, ServiceAuditEntryDto } from './dto/audit-response.dto.js';
@@ -23,6 +23,7 @@ export class AuditController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Query audit log entries' })
   @ApiResponse({ status: 200, description: 'Paginated audit entries' })
   @ApiResponse({ status: 400, description: 'Invalid query parameters' })
@@ -38,6 +39,7 @@ export class AuditController {
 
   @Get(':id')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get a single audit entry by ID' })
   @ApiParam({ name: 'id', description: 'Audit entry ID' })
   @ApiResponse({ status: 200, description: 'Audit entry found' })

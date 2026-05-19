@@ -36,3 +36,16 @@ The two layers are NOT redundant — they protect different things. The lint rul
 - Locked: no controller method without `@Roles(...)`; no non-GET handler without `@Audited()`; the boot walker cannot be disabled without a SPEC change.
 
 Cross-links: SPEC §4 #3 (default-deny invariant), SPEC §9.5 (audit log requirement), SPEC §15 (lint policy), ADR-0009 (per-identity bearer tokens — the role registry the walker validates against), ADR-0018 (audit log shape — the metadata the walker enforces).
+
+## Addendum (2026-05-19) — `@Identities(...)` walker check
+
+P7 PR-A extends `RouteWalkerService` with a third metadata assertion: every handler must carry `@Identities(...)` (the singular `'*'` wildcard is accepted). The check mirrors the existing `@Roles(...)` / `@Audited()` walks (`Reflector.getAllAndOverride` against `IDENTITIES_KEY`, same controller-method enumeration, same error-message format `[boot] route <METHOD> <path> on <ControllerClass>#<method> missing @Identities(...)`).
+
+The check is mode-aware via the same `AUTHZ_SHADOW_MODE` flag introduced in ADR-0029:
+
+- **Shadow mode (PR-A, `AUTHZ_SHADOW_MODE=1`)** — emit a `[warn]` line to stderr per missing-decorator hit; do NOT add to the boot-fail violations list. Operators see the gaps in the apps-api log stream and fix them before the enforce flip.
+- **Enforce mode (PR-C, `AUTHZ_SHADOW_MODE=0`)** — add to the violations list, refuse to start, exit 78. Identical boot-fail posture to the existing `@Roles` / `@Audited` checks.
+
+The walker is backstopped at the lint layer by `tools/eslint-plugin-cclaw/rules/require-identities-on-handlers.js` (shipped disabled in PR-A, enabled error-level in PR-C) and at the CI layer by `scripts/ci/check-identities-coverage.mjs` (active in PR-A so coverage stays at 100% across the shadow window). The three layers protect different failure modes per the original ADR rationale: lint catches issues at the file/line, CI grep catches lint bypasses, and the walker catches dynamic decorator paths the static checks didn't see.
+
+Status: Accepted (unchanged).

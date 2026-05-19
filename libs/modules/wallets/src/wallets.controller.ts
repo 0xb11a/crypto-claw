@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { WalletsService } from './wallets.service.js';
 import { AddTrackedWalletDto } from './dto/add-tracked-wallet.dto.js';
@@ -35,6 +35,7 @@ export class WalletsController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List tracked wallets' })
   @ApiResponse({ status: 200, description: 'List of tracked wallets' })
   list(@Query() query: TrackedWalletsQueryDto): Promise<TrackedWalletResponseDto[]> {
@@ -43,6 +44,7 @@ export class WalletsController {
 
   @Get('unscored')
   @Roles('agent')
+  @Identities('RESEARCH', 'LOOP')
   @ApiOperation({ summary: 'List wallets pending scoring (proposed or failed with retry_count < 3)' })
   @ApiQuery({ name: 'limit', required: false, description: 'Max rows (default 5)' })
   @ApiResponse({ status: 200, description: 'Unscored wallet list' })
@@ -52,6 +54,7 @@ export class WalletsController {
 
   @Get(':address/:chain')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get a tracked wallet by address and chain' })
   @ApiParam({ name: 'address', description: 'Wallet address' })
   @ApiParam({ name: 'chain', description: 'Chain identifier' })
@@ -63,6 +66,7 @@ export class WalletsController {
 
   @Post()
   @Roles('agent')
+  @Identities('RESEARCH', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Add or replace a tracked wallet (INSERT OR REPLACE)' })
@@ -74,6 +78,7 @@ export class WalletsController {
 
   @Post('propose')
   @Roles('agent')
+  @Identities('RESEARCH', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Propose a wallet for scoring (INSERT OR IGNORE)' })
@@ -85,6 +90,7 @@ export class WalletsController {
 
   @Patch(':address/:chain/score')
   @Roles('agent')
+  @Identities('RESEARCH', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update wallet score and status' })
@@ -102,6 +108,7 @@ export class WalletsController {
 
   @Delete(':address/:chain')
   @Roles('agent')
+  @Identities('RESEARCH', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove a tracked wallet' })

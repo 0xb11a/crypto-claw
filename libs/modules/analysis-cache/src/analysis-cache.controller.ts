@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Delete, Body, Query, HttpCode, HttpStatus, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { AnalysisCacheService } from './analysis-cache.service.js';
 import { CacheAnalysisDto } from './dto/cache-analysis.dto.js';
@@ -27,6 +27,7 @@ export class AnalysisCacheController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List non-expired analysis cache entries' })
   @ApiResponse({ status: 200, description: 'Non-expired cache entries' })
   list(@Query() query: AnalysisCacheQueryDto): Promise<AnalysisCacheResponseDto[]> {
@@ -35,6 +36,7 @@ export class AnalysisCacheController {
 
   @Post()
   @Roles('agent')
+  @Identities('RESEARCH', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Upsert a token analysis cache entry' })
@@ -46,6 +48,7 @@ export class AnalysisCacheController {
 
   @Get('check')
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Check token cache status (non-expired)' })
   @ApiResponse({ status: 200, description: 'Cache entry found' })
   @ApiResponse({ status: 404, description: 'No non-expired cache entry for this token' })
@@ -57,6 +60,7 @@ export class AnalysisCacheController {
 
   @Delete('expired')
   @Roles('agent')
+  @Identities('RESEARCH', 'LOOP')
   @Audited()
   @ApiOperation({ summary: 'Delete all expired analysis cache entries' })
   @ApiResponse({ status: 200, description: 'Expired entries deleted' })

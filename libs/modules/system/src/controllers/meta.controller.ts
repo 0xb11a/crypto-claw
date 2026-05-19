@@ -1,6 +1,6 @@
 import { Controller, Get, Patch, Query, Body } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { SystemService } from '../system.service.js';
 import { MetaQueryDto } from '../dto/meta-query.dto.js';
@@ -22,6 +22,7 @@ export class MetaController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'Get a portfolio_meta key/value' })
   @ApiResponse({ status: 200, description: 'Meta key/value pair (value is null if key not found)' })
   @ApiResponse({ status: 400, description: 'Missing key query param' })
@@ -31,6 +32,7 @@ export class MetaController {
 
   @Patch()
   @Roles('agent')
+  @Identities('RESEARCH', 'SENTINEL', 'EXECUTOR', 'OBSERVER', 'LOOP')
   @Audited()
   @ApiOperation({ summary: 'Set a portfolio_meta key/value' })
   @ApiResponse({ status: 200, description: 'Meta key/value updated' })

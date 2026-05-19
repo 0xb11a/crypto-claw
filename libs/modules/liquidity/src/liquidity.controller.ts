@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { LiquidityService } from './liquidity.service.js';
 import { AddLiquiditySnapshotDto } from './dto/add-liquidity-snapshot.dto.js';
@@ -24,6 +24,7 @@ export class LiquidityController {
 
   @Get()
   @Roles('agent', 'dashboard')
+  @Identities('*')
   @ApiOperation({ summary: 'List liquidity snapshots' })
   @ApiResponse({ status: 200, description: 'List of liquidity snapshots' })
   list(@Query() query: LiquidityQueryDto): Promise<LiquiditySnapshotResponseDto[]> {
@@ -32,6 +33,7 @@ export class LiquidityController {
 
   @Post()
   @Roles('agent')
+  @Identities('RESEARCH', 'SENTINEL', 'LOOP')
   @Audited()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Add a liquidity snapshot' })

@@ -1594,3 +1594,59 @@ Agent memory (MEMORY.md) is shared across all deployments if they use the same i
 - **Signer key rotation requires apps-worker restart.** No hot-reload. An in-flight executor child completes with the old key. See §15.6.
 - **Redis queue persistence.** AOF `everysec` means at most 1 second of BullMQ job loss on unclean shutdown. Accepted at current ops scale.
 - **§13.5 parity capture deferred to PR-B.** The 90-min paper-mode comparison (legacy vs P6) runs after this PR lands. See PR-B (`chore/p6-prb-parity-capture`).
+
+## §16 Per-identity authz (P7)
+
+Per ADR-0029. Three-phase rollout: shadow (PR-A) → per-agent tokens (PR-B) → enforce (PR-C).
+
+### §16.1 Shadow-mode observation (PR-A — current)
+
+`AUTHZ_SHADOW_MODE=1` is the default. The `IdentityGuard` logs but does not reject. Observe logs during normal operation:
+
+```bash
+docker compose logs -f apps-api 2>&1 | grep identity_blocked_shadow
+```
+
+Expected output while all agents share the LOOP token: no entries (LOOP has wildcard scope).
+
+After PR-B plumbs per-agent tokens, you will see which routes each identity hits. Use this period to verify the `@Identities(...)` mapping is correct before flipping enforce mode.
+
+### §16.2 Per-identity scope table
+
+| Identity  | Scope                                 | Notes                                   |
+|-----------|---------------------------------------|-----------------------------------------|
+| RESEARCH  | Orders (propose/approve/reject/cancel/retry), positions, receipts (read), alerts, watchlist, wallets, liquidity, contracts, heartbeat, research-log, analysis-cache, system (read+meta+cash-write) | Cannot execute orders |
+| SENTINEL  | Orders (propose/cancel, read), positions (read), alerts, watchlist (write), signals, heartbeat, sentinel-log, analysis-cache (read), system (read) | Can only propose SELL orders |
+| EXECUTOR  | Orders (list/get/execute), receipts (create), positions (update), alerts/send, heartbeat, executor-log, system/cash (write), chains | Cannot propose/approve/reject orders |
+| OBSERVER  | All GETs + alerts/send + observer-log (write) + system/audit | Read-only observer |
+| LOOP      | Wildcard (`*`) — covers all routes    | Background loops + retained scripts. Will narrow after PR-B. |
+| WORKER    | Empty set                             | No inbound HTTP; 403 everywhere in enforce mode |
+| SCHEDULER | Empty set                             | No inbound HTTP; 403 everywhere in enforce mode |
+| DASHBOARD | Wildcard (`*`) — but role boundary (GET-only) enforced by RolesGuard | Dashboard reads everything |
+
+### §16.3 Enforce-flip checklist (PR-C prerequisites)
+
+Before flipping `AUTHZ_SHADOW_MODE=0`:
+
+1. PR-B merged: `RESEARCH/SENTINEL/EXECUTOR/OBSERVER_API_KEY` plumbed per agent.
+2. 72-hour shadow observation shows zero unexpected `identity_blocked_shadow` events for in-scope identities.
+3. Any `identity_blocked_shadow` events reviewed and either:
+   - The route's `@Identities(...)` mapping corrected, or
+   - Deemed acceptable (WORKER/SCHEDULER presenting token by mistake → investigate).
+4. Security-auditor APPROVE on PR-C.
+5. `pnpm typecheck && pnpm lint && pnpm test:unit && pnpm test:integration` green locally.
+
+### §16.4 Emergency rollback
+
+If enforce mode causes unexpected 403s in production:
+
+```bash
+# Option 1: runtime kill-switch (no code deploy needed)
+# Add to .env.runtime:
+AUTHZ_SHADOW_MODE=1
+
+# Then restart apps-api:
+docker compose up -d --no-deps --force-recreate apps-api
+```
+
+Option 2: `git revert` the PR-C commit and redeploy.

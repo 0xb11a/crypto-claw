@@ -2,6 +2,7 @@ import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core';
 import { ROLES_KEY } from './roles.decorator.js';
 import { AUDITED_KEY } from './audited-key.js';
+import { IDENTITIES_KEY } from './identities.decorator.js';
 
 const HTTP_METHOD_DECORATORS = ['get', 'post', 'put', 'patch', 'delete', 'all', 'head', 'options'] as const;
 
@@ -28,12 +29,18 @@ const NUMERIC_METHOD_TO_VERB: Record<number, string> = {
 };
 
 /**
- * Boot-time route walker (SPEC §4 #3, ADR-0019).
+ * Boot-time route walker (SPEC §4 #3, ADR-0019, ADR-0029).
  *
  * Runs on `onApplicationBootstrap` and walks every registered controller
  * method. Throws (process.exit 78) if:
  * - Any handler is missing @Roles(…) metadata.
  * - Any non-GET handler is missing @Audited() metadata.
+ *
+ * Shadow-mode warn (P7, PR-A):
+ * - Any handler missing @Identities(…) metadata emits a stderr warn line.
+ *   In enforce mode (PR-C) this becomes a hard exit(78).
+ *
+ * AUTHZ_SHADOW_MODE is read from process.env here (auth.module.ts exception).
  *
  * This is the last line of defence — the ESLint rule catches issues at lint
  * time, this walker catches anything that slipped through to boot time.
@@ -43,6 +50,13 @@ const NUMERIC_METHOD_TO_VERB: Record<number, string> = {
  */
 @Injectable()
 export class RouteWalkerService implements OnApplicationBootstrap {
+  /**
+   * Shadow-mode flag — read once at construction from process.env.
+   * libs/auth/src/auth.module.ts is on the ESLint process.env exception list.
+   */
+  // eslint-disable-next-line no-restricted-syntax -- process.env allowed in libs/auth (exception list)
+  private readonly shadowMode: boolean = process.env['AUTHZ_SHADOW_MODE'] !== '0';
+
   constructor(
     private readonly discovery: DiscoveryService,
     private readonly metadataScanner: MetadataScanner,
@@ -92,6 +106,22 @@ export class RouteWalkerService implements OnApplicationBootstrap {
           ]);
           if (!audited) {
             violations.push(`[boot] route ${verb} ${path} on ${controllerName}#${methodName} missing @Audited()`);
+          }
+        }
+
+        // Check @Identities(...) — warn in shadow mode (P7 PR-A), fatal in enforce mode (PR-C).
+        const identities = this.reflector.getAllAndOverride<string[] | undefined>(IDENTITIES_KEY, [
+          handler as Parameters<Reflector['getAllAndOverride']>[1][0],
+          wrapper.metatype as Parameters<Reflector['getAllAndOverride']>[1][0],
+        ]);
+        if (!identities || identities.length === 0) {
+          const msg = `[boot] route ${verb} ${path} on ${controllerName}#${methodName} missing @Identities(...)`;
+          if (this.shadowMode) {
+            // PR-A: warn only; don't add to violations (no exit 78)
+            process.stderr.write(`[warn] ${msg}\n`);
+          } else {
+            // PR-C: treat as a hard violation
+            violations.push(msg);
           }
         }
       }

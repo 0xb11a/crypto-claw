@@ -8,10 +8,11 @@
  * DoD §F — security changes: route walker is the boot-time default-deny enforcement.
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { RouteWalkerService } from './route-walker.service.js';
 import { ROLES_KEY } from './roles.decorator.js';
 import { AUDITED_KEY } from './audited-key.js';
+import { IDENTITIES_KEY } from './identities.decorator.js';
 import type { DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core';
 
 // RequestMethod enum values (matches @nestjs/common RequestMethod)
@@ -36,6 +37,11 @@ function addRoles(handler: object, roles: string[]): void {
 /** Add @Audited metadata to a handler. */
 function addAudited(handler: object): void {
   Reflect.defineMetadata(AUDITED_KEY, true, handler);
+}
+
+/** Add @Identities metadata to a handler. */
+function addIdentities(handler: object, identities: string[]): void {
+  Reflect.defineMetadata(IDENTITIES_KEY, identities, handler);
 }
 
 /** Build a fake controller wrapper. */
@@ -82,18 +88,33 @@ describe('RouteWalkerService', () => {
 
   let stderrSpy: any;
 
+  let originalShadowMode: string | undefined;
+
+  beforeEach(() => {
+    // Default to shadow mode (1) for backward-compatible tests
+    originalShadowMode = process.env['AUTHZ_SHADOW_MODE'];
+    process.env['AUTHZ_SHADOW_MODE'] = '1';
+  });
+
   afterEach(() => {
     processExitSpy?.mockRestore();
     stderrSpy?.mockRestore();
+    if (originalShadowMode === undefined) {
+      delete process.env['AUTHZ_SHADOW_MODE'];
+    } else {
+      process.env['AUTHZ_SHADOW_MODE'] = originalShadowMode;
+    }
   });
 
   it('does NOT call process.exit when all handlers are properly decorated', () => {
     const getHandler = makeHandler(GET);
     addRoles(getHandler, ['agent', 'dashboard']);
+    addIdentities(getHandler, ['*']);
 
     const postHandler = makeHandler(POST);
     addRoles(postHandler, ['agent']);
     addAudited(postHandler);
+    addIdentities(postHandler, ['RESEARCH']);
 
     const ctrl = makeController('TestController', [
       { name: 'list', handler: getHandler },
@@ -115,6 +136,7 @@ describe('RouteWalkerService', () => {
   it('calls process.exit(78) when a GET handler is missing @Roles', () => {
     const getHandler = makeHandler(GET);
     // No @Roles added
+    addIdentities(getHandler, ['*']);
 
     const ctrl = makeController('MissingRolesController', [{ name: 'list', handler: getHandler }]);
 
@@ -133,6 +155,7 @@ describe('RouteWalkerService', () => {
     const postHandler = makeHandler(POST);
     addRoles(postHandler, ['agent']);
     // No @Audited added
+    addIdentities(postHandler, ['RESEARCH']);
 
     const ctrl = makeController('MissingAuditedController', [{ name: 'create', handler: postHandler }]);
 
@@ -151,6 +174,7 @@ describe('RouteWalkerService', () => {
     const getHandler = makeHandler(GET);
     Reflect.defineMetadata('path', '/test', getHandler);
     // Missing @Roles
+    addIdentities(getHandler, ['*']);
 
     const ctrl = makeController('BadController', [{ name: 'list', handler: getHandler }]);
 
@@ -174,6 +198,7 @@ describe('RouteWalkerService', () => {
     const deleteHandler = makeHandler(DELETE);
     addRoles(deleteHandler, ['agent']);
     // No @Audited
+    addIdentities(deleteHandler, ['RESEARCH']);
 
     const ctrl = makeController('NoAuditDeleteController', [{ name: 'remove', handler: deleteHandler }]);
 
@@ -189,6 +214,7 @@ describe('RouteWalkerService', () => {
   it('skips non-function prototype members', () => {
     const getHandler = makeHandler(GET);
     addRoles(getHandler, ['agent']);
+    addIdentities(getHandler, ['*']);
 
     const proto: Record<string, unknown> = { list: getHandler, notAFunction: 'string value' };
     const instance = Object.create(proto) as Record<string, unknown>;
@@ -207,6 +233,7 @@ describe('RouteWalkerService', () => {
   it('logs success message when all handlers are decorated', () => {
     const getHandler = makeHandler(GET);
     addRoles(getHandler, ['agent']);
+    addIdentities(getHandler, ['*']);
 
     const ctrl = makeController('GoodController', [{ name: 'list', handler: getHandler }]);
 
@@ -224,5 +251,54 @@ describe('RouteWalkerService', () => {
 
     expect(messages.join('')).toContain('[boot] route walker: inspected');
     expect(messages.join('')).toContain('all handlers decorated');
+  });
+
+  // ---------------------------------------------------------------------------
+  // P7 — @Identities missing warn tests (ADR-0029)
+  // ---------------------------------------------------------------------------
+
+  it('emits a [warn] line (not exit 78) when @Identities is missing in shadow mode', () => {
+    // Shadow mode (default in beforeEach)
+    const getHandler = makeHandler(GET);
+    addRoles(getHandler, ['agent', 'dashboard']);
+    // No @Identities
+
+    const ctrl = makeController('MissingIdentitiesController', [{ name: 'list', handler: getHandler }]);
+
+    processExitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: any) => {
+      throw new Error(`process.exit(${String(_code as number | undefined)})`);
+    });
+    const messages: string[] = [];
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((msg) => {
+      messages.push(String(msg));
+      return true;
+    });
+
+    const walker = makeWalker([ctrl]);
+    // Should NOT throw (shadow mode: warn only)
+    expect(() => walker.onApplicationBootstrap()).not.toThrow();
+    expect(processExitSpy).not.toHaveBeenCalled();
+    // Should emit a [warn] line
+    expect(messages.join('')).toContain('[warn]');
+    expect(messages.join('')).toContain('missing @Identities(...)');
+  });
+
+  it('exits 78 when @Identities is missing in enforce mode', () => {
+    process.env['AUTHZ_SHADOW_MODE'] = '0'; // override to enforce
+
+    const getHandler = makeHandler(GET);
+    addRoles(getHandler, ['agent', 'dashboard']);
+    // No @Identities
+
+    const ctrl = makeController('EnforceMissingIdentitiesController', [{ name: 'list', handler: getHandler }]);
+
+    processExitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: any) => {
+      throw new Error(`process.exit(${String(_code as number | undefined)})`);
+    });
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const walker = makeWalker([ctrl]);
+    expect(() => walker.onApplicationBootstrap()).toThrow('process.exit(78)');
+    expect(processExitSpy).toHaveBeenCalledWith(78);
   });
 });

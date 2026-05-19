@@ -182,3 +182,67 @@
 - **Action:** Some action
 - **Derived from:** 1 ground-truth row(s)
 - **Last updated:** 2026-05-18
+
+<!-- via promote-pattern.js attestation=risk derived_from=receipt:rcpt-abc-123 seen=3 ts=2026-05-19T09:36:35.209Z -->
+### Unit Test Pattern Sentinel Liquidity (seen: 3 times, attestation: risk)
+- **Description:** A test pattern description for unit testing
+- **Signal:** When price drops 10% in 1 hour
+- **Action:** Add risk weight 2x
+- **Derived from:** 1 ground-truth row(s)
+- **Last updated:** 2026-05-19
+
+<!-- via promote-pattern.js attestation=risk derived_from=receipt:rcpt-abc-123 seen=3 ts=2026-05-19T09:36:35.893Z -->
+### Valid Pattern (seen: 3 times, attestation: risk)
+- **Description:** Should succeed since cclaw exits 0
+- **Signal:** Some signal
+- **Action:** Some action
+- **Derived from:** 1 ground-truth row(s)
+- **Last updated:** 2026-05-19
+
+<!-- via promote-pattern.js attestation=risk derived_from=receipt:rcpt-abc-123 seen=3 ts=2026-05-19T09:37:12.689Z -->
+### Unit Test Pattern Sentinel Liquidity (seen: 3 times, attestation: risk)
+- **Description:** A test pattern description for unit testing
+- **Signal:** When price drops 10% in 1 hour
+- **Action:** Add risk weight 2x
+- **Derived from:** 1 ground-truth row(s)
+- **Last updated:** 2026-05-19
+
+<!-- via promote-pattern.js attestation=risk derived_from=receipt:rcpt-abc-123 seen=3 ts=2026-05-19T09:37:13.107Z -->
+### Valid Pattern (seen: 3 times, attestation: risk)
+- **Description:** Should succeed since cclaw exits 0
+- **Signal:** Some signal
+- **Action:** Some action
+- **Derived from:** 1 ground-truth row(s)
+- **Last updated:** 2026-05-19
+
+<!-- via promote-pattern.js attestation=risk derived_from=receipt:rcpt-abc-123 seen=3 ts=2026-05-19T09:37:51.451Z -->
+### Unit Test Pattern Sentinel Liquidity (seen: 3 times, attestation: risk)
+- **Description:** A test pattern description for unit testing
+- **Signal:** When price drops 10% in 1 hour
+- **Action:** Add risk weight 2x
+- **Derived from:** 1 ground-truth row(s)
+- **Last updated:** 2026-05-19
+
+<!-- via promote-pattern.js attestation=risk derived_from=receipt:rcpt-abc-123 seen=3 ts=2026-05-19T09:37:51.829Z -->
+### Valid Pattern (seen: 3 times, attestation: risk)
+- **Description:** Should succeed since cclaw exits 0
+- **Signal:** Some signal
+- **Action:** Some action
+- **Derived from:** 1 ground-truth row(s)
+- **Last updated:** 2026-05-19
+
+<!-- via promote-pattern.js attestation=risk derived_from=receipt:rcpt-abc-123 seen=3 ts=2026-05-19T09:43:59.963Z -->
+### Unit Test Pattern Sentinel Liquidity (seen: 3 times, attestation: risk)
+- **Description:** A test pattern description for unit testing
+- **Signal:** When price drops 10% in 1 hour
+- **Action:** Add risk weight 2x
+- **Derived from:** 1 ground-truth row(s)
+- **Last updated:** 2026-05-19
+
+<!-- via promote-pattern.js attestation=risk derived_from=receipt:rcpt-abc-123 seen=3 ts=2026-05-19T09:44:00.503Z -->
+### Valid Pattern (seen: 3 times, attestation: risk)
+- **Description:** Should succeed since cclaw exits 0
+- **Signal:** Some signal
+- **Action:** Some action
+- **Derived from:** 1 ground-truth row(s)
+- **Last updated:** 2026-05-19

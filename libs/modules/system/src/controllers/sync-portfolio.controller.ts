@@ -1,6 +1,6 @@
 import { Controller, Post, Body, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from '@cclaw/auth';
+import { Roles, Identities } from '@cclaw/auth';
 import { Audited } from '@cclaw/audit';
 import { SystemService } from '../system.service.js';
 import { SyncPortfolioDto } from '../dto/sync-portfolio.dto.js';
@@ -32,6 +32,7 @@ export class SyncPortfolioController {
 
   @Post()
   @Roles('agent')
+  @Identities('RESEARCH', 'EXECUTOR', 'LOOP')
   @Audited()
   @HttpCode(202)
   @ApiOperation({ summary: 'Enqueue a portfolio reconcile job (fire-and-forget)' })
